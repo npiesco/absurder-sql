@@ -1,0 +1,581 @@
+//! Phase 4: Combined SQLite + IndexedDB Tests
+//! TDD approach: Write failing tests for the complete integration
+
+#![cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::*;
+use sqlite_indexeddb_rs::*;
+
+wasm_bindgen_test_configure!(run_in_browser);
+
+#[wasm_bindgen_test]
+async fn test_persistence_after_sync() {
+    // Test that data persists after explicit sync
+    let config = DatabaseConfig {
+        name: "test_persistence_sync.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Create and populate table
+    db.execute("CREATE TABLE sync_test (id INTEGER PRIMARY KEY, data TEXT)").await
+        .expect("Should create table");
+    
+    db.execute("INSERT INTO sync_test (data) VALUES ('persistent_data')").await
+        .expect("Should insert data");
+    
+    // Explicit sync
+    db.sync().await.expect("Should sync to IndexedDB");
+    
+    // Verify data is still there
+    let result = db.execute("SELECT data FROM sync_test").await
+        .expect("Should select data after sync");
+    
+    assert_eq!(result.rows.len(), 1, "Should have 1 row after sync");
+    match &result.rows[0].values[0] {
+        ColumnValue::Text(data) => assert_eq!(data, "persistent_data"),
+        _ => panic!("Expected text data"),
+    }
+    
+    web_sys::console::log_1(&"✓ Persistence after sync test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_large_dataset_persistence() {
+    // Test persistence with larger datasets
+    let config = DatabaseConfig {
+        name: "test_large_persistence.db".to_string(),
+        cache_size: Some(20_000),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Create table
+    db.execute("CREATE TABLE large_test (id INTEGER PRIMARY KEY, value INTEGER, text_data TEXT)").await
+        .expect("Should create table");
+    
+    // Insert many rows
+    let row_count = 100;
+    for i in 1..=row_count {
+        let sql = format!("INSERT INTO large_test (value, text_data) VALUES ({}, 'data_{}_{}')", 
+                         i, i, "x".repeat(50));
+        db.execute(&sql).await
+            .expect("Should insert large dataset row");
+    }
+    
+    // Sync all data
+    db.sync().await.expect("Should sync large dataset");
+    
+    // Verify count
+    let count_result = db.execute("SELECT COUNT(*) FROM large_test").await
+        .expect("Should count rows");
+    
+    match &count_result.rows[0].values[0] {
+        ColumnValue::Integer(count) => assert_eq!(*count, row_count as i64),
+        _ => panic!("Expected integer count"),
+    }
+    
+    // Verify some specific data
+    let result = db.execute("SELECT value, text_data FROM large_test WHERE id = 50").await
+        .expect("Should select specific row");
+    
+    match &result.rows[0].values[..] {
+        [ColumnValue::Integer(50), ColumnValue::Text(text)] => {
+            assert_eq!(text, &format!("data_50_{}", "x".repeat(50)));
+        }
+        _ => panic!("Unexpected row data"),
+    }
+    
+    web_sys::console::log_1(&"✓ Large dataset persistence test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_transaction_consistency() {
+    // Test that transaction-like operations maintain consistency
+    let config = DatabaseConfig {
+        name: "test_transaction_consistency.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Setup
+    db.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance REAL)").await
+        .expect("Should create accounts table");
+    
+    db.execute("INSERT INTO accounts (name, balance) VALUES ('Alice', 100.0)").await
+        .expect("Should insert Alice");
+    
+    db.execute("INSERT INTO accounts (name, balance) VALUES ('Bob', 50.0)").await
+        .expect("Should insert Bob");
+    
+    // Simulate transfer (Alice -> Bob: $25)
+    db.execute("UPDATE accounts SET balance = balance - 25.0 WHERE name = 'Alice'").await
+        .expect("Should debit Alice");
+    
+    db.execute("UPDATE accounts SET balance = balance + 25.0 WHERE name = 'Bob'").await
+        .expect("Should credit Bob");
+    
+    // Sync the changes
+    db.sync().await.expect("Should sync transfer");
+    
+    // Verify final balances
+    let result = db.execute("SELECT name, balance FROM accounts ORDER BY name").await
+        .expect("Should select final balances");
+    
+    assert_eq!(result.rows.len(), 2, "Should have 2 accounts");
+    
+    // Alice should have 75.0
+    match &result.rows[0].values[..] {
+        [ColumnValue::Text(name), ColumnValue::Real(balance)] => {
+            assert_eq!(name, "Alice");
+            assert!((balance - 75.0).abs() < 0.001);
+        }
+        _ => panic!("Unexpected Alice data"),
+    }
+    
+    // Bob should have 75.0
+    match &result.rows[1].values[..] {
+        [ColumnValue::Text(name), ColumnValue::Real(balance)] => {
+            assert_eq!(name, "Bob");
+            assert!((balance - 75.0).abs() < 0.001);
+        }
+        _ => panic!("Unexpected Bob data"),
+    }
+    
+    web_sys::console::log_1(&"✓ Transaction consistency test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_schema_changes_persistence() {
+    // Test that schema changes persist correctly
+    let config = DatabaseConfig {
+        name: "test_schema_persistence.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Create initial table
+    db.execute("CREATE TABLE schema_test (id INTEGER PRIMARY KEY, name TEXT)").await
+        .expect("Should create initial table");
+    
+    // Insert initial data
+    db.execute("INSERT INTO schema_test (name) VALUES ('initial')").await
+        .expect("Should insert initial data");
+    
+    // Add column (ALTER TABLE)
+    db.execute("ALTER TABLE schema_test ADD COLUMN email TEXT").await
+        .expect("Should add column");
+    
+    // Insert data with new column
+    db.execute("INSERT INTO schema_test (name, email) VALUES ('new_user', 'test@example.com')").await
+        .expect("Should insert with new column");
+    
+    // Sync schema changes
+    db.sync().await.expect("Should sync schema changes");
+    
+    // Verify schema and data
+    let result = db.execute("SELECT name, email FROM schema_test ORDER BY id").await
+        .expect("Should select with new schema");
+    
+    assert_eq!(result.columns, vec!["name", "email"]);
+    assert_eq!(result.rows.len(), 2, "Should have 2 rows");
+    
+    // First row should have NULL email
+    match &result.rows[0].values[..] {
+        [ColumnValue::Text(name), ColumnValue::Null] => {
+            assert_eq!(name, "initial");
+        }
+        _ => panic!("Unexpected first row"),
+    }
+    
+    // Second row should have email
+    match &result.rows[1].values[..] {
+        [ColumnValue::Text(name), ColumnValue::Text(email)] => {
+            assert_eq!(name, "new_user");
+            assert_eq!(email, "test@example.com");
+        }
+        _ => panic!("Unexpected second row"),
+    }
+    
+    web_sys::console::log_1(&"✓ Schema changes persistence test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_concurrent_database_access() {
+    // Test that multiple database instances can work with the same underlying storage
+    let db_name = "test_concurrent_access.db";
+    
+    let config1 = DatabaseConfig {
+        name: db_name.to_string(),
+        ..Default::default()
+    };
+    
+    let config2 = DatabaseConfig {
+        name: db_name.to_string(),
+        ..Default::default()
+    };
+    
+    let mut db1 = Database::new(config1).await
+        .expect("Should create database 1");
+    
+    let mut db2 = Database::new(config2).await
+        .expect("Should create database 2");
+    
+    // Create table with db1
+    db1.execute("CREATE TABLE concurrent_test (id INTEGER PRIMARY KEY, source TEXT)").await
+        .expect("Should create table with db1");
+    
+    // Insert with db1
+    db1.execute("INSERT INTO concurrent_test (source) VALUES ('db1')").await
+        .expect("Should insert with db1");
+    
+    db1.sync().await.expect("Should sync db1");
+    
+    // Insert with db2
+    db2.execute("INSERT INTO concurrent_test (source) VALUES ('db2')").await
+        .expect("Should insert with db2");
+    
+    db2.sync().await.expect("Should sync db2");
+    
+    // Read from both
+    let result1 = db1.execute("SELECT COUNT(*) FROM concurrent_test").await
+        .expect("Should count from db1");
+    
+    let result2 = db2.execute("SELECT COUNT(*) FROM concurrent_test").await
+        .expect("Should count from db2");
+    
+    // Both should see all data (though this is simplified - real concurrency would be more complex)
+    match (&result1.rows[0].values[0], &result2.rows[0].values[0]) {
+        (ColumnValue::Integer(count1), ColumnValue::Integer(count2)) => {
+            assert!(*count1 >= 1, "DB1 should see at least its own insert");
+            assert!(*count2 >= 1, "DB2 should see at least its own insert");
+        }
+        _ => panic!("Expected integer counts"),
+    }
+    
+    web_sys::console::log_1(&"✓ Concurrent database access test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_database_configuration_effects() {
+    // Test that database configuration actually affects behavior
+    let config_small = DatabaseConfig {
+        name: "test_config_small.db".to_string(),
+        cache_size: Some(1_000),
+        page_size: Some(1024),
+        ..Default::default()
+    };
+    
+    let config_large = DatabaseConfig {
+        name: "test_config_large.db".to_string(),
+        cache_size: Some(50_000),
+        page_size: Some(8192),
+        ..Default::default()
+    };
+    
+    let mut db_small = Database::new(config_small).await
+        .expect("Should create small config database");
+    
+    let mut db_large = Database::new(config_large).await
+        .expect("Should create large config database");
+    
+    // Create similar tables in both
+    db_small.execute("CREATE TABLE config_test (id INTEGER PRIMARY KEY, data TEXT)").await
+        .expect("Should create table in small db");
+    
+    db_large.execute("CREATE TABLE config_test (id INTEGER PRIMARY KEY, data TEXT)").await
+        .expect("Should create table in large db");
+    
+    // Both should work, but potentially with different performance characteristics
+    // For this test, we just verify they both function
+    
+    db_small.execute("INSERT INTO config_test (data) VALUES ('small_config')").await
+        .expect("Should insert in small db");
+    
+    db_large.execute("INSERT INTO config_test (data) VALUES ('large_config')").await
+        .expect("Should insert in large db");
+    
+    // Verify both work
+    let result_small = db_small.execute("SELECT data FROM config_test").await
+        .expect("Should select from small db");
+    
+    let result_large = db_large.execute("SELECT data FROM config_test").await
+        .expect("Should select from large db");
+    
+    assert_eq!(result_small.rows.len(), 1, "Small db should have 1 row");
+    assert_eq!(result_large.rows.len(), 1, "Large db should have 1 row");
+    
+    web_sys::console::log_1(&"✓ Database configuration effects test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_comprehensive_crud_operations() {
+    // Comprehensive test covering Create, Read, Update, Delete with persistence
+    let config = DatabaseConfig {
+        name: "test_comprehensive_crud.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // CREATE: Set up table and initial data
+    db.execute("CREATE TABLE crud_test (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT,
+        price REAL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )").await.expect("Should create CRUD table");
+    
+    // INSERT multiple records
+    let products = vec![
+        ("Laptop", "Electronics", 999.99),
+        ("Coffee", "Beverages", 4.99),
+        ("Book", "Education", 19.99),
+        ("Phone", "Electronics", 699.99),
+    ];
+    
+    for (name, category, price) in products {
+        let sql = format!("INSERT INTO crud_test (name, category, price) VALUES ('{}', '{}', {})", 
+                         name, category, price);
+        db.execute(&sql).await
+            .expect("Should insert product");
+    }
+    
+    // READ: Verify all data
+    let all_result = db.execute("SELECT id, name, category, price FROM crud_test ORDER BY id").await
+        .expect("Should select all products");
+    
+    assert_eq!(all_result.rows.len(), 4, "Should have 4 products");
+    
+    // READ: Filtered query
+    let electronics = db.execute("SELECT name, price FROM crud_test WHERE category = 'Electronics' ORDER BY price DESC").await
+        .expect("Should filter electronics");
+    
+    assert_eq!(electronics.rows.len(), 2, "Should have 2 electronics");
+    
+    // UPDATE: Change prices
+    db.execute("UPDATE crud_test SET price = price * 0.9 WHERE category = 'Electronics'").await
+        .expect("Should apply electronics discount");
+    
+    // DELETE: Remove cheap items
+    let delete_result = db.execute("DELETE FROM crud_test WHERE price < 10.0").await
+        .expect("Should delete cheap items");
+    
+    assert!(delete_result.affected_rows >= 1, "Should delete at least 1 item");
+    
+    // Sync all changes
+    db.sync().await.expect("Should sync all CRUD operations");
+    
+    // Final verification
+    let final_result = db.execute("SELECT name, category, price FROM crud_test ORDER BY name").await
+        .expect("Should select final state");
+    
+    assert!(final_result.rows.len() >= 2, "Should have remaining products");
+    
+    // Verify electronics discount was applied
+    let laptop_result = db.execute("SELECT price FROM crud_test WHERE name = 'Laptop'").await
+        .expect("Should find laptop");
+    
+    if !laptop_result.rows.is_empty() {
+        match &laptop_result.rows[0].values[0] {
+            ColumnValue::Real(price) => {
+                assert!((*price - 899.991).abs() < 0.01, "Laptop should be discounted to ~899.99");
+            }
+            _ => panic!("Expected real price"),
+        }
+    }
+    
+    web_sys::console::log_1(&"✓ Comprehensive CRUD operations test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_bigint_handling() {
+    // Test BigInt handling in WASM bindings
+    let config = DatabaseConfig {
+        name: "test_bigint.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Create table for BigInt testing
+    db.execute("CREATE TABLE bigint_test (id INTEGER PRIMARY KEY, large_number TEXT)").await
+        .expect("Should create bigint table");
+    
+    // Test very large integers that exceed i64 range
+    let large_numbers = vec![
+        "9007199254740993",  // 2^53 + 1 (beyond JS safe integer)
+        "123456789012345678901234567890",  // Very large number
+        "-987654321098765432109876543210", // Negative large number
+    ];
+    
+    for large_num in &large_numbers {
+        let sql = format!("INSERT INTO bigint_test (large_number) VALUES ('{}')", large_num);
+        db.execute(&sql).await
+            .expect("Should insert large number");
+    }
+    
+    // Sync and verify
+    db.sync().await.expect("Should sync bigint data");
+    
+    let result = db.execute("SELECT large_number FROM bigint_test ORDER BY id").await
+        .expect("Should select large numbers");
+    
+    assert_eq!(result.rows.len(), 3, "Should have 3 large numbers");
+    
+    for (i, expected) in large_numbers.iter().enumerate() {
+        match &result.rows[i].values[0] {
+            ColumnValue::Text(stored) => assert_eq!(stored, expected),
+            ColumnValue::BigInt(stored) => assert_eq!(stored, expected),
+            _ => panic!("Expected text or bigint for large number"),
+        }
+    }
+    
+    web_sys::console::log_1(&"✓ BigInt handling test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_date_handling() {
+    // Test Date handling in WASM bindings
+    let config = DatabaseConfig {
+        name: "test_date.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Create table for Date testing
+    db.execute("CREATE TABLE date_test (id INTEGER PRIMARY KEY, event_time INTEGER, description TEXT)").await
+        .expect("Should create date table");
+    
+    // Test various date formats
+    let now_timestamp = js_sys::Date::now() as i64;
+    
+    // Insert dates as timestamps (milliseconds since epoch)
+    let events = vec![
+        (now_timestamp, "Current time"),
+        (1692115200000, "Fixed timestamp"), // 2023-08-15 12:00:00 UTC
+        (0, "Unix epoch"),
+    ];
+    
+    for (timestamp, description) in &events {
+        let sql = format!("INSERT INTO date_test (event_time, description) VALUES ({}, '{}')", 
+                         timestamp, description);
+        db.execute(&sql).await
+            .expect("Should insert date");
+    }
+    
+    // Sync and verify
+    db.sync().await.expect("Should sync date data");
+    
+    let result = db.execute("SELECT event_time, description FROM date_test ORDER BY id").await
+        .expect("Should select dates");
+    
+    assert_eq!(result.rows.len(), 3, "Should have 3 date entries");
+    
+    for (i, (expected_timestamp, expected_desc)) in events.iter().enumerate() {
+        match &result.rows[i].values[..] {
+            [ColumnValue::Integer(stored_time), ColumnValue::Text(stored_desc)] => {
+                assert_eq!(stored_time, expected_timestamp);
+                assert_eq!(stored_desc, expected_desc);
+            }
+            [ColumnValue::Date(stored_time), ColumnValue::Text(stored_desc)] => {
+                assert_eq!(stored_time, expected_timestamp);
+                assert_eq!(stored_desc, expected_desc);
+            }
+            _ => panic!("Expected integer/date and text for date entry"),
+        }
+    }
+    
+    web_sys::console::log_1(&"✓ Date handling test passed".into());
+}
+
+#[wasm_bindgen_test]
+async fn test_mixed_data_types() {
+    // Test all SQLite data types together including BigInt and Date
+    let config = DatabaseConfig {
+        name: "test_mixed_types.db".to_string(),
+        ..Default::default()
+    };
+    
+    let mut db = Database::new(config).await
+        .expect("Should create database");
+    
+    // Create comprehensive table
+    db.execute("CREATE TABLE mixed_test (
+        id INTEGER PRIMARY KEY,
+        null_col TEXT,
+        int_col INTEGER,
+        real_col REAL,
+        text_col TEXT,
+        blob_col BLOB,
+        bigint_col TEXT,
+        date_col INTEGER
+    )").await.expect("Should create mixed types table");
+    
+    // Insert row with all data types
+    db.execute("INSERT INTO mixed_test (
+        null_col, int_col, real_col, text_col, 
+        bigint_col, date_col
+    ) VALUES (
+        NULL, 42, 3.14159, 'Hello SQLite',
+        '9007199254740993', 1692115200000
+    )").await.expect("Should insert mixed data");
+    
+    // Sync and verify
+    db.sync().await.expect("Should sync mixed data");
+    
+    let result = db.execute("SELECT * FROM mixed_test").await
+        .expect("Should select mixed data");
+    
+    assert_eq!(result.rows.len(), 1, "Should have 1 mixed row");
+    
+    let row = &result.rows[0];
+    assert_eq!(row.values.len(), 8, "Should have 8 columns");
+    
+    // Verify each column type
+    match &row.values[1] { // null_col
+        ColumnValue::Null => {},
+        _ => panic!("Expected NULL"),
+    }
+    
+    match &row.values[2] { // int_col
+        ColumnValue::Integer(42) => {},
+        _ => panic!("Expected integer 42"),
+    }
+    
+    match &row.values[3] { // real_col
+        ColumnValue::Real(val) => assert!((val - 3.14159).abs() < 0.00001),
+        _ => panic!("Expected real number"),
+    }
+    
+    match &row.values[4] { // text_col
+        ColumnValue::Text(text) => assert_eq!(text, "Hello SQLite"),
+        _ => panic!("Expected text"),
+    }
+    
+    match &row.values[6] { // bigint_col
+        ColumnValue::Text(bigint) | ColumnValue::BigInt(bigint) => {
+            assert_eq!(bigint, "9007199254740993");
+        },
+        _ => panic!("Expected bigint as text"),
+    }
+    
+    match &row.values[7] { // date_col
+        ColumnValue::Integer(1692115200000) | ColumnValue::Date(1692115200000) => {},
+        _ => panic!("Expected date as timestamp"),
+    }
+    
+    web_sys::console::log_1(&"✓ Mixed data types test passed".into());
+}

@@ -1,0 +1,75 @@
+[package]
+name = "sqlite-indexeddb-rs"
+version = "0.1.0"
+authors = ["SQLite IndexedDB Team"]
+description = "SQLite with IndexedDB persistence for web browsers"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sqlite-indexeddb/sqlite-indexeddb-rs"
+edition = "2024"
+rust-version = "1.85.0"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core WebAssembly bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Document",
+    "Storage",
+    "IdbFactory",
+    "IdbDatabase",
+    "IdbObjectStore",
+    "IdbTransaction",
+    "IdbRequest",
+    "IdbCursorWithValue",
+    "IdbKeyRange",
+    "DomException",
+    "Event",
+    "EventTarget",
+] }
+
+# TypeScript integration
+tsify = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+# IndexedDB async API
+indexed_db_futures = "0.5"
+
+# Async runtime and utilities
+futures = "0.3"
+
+# Error handling and logging
+thiserror = "1.0"
+console_error_panic_hook = { version = "0.1", optional = true }
+wee_alloc = { version = "0.4", optional = true }
+log = "0.4"
+console_log = { version = "0.2", optional = true }
+
+# Date handling
+time = { version = "0.3", features = ["formatting", "parsing"] }
+
+[dependencies.getrandom]
+version = "0.2"
+features = ["js"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+
+[features]
+default = ["console_error_panic_hook"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { version = "0.30", features = ["bundled", "vtab"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
