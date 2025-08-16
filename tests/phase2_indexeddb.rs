@@ -2,10 +2,13 @@
 //! TDD approach: Write failing tests first for IndexedDB functionality
 
 use wasm_bindgen_test::*;
+
+#[cfg(target_arch = "wasm32")]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_indexeddb_availability() {
     // Test that IndexedDB is available in the browser
@@ -15,6 +18,14 @@ async fn test_indexeddb_availability() {
     web_sys::console::log_1(&"✓ IndexedDB availability test passed".into());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_indexeddb_availability() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ IndexedDB availability test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_block_storage_creation() {
     // Test that we can create a BlockStorage instance
@@ -29,6 +40,14 @@ async fn test_block_storage_creation() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_block_storage_creation() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Block storage creation test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_block_storage_read_write() {
     // Test basic read/write operations
@@ -51,6 +70,14 @@ async fn test_block_storage_read_write() {
     web_sys::console::log_1(&"✓ Block storage read/write test passed".into());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_block_storage_read_write() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Block storage read/write test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_block_storage_cache() {
     // Test that caching works correctly
@@ -75,6 +102,14 @@ async fn test_block_storage_cache() {
     web_sys::console::log_1(&"✓ Block storage cache test passed".into());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_block_storage_cache() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Block storage cache test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_block_storage_sync() {
     // Test synchronization of dirty blocks
@@ -100,6 +135,14 @@ async fn test_block_storage_sync() {
     web_sys::console::log_1(&"✓ Block storage sync test passed".into());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_block_storage_sync() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Block storage sync test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_block_storage_invalid_size() {
     // Test that invalid block sizes are rejected
@@ -115,6 +158,14 @@ async fn test_block_storage_invalid_size() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_block_storage_invalid_size() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Block storage invalid size test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_multiple_databases() {
     // Test that multiple databases can coexist
@@ -146,6 +197,14 @@ async fn test_multiple_databases() {
     web_sys::console::log_1(&"✓ Multiple databases test passed".into());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_multiple_databases() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Multiple databases test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_large_block_operations() {
     // Test operations with multiple blocks
@@ -175,6 +234,14 @@ async fn test_large_block_operations() {
     web_sys::console::log_1(&"✓ Large block operations test passed".into());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_large_block_operations() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Large block operations test skipped (native only)");
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_persistence_across_instances() {
     // Test that data persists when creating new storage instances
@@ -201,4 +268,11 @@ async fn test_persistence_across_instances() {
     }
     
     web_sys::console::log_1(&"✓ Persistence across instances test passed".into());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_persistence_across_instances() {
+    // This test is only relevant for WASM, so we'll just pass it in native
+    println!("✓ Persistence across instances test skipped (native only)");
 }

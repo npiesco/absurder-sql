@@ -68,7 +68,7 @@ impl ColumnValue {
                 // Check if the text might be a date in ISO format
                 if s.len() >= 20 && s.starts_with("20") && s.contains('T') && s.contains('Z') {
                     if let Ok(dt) = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339) {
-                        return ColumnValue::Date(dt.unix_timestamp_nanos() / 1_000_000);
+                        return ColumnValue::Date((dt.unix_timestamp_nanos() / 1_000_000) as i64);
                     }
                 }
                 // Check if it might be a BigInt (large number as string)
@@ -91,7 +91,7 @@ impl ColumnValue {
             ColumnValue::Blob(b) => rusqlite::types::Value::Blob(b.clone()),
             ColumnValue::Date(ts) => {
                 // Convert timestamp to ISO string
-                let dt = time::OffsetDateTime::from_unix_timestamp_nanos(*ts * 1_000_000)
+                let dt = time::OffsetDateTime::from_unix_timestamp_nanos((*ts as i128) * 1_000_000)
                     .unwrap_or_else(|_| time::OffsetDateTime::UNIX_EPOCH);
                 let formatted = dt.format(&time::format_description::well_known::Rfc3339)
                     .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
