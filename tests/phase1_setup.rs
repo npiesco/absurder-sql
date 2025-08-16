@@ -1,6 +1,8 @@
 //! Phase 1: Project Setup & Basic Compilation Tests
 //! TDD approach: Write failing tests first, then implement to make them pass
 
+#![allow(unused_imports)]
+
 use wasm_bindgen_test::*;
 use sqlite_indexeddb_rs::*;
 

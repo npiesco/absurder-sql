@@ -1,6 +1,15 @@
 use std::collections::HashMap;
 use crate::types::DatabaseError;
 
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+
+// Global storage for WASM to maintain data across instances
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static GLOBAL_STORAGE: RefCell<HashMap<String, HashMap<u64, Vec<u8>>>> = RefCell::new(HashMap::new());
+}
+
 pub const BLOCK_SIZE: usize = 4096;
 #[allow(dead_code)]
 const STORE_NAME: &str = "sqlite_blocks";
@@ -36,15 +45,39 @@ impl BlockStorage {
             return Ok(data.clone());
         }
 
-        // For TDD, return empty block - will implement IndexedDB later
-        let data = vec![0; BLOCK_SIZE];
-        log::debug!("Block {} not found, returning empty block (sync)", block_id);
+        // For WASM, check global storage for persistence across instances
+        #[cfg(target_arch = "wasm32")]
+        {
+            let data = GLOBAL_STORAGE.with(|storage| {
+                let storage_map = storage.borrow();
+                if let Some(db_storage) = storage_map.get(&self.db_name) {
+                    if let Some(data) = db_storage.get(&block_id) {
+                        log::debug!("Block {} found in global storage (sync)", block_id);
+                        return data.clone();
+                    }
+                }
+                // Return empty block if not found
+                vec![0; BLOCK_SIZE]
+            });
+            
+            // Cache for future reads
+            self.cache.insert(block_id, data.clone());
+            log::debug!("Block {} cached from global storage (sync)", block_id);
+            return Ok(data);
+        }
 
-        // Cache for future reads
-        self.cache.insert(block_id, data.clone());
-        log::debug!("Block {} cached (sync)", block_id);
-        
-        Ok(data)
+        // For native, return empty block - will implement file-based storage later
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let data = vec![0; BLOCK_SIZE];
+            log::debug!("Block {} not found, returning empty block (sync)", block_id);
+
+            // Cache for future reads
+            self.cache.insert(block_id, data.clone());
+            log::debug!("Block {} cached (sync)", block_id);
+            
+            Ok(data)
+        }
     }
 
     pub async fn read_block(&mut self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
@@ -84,9 +117,24 @@ impl BlockStorage {
         }
 
         log::info!("Syncing {} dirty blocks", self.dirty_blocks.len());
+        
+        // For WASM, persist dirty blocks to global storage
+        #[cfg(target_arch = "wasm32")]
+        {
+            GLOBAL_STORAGE.with(|storage| {
+                let mut storage_map = storage.borrow_mut();
+                let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
+                
+                for (block_id, data) in &self.dirty_blocks {
+                    db_storage.insert(*block_id, data.clone());
+                    log::debug!("Persisted block {} to global storage", block_id);
+                }
+            });
+        }
+        
         let dirty_count = self.dirty_blocks.len();
         self.dirty_blocks.clear();
-        log::info!("Successfully synced {} blocks (in-memory only for now)", dirty_count);
+        log::info!("Successfully synced {} blocks to global storage", dirty_count);
         Ok(())
     }
 

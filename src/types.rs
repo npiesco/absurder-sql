@@ -38,7 +38,7 @@ pub struct QueryResult {
     pub execution_time_ms: f64,
 }
 
-#[derive(Tsify, Serialize, Deserialize, Debug)]
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Row {
     pub values: Vec<ColumnValue>,

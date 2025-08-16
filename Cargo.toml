@@ -47,6 +47,12 @@ indexed_db_futures = "0.5"
 # Async runtime and utilities
 futures = "0.3"
 
+# SQL parsing
+sqlparser = "0.53"
+
+# SQLite WASM - use sqlite-wasm-rs for proper WASM support
+sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["precompiled"] }
+
 # Error handling and logging
 thiserror = "1.0"
 console_error_panic_hook = { version = "0.1", optional = true }
