@@ -16,6 +16,7 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 - [x] Implemented AutoSync with `SyncPolicy` (interval, max_dirty, max_dirty_bytes, debounce). Native path now uses Tokio-based interval + debounce tasks when a runtime is present (falls back to std::thread otherwise), with clean shutdown via `drain_and_shutdown()` and `Drop`.
 - [x] Implemented granular observability metrics in `BlockStorage`: total `sync_count`, separate `timer_sync_count` and `debounce_sync_count`, and `last_sync_duration_ms` with getters. Added tests covering these metrics. All passing.
 - [x] Added Tokio as a native dependency and hardened interval test determinism. Wrote Tokio-based tests for: interval time advance flush; threshold immediate flush without debounce; debounce-after-idle flush. All passing.
+- [x] Added `verify_after_write` pre-write checksum verification in `write_block_sync()` with targeted tests (success + mismatch) now passing.
 - [x] Full native `cargo test` suite green.
 
 ## Next Steps (Actionable TDD Roadmap)

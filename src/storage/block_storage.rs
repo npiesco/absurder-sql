@@ -17,6 +17,25 @@ thread_local! {
     static GLOBAL_ALLOCATION_MAP: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
 }
 
+// Persistent metadata storage for WASM builds
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy, Debug)]
+enum ChecksumAlgorithm { FastHash }
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Debug)]
+struct BlockMetadataPersist {
+    checksum: u64,
+    last_modified_ms: u64,
+    version: u32,
+    algo: ChecksumAlgorithm,
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static GLOBAL_METADATA: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
+}
+
 #[derive(Clone, Debug)]
 pub struct SyncPolicy {
     pub interval_ms: Option<u64>,
@@ -130,6 +149,29 @@ impl BlockStorage {
             }
         };
 
+        // Initialize checksum map, restoring persisted metadata in WASM builds
+        #[cfg(target_arch = "wasm32")]
+        let checksums_init: HashMap<u64, u64> = {
+            let mut map = HashMap::new();
+            GLOBAL_METADATA.with(|meta| {
+                let meta_map = meta.borrow();
+                if let Some(db_meta) = meta_map.get(db_name) {
+                    for (bid, m) in db_meta.iter() {
+                        map.insert(*bid, m.checksum);
+                    }
+                    log::info!(
+                        "Restored {} checksum entries for database: {}",
+                        db_meta.len(),
+                        db_name
+                    );
+                }
+            });
+            map
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let checksums_init: HashMap<u64, u64> = HashMap::new();
+
         Ok(Self {
             cache: HashMap::new(),
             dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
@@ -137,7 +179,7 @@ impl BlockStorage {
             next_block_id,
             capacity: DEFAULT_CACHE_CAPACITY,
             lru_order: VecDeque::new(),
-            checksums: HashMap::new(),
+            checksums: checksums_init,
             db_name: db_name.to_string(),
             auto_sync_interval: None,
             last_auto_sync: Instant::now(),
@@ -350,6 +392,57 @@ impl BlockStorage {
                 "INVALID_BLOCK_SIZE", 
                 &format!("Block size must be {} bytes, got {}", BLOCK_SIZE, data.len())
             ));
+        }
+
+        // If requested by policy, verify existing data integrity BEFORE accepting the new write.
+        // This prevents overwriting a block whose prior contents no longer match the stored checksum.
+        let verify_before = self
+            .policy
+            .as_ref()
+            .map(|p| p.verify_after_write)
+            .unwrap_or(false);
+        if verify_before {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(bytes) = self.cache.get(&block_id).cloned() {
+                    if let Err(e) = self.verify_against_stored_checksum(block_id, &bytes) {
+                        log::error!(
+                            "verify_after_write: pre-write checksum verification failed for block {}: {}",
+                            block_id, e.message
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(bytes) = self.cache.get(&block_id).cloned() {
+                    if let Err(e) = self.verify_against_stored_checksum(block_id, &bytes) {
+                        log::error!(
+                            "verify_after_write: pre-write checksum verification failed for block {}: {}",
+                            block_id, e.message
+                        );
+                        return Err(e);
+                    }
+                } else {
+                    let maybe_bytes = GLOBAL_STORAGE.with(|storage| {
+                        let storage_map = storage.borrow();
+                        storage_map
+                            .get(&self.db_name)
+                            .and_then(|db| db.get(&block_id))
+                            .cloned()
+                    });
+                    if let Some(bytes) = maybe_bytes {
+                        if let Err(e) = self.verify_against_stored_checksum(block_id, &bytes) {
+                            log::error!(
+                                "verify_after_write: pre-write checksum verification failed for block {}: {}",
+                                block_id, e.message
+                            );
+                            return Err(e);
+                        }
+                    }
+                }
+            }
         }
 
         // Update cache and mark as dirty
@@ -793,12 +886,37 @@ impl BlockStorage {
                 let dirty = self.dirty_blocks.lock().unwrap();
                 dirty.iter().map(|(k,v)| (*k, v.clone())).collect()
             };
+            let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             GLOBAL_STORAGE.with(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in to_persist {
                     db_storage.insert(block_id, data);
                     log::debug!("Persisted block {} to global storage", block_id);
+                }
+            });
+            // Persist corresponding metadata entries
+            GLOBAL_METADATA.with(|meta| {
+                let mut meta_map = meta.borrow_mut();
+                let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
+                for block_id in ids {
+                    if let Some(&checksum) = self.checksums.get(&block_id) {
+                        let version = db_meta
+                            .get(&block_id)
+                            .map(|m| m.version)
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                        db_meta.insert(
+                            block_id,
+                            BlockMetadataPersist {
+                                checksum,
+                                last_modified_ms: Self::now_millis(),
+                                version,
+                                algo: ChecksumAlgorithm::FastHash,
+                            },
+                        );
+                        log::debug!("Persisted metadata for block {}", block_id);
+                    }
                 }
             });
         }
@@ -955,6 +1073,14 @@ impl BlockStorage {
                 let mut allocation_map = allocation_map.borrow_mut();
                 if let Some(db_allocations) = allocation_map.get_mut(&self.db_name) {
                     db_allocations.remove(&block_id);
+                }
+            });
+
+            // Remove persisted metadata entry as well
+            GLOBAL_METADATA.with(|meta| {
+                let mut meta_map = meta.borrow_mut();
+                if let Some(db_meta) = meta_map.get_mut(&self.db_name) {
+                    db_meta.remove(&block_id);
                 }
             });
         }

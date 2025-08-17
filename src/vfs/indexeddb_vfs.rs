@@ -1,4 +1,4 @@
-use crate::storage::{BlockStorage, BLOCK_SIZE};
+use crate::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 use crate::types::DatabaseError;
 // use rusqlite::ffi; // Will be used when VFS is fully implemented
 // use std::collections::HashMap; // Will be used when file handles are implemented
@@ -63,6 +63,91 @@ impl IndexedDBVFS {
         // Perform synchronous sync to avoid holding RefCell borrow across await
         let mut storage = self.storage.borrow_mut();
         storage.sync_now()
+    }
+
+    /// Enable periodic auto-sync with a simple interval (ms)
+    pub fn enable_auto_sync(&self, interval_ms: u64) {
+        let mut storage = self.storage.borrow_mut();
+        storage.enable_auto_sync(interval_ms);
+    }
+
+    /// Enable auto-sync with a detailed policy
+    pub fn enable_auto_sync_with_policy(&self, policy: SyncPolicy) {
+        let mut storage = self.storage.borrow_mut();
+        storage.enable_auto_sync_with_policy(policy);
+    }
+
+    /// Disable any active auto-sync
+    pub fn disable_auto_sync(&self) {
+        let mut storage = self.storage.borrow_mut();
+        storage.disable_auto_sync();
+    }
+
+    /// Drain pending dirty blocks and stop background workers
+    pub fn drain_and_shutdown(&self) {
+        let mut storage = self.storage.borrow_mut();
+        storage.drain_and_shutdown();
+    }
+
+    /// Batch read helper
+    pub fn read_blocks_sync(&self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+        let mut storage = self.storage.borrow_mut();
+        storage.read_blocks_sync(block_ids)
+    }
+
+    /// Batch write helper
+    pub fn write_blocks_sync(&self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
+        let mut storage = self.storage.borrow_mut();
+        storage.write_blocks_sync(items)
+    }
+
+    /// Inspect current dirty block count
+    pub fn get_dirty_count(&self) -> usize {
+        let storage = self.storage.borrow();
+        storage.get_dirty_count()
+    }
+
+    /// Inspect current cache size
+    pub fn get_cache_size(&self) -> usize {
+        let storage = self.storage.borrow();
+        storage.get_cache_size()
+    }
+
+    /// Metrics: total syncs (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_sync_count(&self) -> u64 {
+        let storage = self.storage.borrow();
+        storage.get_sync_count()
+    }
+
+    /// Metrics: timer-based syncs (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_timer_sync_count(&self) -> u64 {
+        let storage = self.storage.borrow();
+        storage.get_timer_sync_count()
+    }
+
+    /// Metrics: debounce-based syncs (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_debounce_sync_count(&self) -> u64 {
+        let storage = self.storage.borrow();
+        storage.get_debounce_sync_count()
+    }
+
+    /// Metrics: last sync duration in ms (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_last_sync_duration_ms(&self) -> u64 {
+        let storage = self.storage.borrow();
+        storage.get_last_sync_duration_ms()
+    }
+}
+
+impl Drop for IndexedDBVFS {
+    fn drop(&mut self) {
+        // Avoid panicking in Drop if there's an outstanding borrow
+        if let Ok(mut storage) = self.storage.try_borrow_mut() {
+            storage.drain_and_shutdown();
+        }
     }
 }
 
