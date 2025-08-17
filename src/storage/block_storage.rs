@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::Hash;
 use crate::types::DatabaseError;
 
 #[cfg(target_arch = "wasm32")]
@@ -12,6 +13,7 @@ thread_local! {
 }
 
 pub const BLOCK_SIZE: usize = 4096;
+const DEFAULT_CACHE_CAPACITY: usize = 128;
 #[allow(dead_code)]
 const STORE_NAME: &str = "sqlite_blocks";
 #[allow(dead_code)]
@@ -22,6 +24,10 @@ pub struct BlockStorage {
     dirty_blocks: HashMap<u64, Vec<u8>>,
     allocated_blocks: HashSet<u64>,
     next_block_id: u64,
+    capacity: usize,
+    lru_order: VecDeque<u64>,
+    // Simple integrity metadata: checksum per block (computed on write)
+    checksums: HashMap<u64, u64>,
     #[allow(dead_code)]
     db_name: String,
 }
@@ -49,6 +55,7 @@ impl BlockStorage {
                             db_name
                         );
                     }
+
                 });
 
                 (allocated_blocks, next_block_id)
@@ -66,8 +73,63 @@ impl BlockStorage {
             dirty_blocks: HashMap::new(),
             allocated_blocks,
             next_block_id,
+            capacity: DEFAULT_CACHE_CAPACITY,
+            lru_order: VecDeque::new(),
+            checksums: HashMap::new(),
             db_name: db_name.to_string(),
         })
+    }
+
+    pub async fn new_with_capacity(db_name: &str, capacity: usize) -> Result<Self, DatabaseError> {
+        let mut s = Self::new(db_name).await?;
+        s.capacity = capacity;
+        Ok(s)
+    }
+
+    fn touch_lru(&mut self, block_id: u64) {
+        // Remove any existing occurrence
+        if let Some(pos) = self.lru_order.iter().position(|&id| id == block_id) {
+            self.lru_order.remove(pos);
+        }
+        // Push as most-recent
+        self.lru_order.push_back(block_id);
+    }
+
+    fn evict_if_needed(&mut self) {
+        // Evict clean LRU blocks until within capacity. Never evict dirty blocks.
+        while self.cache.len() > self.capacity {
+            // Find the least-recent block that is NOT dirty
+            let victim_pos = self
+                .lru_order
+                .iter()
+                .position(|id| !self.dirty_blocks.contains_key(id));
+
+            match victim_pos {
+                Some(pos) => {
+                    let victim = self.lru_order.remove(pos).expect("valid pos");
+                    if self.cache.remove(&victim).is_some() {
+                        log::debug!("Evicted clean block {} from cache due to capacity", victim);
+                    }
+                }
+                None => {
+                    // All blocks are dirty; cannot evict. Allow temporary overflow.
+                    log::debug!(
+                        "Cache over capacity ({}>{}) but all blocks are dirty; skipping eviction",
+                        self.cache.len(),
+                        self.capacity
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
+    fn compute_checksum(data: &[u8]) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Synchronous block read for environments that require sync access (e.g., VFS callbacks)
@@ -75,9 +137,10 @@ impl BlockStorage {
         log::debug!("Reading block (sync): {}", block_id);
         
         // Check cache first
-        if let Some(data) = self.cache.get(&block_id) {
+        if let Some(data) = self.cache.get(&block_id).cloned() {
             log::debug!("Block {} found in cache (sync)", block_id);
-            return Ok(data.clone());
+            self.touch_lru(block_id);
+            return Ok(data);
         }
 
         // For WASM, check global storage for persistence across instances
@@ -98,6 +161,8 @@ impl BlockStorage {
             // Cache for future reads
             self.cache.insert(block_id, data.clone());
             log::debug!("Block {} cached from global storage (sync)", block_id);
+            self.touch_lru(block_id);
+            self.evict_if_needed();
             return Ok(data);
         }
 
@@ -110,6 +175,8 @@ impl BlockStorage {
             // Cache for future reads
             self.cache.insert(block_id, data.clone());
             log::debug!("Block {} cached (sync)", block_id);
+            self.touch_lru(block_id);
+            self.evict_if_needed();
             
             Ok(data)
         }
@@ -134,14 +201,52 @@ impl BlockStorage {
         // Update cache and mark as dirty
         self.cache.insert(block_id, data.clone());
         self.dirty_blocks.insert(block_id, data);
+        // Update checksum metadata on write
+        if let Some(bytes) = self.cache.get(&block_id) {
+            let csum = Self::compute_checksum(bytes);
+            self.checksums.insert(block_id, csum);
+        }
         
         log::debug!("Block {} marked as dirty (sync)", block_id);
+        self.touch_lru(block_id);
+        self.evict_if_needed();
         Ok(())
     }
 
     pub async fn write_block(&mut self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         // Delegate to synchronous implementation (immediately ready)
         self.write_block_sync(block_id, data)
+    }
+
+    /// Synchronous batch write of blocks
+    pub fn write_blocks_sync(&mut self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
+        for (block_id, data) in items {
+            self.write_block_sync(block_id, data)?;
+        }
+        Ok(())
+    }
+
+    /// Async batch write wrapper
+    pub async fn write_blocks(&mut self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
+        self.write_blocks_sync(items)
+    }
+
+    /// Synchronous batch read of blocks, preserving input order
+    pub fn read_blocks_sync(&mut self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+        let mut results = Vec::with_capacity(block_ids.len());
+        for &id in block_ids {
+            results.push(self.read_block_sync(id)?);
+        }
+        Ok(results)
+    }
+
+    /// Async batch read wrapper
+    pub async fn read_blocks(&mut self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+        self.read_blocks_sync(block_ids)
+    }
+
+    pub fn get_block_checksum(&self, block_id: u64) -> Option<u64> {
+        self.checksums.get(&block_id).copied()
     }
 
     /// Synchronous sync of dirty blocks (no async required for current TDD impl)
@@ -170,6 +275,8 @@ impl BlockStorage {
         let dirty_count = self.dirty_blocks.len();
         self.dirty_blocks.clear();
         log::info!("Successfully synced {} blocks to global storage", dirty_count);
+        // Now that everything is clean, enforce capacity again
+        self.evict_if_needed();
         Ok(())
     }
 
@@ -181,6 +288,7 @@ impl BlockStorage {
     pub fn clear_cache(&mut self) {
         log::debug!("Clearing cache ({} blocks)", self.cache.len());
         self.cache.clear();
+        self.lru_order.clear();
     }
 
     pub fn get_cache_size(&self) -> usize {
@@ -189,6 +297,10 @@ impl BlockStorage {
 
     pub fn get_dirty_count(&self) -> usize {
         self.dirty_blocks.len()
+    }
+
+    pub fn is_cached(&self, block_id: u64) -> bool {
+        self.cache.contains_key(&block_id)
     }
 
     /// Allocate a new block and return its ID
@@ -234,6 +346,7 @@ impl BlockStorage {
         // Clear from cache and dirty blocks
         self.cache.remove(&block_id);
         self.dirty_blocks.remove(&block_id);
+        self.checksums.remove(&block_id);
         
         // For WASM, remove from global storage
         #[cfg(target_arch = "wasm32")]

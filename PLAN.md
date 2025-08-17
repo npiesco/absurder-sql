@@ -6,9 +6,13 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 ## Current Status: Foundation Complete 
 - [x] Basic SQLite WASM integration working
 - [x] IndexedDB persistence layer functional  
-- [x] 59 Rust tests passing
+- [x] 62 Rust tests passing
 - [x] TypeScript bindings generated
 - [x] Browser demo operational
+
+## Recent Progress (2025-08-17)
+- [x] Implemented batch block read/write APIs in `BlockStorage` (`read_blocks`, `write_blocks`) with full LRU/dirty semantics and tests.
+- [x] Added basic block checksum metadata (computed on write, removed on deallocate) and tests; read-time verification TBD.
 
 ---
 
@@ -16,16 +20,16 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 
 ## 1.1 Block-Based Storage System (AbsurdSQL's Core Innovation)
 - [ ] **Design block-based storage architecture**
-  - [ ] Implement 4KB block size optimization
-  - [ ] Create block allocation and deallocation system
-  - [ ] Design block metadata tracking
-  - [ ] Implement block-level caching with LRU eviction
+  - [x] Implement 4KB block size optimization
+  - [x] Create block allocation and deallocation system
+  - [x] Design block metadata tracking
+  - [x] Implement block-level caching with LRU eviction
 
 - [ ] **Enhanced IndexedDB backend**
   - [ ] Replace file-based storage with block-based storage
   - [ ] Implement lazy loading of blocks
   - [ ] Add block compression for storage efficiency
-  - [ ] Create batch operations for multiple blocks
+  - [x] Create batch operations for multiple blocks
 
 - [ ] **Virtual File System (VFS) optimization**
   - [ ] Rewrite IndexedDBVFS for block-based operations
@@ -267,52 +271,34 @@ This plan will create a **superior alternative to AbsurdSQL** with better perfor
 
 **Phases 3-5** differentiate us with features AbsurdSQL doesn't have, making this the superior choice for modern web applications.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
----
-
 # Getting Started - First Implementation Steps
 
 Based on the current foundation and AbsurdSQL analysis, here are the **immediate next steps** to begin building the superior alternative:
 
 ## Step 1: Block Storage Architecture (Priority 1)
-- [ ] **Analyze current IndexedDBVFS implementation**
-  - [ ] Review `src/vfs/indexeddb_vfs.rs` structure
-  - [ ] Identify file-based storage patterns to replace
-  - [ ] Map current storage operations to block operations
+- [x] **Analyze current IndexedDBVFS implementation**
+  - [x] Review `src/vfs/indexeddb_vfs.rs` structure
+  - [x] Identify file-based storage patterns to replace
+  - [x] Map current storage operations to block operations
 
 - [ ] **Design block-based storage system**
-  - [ ] Define 4KB block size standard (matching SQLite page size)
+  - [x] Define 4KB block size standard (matching SQLite page size)
   - [ ] Create block metadata structure (block_id, size, checksum)
   - [ ] Design block allocation bitmap/free list
-  - [ ] Plan block-level dirty tracking system
+  - [x] Plan block-level dirty tracking system
 
 - [ ] **Implement BlockStorage trait**
-  - [ ] `read_block(block_id: u64) -> Result<Vec<u8>>`
-  - [ ] `write_block(block_id: u64, data: Vec<u8>) -> Result<()>`
-  - [ ] `allocate_block() -> Result<u64>`
-  - [ ] `deallocate_block(block_id: u64) -> Result<()>`
-  - [ ] `sync_blocks() -> Result<()>`
+  - [x] `read_block(block_id: u64) -> Result<Vec<u8>>`
+  - [x] `write_block(block_id: u64, data: Vec<u8>) -> Result<()>`
+  - [x] `allocate_block() -> Result<u64>`
+  - [x] `deallocate_block(block_id: u64) -> Result<()>`
+  - [x] `sync() -> Result<()>`
 
 ## Step 2: Enhanced IndexedDB Backend (Priority 1)
 - [ ] **Replace file operations with block operations**
   - [ ] Update `src/storage/block_storage.rs` to use blocks
-  - [ ] Implement LRU cache for frequently accessed blocks
-  - [ ] Add batch operations for multiple block reads/writes
+  - [x] Implement LRU cache for frequently accessed blocks
+  - [x] Add batch operations for multiple block reads/writes
   - [ ] Create block compression (optional, for storage efficiency)
 
 - [ ] **Optimize IndexedDB usage**
