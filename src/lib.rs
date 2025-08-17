@@ -1,3 +1,4 @@
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 // Enable better panic messages and memory allocation
@@ -25,6 +26,7 @@ pub use types::{QueryResult, ColumnValue, DatabaseError, TransactionOptions, Row
 
 // WASM Database implementation using sqlite-wasm-rs
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
 pub struct Database {
     db: *mut sqlite_wasm_rs::sqlite3,
     #[allow(dead_code)]
@@ -59,7 +61,7 @@ impl Database {
         })
     }
     
-    pub async fn execute(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
+    pub async fn execute_internal(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
         use std::ffi::CString;
         let start_time = js_sys::Date::now();
         
@@ -192,7 +194,7 @@ impl Database {
         }
     }
     
-    pub async fn execute_with_params(&mut self, sql: &str, params: &[ColumnValue]) -> Result<QueryResult, DatabaseError> {
+    pub async fn execute_with_params_internal(&mut self, sql: &str, params: &[ColumnValue]) -> Result<QueryResult, DatabaseError> {
         use std::ffi::CString;
         let start_time = js_sys::Date::now();
         
@@ -215,6 +217,7 @@ impl Database {
         }
         
         // Bind parameters
+        let mut text_cstrings = Vec::new(); // Keep CStrings alive
         for (i, param) in params.iter().enumerate() {
             let param_index = (i + 1) as i32;
             let bind_ret = unsafe {
@@ -224,10 +227,24 @@ impl Database {
                     ColumnValue::Real(val) => sqlite_wasm_rs::sqlite3_bind_double(stmt, param_index, *val),
                     ColumnValue::Text(val) => {
                         let text_cstr = CString::new(val.as_str()).unwrap_or_else(|_| CString::new("").unwrap());
-                        sqlite_wasm_rs::sqlite3_bind_text(stmt, param_index, text_cstr.as_ptr(), -1, None)
+                        let result = sqlite_wasm_rs::sqlite3_bind_text(
+                            stmt, 
+                            param_index, 
+                            text_cstr.as_ptr(), 
+                            val.len() as i32, 
+                            sqlite_wasm_rs::SQLITE_TRANSIENT()
+                        );
+                        text_cstrings.push(text_cstr); // Keep alive
+                        result
                     },
                     ColumnValue::Blob(val) => {
-                        sqlite_wasm_rs::sqlite3_bind_blob(stmt, param_index, val.as_ptr() as *const _, val.len() as i32, None)
+                        sqlite_wasm_rs::sqlite3_bind_blob(
+                            stmt, 
+                            param_index, 
+                            val.as_ptr() as *const _, 
+                            val.len() as i32, 
+                            sqlite_wasm_rs::SQLITE_TRANSIENT()
+                        )
                     },
                     _ => sqlite_wasm_rs::sqlite3_bind_null(stmt, param_index),
                 }
@@ -343,7 +360,7 @@ impl Database {
         }
     }
     
-    pub async fn close(&mut self) -> Result<(), DatabaseError> {
+    pub async fn close_internal(&mut self) -> Result<(), DatabaseError> {
         if !self.db.is_null() {
             unsafe {
                 sqlite_wasm_rs::sqlite3_close(self.db);
@@ -353,7 +370,7 @@ impl Database {
         Ok(())
     }
     
-    pub async fn sync(&mut self) -> Result<(), DatabaseError> {
+    pub async fn sync_internal(&mut self) -> Result<(), DatabaseError> {
         Ok(())
     }
 }
@@ -369,259 +386,40 @@ impl Drop for Database {
     }
 }
 
-// Export types for WASM
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
-// Export DatabaseConfig for WASM
-#[wasm_bindgen]
-pub struct WasmDatabaseConfig {
-    inner: DatabaseConfig,
-}
-
-#[wasm_bindgen]
-impl WasmDatabaseConfig {
-    #[wasm_bindgen(constructor)]
-    pub fn new(name: String, version: Option<u32>, cache_size: Option<usize>) -> WasmDatabaseConfig {
-        WasmDatabaseConfig {
-            inner: DatabaseConfig {
-                name,
-                version,
-                cache_size,
-                page_size: None,
-                auto_vacuum: None,
-                journal_mode: None,
-            }
-        }
-    }
-    
-    #[wasm_bindgen(getter)]
-    pub fn name(&self) -> String {
-        self.inner.name.clone()
-    }
-    
-    #[wasm_bindgen(getter)]
-    pub fn version(&self) -> Option<u32> {
-        self.inner.version
-    }
-    
-    #[wasm_bindgen(getter)]
-    pub fn cache_size(&self) -> Option<usize> {
-        self.inner.cache_size
-    }
-}
-
-// Export ColumnValue for WASM
-#[wasm_bindgen]
-pub struct WasmColumnValue {
-    #[allow(dead_code)]
-    inner: ColumnValue,
-}
-
-#[wasm_bindgen]
-impl WasmColumnValue {
-    #[wasm_bindgen(js_name = "createNull")]
-    pub fn null() -> WasmColumnValue {
-        WasmColumnValue { inner: ColumnValue::Null }
-    }
-    
-    #[wasm_bindgen(js_name = "createInteger")]
-    pub fn integer(value: f64) -> WasmColumnValue {
-        WasmColumnValue { inner: ColumnValue::Integer(value as i64) }
-    }
-    
-    #[wasm_bindgen(js_name = "createReal")]
-    pub fn real(value: f64) -> WasmColumnValue {
-        WasmColumnValue { inner: ColumnValue::Real(value) }
-    }
-    
-    #[wasm_bindgen(js_name = "createText")]
-    pub fn text(value: String) -> WasmColumnValue {
-        WasmColumnValue { inner: ColumnValue::Text(value) }
-    }
-    
-    #[wasm_bindgen(js_name = "createBlob")]
-    pub fn blob(value: Vec<u8>) -> WasmColumnValue {
-        WasmColumnValue { inner: ColumnValue::Blob(value) }
-    }
-    
-    #[wasm_bindgen(js_name = "createBigInt")]
-    pub fn big_int(value: String) -> WasmColumnValue {
-        WasmColumnValue { inner: ColumnValue::BigInt(value) }
-    }
-    
-    #[wasm_bindgen(js_name = "createDate")]
-    pub fn date(value: f64) -> WasmColumnValue {
-        // JavaScript Date.now() returns milliseconds since epoch
-        WasmColumnValue { inner: ColumnValue::Date(value as i64) }
-    }
-    
-    #[wasm_bindgen(js_name = "fromJsValue")]
-    pub fn from_js_value(value: &JsValue) -> Result<WasmColumnValue, JsValue> {
-        // Log the type of value we're processing
-        web_sys::console::log_1(&format!("Processing JS value").into());
-        
-        if value.is_null() || value.is_undefined() {
-            web_sys::console::log_1(&"Value is null or undefined".into());
-            return Ok(WasmColumnValue::null());
-        } else if let Some(num) = value.as_f64() {
-            web_sys::console::log_1(&format!("Value is a number: {}", num).into());
-            // Check if it's an integer within i64 range
-            if num.fract() == 0.0 && num >= i64::MIN as f64 && num <= i64::MAX as f64 {
-                web_sys::console::log_1(&format!("Converting to INTEGER: {}", num as i64).into());
-                return Ok(WasmColumnValue::integer(num));
-            }
-            
-            // Regular floating point number
-            web_sys::console::log_1(&format!("Converting to REAL: {}", num).into());
-            return Ok(WasmColumnValue::real(num));
-        } else if value.is_object() {
-            // Check if this is a Date object by checking for getTime method
-            let has_get_time = js_sys::Reflect::has(value, &JsValue::from_str("getTime")).unwrap_or(false);
-            if has_get_time {
-                // It's a Date object - get the timestamp
-                let date = js_sys::Date::from(value.clone());
-                let timestamp = date.get_time();
-                web_sys::console::log_1(&format!("Detected Date object with timestamp: {}", timestamp).into());
-                return Ok(WasmColumnValue::date(timestamp));
-            }
-        } else if let Some(string) = value.as_string() {
-            web_sys::console::log_1(&format!("Value is a string: {}", string).into());
-            
-            // Check if string might be a large integer (BigInt representation)
-            // Store large integers as TEXT to preserve precision (SQLite approach)
-            if string.len() > 15 && string.chars().all(|c| c.is_digit(10) || c == '-' || c == '+') {
-                web_sys::console::log_1(&format!("Detected BigInt string: {}", string).into());
-                return Ok(WasmColumnValue::big_int(string));
-            }
-            
-            // Check if string is an ISO8601 date format
-            if string.len() >= 10 && string.contains('-') {
-                // Try to parse as date string
-                let date_time = js_sys::Date::new(&JsValue::from_str(&string));
-                let timestamp = date_time.get_time();
-                if !timestamp.is_nan() {
-                    // Valid date string - store as Date
-                    web_sys::console::log_1(&format!("Detected ISO date string: {}", string).into());
-                    return Ok(WasmColumnValue::date(timestamp));
-                }
-            }
-            
-            // Regular text
-            web_sys::console::log_1(&format!("Converting to TEXT: {}", string).into());
-            return Ok(WasmColumnValue::text(string));
-        } else if js_sys::ArrayBuffer::is_view(value) {
-            web_sys::console::log_1(&"Value is an ArrayBuffer view".into());
-            
-            // Handle TypedArray/ArrayBuffer (BLOB)
-            let array = js_sys::Uint8Array::new(value);
-            let mut bytes = vec![0; array.length() as usize];
-            array.copy_to(&mut bytes);
-            web_sys::console::log_1(&format!("Converting to BLOB: {} bytes", bytes.len()).into());
-            return Ok(WasmColumnValue::blob(bytes));
-        }
-        
-        // If we can't determine the type, log and return an error
-        web_sys::console::log_1(&"Unsupported JS value type".into());
-        Err(JsValue::from_str("Unsupported JS value type"))
-    }
-}
-
-// Initialize the library
-#[wasm_bindgen(start)]
-pub fn init() {
-    web_sys::console::log_1(&"SQLite IndexedDB library initialized".into());
-}
-
-// WASM-bindgen Database export for JS interop
-#[wasm_bindgen]
-pub struct WasmBindgenDatabase {
-    #[cfg(not(target_arch = "wasm32"))]
-    inner: SqliteIndexedDB,
-    #[cfg(target_arch = "wasm32")]
-    inner: WasmDatabaseImpl,
-}
-
-// Dummy WASM Database for now - will be replaced with proper WASM SQLite implementation
+// Add wasm_bindgen exports for the main Database struct
 #[cfg(target_arch = "wasm32")]
-struct WasmDatabaseImpl {
-    #[allow(dead_code)]
-    config: DatabaseConfig,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl WasmDatabaseImpl {
-    async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
-        Ok(WasmDatabaseImpl { config })
-    }
-    
-    async fn execute(&mut self, _sql: &str) -> Result<QueryResult, DatabaseError> {
-        Ok(QueryResult {
-            columns: vec!["id".to_string()],
-            rows: vec![],
-            affected_rows: 0,
-            execution_time_ms: 0.0,
-            last_insert_id: None,
-        })
-    }
-    
-    async fn execute_with_params(&mut self, _sql: &str, _params: &[ColumnValue]) -> Result<QueryResult, DatabaseError> {
-        Ok(QueryResult {
-            columns: vec!["id".to_string()],
-            rows: vec![],
-            affected_rows: 0,
-            execution_time_ms: 0.0,
-            last_insert_id: None,
-        })
-    }
-    
-    async fn close(&mut self) -> Result<(), DatabaseError> {
-        Ok(())
-    }
-    
-    async fn sync(&mut self) -> Result<(), DatabaseError> {
-        Ok(())
-    }
-}
-
 #[wasm_bindgen]
-impl WasmBindgenDatabase {
-    #[wasm_bindgen(constructor)]
-    pub async fn new(config: DatabaseConfig) -> Result<WasmBindgenDatabase, JsValue> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let inner = SqliteIndexedDB::new(config)
-                .await
-                .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
-            Ok(WasmBindgenDatabase { inner })
-        }
+impl Database {
+    #[wasm_bindgen(js_name = "newDatabase")]
+    pub async fn new_wasm(name: String) -> Result<Database, JsValue> {
+        let config = DatabaseConfig {
+            name,
+            version: Some(1),
+            cache_size: Some(10_000),
+            page_size: Some(4096),
+            auto_vacuum: Some(true),
+            journal_mode: Some("WAL".to_string()),
+        };
         
-        #[cfg(target_arch = "wasm32")]
-        {
-            let inner = WasmDatabaseImpl::new(config)
-                .await
-                .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
-            Ok(WasmBindgenDatabase { inner })
-        }
+        Database::new(config)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))
     }
 
     #[wasm_bindgen]
     pub async fn execute(&mut self, sql: &str) -> Result<JsValue, JsValue> {
-        let result = self.inner.execute(sql)
+        let result = self.execute_internal(sql)
             .await
             .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
         serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(js_name = "executeWithParams")]
     pub async fn execute_with_params(&mut self, sql: &str, params: JsValue) -> Result<JsValue, JsValue> {
         let params: Vec<ColumnValue> = serde_wasm_bindgen::from_value(params)
             .map_err(|e| JsValue::from_str(&format!("Invalid parameters: {}", e)))?;
         
-        let result = self.inner.execute_with_params(sql, &params)
+        let result = self.execute_with_params_internal(sql, &params)
             .await
             .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
         serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
@@ -629,15 +427,123 @@ impl WasmBindgenDatabase {
 
     #[wasm_bindgen]
     pub async fn close(&mut self) -> Result<(), JsValue> {
-        self.inner.close()
+        self.close_internal()
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to close database: {}", e)))
     }
 
     #[wasm_bindgen]
     pub async fn sync(&mut self) -> Result<(), JsValue> {
-        self.inner.sync()
+        self.sync_internal()
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to sync database: {}", e)))
+    }
+}
+
+// Export WasmColumnValue for WASM
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub struct WasmColumnValue {
+    #[allow(dead_code)]
+    inner: ColumnValue,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl WasmColumnValue {
+    #[wasm_bindgen(js_name = "createNull")]
+    pub fn create_null() -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::Null,
+        }
+    }
+
+    #[wasm_bindgen(js_name = "createInteger")]
+    pub fn create_integer(value: i64) -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::Integer(value),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "createReal")]
+    pub fn create_real(value: f64) -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::Real(value),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "createText")]
+    pub fn create_text(value: String) -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::Text(value),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "createBlob")]
+    pub fn create_blob(value: &[u8]) -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::Blob(value.to_vec()),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "createBigInt")]
+    pub fn create_bigint(value: &str) -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::BigInt(value.to_string()),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "createDate")]
+    pub fn create_date(timestamp: f64) -> WasmColumnValue {
+        WasmColumnValue {
+            inner: ColumnValue::Date(timestamp as i64),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "fromJsValue")]
+    pub fn from_js_value(value: &JsValue) -> WasmColumnValue {
+        if value.is_null() || value.is_undefined() {
+            WasmColumnValue {
+                inner: ColumnValue::Null,
+            }
+        } else if let Some(s) = value.as_string() {
+            // Check if it's a large number string
+            if let Ok(parsed) = s.parse::<i64>() {
+                WasmColumnValue {
+                    inner: ColumnValue::Integer(parsed),
+                }
+            } else {
+                WasmColumnValue {
+                    inner: ColumnValue::Text(s),
+                }
+            }
+        } else if let Some(n) = value.as_f64() {
+            if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+                WasmColumnValue {
+                    inner: ColumnValue::Integer(n as i64),
+                }
+            } else {
+                WasmColumnValue {
+                    inner: ColumnValue::Real(n),
+                }
+            }
+        } else if value.is_object() {
+            // Check if it's a Date
+            if js_sys::Date::new(value).get_time().is_finite() {
+                let timestamp = js_sys::Date::new(value).get_time() as i64;
+                WasmColumnValue {
+                    inner: ColumnValue::Date(timestamp),
+                }
+            } else {
+                // Convert to string for other objects
+                WasmColumnValue {
+                    inner: ColumnValue::Text(format!("{:?}", value)),
+                }
+            }
+        } else {
+            WasmColumnValue {
+                inner: ColumnValue::Null,
+            }
+        }
     }
 }
