@@ -13,14 +13,19 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 ## Recent Progress (2025-08-17)
 - [x] Implemented batch block read/write APIs in `BlockStorage` (`read_blocks`, `write_blocks`) with full LRU/dirty semantics and tests.
 - [x] Implemented block checksum metadata and read-time verification in `BlockStorage` (computed on write, verified on read, removed on deallocate) with tests.
+- [x] Implemented AutoSync with `SyncPolicy` (interval, max_dirty, max_dirty_bytes, debounce). Native path now uses Tokio-based interval + debounce tasks when a runtime is present (falls back to std::thread otherwise), with clean shutdown via `drain_and_shutdown()` and `Drop`.
+- [x] Implemented granular observability metrics in `BlockStorage`: total `sync_count`, separate `timer_sync_count` and `debounce_sync_count`, and `last_sync_duration_ms` with getters. Added tests covering these metrics. All passing.
+- [x] Added Tokio as a native dependency and hardened interval test determinism. Wrote Tokio-based tests for: interval time advance flush; threshold immediate flush without debounce; debounce-after-idle flush. All passing.
+- [x] Full native `cargo test` suite green.
 
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
-   - [ ] Introduce `SyncPolicy` (interval_ms, max_dirty, max_bytes, debounce_ms, verify_after_write)
-   - [ ] Replace `enable_auto_sync(u64)` with `enable_auto_sync(policy)` and keep `disable_auto_sync()`
-   - [ ] Add `AutoSyncManager` (tokio interval) to flush batches on timer/thresholds
-   - [ ] Add `drain_and_shutdown()`; call in `Drop` and use in tests
-   - [ ] Tests: timer-based flush without additional ops; threshold-based flush; shutdown flushes
+   - [x] Introduce `SyncPolicy` (interval_ms, max_dirty, max_bytes, debounce_ms; `verify_after_write` flag present)
+   - [x] Add `enable_auto_sync_with_policy()` (kept `enable_auto_sync(u64)` for simple interval) and kept `disable_auto_sync()`
+   - [x] Implement Tokio-based interval + debounce background tasks honoring thresholds/debounce, with std::thread fallback when no Tokio runtime; clean shutdown
+   - [ ] Optional: Extract dedicated `AutoSyncManager` abstraction separate from `BlockStorage`
+   - [x] Add `drain_and_shutdown()`; call in `Drop` and use in tests
+   - [x] Tests: timer-based flush; threshold-based flush (count/bytes); debounce behavior; Tokio interval determinism; threshold immediate flush w/o debounce; debounce-after-idle
 
 2. Integrity & Metadata Persistence
    - [ ] Persist per-block metadata (checksum algorithm, value, last_modified, version) with blocks
@@ -41,8 +46,9 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
    - [ ] Tests: two instances; only leader flushes; leadership handover
 
 5. Observability
-   - [ ] Structured logs + metrics: dirty_count, dirty_bytes, sync_latency, throughput, error_rate, checksum_failures
-   - [ ] Events/callbacks: on_sync_start/success/failure; backpressure signals
+  - [x] Metrics: `sync_count`, `timer_sync_count`, `debounce_sync_count`, `last_sync_duration_ms`
+  - [ ] Additional metrics: dirty_count, dirty_bytes, throughput, error_rate, checksum_failures
+  - [ ] Events/callbacks: on_sync_start/success/failure; backpressure signals
 
 6. WASM AutoSync Manager
    - [ ] Worker-based/SharedWorker timer or requestIdleCallback mirroring native policy
@@ -76,7 +82,8 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 
 ## 1.2 SharedArrayBuffer & CORS Architecture
 - [ ] **SharedArrayBuffer integration**
-  - [ ] Implement SharedArrayBuffer-based memory management
+  - [ ] Detect SharedArrayBuffer availability
+  - [ ] Implement SharedArrayBuffer-based block cache
   - [ ] Add Atomics API for thread-safe operations
   - [ ] Create fallback mode for Safari (without SharedArrayBuffer)
   - [ ] Implement proper CORS headers enforcement
@@ -344,12 +351,13 @@ Based on the current foundation and AbsurdSQL analysis, here are the **immediate
   - [x] Add block-level integrity checking (checksums)
   - [ ] Create background sync for dirty blocks
     - [x] Operation-triggered auto-sync on reads/writes via `maybe_auto_sync()`
-    - [x] Timer-based auto-sync (native minimal, thread-based; clears dirty set)
-    - [ ] Timer-based `AutoSyncManager` (native via tokio interval, thresholds/debounce)
-    - [ ] `SyncPolicy` API (interval/thresholds/debounce/verification)
-    - [ ] `drain_and_shutdown()` and Drop integration
-    - [ ] Threshold triggers (dirty_count/bytes) and debounce
-    - [ ] Metrics/events for sync cycles
+    - [x] Timer-based auto-sync via std::thread fallback when no Tokio runtime (clears dirty set)
+    - [x] Tokio-based interval + debounce tasks (native), honoring thresholds/debounce
+    - [x] `SyncPolicy` API (interval/thresholds/debounce; `verify_after_write` flag present)
+    - [x] `drain_and_shutdown()` and Drop integration
+    - [x] Threshold triggers (dirty_count/bytes) and debounce
+    - [x] Metrics for sync cycles: separate counts (timer/debounce) and last duration
+    - [ ] Events/callbacks and extended metrics (dirty_count/bytes, throughput)
 
 ## Step 3: SharedArrayBuffer Integration (Priority 2)
 - [ ] **Add SharedArrayBuffer support**

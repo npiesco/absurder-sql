@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::hash::Hash;
-use std::time::{Duration, Instant};
 use crate::types::DatabaseError;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::task::JoinHandle as TokioJoinHandle;
 
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -32,6 +34,15 @@ impl Drop for BlockStorage {
         }
         if let Some(handle) = self.auto_sync_thread.take() {
             let _ = handle.join();
+        }
+        if let Some(handle) = self.debounce_thread.take() {
+            let _ = handle.join();
+        }
+        if let Some(task) = self.tokio_timer_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.tokio_debounce_task.take() {
+            task.abort();
         }
         self.auto_sync_stop = None;
     }
@@ -63,6 +74,24 @@ pub struct BlockStorage {
     auto_sync_stop: Option<Arc<AtomicBool>>,
     #[cfg(not(target_arch = "wasm32"))]
     auto_sync_thread: Option<std::thread::JoinHandle<()>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    debounce_thread: Option<std::thread::JoinHandle<()>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio_timer_task: Option<TokioJoinHandle<()>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio_debounce_task: Option<TokioJoinHandle<()>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_write_ms: Arc<AtomicU64>,
+    #[cfg(not(target_arch = "wasm32"))]
+    threshold_hit: Arc<AtomicBool>,
+    #[cfg(not(target_arch = "wasm32"))]
+    sync_count: Arc<AtomicU64>,
+    #[cfg(not(target_arch = "wasm32"))]
+    timer_sync_count: Arc<AtomicU64>,
+    #[cfg(not(target_arch = "wasm32"))]
+    debounce_sync_count: Arc<AtomicU64>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_sync_duration_ms: Arc<AtomicU64>,
 }
 
 impl BlockStorage {
@@ -117,6 +146,24 @@ impl BlockStorage {
             auto_sync_stop: None,
             #[cfg(not(target_arch = "wasm32"))]
             auto_sync_thread: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            debounce_thread: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_timer_task: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_debounce_task: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_write_ms: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            threshold_hit: Arc::new(AtomicBool::new(false)),
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_count: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            timer_sync_count: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            debounce_sync_count: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            last_sync_duration_ms: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -163,6 +210,12 @@ impl BlockStorage {
                 }
             }
         }
+    }
+
+    #[inline]
+    fn now_millis() -> u64 {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_else(|_| Duration::from_millis(0));
+        now.as_millis() as u64
     }
 
     fn compute_checksum(data: &[u8]) -> u64 {
@@ -310,6 +363,12 @@ impl BlockStorage {
             let csum = Self::compute_checksum(bytes);
             self.checksums.insert(block_id, csum);
         }
+        // Record write time for debounce tracking (native)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.last_write_ms.store(Self::now_millis(), Ordering::SeqCst);
+        }
+
         // Policy-based triggers: thresholds
         let (max_dirty_opt, max_bytes_opt) = self
             .policy
@@ -317,19 +376,29 @@ impl BlockStorage {
             .map(|p| (p.max_dirty, p.max_dirty_bytes))
             .unwrap_or((None, None));
 
+        let mut threshold_reached = false;
         if let Some(max_dirty) = max_dirty_opt {
             let cur = self.dirty_blocks.lock().unwrap().len();
-            if cur >= max_dirty {
-                let _ = self.sync_now();
-            }
+            if cur >= max_dirty { threshold_reached = true; }
         }
-
         if let Some(max_bytes) = max_bytes_opt {
             let cur_bytes: usize = {
                 let m = self.dirty_blocks.lock().unwrap();
                 m.values().map(|v| v.len()).sum()
             };
-            if cur_bytes >= max_bytes {
+            if cur_bytes >= max_bytes { threshold_reached = true; }
+        }
+
+        if threshold_reached {
+            let debounce_ms_opt = self.policy.as_ref().and_then(|p| p.debounce_ms);
+            if let Some(_debounce) = debounce_ms_opt {
+                // Debounce enabled: mark threshold and let debounce thread flush after inactivity
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.threshold_hit.store(true, Ordering::SeqCst);
+                }
+            } else {
+                // No debounce: flush immediately
                 let _ = self.sync_now();
             }
         }
@@ -401,35 +470,90 @@ impl BlockStorage {
         log::info!("Auto-sync enabled: every {} ms", interval_ms);
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // stop previous thread if any
-            if let Some(stop) = &self.auto_sync_stop {
-                stop.store(true, Ordering::SeqCst);
-            }
-            if let Some(handle) = self.auto_sync_thread.take() {
-                let _ = handle.join();
-            }
+            // stop previous workers if any
+            if let Some(stop) = &self.auto_sync_stop { stop.store(true, Ordering::SeqCst); }
+            if let Some(handle) = self.auto_sync_thread.take() { let _ = handle.join(); }
+            if let Some(handle) = self.debounce_thread.take() { let _ = handle.join(); }
+            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
 
-            let stop = Arc::new(AtomicBool::new(false));
-            let stop_thread = stop.clone();
-            let dirty = Arc::clone(&self.dirty_blocks);
-            let interval = Duration::from_millis(interval_ms);
-            let handle = std::thread::spawn(move || {
-                while !stop_thread.load(Ordering::SeqCst) {
-                    std::thread::sleep(interval);
-                    if stop_thread.load(Ordering::SeqCst) { break; }
-                    let mut map = match dirty.lock() {
-                        Ok(g) => g,
-                        Err(poisoned) => poisoned.into_inner(),
-                    };
-                    if !map.is_empty() {
-                        let count = map.len();
-                        log::info!("Auto-sync (timer-thread) flushing {} dirty blocks", count);
-                        map.clear();
+            // Prefer Tokio runtime if present, otherwise fallback to std::thread
+            if tokio::runtime::Handle::try_current().is_ok() {
+                let stop = Arc::new(AtomicBool::new(false));
+                let stop_flag = stop.clone();
+                let dirty = Arc::clone(&self.dirty_blocks);
+                let threshold_flag = self.threshold_hit.clone();
+                let sync_count = self.sync_count.clone();
+                let timer_sync_count = self.timer_sync_count.clone();
+                let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
+                // first tick happens immediately for interval(0), ensure we wait one period
+                let task = tokio::spawn(async move {
+                    loop {
+                        ticker.tick().await;
+                        if stop_flag.load(Ordering::SeqCst) { break; }
+                        // flush if dirty
+                        let start = Instant::now();
+                        let mut did_flush = false;
+                        {
+                            let mut map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+                            if !map.is_empty() {
+                                let count = map.len();
+                                log::info!("Auto-sync (tokio-interval) flushing {} dirty blocks", count);
+                                map.clear();
+                                did_flush = true;
+                            }
+                        }
+                        if did_flush {
+                            threshold_flag.store(false, Ordering::SeqCst);
+                            let ms = start.elapsed().as_millis() as u64;
+                            let ms = if ms == 0 { 1 } else { ms };
+                            last_sync_duration_ms.store(ms, Ordering::SeqCst);
+                            sync_count.fetch_add(1, Ordering::SeqCst);
+                            timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                        }
                     }
-                }
-            });
-            self.auto_sync_stop = Some(stop);
-            self.auto_sync_thread = Some(handle);
+                });
+                self.auto_sync_stop = Some(stop);
+                self.tokio_timer_task = Some(task);
+                self.auto_sync_thread = None;
+                self.debounce_thread = None;
+            } else {
+                let stop = Arc::new(AtomicBool::new(false));
+                let stop_thread = stop.clone();
+                let dirty = Arc::clone(&self.dirty_blocks);
+                let interval = Duration::from_millis(interval_ms);
+                let threshold_flag = self.threshold_hit.clone();
+                let sync_count = self.sync_count.clone();
+                let timer_sync_count = self.timer_sync_count.clone();
+                let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                let handle = std::thread::spawn(move || {
+                    while !stop_thread.load(Ordering::SeqCst) {
+                        std::thread::sleep(interval);
+                        if stop_thread.load(Ordering::SeqCst) { break; }
+                        let mut map = match dirty.lock() {
+                            Ok(g) => g,
+                            Err(poisoned) => poisoned.into_inner(),
+                        };
+                        if !map.is_empty() {
+                            let start = Instant::now();
+                            let count = map.len();
+                            log::info!("Auto-sync (timer-thread) flushing {} dirty blocks", count);
+                            map.clear();
+                            threshold_flag.store(false, Ordering::SeqCst);
+                            let elapsed = start.elapsed();
+                            let ms = elapsed.as_millis() as u64;
+                            let ms = if ms == 0 { 1 } else { ms };
+                            last_sync_duration_ms.store(ms, Ordering::SeqCst);
+                            sync_count.fetch_add(1, Ordering::SeqCst);
+                            timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                });
+                self.auto_sync_stop = Some(stop);
+                self.auto_sync_thread = Some(handle);
+                self.debounce_thread = None;
+            }
         }
     }
 
@@ -441,39 +565,192 @@ impl BlockStorage {
         log::info!("Auto-sync policy enabled: interval={:?}, max_dirty={:?}, max_bytes={:?}", policy.interval_ms, policy.max_dirty, policy.max_dirty_bytes);
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // stop previous thread if any
-            if let Some(stop) = &self.auto_sync_stop {
-                stop.store(true, Ordering::SeqCst);
-            }
-            if let Some(handle) = self.auto_sync_thread.take() {
-                let _ = handle.join();
-            }
+            // stop previous workers if any
+            if let Some(stop) = &self.auto_sync_stop { stop.store(true, Ordering::SeqCst); }
+            if let Some(handle) = self.auto_sync_thread.take() { let _ = handle.join(); }
+            if let Some(handle) = self.debounce_thread.take() { let _ = handle.join(); }
+            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
 
-            if let Some(interval_ms) = policy.interval_ms {
-                let stop = Arc::new(AtomicBool::new(false));
-                let stop_thread = stop.clone();
-                let dirty = Arc::clone(&self.dirty_blocks);
-                let interval = Duration::from_millis(interval_ms);
-                let handle = std::thread::spawn(move || {
-                    while !stop_thread.load(Ordering::SeqCst) {
-                        std::thread::sleep(interval);
-                        if stop_thread.load(Ordering::SeqCst) { break; }
-                        let mut map = match dirty.lock() {
-                            Ok(g) => g,
-                            Err(poisoned) => poisoned.into_inner(),
-                        };
-                        if !map.is_empty() {
-                            let count = map.len();
-                            log::info!("Auto-sync (timer-thread) flushing {} dirty blocks", count);
-                            map.clear();
+            if tokio::runtime::Handle::try_current().is_ok() {
+                // Prefer Tokio tasks
+                if let Some(interval_ms) = policy.interval_ms {
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let stop_flag = stop.clone();
+                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let threshold_flag = self.threshold_hit.clone();
+                    let sync_count = self.sync_count.clone();
+                    let timer_sync_count = self.timer_sync_count.clone();
+                    let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                    let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
+                    let task = tokio::spawn(async move {
+                        loop {
+                            ticker.tick().await;
+                            if stop_flag.load(Ordering::SeqCst) { break; }
+                            let start = Instant::now();
+                            let mut did_flush = false;
+                            {
+                                let mut map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+                                if !map.is_empty() {
+                                    let count = map.len();
+                                    log::info!("Auto-sync (tokio-interval) flushing {} dirty blocks", count);
+                                    map.clear();
+                                    did_flush = true;
+                                }
+                            }
+                            if did_flush {
+                                threshold_flag.store(false, Ordering::SeqCst);
+                                let ms = start.elapsed().as_millis() as u64;
+                                let ms = if ms == 0 { 1 } else { ms };
+                                last_sync_duration_ms.store(ms, Ordering::SeqCst);
+                                sync_count.fetch_add(1, Ordering::SeqCst);
+                                timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                            }
                         }
-                    }
-                });
-                self.auto_sync_stop = Some(stop);
-                self.auto_sync_thread = Some(handle);
-            } else {
-                self.auto_sync_stop = None;
+                    });
+                    self.auto_sync_stop = Some(stop);
+                    self.tokio_timer_task = Some(task);
+                } else {
+                    self.auto_sync_stop = None;
+                }
+
+                if let Some(debounce_ms) = policy.debounce_ms {
+                    let stop_flag = self.auto_sync_stop.get_or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
+                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let last_write = self.last_write_ms.clone();
+                    let threshold_flag = self.threshold_hit.clone();
+                    let sync_count = self.sync_count.clone();
+                    let debounce_sync_count = self.debounce_sync_count.clone();
+                    let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                    let task = tokio::spawn(async move {
+                        let sleep_step = Duration::from_millis(10);
+                        loop {
+                            if stop_flag.load(Ordering::SeqCst) { break; }
+                            if threshold_flag.load(Ordering::SeqCst) {
+                                // Use system clock based last_write; simple polling
+                                let now = Self::now_millis();
+                                let last = last_write.load(Ordering::SeqCst);
+                                let elapsed = now.saturating_sub(last);
+                                if elapsed >= debounce_ms {
+                                    let start = Instant::now();
+                                    let mut did_flush = false;
+                                    {
+                                        let mut map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+                                        if !map.is_empty() {
+                                            let count = map.len();
+                                            log::info!("Auto-sync (tokio-debounce) flushing {} dirty blocks after {}ms idle", count, elapsed);
+                                            map.clear();
+                                            did_flush = true;
+                                        }
+                                    }
+                                    threshold_flag.store(false, Ordering::SeqCst);
+                                    if did_flush {
+                                        let ms = start.elapsed().as_millis() as u64;
+                                        let ms = if ms == 0 { 1 } else { ms };
+                                        last_sync_duration_ms.store(ms, Ordering::SeqCst);
+                                        sync_count.fetch_add(1, Ordering::SeqCst);
+                                        debounce_sync_count.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                }
+                            }
+                            tokio::time::sleep(sleep_step).await;
+                        }
+                    });
+                    self.tokio_debounce_task = Some(task);
+                } else {
+                    self.tokio_debounce_task = None;
+                }
+                // Ensure std threads are not used in Tokio mode
                 self.auto_sync_thread = None;
+                self.debounce_thread = None;
+            } else {
+                // Fallback to std::thread implementation (existing)
+                if let Some(interval_ms) = policy.interval_ms {
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let stop_thread = stop.clone();
+                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let interval = Duration::from_millis(interval_ms);
+                    let threshold_flag = self.threshold_hit.clone();
+                    let sync_count = self.sync_count.clone();
+                    let timer_sync_count = self.timer_sync_count.clone();
+                    let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                    let handle = std::thread::spawn(move || {
+                        while !stop_thread.load(Ordering::SeqCst) {
+                            std::thread::sleep(interval);
+                            if stop_thread.load(Ordering::SeqCst) { break; }
+                            let mut map = match dirty.lock() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if !map.is_empty() {
+                                let start = Instant::now();
+                                let count = map.len();
+                                log::info!("Auto-sync (timer-thread) flushing {} dirty blocks", count);
+                                map.clear();
+                                threshold_flag.store(false, Ordering::SeqCst);
+                                let elapsed = start.elapsed();
+                                let ms = elapsed.as_millis() as u64;
+                                let ms = if ms == 0 { 1 } else { ms };
+                                last_sync_duration_ms.store(ms, Ordering::SeqCst);
+                                sync_count.fetch_add(1, Ordering::SeqCst);
+                                timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }
+                    });
+                    self.auto_sync_stop = Some(stop);
+                    self.auto_sync_thread = Some(handle);
+                } else {
+                    self.auto_sync_stop = None;
+                    self.auto_sync_thread = None;
+                }
+
+                // Debounce worker (std thread)
+                if let Some(debounce_ms) = policy.debounce_ms {
+                    let stop = self.auto_sync_stop.get_or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
+                    let stop_thread = stop.clone();
+                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let last_write = self.last_write_ms.clone();
+                    let threshold_flag = self.threshold_hit.clone();
+                    let sync_count = self.sync_count.clone();
+                    let debounce_sync_count = self.debounce_sync_count.clone();
+                    let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                    let handle = std::thread::spawn(move || {
+                        // Polling loop to detect inactivity window after threshold
+                        let sleep_step = Duration::from_millis(10);
+                        loop {
+                            if stop_thread.load(Ordering::SeqCst) { break; }
+                            if threshold_flag.load(Ordering::SeqCst) {
+                                let now = Self::now_millis();
+                                let last = last_write.load(Ordering::SeqCst);
+                                let elapsed = now.saturating_sub(last);
+                                if elapsed >= debounce_ms {
+                                    // Flush
+                                    let mut map = match dirty.lock() {
+                                        Ok(g) => g,
+                                        Err(poisoned) => poisoned.into_inner(),
+                                    };
+                                    if !map.is_empty() {
+                                        let start = Instant::now();
+                                        let count = map.len();
+                                        log::info!("Auto-sync (debounce-thread) flushing {} dirty blocks after {}ms idle", count, elapsed);
+                                        map.clear();
+                                        let d = start.elapsed();
+                                        let ms = d.as_millis() as u64;
+                                        let ms = if ms == 0 { 1 } else { ms };
+                                        last_sync_duration_ms.store(ms, Ordering::SeqCst);
+                                    }
+                                    threshold_flag.store(false, Ordering::SeqCst);
+                                    sync_count.fetch_add(1, Ordering::SeqCst);
+                                    debounce_sync_count.fetch_add(1, Ordering::SeqCst);
+                                }
+                            }
+                            std::thread::sleep(sleep_step);
+                        }
+                    });
+                    self.debounce_thread = Some(handle);
+                } else {
+                    self.debounce_thread = None;
+                }
             }
         }
     }
@@ -490,6 +767,11 @@ impl BlockStorage {
             if let Some(handle) = self.auto_sync_thread.take() {
                 let _ = handle.join();
             }
+            if let Some(handle) = self.debounce_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
             self.auto_sync_stop = None;
         }
     }
@@ -521,6 +803,7 @@ impl BlockStorage {
             });
         }
         
+        let start = Instant::now();
         let dirty_count = {
             let mut dirty = self.dirty_blocks.lock().unwrap();
             let count = dirty.len();
@@ -528,6 +811,14 @@ impl BlockStorage {
             count
         };
         log::info!("Successfully synced {} blocks to global storage", dirty_count);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.sync_count.fetch_add(1, Ordering::SeqCst);
+            let elapsed = start.elapsed();
+            let ms = elapsed.as_millis() as u64;
+            let ms = if ms == 0 { 1 } else { ms };
+            self.last_sync_duration_ms.store(ms, Ordering::SeqCst);
+        }
         // Now that everything is clean, enforce capacity again
         self.evict_if_needed();
         Ok(())
@@ -553,7 +844,13 @@ impl BlockStorage {
             if let Some(handle) = self.auto_sync_thread.take() {
                 let _ = handle.join();
             }
+            if let Some(handle) = self.debounce_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
             self.auto_sync_stop = None;
+            self.threshold_hit.store(false, Ordering::SeqCst);
         }
     }
 
@@ -573,6 +870,30 @@ impl BlockStorage {
 
     pub fn is_cached(&self, block_id: u64) -> bool {
         self.cache.contains_key(&block_id)
+    }
+
+    /// Get the number of completed sync operations (native only metric)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_sync_count(&self) -> u64 {
+        self.sync_count.load(Ordering::SeqCst)
+    }
+
+    /// Get the number of timer-based background syncs
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_timer_sync_count(&self) -> u64 {
+        self.timer_sync_count.load(Ordering::SeqCst)
+    }
+
+    /// Get the number of debounce-based background syncs
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_debounce_sync_count(&self) -> u64 {
+        self.debounce_sync_count.load(Ordering::SeqCst)
+    }
+
+    /// Get the duration in ms of the last sync operation (>=1 when a sync occurs)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_last_sync_duration_ms(&self) -> u64 {
+        self.last_sync_duration_ms.load(Ordering::SeqCst)
     }
 
     /// Allocate a new block and return its ID
