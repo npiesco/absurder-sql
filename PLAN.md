@@ -12,7 +12,44 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 
 ## Recent Progress (2025-08-17)
 - [x] Implemented batch block read/write APIs in `BlockStorage` (`read_blocks`, `write_blocks`) with full LRU/dirty semantics and tests.
-- [x] Added basic block checksum metadata (computed on write, removed on deallocate) and tests; read-time verification TBD.
+- [x] Implemented block checksum metadata and read-time verification in `BlockStorage` (computed on write, verified on read, removed on deallocate) with tests.
+
+## Next Steps (Actionable TDD Roadmap)
+1. Auto Sync Manager (native first)
+   - [ ] Introduce `SyncPolicy` (interval_ms, max_dirty, max_bytes, debounce_ms, verify_after_write)
+   - [ ] Replace `enable_auto_sync(u64)` with `enable_auto_sync(policy)` and keep `disable_auto_sync()`
+   - [ ] Add `AutoSyncManager` (tokio interval) to flush batches on timer/thresholds
+   - [ ] Add `drain_and_shutdown()`; call in `Drop` and use in tests
+   - [ ] Tests: timer-based flush without additional ops; threshold-based flush; shutdown flushes
+
+2. Integrity & Metadata Persistence
+   - [ ] Persist per-block metadata (checksum algorithm, value, last_modified, version) with blocks
+   - [ ] Support fast checksum (xxHash64/CRC32C) or strong (BLAKE3); store algorithm in metadata
+   - [ ] Read-time verification uses stored algorithm; optional verify-after-write
+   - [ ] Startup recovery: verify sample or full set; report/repair
+   - [ ] Tests: persistence across new instance; mismatch detection
+
+3. Crash Consistency & Atomic Batching
+   - [ ] IndexedDB transaction writes {blocks + metadata} with commit marker
+   - [ ] Recovery scans markers to finalize/rollback
+   - [ ] Idempotent writes keyed by (block_id, version)
+   - [ ] Tests: simulate crash mid-commit; recovery correctness
+
+4. Multi-Tab Single-Writer
+   - [ ] Leader election (BroadcastChannel + lease lock with expiry)
+   - [ ] Non-leader tabs forward writes to leader
+   - [ ] Tests: two instances; only leader flushes; leadership handover
+
+5. Observability
+   - [ ] Structured logs + metrics: dirty_count, dirty_bytes, sync_latency, throughput, error_rate, checksum_failures
+   - [ ] Events/callbacks: on_sync_start/success/failure; backpressure signals
+
+6. WASM AutoSync Manager
+   - [ ] Worker-based/SharedWorker timer or requestIdleCallback mirroring native policy
+   - [ ] Feature-gated until stable; parity tests in headless Chrome
+
+7. VFS Durability Mapping
+   - [ ] Map SQLite VFS `xSync` to `force_sync()` with durability guarantees; add tests
 
 ---
 
@@ -304,8 +341,15 @@ Based on the current foundation and AbsurdSQL analysis, here are the **immediate
 - [ ] **Optimize IndexedDB usage**
   - [ ] Use IndexedDB transactions for atomic block operations
   - [ ] Implement block prefetching based on access patterns
-  - [ ] Add block-level integrity checking (checksums)
+  - [x] Add block-level integrity checking (checksums)
   - [ ] Create background sync for dirty blocks
+    - [x] Operation-triggered auto-sync on reads/writes via `maybe_auto_sync()`
+    - [x] Timer-based auto-sync (native minimal, thread-based; clears dirty set)
+    - [ ] Timer-based `AutoSyncManager` (native via tokio interval, thresholds/debounce)
+    - [ ] `SyncPolicy` API (interval/thresholds/debounce/verification)
+    - [ ] `drain_and_shutdown()` and Drop integration
+    - [ ] Threshold triggers (dirty_count/bytes) and debounce
+    - [ ] Metrics/events for sync cycles
 
 ## Step 3: SharedArrayBuffer Integration (Priority 2)
 - [ ] **Add SharedArrayBuffer support**
