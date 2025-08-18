@@ -2,9 +2,15 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use std::env;
+use tempfile::TempDir;
+use serial_test::serial;
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_timer_based_auto_sync_without_followup_op() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_timer_auto_sync", 8)
         .await
         .expect("create storage");
@@ -28,7 +34,10 @@ async fn test_timer_based_auto_sync_without_followup_op() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_drain_and_shutdown_flushes_dirty_blocks() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_drain_shutdown", 8)
         .await
         .expect("create storage");

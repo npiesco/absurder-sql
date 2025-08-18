@@ -2,9 +2,15 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use std::env;
+use tempfile::TempDir;
+use serial_test::serial;
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_checksum_created_on_write_and_changes_with_data() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_checksum", 4)
         .await
         .expect("create storage");
@@ -24,7 +30,10 @@ async fn test_checksum_created_on_write_and_changes_with_data() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_checksum_removed_on_deallocate() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_dealloc", 2)
         .await
         .expect("create storage");
@@ -40,7 +49,10 @@ async fn test_checksum_removed_on_deallocate() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_no_checksum_for_unwritten_block() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_unwritten", 2)
         .await
         .expect("create storage");

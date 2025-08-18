@@ -30,6 +30,9 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 - [x] Full test suite green in both default and `fs_persist` configurations.
 - [x] Stabilized native tests to avoid env var races (serialized execution where applicable).
 
+- [x] Added TempDir-based `DATASYNC_FS_BASE` isolation and `#[serial]` across auto-sync, metadata, and integrity native tests to prevent cross-test interference.
+- [x] Ensured cross-instance tests reuse a single TempDir per test to preserve persistence semantics, then re-ran suites in default and with `fs_persist` — all passing.
+
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
    - [x] Introduce `SyncPolicy` (interval_ms, max_dirty, max_bytes, debounce_ms; `verify_after_write` flag present)

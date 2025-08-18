@@ -3,9 +3,15 @@
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
 use tokio::time::{sleep, Duration};
+use std::env;
+use tempfile::TempDir;
+use serial_test::serial;
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_version_and_last_modified_progression_across_syncs() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_version_ts_progression", 4)
         .await
         .expect("create storage");
@@ -49,8 +55,11 @@ async fn test_version_and_last_modified_progression_across_syncs() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_metadata_persists_across_instances_with_version_retained() {
     let db_name = "test_meta_version_ts_across_instances";
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
 
     // Instance A: write and sync once
     {
@@ -90,7 +99,10 @@ async fn test_metadata_persists_across_instances_with_version_retained() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_sync_without_new_writes_does_not_bump_version_or_timestamp() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_no_bump_on_idle_sync", 4)
         .await
         .expect("create storage");
@@ -116,8 +128,11 @@ async fn test_sync_without_new_writes_does_not_bump_version_or_timestamp() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_metadata_removed_on_deallocate_persists_across_instances() {
     let db_name = "test_meta_remove_on_deallocate";
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
 
     // Instance A: allocate, write, sync, then deallocate and ensure metadata removed
     let dealloc_id: u64 = {
@@ -149,7 +164,10 @@ async fn test_metadata_removed_on_deallocate_persists_across_instances() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_same_data_write_still_bumps_version_and_timestamp() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_same_data_bumps", 4)
         .await
         .expect("create storage");
@@ -179,7 +197,10 @@ async fn test_same_data_write_still_bumps_version_and_timestamp() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_batch_write_only_updates_touched_blocks() {
+    let tmp = TempDir::new().expect("tempdir");
+    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
     let mut storage = BlockStorage::new_with_capacity("test_meta_batch_updates", 4)
         .await
         .expect("create storage");
