@@ -7,7 +7,7 @@ use crate::types::DatabaseError;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle as TokioJoinHandle;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 use std::cell::RefCell;
 
 // Global storage for WASM to maintain data across instances
@@ -17,23 +17,40 @@ thread_local! {
     static GLOBAL_ALLOCATION_MAP: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
 }
 
-// Persistent metadata storage for WASM builds
-#[cfg(target_arch = "wasm32")]
+// Test-only global storage mirrors for native builds so tests can run with `cargo test`
+#[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+thread_local! {
+    static GLOBAL_STORAGE_TEST: RefCell<HashMap<String, HashMap<u64, Vec<u8>>>> = RefCell::new(HashMap::new());
+    static GLOBAL_ALLOCATION_MAP_TEST: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
+}
+
+// Persistent metadata storage for WASM builds (and tests on native)
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 enum ChecksumAlgorithm { FastHash }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 #[derive(Clone, Debug)]
 struct BlockMetadataPersist {
     checksum: u64,
+    #[allow(dead_code)]
     last_modified_ms: u64,
+    #[allow(dead_code)]
     version: u32,
+    #[allow(dead_code)]
     algo: ChecksumAlgorithm,
 }
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
     static GLOBAL_METADATA: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
+}
+
+// Test-only metadata mirror for native builds
+#[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+thread_local! {
+    static GLOBAL_METADATA_TEST: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone, Debug)]
@@ -142,8 +159,30 @@ impl BlockStorage {
                 (allocated_blocks, next_block_id)
             }
 
+            // Native tests: restore allocation from test-global
+            #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+            {
+                let mut allocated_blocks = HashSet::new();
+                let mut next_block_id: u64 = 1;
+
+                GLOBAL_ALLOCATION_MAP_TEST.with(|allocation_map| {
+                    let allocation_map = allocation_map.borrow();
+                    if let Some(existing_allocations) = allocation_map.get(db_name) {
+                        allocated_blocks = existing_allocations.clone();
+                        next_block_id = allocated_blocks.iter().max().copied().unwrap_or(0) + 1;
+                        log::info!(
+                            "[test] Restored {} allocated blocks for database: {}",
+                            allocated_blocks.len(),
+                            db_name
+                        );
+                    }
+                });
+
+                (allocated_blocks, next_block_id)
+            }
+
             // Native defaults
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
             {
                 (HashSet::new(), 1u64)
             }
@@ -169,7 +208,28 @@ impl BlockStorage {
             map
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
+        // Native tests: restore from test-global metadata
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+        let checksums_init: HashMap<u64, u64> = {
+            let mut map = HashMap::new();
+            GLOBAL_METADATA_TEST.with(|meta| {
+                let meta_map = meta.borrow();
+                if let Some(db_meta) = meta_map.get(db_name) {
+                    for (bid, m) in db_meta.iter() {
+                        map.insert(*bid, m.checksum);
+                    }
+                    log::info!(
+                        "[test] Restored {} checksum entries for database: {}",
+                        db_meta.len(),
+                        db_name
+                    );
+                }
+            });
+            map
+        };
+
+        // Native non-test: start empty
+        #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
         let checksums_init: HashMap<u64, u64> = HashMap::new();
 
         Ok(Self {
@@ -353,8 +413,37 @@ impl BlockStorage {
             return Ok(data);
         }
 
-        // For native, return empty block - will implement file-based storage later
-        #[cfg(not(target_arch = "wasm32"))]
+        // For native tests, check test-global storage for persistence across instances
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+        {
+            let data = GLOBAL_STORAGE_TEST.with(|storage| {
+                let storage_map = storage.borrow();
+                if let Some(db_storage) = storage_map.get(&self.db_name) {
+                    if let Some(data) = db_storage.get(&block_id) {
+                        log::debug!("[test] Block {} found in global storage (sync)", block_id);
+                        return data.clone();
+                    }
+                }
+                // Return empty block if not found
+                vec![0; BLOCK_SIZE]
+            });
+
+            self.cache.insert(block_id, data.clone());
+            log::debug!("[test] Block {} cached from global storage (sync)", block_id);
+            if let Err(e) = self.verify_against_stored_checksum(block_id, &data) {
+                log::error!(
+                    "[test] Checksum verification failed for block {} (test storage): {}",
+                    block_id, e.message
+                );
+                return Err(e);
+            }
+            self.touch_lru(block_id);
+            self.evict_if_needed();
+            return Ok(data);
+        }
+
+        // For native non-test, return empty block - will implement file-based storage later
+        #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
         {
             let data = vec![0; BLOCK_SIZE];
             log::debug!("Block {} not found, returning empty block (sync)", block_id);
@@ -436,6 +525,35 @@ impl BlockStorage {
                         if let Err(e) = self.verify_against_stored_checksum(block_id, &bytes) {
                             log::error!(
                                 "verify_after_write: pre-write checksum verification failed for block {}: {}",
+                                block_id, e.message
+                            );
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+            {
+                if let Some(bytes) = self.cache.get(&block_id).cloned() {
+                    if let Err(e) = self.verify_against_stored_checksum(block_id, &bytes) {
+                        log::error!(
+                            "[test] verify_after_write: pre-write checksum verification failed for block {}: {}",
+                            block_id, e.message
+                        );
+                        return Err(e);
+                    }
+                } else {
+                    let maybe_bytes = GLOBAL_STORAGE_TEST.with(|storage| {
+                        let storage_map = storage.borrow();
+                        storage_map
+                            .get(&self.db_name)
+                            .and_then(|db| db.get(&block_id))
+                            .cloned()
+                    });
+                    if let Some(bytes) = maybe_bytes {
+                        if let Err(e) = self.verify_against_stored_checksum(block_id, &bytes) {
+                            log::error!(
+                                "[test] verify_after_write: pre-write checksum verification failed for block {}: {}",
                                 block_id, e.message
                             );
                             return Err(e);
@@ -548,6 +666,37 @@ impl BlockStorage {
         // Otherwise, a read will populate cache and also verify
         let data = self.read_block_sync(block_id)?;
         self.verify_against_stored_checksum(block_id, &data)
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    pub fn get_block_metadata_for_testing(&self) -> HashMap<u64, (u64, u32, u64)> {
+        // Returns map of block_id -> (checksum, version, last_modified_ms)
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut out = HashMap::new();
+            GLOBAL_METADATA.with(|meta| {
+                let meta_map = meta.borrow();
+                if let Some(db_meta) = meta_map.get(&self.db_name) {
+                    for (bid, m) in db_meta.iter() {
+                        out.insert(*bid, (m.checksum, m.version, m.last_modified_ms));
+                    }
+                }
+            });
+            out
+        }
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+        {
+            let mut out = HashMap::new();
+            GLOBAL_METADATA_TEST.with(|meta| {
+                let meta_map = meta.borrow();
+                if let Some(db_meta) = meta_map.get(&self.db_name) {
+                    for (bid, m) in db_meta.iter() {
+                        out.insert(*bid, (m.checksum, m.version, m.last_modified_ms));
+                    }
+                }
+            });
+            out
+        }
     }
 
     #[cfg(any(test, debug_assertions))]
@@ -921,6 +1070,48 @@ impl BlockStorage {
             });
         }
         
+        // For native tests, persist dirty blocks and metadata to test globals
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+        {
+            let to_persist: Vec<(u64, Vec<u8>)> = {
+                let dirty = self.dirty_blocks.lock().unwrap();
+                dirty.iter().map(|(k, v)| (*k, v.clone())).collect()
+            };
+            let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
+            GLOBAL_STORAGE_TEST.with(|storage| {
+                let mut storage_map = storage.borrow_mut();
+                let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
+                for (block_id, data) in to_persist {
+                    db_storage.insert(block_id, data);
+                    log::debug!("[test] Persisted block {} to test-global storage", block_id);
+                }
+            });
+            // Persist corresponding metadata entries
+            GLOBAL_METADATA_TEST.with(|meta| {
+                let mut meta_map = meta.borrow_mut();
+                let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
+                for block_id in ids {
+                    if let Some(&checksum) = self.checksums.get(&block_id) {
+                        let version = db_meta
+                            .get(&block_id)
+                            .map(|m| m.version)
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                        db_meta.insert(
+                            block_id,
+                            BlockMetadataPersist {
+                                checksum,
+                                last_modified_ms: Self::now_millis(),
+                                version,
+                                algo: ChecksumAlgorithm::FastHash,
+                            },
+                        );
+                        log::debug!("[test] Persisted metadata for block {}", block_id);
+                    }
+                }
+            });
+        }
+        
         let start = Instant::now();
         let dirty_count = {
             let mut dirty = self.dirty_blocks.lock().unwrap();
@@ -1035,6 +1226,16 @@ impl BlockStorage {
             });
         }
         
+        // For native tests, mirror allocation state to test-global
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+        {
+            GLOBAL_ALLOCATION_MAP_TEST.with(|allocation_map| {
+                let mut allocation_map = allocation_map.borrow_mut();
+                let db_allocations = allocation_map.entry(self.db_name.clone()).or_insert_with(HashSet::new);
+                db_allocations.insert(block_id);
+            });
+        }
+        
         log::info!("Allocated block: {} (total allocated: {})", block_id, self.allocated_blocks.len());
         Ok(block_id)
     }
@@ -1078,6 +1279,31 @@ impl BlockStorage {
 
             // Remove persisted metadata entry as well
             GLOBAL_METADATA.with(|meta| {
+                let mut meta_map = meta.borrow_mut();
+                if let Some(db_meta) = meta_map.get_mut(&self.db_name) {
+                    db_meta.remove(&block_id);
+                }
+            });
+        }
+        
+        // For native tests, mirror removal from test-globals
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+        {
+            GLOBAL_STORAGE_TEST.with(|storage| {
+                let mut storage_map = storage.borrow_mut();
+                if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
+                    db_storage.remove(&block_id);
+                }
+            });
+            
+            GLOBAL_ALLOCATION_MAP_TEST.with(|allocation_map| {
+                let mut allocation_map = allocation_map.borrow_mut();
+                if let Some(db_allocations) = allocation_map.get_mut(&self.db_name) {
+                    db_allocations.remove(&block_id);
+                }
+            });
+
+            GLOBAL_METADATA_TEST.with(|meta| {
                 let mut meta_map = meta.borrow_mut();
                 if let Some(db_meta) = meta_map.get_mut(&self.db_name) {
                     db_meta.remove(&block_id);
