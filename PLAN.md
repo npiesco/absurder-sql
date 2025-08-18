@@ -22,6 +22,13 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 - [x] Added native tests validating version increment and `last_modified_ms` progression across syncs and across instances.
 - [x] Added test ensuring sync without new writes does not bump version or timestamp.
 - [x] Ensured metadata removal on deallocate is persisted and visible across instances.
+- [x] Decided semantics: same-data writes still bump `version` and `last_modified_ms` upon sync for dirty blocks.
+- [x] Added tests: batch write only updates metadata for touched blocks; untouched blocks remain unchanged.
+
+## Recent Progress (2025-08-18)
+- [x] Fixed native `fs_persist` read semantics to be metadata/tombstone-driven (no gating on `allocated_blocks`). Reads only error on explicit tombstones; otherwise read block file when present or zeroed data if missing. Resolved native checksum mismatch after restart.
+- [x] Full test suite green in both default and `fs_persist` configurations.
+- [x] Stabilized native tests to avoid env var races (serialized execution where applicable).
 
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
@@ -33,12 +40,16 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
    - [x] Tests: timer-based flush; threshold-based flush (count/bytes); debounce behavior; Tokio interval determinism; threshold immediate flush w/o debounce; debounce-after-idle
 
 2. Integrity & Metadata Persistence
-   - [ ] Persist per-block metadata (checksum algorithm, value, last_modified, version) with blocks
+   - [x] Persist per-block metadata (checksum value, last_modified, version) with blocks in native `fs_persist` path; checksum algorithm selection TBD
    - [ ] Support fast checksum (xxHash64/CRC32C) or strong (BLAKE3); store algorithm in metadata
-   - [ ] Read-time verification uses stored algorithm; optional verify-after-write
+   - [x] Read-time verification uses persisted checksum; optional `verify_after_write` supported
    - [ ] Startup recovery: verify sample or full set; report/repair
    - [x] Tests: persistence across new instance; mismatch detection (native path)
    - [x] Native test-only metadata persistence and verification implemented; WASM/production persistence pending
+   - [x] Decided metadata semantics (tested):
+     - Version increments and `last_modified_ms` updates on each sync for any dirty block, even if data is unchanged (same-data write).
+     - Idle syncs (no dirty blocks) do not modify metadata.
+     - Batch writes only affect metadata for blocks actually written; untouched blocks' metadata remains unchanged.
 
 3. Crash Consistency & Atomic Batching
    - [ ] IndexedDB transaction writes {blocks + metadata} with commit marker
