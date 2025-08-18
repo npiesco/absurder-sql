@@ -147,3 +147,75 @@ async fn test_metadata_removed_on_deallocate_persists_across_instances() {
     };
     assert!(b_meta.get(&dealloc_id).is_none(), "metadata removal should persist across instances");
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_same_data_write_still_bumps_version_and_timestamp() {
+    let mut storage = BlockStorage::new_with_capacity("test_meta_same_data_bumps", 4)
+        .await
+        .expect("create storage");
+
+    let payload = vec![9u8; BLOCK_SIZE];
+    storage
+        .write_block(5, payload.clone())
+        .await
+        .expect("initial write");
+    storage.sync().await.expect("first sync");
+
+    let meta1 = storage.get_block_metadata_for_testing();
+    let (_c1, v1, t1) = meta1.get(&5).copied().expect("meta after first sync");
+
+    // Same data write; should still count as a new persisted version per current semantics
+    tokio::time::sleep(Duration::from_millis(5)).await; // ensure timestamp can progress
+    storage
+        .write_block(5, payload.clone())
+        .await
+        .expect("same data write");
+    storage.sync().await.expect("second sync");
+
+    let meta2 = storage.get_block_metadata_for_testing();
+    let (_c2, v2, t2) = meta2.get(&5).copied().expect("meta after second sync");
+    assert_eq!(v2, v1 + 1, "version should increment even when data is unchanged");
+    assert!(t2 > t1, "last_modified_ms should update on persisted write");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_batch_write_only_updates_touched_blocks() {
+    let mut storage = BlockStorage::new_with_capacity("test_meta_batch_updates", 4)
+        .await
+        .expect("create storage");
+
+    // Initialize two blocks and persist
+    storage
+        .write_block(21, vec![1u8; BLOCK_SIZE])
+        .await
+        .expect("write 21");
+    storage
+        .write_block(22, vec![2u8; BLOCK_SIZE])
+        .await
+        .expect("write 22");
+    storage.sync().await.expect("first sync");
+
+    let meta1 = storage.get_block_metadata_for_testing();
+    let (_c21_1, v21_1, t21_1) = meta1.get(&21).copied().expect("meta 21 after first sync");
+    let (_c22_1, v22_1, t22_1) = meta1.get(&22).copied().expect("meta 22 after first sync");
+
+    // Touch only block 21
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let mut new21 = vec![1u8; BLOCK_SIZE];
+    new21[0] = 3; // change content to differentiate
+    storage
+        .write_block(21, new21)
+        .await
+        .expect("rewrite 21");
+    storage.sync().await.expect("second sync");
+
+    let meta2 = storage.get_block_metadata_for_testing();
+    let (_c21_2, v21_2, t21_2) = meta2.get(&21).copied().expect("meta 21 after second sync");
+    let (_c22_2, v22_2, t22_2) = meta2.get(&22).copied().expect("meta 22 after second sync");
+
+    assert_eq!(v21_2, v21_1 + 1, "touched block 21 should bump version");
+    assert!(t21_2 > t21_1, "touched block 21 should update timestamp");
+
+    assert_eq!(v22_2, v22_1, "untouched block 22 version should remain unchanged");
+    assert_eq!(t22_2, t22_1, "untouched block 22 timestamp should remain unchanged");
+}
