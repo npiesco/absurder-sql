@@ -2,10 +2,18 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use tempfile::TempDir;
+use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_lru_eviction_of_clean_blocks() {
     // capacity = 2
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: per-test isolated env var, tests are serialized
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_lru_clean", 2)
         .await
         .expect("Should create storage");
@@ -32,8 +40,12 @@ async fn test_lru_eviction_of_clean_blocks() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_lru_does_not_evict_dirty_blocks() {
     // capacity = 2
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: per-test isolated env var, tests are serialized
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_lru_dirty", 2)
         .await
         .expect("Should create storage");

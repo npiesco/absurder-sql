@@ -3,6 +3,17 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::*;
+use tempfile::TempDir;
+use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
+
+fn setup_fs_base() -> TempDir {
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: process-global env var is isolated by #[serial] on tests that call this
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    tmp
+}
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_database_config_creation() {
@@ -84,7 +95,9 @@ async fn test_error_types() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_block_storage_creation() {
+    let _tmp = setup_fs_base();
     // Test that we can create a BlockStorage instance
     let storage = sqlite_indexeddb_rs::storage::BlockStorage::new("test_db_creation").await;
     
@@ -95,7 +108,9 @@ async fn test_block_storage_creation() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_block_storage_read_write() {
+    let _tmp = setup_fs_base();
     // Test basic read/write operations
     let mut storage = sqlite_indexeddb_rs::storage::BlockStorage::new("test_db_rw").await
         .expect("Should create storage");
@@ -116,7 +131,9 @@ async fn test_block_storage_read_write() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_database_creation() {
+    let _tmp = setup_fs_base();
     // Test that we can create a database instance
     let config = DatabaseConfig {
         name: "test_sqlite_creation.db".to_string(),

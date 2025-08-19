@@ -1,7 +1,8 @@
 use sqlite_indexeddb_rs::storage::BlockStorage;
-use std::env;
 use tempfile::TempDir;
 use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test]
 #[serial]
@@ -9,7 +10,7 @@ async fn test_block_allocation_and_deallocation() {
     // Test that we can allocate and deallocate blocks properly
     let tmp = TempDir::new().expect("tempdir");
     // Safety: per-test isolated env var, tests are serialized
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new("test_allocation").await
         .expect("Should create storage");
 
@@ -50,7 +51,7 @@ async fn test_block_allocation_tracking() {
     // Test that allocation tracking works correctly
     let tmp = TempDir::new().expect("tempdir");
     // Safety: per-test isolated env var, tests are serialized
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new("test_tracking").await
         .expect("Should create storage");
 
@@ -75,7 +76,7 @@ async fn test_block_allocation_errors() {
     // Test error conditions for block allocation
     let tmp = TempDir::new().expect("tempdir");
     // Safety: per-test isolated env var, tests are serialized
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new("test_errors").await
         .expect("Should create storage");
 

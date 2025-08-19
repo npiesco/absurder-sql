@@ -1,8 +1,9 @@
 use sqlite_indexeddb_rs::storage::{BlockStorage, SyncPolicy, BLOCK_SIZE};
 
-use std::env;
 use tempfile::TempDir;
 use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 #[serial]
@@ -10,7 +11,7 @@ async fn test_tokio_interval_triggers_flush_on_time_advance() {
     // Isolate fs_persist artifacts per-test
     let tmp = TempDir::new().expect("tempdir");
     // Safety: isolate process-global env var for this serialized test
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     // Arrange: create storage and write a dirty block
     let mut storage = BlockStorage::new("manager_test_db").await.unwrap();
     let block_id = storage.allocate_block().await.unwrap();
@@ -48,7 +49,7 @@ async fn test_threshold_triggers_immediate_flush_without_debounce() {
     // Arrange
     let tmp = TempDir::new().expect("tempdir");
     // Safety: isolate process-global env var for this serialized test
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new("threshold_immediate_db").await.unwrap();
     let block_id = storage.allocate_block().await.unwrap();
     let data = vec![1u8; BLOCK_SIZE];
@@ -78,7 +79,7 @@ async fn test_debounce_flushes_after_idle_following_threshold() {
     // Arrange
     let tmp = TempDir::new().expect("tempdir");
     // Safety: isolate process-global env var for this serialized test
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new("debounce_after_idle_db").await.unwrap();
     let b1 = storage.allocate_block().await.unwrap();
     let b2 = storage.allocate_block().await.unwrap();

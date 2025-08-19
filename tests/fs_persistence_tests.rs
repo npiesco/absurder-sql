@@ -1,10 +1,12 @@
 #![cfg(feature = "fs_persist")]
 
 use sqlite_indexeddb_rs::storage::BlockStorage;
-use std::{env, fs};
+use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 fn make_bytes(val: u8) -> Vec<u8> { vec![val; 4096] }
 
@@ -14,7 +16,7 @@ async fn fs_persist_metadata_and_data_across_instances() {
     // Use a temp base dir to isolate on-disk persistence per test
     let tmp = TempDir::new().expect("tempdir");
     // Safety: tests operate in isolated tempdirs; we intentionally set a process var.
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
 
     // Instance 1: write a block and sync
     let mut s1 = BlockStorage::new("fs_meta_data_test").await.expect("create s1");
@@ -68,7 +70,7 @@ async fn fs_persist_metadata_and_data_across_instances() {
 async fn fs_persist_deallocate_removes_data_and_metadata() {
     let tmp = TempDir::new().expect("tempdir");
     // Safety: tests operate in isolated tempdirs; we intentionally set a process var.
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
 
     // Instance 1: allocate, write, sync
     let mut s1 = BlockStorage::new("fs_dealloc_test").await.expect("create s1");

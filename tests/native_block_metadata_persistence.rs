@@ -2,10 +2,18 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use tempfile::TempDir;
+use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_native_metadata_persists_across_instances() {
     let db_name = "native_meta_persist_db";
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: per-test isolated env var, tests are serialized
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
 
     // Instance 1: write and sync to persist data + metadata
     let mut s1 = BlockStorage::new_with_capacity(db_name, 8)
@@ -34,8 +42,12 @@ async fn test_native_metadata_persists_across_instances() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_native_checksum_mismatch_after_restart() {
     let db_name = "native_meta_mismatch_db";
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: per-test isolated env var, tests are serialized
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
 
     // Instance 1: write and sync
     let mut s1 = BlockStorage::new_with_capacity(db_name, 8)

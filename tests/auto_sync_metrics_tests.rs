@@ -2,15 +2,16 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
-use std::env;
 use tempfile::TempDir;
 use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(flavor = "current_thread")]
 #[serial]
 async fn test_sync_counter_increments_on_timer_flush() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_metrics_timer", 8)
         .await
         .expect("create storage");
@@ -37,7 +38,7 @@ async fn test_sync_counter_increments_on_timer_flush() {
 #[serial]
 async fn test_sync_counter_increments_on_debounce_flush() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_metrics_debounce", 8)
         .await
         .expect("create storage");
@@ -73,7 +74,7 @@ async fn test_sync_counter_increments_on_debounce_flush() {
 #[serial]
 async fn test_timer_vs_debounce_counters() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_metrics_split_counters", 8)
         .await
         .expect("create storage");
@@ -95,7 +96,7 @@ async fn test_timer_vs_debounce_counters() {
 #[serial]
 async fn test_last_sync_duration_is_set() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_metrics_duration", 8)
         .await
         .expect("create storage");

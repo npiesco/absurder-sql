@@ -3,12 +3,25 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::*;
+use tempfile::TempDir;
+use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 // For native Rust, the Database type is actually SqliteIndexedDB
 type Database = SqliteIndexedDB;
 
+fn setup_fs_base() -> TempDir {
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: tests using a process-global env var are serialized via #[serial]
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    tmp
+}
+
 #[tokio::test]
+#[serial]
 async fn test_database_creation() {
+    let _tmp = setup_fs_base();
     // Test that we can create a database instance
     let config = DatabaseConfig {
         name: "test_sqlite_creation.db".to_string(),
@@ -27,7 +40,9 @@ async fn test_database_creation() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_create_table() {
+    let _tmp = setup_fs_base();
     // Test creating a table
     let config = DatabaseConfig {
         name: "test_sqlite_table.db".to_string(),
@@ -48,7 +63,9 @@ async fn test_create_table() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_insert_data() {
+    let _tmp = setup_fs_base();
     // Test inserting data
     let config = DatabaseConfig {
         name: "test_sqlite_insert.db".to_string(),
@@ -75,7 +92,9 @@ async fn test_insert_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_select_data() {
+    let _tmp = setup_fs_base();
     // Test selecting data
     let config = DatabaseConfig {
         name: "test_sqlite_select.db".to_string(),
@@ -117,7 +136,9 @@ async fn test_select_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_update_data() {
+    let _tmp = setup_fs_base();
     // Test updating data
     let config = DatabaseConfig {
         name: "test_sqlite_update.db".to_string(),
@@ -156,7 +177,9 @@ async fn test_update_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_delete_data() {
+    let _tmp = setup_fs_base();
     // Test deleting data
     let config = DatabaseConfig {
         name: "test_sqlite_delete.db".to_string(),
@@ -195,7 +218,9 @@ async fn test_delete_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_parametrized_queries() {
+    let _tmp = setup_fs_base();
     // Test queries with parameters
     let config = DatabaseConfig {
         name: "test_sqlite_params.db".to_string(),
@@ -240,7 +265,9 @@ async fn test_parametrized_queries() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_multiple_data_types() {
+    let _tmp = setup_fs_base();
     // Test handling of all SQLite data types
     let config = DatabaseConfig {
         name: "test_sqlite_types.db".to_string(),
@@ -289,7 +316,9 @@ async fn test_multiple_data_types() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_database_close() {
+    let _tmp = setup_fs_base();
     // Test database closing
     let config = DatabaseConfig {
         name: "test_sqlite_close.db".to_string(),

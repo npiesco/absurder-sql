@@ -2,15 +2,16 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
-use std::env;
 use tempfile::TempDir;
 use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(flavor = "current_thread")]
 #[serial]
 async fn test_threshold_based_flush_on_max_dirty() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_policy_threshold", 8)
         .await
         .expect("create storage");
@@ -46,7 +47,7 @@ async fn test_threshold_based_flush_on_max_dirty() {
 #[serial]
 async fn test_max_dirty_bytes_flush_respects_debounce() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_policy_bytes", 8)
         .await
         .expect("create storage");
@@ -85,7 +86,7 @@ async fn test_max_dirty_bytes_flush_respects_debounce() {
 #[serial]
 async fn test_debounce_resets_on_continued_writes() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_policy_debounce", 8)
         .await
         .expect("create storage");

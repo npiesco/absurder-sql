@@ -2,15 +2,16 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
-use std::env;
 use tempfile::TempDir;
 use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(flavor = "current_thread")]
 #[serial]
 async fn test_read_verifies_checksum_and_errors_on_mismatch() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_integrity_mismatch", 4)
         .await
         .expect("create storage");
@@ -39,7 +40,7 @@ async fn test_read_verifies_checksum_and_errors_on_mismatch() {
 #[serial]
 async fn test_read_ok_when_checksum_matches() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_integrity_ok", 4)
         .await
         .expect("create storage");
@@ -56,7 +57,7 @@ async fn test_read_ok_when_checksum_matches() {
 #[serial]
 async fn test_verify_block_checksum_api() {
     let tmp = TempDir::new().expect("tempdir");
-    unsafe { env::set_var("DATASYNC_FS_BASE", tmp.path()); }
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_integrity_api", 4)
         .await
         .expect("create storage");

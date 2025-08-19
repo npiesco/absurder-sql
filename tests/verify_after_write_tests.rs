@@ -2,9 +2,17 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
+use tempfile::TempDir;
+use serial_test::serial;
+#[path = "common/mod.rs"]
+mod common;
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_verify_after_write_success_on_clean_state() {
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: per-test isolated env var, tests are serialized
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_vaw_success", 8)
         .await
         .expect("create storage");
@@ -28,7 +36,11 @@ async fn test_verify_after_write_success_on_clean_state() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[serial]
 async fn test_verify_after_write_blocks_write_on_prior_checksum_mismatch() {
+    let tmp = TempDir::new().expect("tempdir");
+    // Safety: per-test isolated env var, tests are serialized
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
     let mut storage = BlockStorage::new_with_capacity("test_vaw_fail", 8)
         .await
         .expect("create storage");
