@@ -30,7 +30,7 @@ thread_local! {
 
 // Persistent metadata storage for WASM builds (and tests on native). Also reused for fs_persist.
 #[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions)), feature = "fs_persist"))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 #[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]
 enum ChecksumAlgorithm { FastHash, CRC32 }
@@ -317,11 +317,23 @@ impl BlockStorage {
             if let Ok(mut f) = fs::File::open(&meta_path) {
                 let mut s = String::new();
                 if f.read_to_string(&mut s).is_ok() {
-                    if let Ok(parsed) = serde_json::from_str::<FsMeta>(&s) {
-                        for (bid, m) in parsed.entries.into_iter() {
-                            map.insert(bid, m.checksum);
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) {
+                        if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
+                            for entry in entries.iter() {
+                                if let Some(arr) = entry.as_array() {
+                                    if arr.len() == 2 {
+                                        let id_opt = arr.get(0).and_then(|v| v.as_u64());
+                                        let meta_opt = arr.get(1).and_then(|v| v.as_object());
+                                        if let (Some(bid), Some(meta)) = (id_opt, meta_opt) {
+                                            if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) {
+                                                map.insert(bid, csum);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            log::info!("[fs] Restored checksum metadata for database: {}", db_name);
                         }
-                        log::info!("[fs] Restored checksum metadata for database: {}", db_name);
                     }
                 }
             }
@@ -339,11 +351,27 @@ impl BlockStorage {
             if let Ok(mut f) = fs::File::open(&meta_path) {
                 let mut s = String::new();
                 if f.read_to_string(&mut s).is_ok() {
-                    if let Ok(parsed) = serde_json::from_str::<FsMeta>(&s) {
-                        for (bid, m) in parsed.entries.into_iter() {
-                            map.insert(bid, m.algo);
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) {
+                        if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
+                            for entry in entries.iter() {
+                                if let Some(arr) = entry.as_array() {
+                                    if arr.len() == 2 {
+                                        let id_opt = arr.get(0).and_then(|v| v.as_u64());
+                                        let meta_opt = arr.get(1).and_then(|v| v.as_object());
+                                        if let (Some(bid), Some(meta)) = (id_opt, meta_opt) {
+                                            let algo_opt = meta.get("algo").and_then(|v| v.as_str());
+                                            let algo = match algo_opt {
+                                                Some("FastHash") => Some(ChecksumAlgorithm::FastHash),
+                                                Some("CRC32") => Some(ChecksumAlgorithm::CRC32),
+                                                _ => None, // tolerate invalid/missing by not inserting; will fallback to default later
+                                            };
+                                            if let Some(a) = algo { map.insert(bid, a); }
+                                        }
+                                    }
+                                }
+                            }
+                            log::info!("[fs] Restored checksum algorithms for database: {}", db_name);
                         }
-                        log::info!("[fs] Restored checksum algorithms for database: {}", db_name);
                     }
                 }
             }
@@ -577,6 +605,20 @@ impl BlockStorage {
                 .unwrap_or(self.checksum_algo_default);
             let actual = Self::compute_checksum_with(data, algo);
             if *expected != actual {
+                // Try other known algorithms to detect algorithm mismatch
+                let known_algos = [ChecksumAlgorithm::FastHash, ChecksumAlgorithm::CRC32];
+                for alt in known_algos.iter().copied().filter(|a| *a != algo) {
+                    let alt_sum = Self::compute_checksum_with(data, alt);
+                    if *expected == alt_sum {
+                        return Err(DatabaseError::new(
+                            "ALGO_MISMATCH",
+                            &format!(
+                                "Checksum algorithm mismatch for block {}: stored algo {:?}, but data matches {:?}",
+                                block_id, algo, alt
+                            ),
+                        ));
+                    }
+                }
                 return Err(DatabaseError::new(
                     "CHECKSUM_MISMATCH",
                     &format!(
@@ -1336,16 +1378,38 @@ impl BlockStorage {
                 db_dir.push(&self.db_name);
                 let mut blocks_dir = db_dir.clone();
                 blocks_dir.push("blocks");
-                // Load metadata.json (do not prune based on allocated; retain all persisted entries)
+                // Load metadata.json (do not prune based on allocated; retain all persisted entries),
+                // normalize invalid/missing algo values to the current default
                 let mut meta_path = db_dir.clone();
                 meta_path.push("metadata.json");
-                let mut meta = FsMeta::default();
+                let mut meta_val: serde_json::Value = serde_json::json!({"entries": []});
                 if let Ok(mut f) = fs::File::open(&meta_path) {
                     let mut s = String::new();
-                    if f.read_to_string(&mut s).is_ok() { let _ = serde_json::from_str::<FsMeta>(&s).map(|m| { meta = m; }); }
+                    if f.read_to_string(&mut s).is_ok() {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) { meta_val = v; }
+                    }
                 }
+                // Ensure structure exists
+                if !meta_val.is_object() { meta_val = serde_json::json!({"entries": []}); }
+                // Normalize per-entry algo values if missing/invalid
+                if let Some(entries) = meta_val.get_mut("entries").and_then(|e| e.as_array_mut()) {
+                    for ent in entries.iter_mut() {
+                        if let Some(arr) = ent.as_array_mut() {
+                            if arr.len() == 2 {
+                                if let Some(obj) = arr.get_mut(1).and_then(|v| v.as_object_mut()) {
+                                    let ok = obj.get("algo").and_then(|v| v.as_str()).map(|s| s == "FastHash" || s == "CRC32").unwrap_or(false);
+                                    if !ok {
+                                        let def = match self.checksum_algo_default { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
+                                        obj.insert("algo".into(), serde_json::Value::String(def.into()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let meta_string = serde_json::to_string(&meta_val).unwrap_or_else(|_| "{}".into());
                 let allocated: std::collections::HashSet<u64> = self.allocated_blocks.clone();
-                if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(serde_json::to_string(&meta).unwrap_or_else(|_| "{}".into()).as_bytes()); }
+                if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
                 // Rewrite allocations.json from current set
                 let mut alloc_path = db_dir.clone();
                 alloc_path.push("allocations.json");
@@ -1355,7 +1419,9 @@ impl BlockStorage {
                 if let Ok(mut f) = fs::File::create(&alloc_path) { let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes()); }
                 // Remove stray block files not allocated
                 // Determine valid block ids from metadata; remove files that have no metadata entry
-                let valid_ids: std::collections::HashSet<u64> = meta.entries.iter().map(|(bid, _)| *bid).collect();
+                let valid_ids: std::collections::HashSet<u64> = if let Some(entries) = meta_val.get("entries").and_then(|e| e.as_array()) {
+                    entries.iter().filter_map(|ent| ent.as_array().and_then(|arr| arr.get(0)).and_then(|v| v.as_u64())).collect()
+                } else { std::collections::HashSet::new() };
                 if let Ok(entries) = fs::read_dir(&blocks_dir) {
                     for entry in entries.flatten() {
                         if let Ok(ft) = entry.file_type() {
@@ -1388,7 +1454,7 @@ impl BlockStorage {
                     let _ = fs::create_dir_all(&alt_blocks_dir);
                     let mut alt_meta_path = alt_db_dir.clone();
                     alt_meta_path.push("metadata.json");
-                    if let Ok(mut f) = fs::File::create(&alt_meta_path) { let _ = f.write_all(serde_json::to_string(&meta).unwrap_or_else(|_| "{}".into()).as_bytes()); }
+                    if let Ok(mut f) = fs::File::create(&alt_meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
                     let mut alt_alloc_path = alt_db_dir.clone();
                     alt_alloc_path.push("allocations.json");
                     if let Ok(mut f) = fs::File::create(&alt_alloc_path) { let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes()); }
@@ -1476,14 +1542,27 @@ impl BlockStorage {
             meta_path.push("metadata.json");
             // Ensure dirs exist
             let _ = fs::create_dir_all(&blocks_dir);
-            // Load existing metadata
-            let mut meta = FsMeta::default();
+            // Load existing metadata tolerantly and build a JSON object map keyed by id
+            let mut meta_val: serde_json::Value = serde_json::json!({"entries": []});
             if let Ok(mut f) = fs::File::open(&meta_path) {
                 let mut s = String::new();
-                if f.read_to_string(&mut s).is_ok() { let _ = serde_json::from_str::<FsMeta>(&s).map(|m| { meta = m; }); }
+                if f.read_to_string(&mut s).is_ok() {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) { meta_val = v; }
+                }
             }
-            // Build a map for easy update
-            let mut map: HashMap<u64, BlockMetadataPersist> = meta.entries.into_iter().collect();
+            if !meta_val.is_object() { meta_val = serde_json::json!({"entries": []}); }
+            let mut map: HashMap<u64, serde_json::Map<String, serde_json::Value>> = HashMap::new();
+            if let Some(entries) = meta_val.get("entries").and_then(|e| e.as_array()) {
+                for ent in entries.iter() {
+                    if let Some(arr) = ent.as_array() {
+                        if arr.len() == 2 {
+                            if let (Some(id), Some(obj)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
+                                map.insert(id, obj.clone());
+                            }
+                        }
+                    }
+                }
+            }
             for (block_id, data) in to_persist {
                 // write block file
                 let mut block_file = blocks_dir.clone();
@@ -1491,22 +1570,39 @@ impl BlockStorage {
                 if let Ok(mut f) = fs::File::create(&block_file) { let _ = f.write_all(&data); }
                 // update metadata
                 if let Some(&checksum) = self.checksums.get(&block_id) {
-                    let version = map.get(&block_id).map(|m| m.version).unwrap_or(0).saturating_add(1);
+                    let version_u64 = map.get(&block_id).and_then(|m| m.get("version")).and_then(|v| v.as_u64()).unwrap_or(0).saturating_add(1);
                     let algo = self
                         .checksum_algos
                         .get(&block_id)
                         .copied()
                         .unwrap_or(self.checksum_algo_default);
-                    map.insert(block_id, BlockMetadataPersist { checksum, last_modified_ms: now_ms, version, algo });
+                    let algo_str = match algo { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("checksum".into(), serde_json::Value::from(checksum));
+                    obj.insert("last_modified_ms".into(), serde_json::Value::from(now_ms));
+                    obj.insert("version".into(), serde_json::Value::from(version_u64 as u64));
+                    obj.insert("algo".into(), serde_json::Value::String(algo_str.into()));
+                    map.insert(block_id, obj);
+                }
+            }
+            // Normalize any remaining entries with missing/invalid algo
+            for (_id, obj) in map.iter_mut() {
+                let ok = obj.get("algo").and_then(|v| v.as_str()).map(|s| s == "FastHash" || s == "CRC32").unwrap_or(false);
+                if !ok {
+                    let def = match self.checksum_algo_default { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
+                    obj.insert("algo".into(), serde_json::Value::String(def.into()));
                 }
             }
             // Do not prune metadata based on allocated set; preserve entries for all persisted blocks
             let allocated: std::collections::HashSet<u64> = self.allocated_blocks.clone();
-            // Save metadata
-            let new_meta = FsMeta { entries: map.into_iter().collect() };
-            if let Ok(mut f) = fs::File::create(&meta_path) {
-                let _ = f.write_all(serde_json::to_string(&new_meta).unwrap_or_else(|_| "{}".into()).as_bytes());
+            // Save metadata (build entries array [[id, obj], ...])
+            let mut entries_vec: Vec<serde_json::Value> = Vec::new();
+            for (id, obj) in map.iter() {
+                entries_vec.push(serde_json::Value::Array(vec![serde_json::Value::from(*id), serde_json::Value::Object(obj.clone())]));
             }
+            let meta_out = serde_json::json!({"entries": entries_vec});
+            let meta_string = serde_json::to_string(&meta_out).unwrap_or_else(|_| "{}".into());
+            if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
             // Mirror allocations.json to current allocated set
             let mut alloc_path = db_dir.clone();
             alloc_path.push("allocations.json");
@@ -1518,7 +1614,7 @@ impl BlockStorage {
             }
             // Remove any stray block files for deallocated blocks
             // Determine valid ids from metadata; remove files without a metadata entry
-            let valid_ids: std::collections::HashSet<u64> = new_meta.entries.iter().map(|(bid, _)| *bid).collect();
+            let valid_ids: std::collections::HashSet<u64> = map.keys().cloned().collect();
             if let Ok(entries) = fs::read_dir(&blocks_dir) {
                 for entry in entries.flatten() {
                     if let Ok(ft) = entry.file_type() {
@@ -1561,9 +1657,7 @@ impl BlockStorage {
                 // Save metadata mirror
                 let mut alt_meta_path = alt_db_dir.clone();
                 alt_meta_path.push("metadata.json");
-                if let Ok(mut f) = fs::File::create(&alt_meta_path) {
-                    let _ = f.write_all(serde_json::to_string(&new_meta).unwrap_or_else(|_| "{}".into()).as_bytes());
-                }
+                if let Ok(mut f) = fs::File::create(&alt_meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
                 // allocations mirror
                 let mut alt_alloc_path = alt_db_dir.clone();
                 alt_alloc_path.push("allocations.json");
@@ -1821,6 +1915,8 @@ impl BlockStorage {
         self.cache.remove(&block_id);
         self.dirty_blocks.lock().unwrap().remove(&block_id);
         self.checksums.remove(&block_id);
+        // Remove per-block algorithm metadata so reuses adopt the current default
+        self.checksum_algos.remove(&block_id);
         
         // For WASM, remove from global storage
         #[cfg(target_arch = "wasm32")]
@@ -1871,10 +1967,24 @@ impl BlockStorage {
             // update metadata.json (remove entry)
             let mut meta_path = db_dir.clone();
             meta_path.push("metadata.json");
-            let mut meta = FsMeta::default();
-            if let Ok(mut f) = fs::File::open(&meta_path) { let mut s = String::new(); if f.read_to_string(&mut s).is_ok() { let _ = serde_json::from_str::<FsMeta>(&s).map(|m| { meta = m; }); } }
-            meta.entries.retain(|(bid, _)| *bid != block_id);
-            if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(serde_json::to_string(&meta).unwrap_or_else(|_| "{}".into()).as_bytes()); }
+            // Tolerant JSON handling: remove entry with matching id from entries array
+            let mut meta_val: serde_json::Value = serde_json::json!({"entries": []});
+            if let Ok(mut f) = fs::File::open(&meta_path) {
+                let mut s = String::new();
+                if f.read_to_string(&mut s).is_ok() { if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) { meta_val = v; } }
+            }
+            if !meta_val.is_object() { meta_val = serde_json::json!({"entries": []}); }
+            if let Some(entries) = meta_val.get_mut("entries").and_then(|v| v.as_array_mut()) {
+                entries.retain(|ent| {
+                    ent.as_array()
+                        .and_then(|arr| arr.get(0))
+                        .and_then(|v| v.as_u64())
+                        .map(|bid| bid != block_id)
+                        .unwrap_or(true)
+                });
+            }
+            let meta_string = serde_json::to_string(&meta_val).unwrap_or_else(|_| "{}".into());
+            if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
 
             // Append to deallocated tombstones and persist deallocated.json
             let mut dealloc_path = db_dir.clone();

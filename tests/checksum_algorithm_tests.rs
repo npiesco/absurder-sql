@@ -118,3 +118,193 @@ async fn test_tempdir_based_fs_base_is_cleaned_up_after_drop() {
     // After TempDir drop, the directory should not exist
     assert!(!base_path.exists(), "TempDir-based DATASYNC_FS_BASE should be removed after drop");
 }
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_algo_removed_on_deallocate_and_reuse_picks_new_default() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    common::set_var("DATASYNC_CHECKSUM_ALGO", "CRC32");
+    let db = "test_algo_reuse_new_default";
+
+    // Instance A: CRC32 default, write then deallocate block 3
+    {
+        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        // Explicitly allocate block 3 before writing/deallocating to match allocation semantics
+        let _ = a.allocate_block().await.expect("alloc 1");
+        let _ = a.allocate_block().await.expect("alloc 2");
+        let id3 = a.allocate_block().await.expect("alloc 3");
+        assert_eq!(id3, 3, "expected third allocation to be block 3");
+        let data = vec![0x11u8; BLOCK_SIZE];
+        a.write_block(3, data).await.expect("write A");
+        a.sync().await.expect("sync A");
+        a.deallocate_block(3).await.expect("dealloc 3");
+        a.sync().await.expect("sync A2");
+    }
+
+    // Switch default to FastHash for new instance reuse
+    {
+        let _g = common::ENV_LOCK.lock().expect("env lock");
+        unsafe { std::env::set_var("DATASYNC_CHECKSUM_ALGO", "FastHash") }
+        drop(_g);
+    }
+
+    // Instance B: reuse block 3; metadata algo should now be FastHash
+    {
+        let mut b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
+        let data2 = vec![0x22u8; BLOCK_SIZE];
+        b.write_block(3, data2).await.expect("write B");
+        b.sync().await.expect("sync B");
+
+        let mut meta_path = PathBuf::from(tmp.path());
+        meta_path.push(db);
+        meta_path.push("metadata.json");
+        let text = fs::read_to_string(&meta_path).expect("read metadata.json");
+        let parsed: TestFsMeta = serde_json::from_str(&text).expect("parse FsMeta");
+        let entry = &parsed.entries.iter().find(|(bid, _)| *bid == 3).expect("entry for block 3").1;
+        assert_eq!(entry.algo.as_str(), "FastHash", "reused block should use current default algo after deallocation");
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_missing_algo_field_fallbacks_to_default_on_next_write() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    let db = "test_missing_algo_fallback";
+
+    // Instance A: write with default FastHash
+    {
+        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        a.write_block(1, vec![0x33u8; BLOCK_SIZE]).await.expect("write A");
+        a.sync().await.expect("sync A");
+    }
+
+    // Corrupt metadata: remove 'algo' for block 1
+    let mut meta_path = PathBuf::from(tmp.path());
+    meta_path.push(db);
+    meta_path.push("metadata.json");
+    let text = fs::read_to_string(&meta_path).expect("read meta");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("json");
+    if let Some(entries) = v.get_mut("entries").and_then(|e| e.as_array_mut()) {
+        for ent in entries.iter_mut() {
+            if let Some(arr) = ent.as_array_mut() {
+                if let (Some(id), Some(obj)) = (arr.get(0).and_then(|x| x.as_u64()), arr.get_mut(1).and_then(|x| x.as_object_mut())) {
+                    if id == 1 {
+                        obj.remove("algo");
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&meta_path, serde_json::to_string(&v).unwrap()).expect("write meta");
+
+    // Instance B: can read, then rewrite and metadata should regain default algo
+    {
+        let mut b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
+        let bytes = b.read_block(1).await.expect("read B");
+        // rewrite same contents to persist fresh metadata with default algo
+        b.write_block(1, bytes).await.expect("rewrite B");
+        b.sync().await.expect("sync B");
+
+        let text2 = fs::read_to_string(&meta_path).expect("read meta2");
+        let parsed: TestFsMeta = serde_json::from_str(&text2).expect("parse FsMeta after");
+        let entry = &parsed.entries.iter().find(|(bid, _)| *bid == 1).expect("entry for block 1").1;
+        assert_eq!(entry.algo.as_str(), "FastHash", "missing algo should fall back to default on next write");
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_invalid_algo_string_tolerant_restore_and_fallback_per_entry() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    let db = "test_invalid_algo_tolerant";
+
+    // Instance A: write two blocks with default FastHash
+    {
+        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        a.write_block(10, vec![0x44u8; BLOCK_SIZE]).await.expect("w10");
+        a.write_block(11, vec![0x55u8; BLOCK_SIZE]).await.expect("w11");
+        a.sync().await.expect("sync A");
+    }
+
+    // Corrupt metadata: set block 10 algo to invalid string, keep block 11 valid
+    let mut meta_path = PathBuf::from(tmp.path());
+    meta_path.push(db);
+    meta_path.push("metadata.json");
+    let text = fs::read_to_string(&meta_path).expect("read meta");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("json");
+    if let Some(entries) = v.get_mut("entries").and_then(|e| e.as_array_mut()) {
+        for ent in entries.iter_mut() {
+            if let Some(arr) = ent.as_array_mut() {
+                if let (Some(id), Some(obj)) = (arr.get(0).and_then(|x| x.as_u64()), arr.get_mut(1).and_then(|x| x.as_object_mut())) {
+                    if id == 10 {
+                        obj.insert("algo".into(), serde_json::Value::String("BAD".into()));
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&meta_path, serde_json::to_string(&v).unwrap()).expect("write meta");
+
+    // Instance B: tolerant restore should retain checksums, fall back algo for id 10 only.
+    {
+        let mut b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
+        // Ensure other entries restored unaffected
+        assert!(b.get_block_checksum(11).is_some(), "valid entries should still restore");
+        // Verify id 10 is readable and verifiable (fallback to default algorithm)
+        b.verify_block_checksum(10).await.expect("verify id10 with fallback algo");
+        // Sync to rewrite normalized metadata for id 10
+        b.sync().await.expect("sync B");
+        let text2 = fs::read_to_string(&meta_path).expect("read meta2");
+        let parsed: TestFsMeta = serde_json::from_str(&text2).expect("parse FsMeta after");
+        let entry10 = &parsed.entries.iter().find(|(bid, _)| *bid == 10).expect("entry for block 10").1;
+        assert_eq!(entry10.algo.as_str(), "FastHash", "invalid algo should be normalized to default after sync");
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_algo_mismatch_triggers_verification_error() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    let db = "test_algo_mismatch_error";
+
+    // Instance A: write with default FastHash
+    {
+        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        a.write_block(5, vec![0x66u8; BLOCK_SIZE]).await.expect("write A");
+        a.sync().await.expect("sync A");
+    }
+
+    // Tamper metadata: switch algo to CRC32 but keep checksum (from FastHash)
+    let mut meta_path = PathBuf::from(tmp.path());
+    meta_path.push(db);
+    meta_path.push("metadata.json");
+    let text = fs::read_to_string(&meta_path).expect("read meta");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("json");
+    if let Some(entries) = v.get_mut("entries").and_then(|e| e.as_array_mut()) {
+        for ent in entries.iter_mut() {
+            if let Some(arr) = ent.as_array_mut() {
+                if let (Some(id), Some(obj)) = (arr.get(0).and_then(|x| x.as_u64()), arr.get_mut(1).and_then(|x| x.as_object_mut())) {
+                    if id == 5 {
+                        obj.insert("algo".into(), serde_json::Value::String("CRC32".into()));
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&meta_path, serde_json::to_string(&v).unwrap()).expect("write meta");
+
+    // Instance B: read should now fail checksum verification due to algo mismatch
+    {
+        let mut b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
+        let res = b.read_block(5).await;
+        assert!(res.is_err(), "expected checksum verification error after algo tamper");
+    }
+}

@@ -32,6 +32,19 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 
 - [x] Added TempDir-based `DATASYNC_FS_BASE` isolation and `#[serial]` across auto-sync, metadata, and integrity native tests to prevent cross-test interference.
 - [x] Ensured cross-instance tests reuse a single TempDir per test to preserve persistence semantics, then re-ran suites in default and with `fs_persist` — all passing.
+- [x] Updated `fs_persist` prune semantics: during sync, do not prune `metadata.json` entries based on the allocated set; use metadata entries to decide which `block_*.bin` files to keep. Preserves version/timestamp history for written blocks.
+
+## Recent Progress (2025-08-19)
+- [x] Implemented auto-sync shutdown tests validating `drain_and_shutdown()` idempotency and that all background workers (timer/debounce) stop; no further background flushes occur after shutdown. Green in both default and with `fs_persist`.
+- [x] Documented shutdown semantics in code: final `sync_now()`, disable interval, signal `auto_sync_stop`, join threads, abort Tokio tasks, and reset `threshold_hit`. Safe to call multiple times.
+
+## Recent Progress (2025-08-20)
+- [x] Implemented checksum algorithm selection (FastHash/CRC32) with per-block algorithm metadata persistence in `fs_persist` mode.
+- [x] Added environment variable `DATASYNC_CHECKSUM_ALGO` to control default algorithm selection.
+- [x] Enhanced checksum verification to detect algorithm mismatches and return distinct `ALGO_MISMATCH` error.
+- [x] Implemented tolerant JSON parsing for metadata normalization during sync and deallocation operations.
+- [x] Fixed failing checksum algorithm test by ensuring explicit block allocation before write/deallocate operations.
+- [x] Verified all checksum algorithm tests pass with `fs_persist` enabled and full test suite passes in both configurations.
 
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
@@ -44,8 +57,9 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 
 2. Integrity & Metadata Persistence
    - [x] Persist per-block metadata (checksum value, last_modified, version) with blocks in native `fs_persist` path; checksum algorithm selection TBD
-   - [ ] Support fast checksum (xxHash64/CRC32C) or strong (BLAKE3); store algorithm in metadata
+   - [x] Support fast checksum (FastHash/CRC32) with per-block algorithm metadata; store algorithm in metadata
    - [x] Read-time verification uses persisted checksum; optional `verify_after_write` supported
+   - [x] Algorithm mismatch detection with distinct `ALGO_MISMATCH` error code
    - [ ] Startup recovery: verify sample or full set; report/repair
    - [x] Tests: persistence across new instance; mismatch detection (native path)
    - [x] Native test-only metadata persistence and verification implemented; WASM/production persistence pending
