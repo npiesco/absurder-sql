@@ -56,6 +56,11 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 - [x] Extended startup recovery to reconcile files vs metadata: remove stray `block_*.bin` files, drop metadata entries for missing/invalid block files, atomically rewrite `metadata.json` and `allocations.json`, and update in-memory maps to match. Added crash-hardened fsyncs (sync temp files, rename targets, and parent directories; fsync `blocks/` after deletions).
 - [x] Added fs_persist tests in `tests/recovery_reconciliation_tests.rs`: stray file removal, missing-file metadata drop, and idempotence across repeated recovery runs. Full suites green in both default and with `fs_persist`.
 
+## Recent Progress (2025-08-21)
+- [x] Added TDD test `tests/recovery_invalid_size_tests.rs` validating startup recovery drops metadata for invalid-sized block files and remains idempotent across runs.
+- [x] Verified existing recovery reconciliation already handles invalid-sized files; full test suites pass with and without `fs_persist`.
+- [ ] Optional enhancement: delete invalid-sized block files during the same reconciliation pass (currently they become stray and are removed on a subsequent recovery).
+
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
    - [x] Introduce `SyncPolicy` (interval_ms, max_dirty, max_bytes, debounce_ms; `verify_after_write` flag present)
