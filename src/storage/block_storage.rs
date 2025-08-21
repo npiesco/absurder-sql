@@ -749,15 +749,37 @@ impl BlockStorage {
 
             // Remove metadata entries whose files are missing/invalid
             let before_len = entries_val.len();
+            // Track deletions of invalid-sized files to fsync directory after
+            let mut deleted_invalid_files: usize = 0;
             if before_len > 0 {
                 entries_val.retain(|entry| {
                     if let Some(arr) = entry.as_array() {
                         if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
                             let p = blocks_dir.join(format!("block_{}.bin", id));
                             match fs::metadata(&p) {
-                                Ok(meta) => meta.is_file() && meta.len() as usize == BLOCK_SIZE,
+                                Ok(meta) => {
+                                    if meta.is_file() && meta.len() as usize == BLOCK_SIZE {
+                                        true
+                                    } else {
+                                        // Invalid-sized or non-regular file: drop metadata and delete file now
+                                        log::warn!(
+                                            "[fs] Removing metadata for block {} due to invalid file (len={} bytes); deleting {:?}",
+                                            id, meta.len(), p
+                                        );
+                                        match fs::remove_file(&p) {
+                                            Ok(()) => {
+                                                deleted_invalid_files += 1;
+                                                log::info!("[fs] Deleted invalid-sized block file {:?}", p);
+                                            }
+                                            Err(e) => {
+                                                log::error!("[fs] Failed to delete invalid-sized block file {:?}: {}", p, e);
+                                            }
+                                        }
+                                        false
+                                    }
+                                }
                                 Err(_) => {
-                                    log::warn!("[fs] Removing metadata entry for block {} due to missing/invalid file {:?}", id, p);
+                                    log::warn!("[fs] Removing metadata entry for block {} due to missing file {:?}", id, p);
                                     false
                                 }
                             }
@@ -768,6 +790,14 @@ impl BlockStorage {
                         true
                     }
                 });
+            }
+            // If we deleted any invalid-sized files, fsync the blocks directory (best-effort on Unix)
+            if deleted_invalid_files > 0 {
+                #[cfg(unix)]
+                if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&blocks_dir) {
+                    let _ = dirf.sync_all();
+                }
+                log::info!("[fs] Deleted {} invalid-sized block file(s) during reconciliation", deleted_invalid_files);
             }
             let meta_changed = entries_val.len() != before_len;
 
