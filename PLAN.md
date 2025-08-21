@@ -45,6 +45,13 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 - [x] Implemented tolerant JSON parsing for metadata normalization during sync and deallocation operations.
 - [x] Fixed failing checksum algorithm test by ensuring explicit block allocation before write/deallocate operations.
 - [x] Verified all checksum algorithm tests pass with `fs_persist` enabled and full test suite passes in both configurations.
+- [x] Implemented Startup Recovery for BlockStorage: `RecoveryOptions` (Full/Sample/Skip), `CorruptionAction` (Report/Repair/Fail), `new_with_recovery_options()`, and `perform_startup_recovery()` with detailed `RecoveryReport`.
+- [x] Added `tests/startup_recovery_tests.rs` covering corruption detection, sample verification, and repair actions (feature-gated under `fs_persist`).
+- [x] Updated tests to compile clean when `fs_persist` is disabled via `#[cfg(feature = "fs_persist")]` guards.
+- [x] Validated both configurations sequentially: `cargo test -- --nocapture` and `cargo test --features fs_persist -- --nocapture` — all green.
+- [x] Implemented atomic commit marker protocol in native `fs_persist` for `BlockStorage::sync_now()`: write `metadata.json.pending`, `sync_all()`, then atomic rename to `metadata.json`. Mirrored to the alternate base path used in tests. Applied for both main persist and cleanup-only paths.
+- [x] Added crash consistency tests in `tests/crash_consistency_tests.rs` covering finalize (when data present) and rollback (when data missing) of a pending commit marker on startup; both pass.
+- [x] Re-ran full suites with and without `fs_persist`: all tests green after gating crash tests under the feature.
 
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
@@ -60,7 +67,7 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
    - [x] Support fast checksum (FastHash/CRC32) with per-block algorithm metadata; store algorithm in metadata
    - [x] Read-time verification uses persisted checksum; optional `verify_after_write` supported
    - [x] Algorithm mismatch detection with distinct `ALGO_MISMATCH` error code
-   - [ ] Startup recovery: verify sample or full set; report/repair
+   - [x] Startup recovery: verify sample or full set; report/repair
    - [x] Tests: persistence across new instance; mismatch detection (native path)
    - [x] Native test-only metadata persistence and verification implemented; WASM/production persistence pending
    - [x] Decided metadata semantics (tested):
@@ -68,11 +75,15 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
      - Idle syncs (no dirty blocks) do not modify metadata.
      - Batch writes only affect metadata for blocks actually written; untouched blocks' metadata remains unchanged.
 
-3. Crash Consistency & Atomic Batching
-   - [ ] IndexedDB transaction writes {blocks + metadata} with commit marker
-   - [ ] Recovery scans markers to finalize/rollback
+3→ Crash Consistency & Atomic Batching
+   - [x] Native (fs_persist): Atomic commit marker for metadata (`metadata.json.pending` -> `metadata.json`) in `sync_now()`
+   - [x] Native (fs_persist): Startup recovery finalizes/rolls back pending metadata based on block presence; tests in `tests/crash_consistency_tests.rs`
+   - [ ] Native (fs_persist): Extend recovery scan to detect and reconcile mismatches (stray `block_*.bin` vs metadata entries), ensure idempotence
+   - [ ] Native (fs_persist): Add detailed logging around sync/commit/recovery paths for observability
+   - [ ] IndexedDB: Transactional writes {blocks + metadata} with commit marker
+   - [ ] IndexedDB: Recovery scans markers to finalize/rollback
    - [ ] Idempotent writes keyed by (block_id, version)
-   - [ ] Tests: simulate crash mid-commit; recovery correctness
+   - [ ] Tests: simulate crash mid-commit; recovery correctness (both native and IndexedDB)
 
 4. Multi-Tab Single-Writer
    - [ ] Leader election (BroadcastChannel + lease lock with expiry)

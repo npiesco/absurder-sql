@@ -48,6 +48,46 @@ struct BlockMetadataPersist {
     algo: ChecksumAlgorithm,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct RecoveryOptions {
+    pub mode: RecoveryMode,
+    pub on_corruption: CorruptionAction,
+}
+
+#[derive(Clone, Debug)]
+pub enum RecoveryMode {
+    Full,
+    Sample { count: usize },
+    Skip,
+}
+
+impl Default for RecoveryMode {
+    fn default() -> Self {
+        RecoveryMode::Full
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum CorruptionAction {
+    Report,
+    Repair,
+    Fail,
+}
+
+impl Default for CorruptionAction {
+    fn default() -> Self {
+        CorruptionAction::Report
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RecoveryReport {
+    pub total_blocks_verified: usize,
+    pub corrupted_blocks: Vec<u64>,
+    pub repaired_blocks: Vec<u64>,
+    pub verification_duration_ms: u64,
+}
+
 // On-disk JSON schema for fs_persist
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[derive(serde::Serialize, serde::Deserialize, Default)]
@@ -155,6 +195,9 @@ pub struct BlockStorage {
     debounce_sync_count: Arc<AtomicU64>,
     #[cfg(not(target_arch = "wasm32"))]
     last_sync_duration_ms: Arc<AtomicU64>,
+    
+    // Startup recovery report
+    recovery_report: RecoveryReport,
 }
 
 impl BlockStorage {
@@ -507,6 +550,7 @@ impl BlockStorage {
             debounce_sync_count: Arc::new(AtomicU64::new(0)),
             #[cfg(not(target_arch = "wasm32"))]
             last_sync_duration_ms: Arc::new(AtomicU64::new(0)),
+            recovery_report: RecoveryReport::default(),
         })
     }
 
@@ -514,6 +558,503 @@ impl BlockStorage {
         let mut s = Self::new(db_name).await?;
         s.capacity = capacity;
         Ok(s)
+    }
+
+    pub async fn new_with_recovery_options(db_name: &str, recovery_opts: RecoveryOptions) -> Result<Self, DatabaseError> {
+        let mut storage = Self::new(db_name).await?;
+        
+        // Perform startup recovery verification
+        storage.perform_startup_recovery(recovery_opts).await?;
+        
+        Ok(storage)
+    }
+
+    pub fn get_recovery_report(&self) -> &RecoveryReport {
+        &self.recovery_report
+    }
+
+    async fn perform_startup_recovery(&mut self, opts: RecoveryOptions) -> Result<(), DatabaseError> {
+        let start_time = Self::now_millis();
+        log::info!("Starting startup recovery with mode: {:?}", opts.mode);
+
+        // Handle pending metadata commit markers (fs_persist only)
+        #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+        {
+            use std::io::Write;
+
+            let mut db_dir = self.base_dir.clone();
+            db_dir.push(&self.db_name);
+            let meta_path = db_dir.join("metadata.json");
+            let meta_pending_path = db_dir.join("metadata.json.pending");
+            let blocks_dir = db_dir.join("blocks");
+
+            if let Ok(pending_content) = std::fs::read_to_string(&meta_pending_path) {
+                log::warn!(
+                    "Found pending metadata commit marker at startup: {:?}",
+                    meta_pending_path
+                );
+
+                let mut finalize = true;
+                let mut parsed_val: Option<serde_json::Value> = None;
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&pending_content) {
+                    parsed_val = Some(val.clone());
+                    if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
+                        for entry in entries {
+                            if let Some(arr) = entry.as_array() {
+                                if arr.len() == 2 {
+                                    if let Some(block_id) = arr.get(0).and_then(|v| v.as_u64()) {
+                                        let bpath = blocks_dir.join(format!("block_{}.bin", block_id));
+                                        match std::fs::metadata(&bpath) {
+                                            Ok(meta) => {
+                                                if !meta.is_file() || meta.len() as usize != BLOCK_SIZE {
+                                                    log::warn!(
+                                                        "Pending commit references block {} but file invalid: {:?}",
+                                                        block_id, bpath
+                                                    );
+                                                    finalize = false;
+                                                    break;
+                                                }
+                                            }
+                                            Err(_) => {
+                                                log::warn!(
+                                                    "Pending commit references missing block file for id {}: {:?}",
+                                                    block_id, bpath
+                                                );
+                                                finalize = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Malformed pending file -> rollback
+                    log::error!("Malformed metadata.json.pending; rolling back");
+                    finalize = false;
+                }
+
+                if finalize {
+                    // Finalize: write pending content to metadata.json and remove pending
+                    if let Ok(mut f) = std::fs::File::create(&meta_path) {
+                        let _ = f.write_all(pending_content.as_bytes());
+                    }
+                    let _ = std::fs::remove_file(&meta_pending_path);
+                    log::info!("Finalized pending metadata commit to {:?}", meta_path);
+
+                    // Update in-memory checksum and algo maps from finalized metadata
+                    if let Some(val) = parsed_val {
+                        let mut checksums_new: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+                        let mut algos_new: std::collections::HashMap<u64, ChecksumAlgorithm> = std::collections::HashMap::new();
+                        if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
+                            for entry in entries.iter() {
+                                if let Some(arr) = entry.as_array() {
+                                    if arr.len() == 2 {
+                                        if let (Some(bid), Some(meta)) = (
+                                            arr.get(0).and_then(|v| v.as_u64()),
+                                            arr.get(1).and_then(|v| v.as_object()),
+                                        ) {
+                                            if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) {
+                                                checksums_new.insert(bid, csum);
+                                            }
+                                            let algo_str = meta.get("algo").and_then(|v| v.as_str()).unwrap_or("");
+                                            let algo = match algo_str {
+                                                "CRC32" => Some(ChecksumAlgorithm::CRC32),
+                                                "FastHash" => Some(ChecksumAlgorithm::FastHash),
+                                                _ => None,
+                                            };
+                                            if let Some(a) = algo { algos_new.insert(bid, a); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        self.checksums = checksums_new;
+                        self.checksum_algos = algos_new;
+                    }
+                } else {
+                    // Rollback: just remove the pending file, retain existing metadata.json
+                    let _ = std::fs::remove_file(&meta_pending_path);
+                    log::info!("Rolled back pending metadata commit; kept {:?}", meta_path);
+                }
+            }
+        }
+
+        // Extended scan/reconciliation of blocks vs metadata (fs_persist only)
+        #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+        {
+            use std::collections::HashSet as Set;
+
+            let mut db_dir = self.base_dir.clone();
+            db_dir.push(&self.db_name);
+            let meta_path = db_dir.join("metadata.json");
+            let meta_pending_path = db_dir.join("metadata.json.pending");
+            let blocks_dir = db_dir.join("blocks");
+
+            // Load current metadata entries (preserve fields to keep version/last_modified)
+            let mut entries_val: Vec<serde_json::Value> = Vec::new();
+            let mut meta_ids: Set<u64> = Set::new();
+            if let Ok(mut f) = fs::File::open(&meta_path) {
+                let mut s = String::new();
+                if f.read_to_string(&mut s).is_ok() {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) {
+                        if let Some(entries) = val.get("entries").and_then(|v| v.as_array()).cloned() {
+                            entries_val = entries;
+                            for entry in entries_val.iter() {
+                                if let Some(arr) = entry.as_array() {
+                                    if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                                        meta_ids.insert(id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Collect block file IDs from disk
+            let mut file_ids: Set<u64> = Set::new();
+            if let Ok(entries) = fs::read_dir(&blocks_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(ft) = entry.file_type() {
+                        if ft.is_file() {
+                            if let Some(name) = entry.file_name().to_str() {
+                                if let Some(id_str) = name.strip_prefix("block_").and_then(|s| s.strip_suffix(".bin")) {
+                                    if let Ok(id) = id_str.parse::<u64>() { file_ids.insert(id); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Remove stray files without metadata
+            let stray: Vec<u64> = file_ids.difference(&meta_ids).copied().collect();
+            if !stray.is_empty() {
+                log::warn!("[fs] Found {} stray block files with no metadata: {:?}", stray.len(), stray);
+                for id in &stray {
+                    let p = blocks_dir.join(format!("block_{}.bin", id));
+                    match fs::remove_file(&p) {
+                        Ok(()) => log::info!("[fs] Removed stray block file {:?}", p),
+                        Err(e) => log::error!("[fs] Failed to remove stray block file {:?}: {}", p, e),
+                    }
+                }
+                // Fsync blocks directory to persist deletions (best-effort on Unix)
+                #[cfg(unix)]
+                if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&blocks_dir) {
+                    let _ = dirf.sync_all();
+                }
+            }
+
+            // Remove metadata entries whose files are missing/invalid
+            let before_len = entries_val.len();
+            if before_len > 0 {
+                entries_val.retain(|entry| {
+                    if let Some(arr) = entry.as_array() {
+                        if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                            let p = blocks_dir.join(format!("block_{}.bin", id));
+                            match fs::metadata(&p) {
+                                Ok(meta) => meta.is_file() && meta.len() as usize == BLOCK_SIZE,
+                                Err(_) => {
+                                    log::warn!("[fs] Removing metadata entry for block {} due to missing/invalid file {:?}", id, p);
+                                    false
+                                }
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                });
+            }
+            let meta_changed = entries_val.len() != before_len;
+
+            // If metadata changed, rewrite atomically and update in-memory maps
+            let mut kept_ids: Set<u64> = Set::new();
+            if meta_changed {
+                for entry in entries_val.iter() {
+                    if let Some(arr) = entry.as_array() {
+                        if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) { kept_ids.insert(id); }
+                    }
+                }
+                let new_val = serde_json::json!({ "entries": entries_val });
+                if let Ok(mut f) = fs::File::create(&meta_pending_path) {
+                    let _ = f.write_all(serde_json::to_string(&new_val).unwrap_or_else(|_| "{\"entries\":[]}".into()).as_bytes());
+                    let _ = f.sync_all();
+                }
+                let _ = fs::rename(&meta_pending_path, &meta_path);
+                // Fsync metadata.json and its parent dir
+                if let Ok(f) = fs::File::open(&meta_path) { let _ = f.sync_all(); }
+                #[cfg(unix)]
+                if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) { let _ = dirf.sync_all(); }
+                log::info!("[fs] Rewrote metadata.json after reconciliation; entries={} ", kept_ids.len());
+
+                // Update in-memory checksum and algo maps to match filtered metadata
+                let mut checksums_new: HashMap<u64, u64> = HashMap::new();
+                let mut algos_new: HashMap<u64, ChecksumAlgorithm> = HashMap::new();
+                if let Some(entries) = new_val.get("entries").and_then(|v| v.as_array()) {
+                    for entry in entries.iter() {
+                        if let Some(arr) = entry.as_array() {
+                            if let (Some(bid), Some(meta)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
+                                if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) { checksums_new.insert(bid, csum); }
+                                let algo = match meta.get("algo").and_then(|v| v.as_str()) {
+                                    Some("CRC32") => Some(ChecksumAlgorithm::CRC32),
+                                    Some("FastHash") => Some(ChecksumAlgorithm::FastHash),
+                                    _ => None,
+                                };
+                                if let Some(a) = algo { algos_new.insert(bid, a); }
+                            }
+                        }
+                    }
+                }
+                self.checksums = checksums_new;
+                self.checksum_algos = algos_new;
+            } else {
+                kept_ids = meta_ids;
+            }
+
+            // Reconcile allocations to the metadata IDs
+            if self.allocated_blocks != kept_ids {
+                self.allocated_blocks = kept_ids.clone();
+                self.next_block_id = self.allocated_blocks.iter().copied().max().unwrap_or(0) + 1;
+
+                // Persist allocations.json atomically via temp rename
+                let alloc_path = db_dir.join("allocations.json");
+                let alloc_tmp = db_dir.join("allocations.json.tmp");
+                let mut allocated_vec: Vec<u64> = self.allocated_blocks.iter().copied().collect();
+                allocated_vec.sort_unstable();
+                let alloc_json = serde_json::json!({ "allocated": allocated_vec });
+                if let Ok(mut f) = fs::File::create(&alloc_tmp) {
+                    let _ = f.write_all(serde_json::to_string(&alloc_json).unwrap_or_else(|_| "{\"allocated\":[]}".into()).as_bytes());
+                    let _ = f.sync_all();
+                }
+                let _ = fs::rename(&alloc_tmp, &alloc_path);
+                // Fsync allocations.json and directory (best-effort)
+                if let Ok(f) = fs::File::open(&alloc_path) { let _ = f.sync_all(); }
+                #[cfg(unix)]
+                if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) { let _ = dirf.sync_all(); }
+                log::info!("[fs] Rewrote allocations.json after reconciliation; allocated={}", self.allocated_blocks.len());
+            }
+        }
+
+        let mut corrupted_blocks = Vec::new();
+        let mut repaired_blocks = Vec::new();
+
+        // Skip recovery if requested
+        if matches!(opts.mode, RecoveryMode::Skip) {
+            log::info!("Startup recovery skipped by configuration");
+            self.recovery_report = RecoveryReport {
+                total_blocks_verified: 0,
+                corrupted_blocks: Vec::new(),
+                repaired_blocks: Vec::new(),
+                verification_duration_ms: Self::now_millis() - start_time,
+            };
+            return Ok(());
+        }
+
+        // Get list of blocks to verify based on mode
+        let blocks_to_verify = self.get_blocks_for_verification(&opts.mode).await?;
+        let total_verified = blocks_to_verify.len();
+
+        log::info!("Verifying {} blocks during startup recovery", total_verified);
+
+        // Verify each block
+        for block_id in blocks_to_verify {
+            match self.verify_block_integrity(block_id).await {
+                Ok(true) => {
+                    log::debug!("Block {} passed integrity check", block_id);
+                }
+                Ok(false) => {
+                    log::warn!("Block {} failed integrity check", block_id);
+                    corrupted_blocks.push(block_id);
+                    
+                    // Handle corruption based on policy
+                    match opts.on_corruption {
+                        CorruptionAction::Report => {
+                            log::info!("Corruption in block {} reported", block_id);
+                        }
+                        CorruptionAction::Repair => {
+                            if self.repair_corrupted_block(block_id).await? {
+                                log::info!("Successfully repaired block {}", block_id);
+                                repaired_blocks.push(block_id);
+                            } else {
+                                log::error!("Failed to repair block {}", block_id);
+                            }
+                        }
+                        CorruptionAction::Fail => {
+                            return Err(DatabaseError::new(
+                                "STARTUP_RECOVERY_FAILED",
+                                &format!("Corrupted block {} detected and failure policy is active", block_id)
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Error verifying block {}: {}", block_id, e.message);
+                    if matches!(opts.on_corruption, CorruptionAction::Fail) {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        let duration = Self::now_millis() - start_time;
+        log::info!(
+            "Startup recovery completed: {} blocks verified, {} corrupted, {} repaired in {}ms",
+            total_verified, corrupted_blocks.len(), repaired_blocks.len(), duration
+        );
+
+        self.recovery_report = RecoveryReport {
+            total_blocks_verified: total_verified,
+            corrupted_blocks,
+            repaired_blocks,
+            verification_duration_ms: duration,
+        };
+
+        Ok(())
+    }
+
+    async fn get_blocks_for_verification(&self, mode: &RecoveryMode) -> Result<Vec<u64>, DatabaseError> {
+        let all_blocks: Vec<u64> = self.allocated_blocks.iter().copied().collect();
+        
+        match mode {
+            RecoveryMode::Full => Ok(all_blocks),
+            RecoveryMode::Sample { count } => {
+                let sample_count = (*count).min(all_blocks.len());
+                let mut sampled = all_blocks;
+                sampled.sort_unstable(); // Deterministic sampling
+                sampled.truncate(sample_count);
+                Ok(sampled)
+            }
+            RecoveryMode::Skip => Ok(Vec::new()),
+        }
+    }
+
+    async fn verify_block_integrity(&mut self, block_id: u64) -> Result<bool, DatabaseError> {
+        // Read the block data
+        let data = match self.read_block_from_storage(block_id).await {
+            Ok(data) => data,
+            Err(_) => {
+                log::warn!("Could not read block {} for integrity verification", block_id);
+                return Ok(false);
+            }
+        };
+
+        // Verify against stored checksum
+        match self.verify_against_stored_checksum(block_id, &data) {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                log::warn!("Block {} failed checksum verification: {}", block_id, e.message);
+                Ok(false)
+            }
+        }
+    }
+
+    async fn read_block_from_storage(&mut self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
+        // Try to read from filesystem first (fs_persist mode)
+        #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+        {
+            let mut blocks_dir = self.base_dir.clone();
+            blocks_dir.push(&self.db_name);
+            blocks_dir.push("blocks");
+            let block_file = blocks_dir.join(format!("block_{}.bin", block_id));
+            
+            if let Ok(data) = std::fs::read(&block_file) {
+                if data.len() == BLOCK_SIZE {
+                    return Ok(data);
+                }
+            }
+        }
+
+        // Fallback to test storage for native tests
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+        {
+            let mut found_data = None;
+            GLOBAL_STORAGE_TEST.with(|storage| {
+                let storage_map = storage.borrow();
+                if let Some(db_storage) = storage_map.get(&self.db_name) {
+                    if let Some(data) = db_storage.get(&block_id) {
+                        found_data = Some(data.clone());
+                    }
+                }
+            });
+            if let Some(data) = found_data {
+                return Ok(data);
+            }
+        }
+
+        // WASM global storage
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut found_data = None;
+            GLOBAL_STORAGE.with(|storage| {
+                let storage_map = storage.borrow();
+                if let Some(db_storage) = storage_map.get(&self.db_name) {
+                    if let Some(data) = db_storage.get(&block_id) {
+                        found_data = Some(data.clone());
+                    }
+                }
+            });
+            if let Some(data) = found_data {
+                return Ok(data);
+            }
+        }
+
+        Err(DatabaseError::new(
+            "BLOCK_NOT_FOUND",
+            &format!("Block {} not found in storage", block_id)
+        ))
+    }
+
+    async fn repair_corrupted_block(&mut self, block_id: u64) -> Result<bool, DatabaseError> {
+        log::info!("Attempting to repair corrupted block {}", block_id);
+        
+        // For now, repair by removing the corrupted block and clearing its metadata
+        // In a real implementation, this might involve restoring from backup or rebuilding
+        
+        // Remove from cache
+        self.cache.remove(&block_id);
+        
+        // Remove checksum metadata
+        self.checksums.remove(&block_id);
+        self.checksum_algos.remove(&block_id);
+        
+        // Remove from filesystem if fs_persist is enabled
+        #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+        {
+            let mut blocks_dir = self.base_dir.clone();
+            blocks_dir.push(&self.db_name);
+            blocks_dir.push("blocks");
+            let block_file = blocks_dir.join(format!("block_{}.bin", block_id));
+            let _ = std::fs::remove_file(&block_file);
+        }
+        
+        // Remove from test storage
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+        {
+            GLOBAL_STORAGE_TEST.with(|storage| {
+                let mut storage_map = storage.borrow_mut();
+                if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
+                    db_storage.remove(&block_id);
+                }
+            });
+        }
+        
+        // Remove from WASM storage
+        #[cfg(target_arch = "wasm32")]
+        {
+            GLOBAL_STORAGE.with(|storage| {
+                let mut storage_map = storage.borrow_mut();
+                if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
+                    db_storage.remove(&block_id);
+                }
+            });
+        }
+        
+        log::info!("Corrupted block {} has been removed (repair completed)", block_id);
+        Ok(true)
     }
 
     fn touch_lru(&mut self, block_id: u64) {
@@ -1409,8 +1950,16 @@ impl BlockStorage {
                 }
                 let meta_string = serde_json::to_string(&meta_val).unwrap_or_else(|_| "{}".into());
                 let allocated: std::collections::HashSet<u64> = self.allocated_blocks.clone();
-                if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
-                // Rewrite allocations.json from current set
+                // Write metadata via commit marker: metadata.json.pending -> metadata.json
+                let mut meta_pending = db_dir.clone();
+                meta_pending.push("metadata.json.pending");
+                log::debug!("[fs_persist] cleanup-only: writing pending metadata at {:?}", meta_pending);
+                if let Ok(mut f) = fs::File::create(&meta_pending) {
+                    let _ = f.write_all(meta_string.as_bytes());
+                    let _ = f.sync_all();
+                }
+                let _ = fs::rename(&meta_pending, &meta_path);
+                log::debug!("[fs_persist] cleanup-only: finalized metadata rename to {:?}", meta_path);
                 let mut alloc_path = db_dir.clone();
                 alloc_path.push("allocations.json");
                 let mut alloc = FsAlloc::default();
@@ -1452,9 +2001,18 @@ impl BlockStorage {
                     let mut alt_blocks_dir = alt_db_dir.clone();
                     alt_blocks_dir.push("blocks");
                     let _ = fs::create_dir_all(&alt_blocks_dir);
+                    // alt metadata via commit marker
+                    let mut alt_meta_pending = alt_db_dir.clone();
+                    alt_meta_pending.push("metadata.json.pending");
+                    log::debug!("[fs_persist] cleanup-only (alt): writing pending metadata at {:?}", alt_meta_pending);
+                    if let Ok(mut f) = fs::File::create(&alt_meta_pending) {
+                        let _ = f.write_all(meta_string.as_bytes());
+                        let _ = f.sync_all();
+                    }
                     let mut alt_meta_path = alt_db_dir.clone();
                     alt_meta_path.push("metadata.json");
-                    if let Ok(mut f) = fs::File::create(&alt_meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
+                    let _ = fs::rename(&alt_meta_pending, &alt_meta_path);
+                    log::debug!("[fs_persist] cleanup-only (alt): finalized metadata rename to {:?}", alt_meta_path);
                     let mut alt_alloc_path = alt_db_dir.clone();
                     alt_alloc_path.push("allocations.json");
                     if let Ok(mut f) = fs::File::create(&alt_alloc_path) { let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes()); }
@@ -1602,7 +2160,16 @@ impl BlockStorage {
             }
             let meta_out = serde_json::json!({"entries": entries_vec});
             let meta_string = serde_json::to_string(&meta_out).unwrap_or_else(|_| "{}".into());
-            if let Ok(mut f) = fs::File::create(&meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
+            // Write metadata via commit marker: metadata.json.pending -> metadata.json
+            let mut meta_pending = db_dir.clone();
+            meta_pending.push("metadata.json.pending");
+            log::debug!("[fs_persist] writing pending metadata at {:?}", meta_pending);
+            if let Ok(mut f) = fs::File::create(&meta_pending) {
+                let _ = f.write_all(meta_string.as_bytes());
+                let _ = f.sync_all();
+            }
+            let _ = fs::rename(&meta_pending, &meta_path);
+            log::debug!("[fs_persist] finalized metadata rename to {:?}", meta_path);
             // Mirror allocations.json to current allocated set
             let mut alloc_path = db_dir.clone();
             alloc_path.push("allocations.json");
@@ -1655,9 +2222,17 @@ impl BlockStorage {
                     if let Ok(mut f) = fs::File::create(&alt_block_file) { let _ = f.write_all(&data); }
                 }
                 // Save metadata mirror
+                let mut alt_meta_pending = alt_db_dir.clone();
+                alt_meta_pending.push("metadata.json.pending");
+                log::debug!("[fs_persist] (alt) writing pending metadata at {:?}", alt_meta_pending);
+                if let Ok(mut f) = fs::File::create(&alt_meta_pending) {
+                    let _ = f.write_all(meta_string.as_bytes());
+                    let _ = f.sync_all();
+                }
                 let mut alt_meta_path = alt_db_dir.clone();
                 alt_meta_path.push("metadata.json");
-                if let Ok(mut f) = fs::File::create(&alt_meta_path) { let _ = f.write_all(meta_string.as_bytes()); }
+                let _ = fs::rename(&alt_meta_pending, &alt_meta_path);
+                log::debug!("[fs_persist] (alt) finalized metadata rename to {:?}", alt_meta_path);
                 // allocations mirror
                 let mut alt_alloc_path = alt_db_dir.clone();
                 alt_alloc_path.push("allocations.json");
