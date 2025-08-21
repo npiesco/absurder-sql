@@ -2,7 +2,7 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-08-21 11:07 -0400
+Last updated: 2025-08-21 13:27 -0400
 
 ## Open (in order)
 
@@ -39,5 +39,8 @@ Last updated: 2025-08-21 11:07 -0400
 - [x] Native AutoSync with `SyncPolicy` (interval, thresholds, debounce), Tokio + std::thread fallback, and `drain_and_shutdown()`; comprehensive tests passing
 - [x] Block metadata persistence: checksum, version, last_modified_ms; read-time verification; algorithm selection (FastHash/CRC32)
 - [x] Startup Recovery: corruption detection/repair modes; reconciliation of files vs metadata; atomic commit marker; idempotent runs; crash-hardened fsyncs
-- [x] Recovery enhancement: delete invalid-sized `block_*.bin` during reconciliation; fsync `blocks/` dir; tests green
-- [x] Full test suites green in default and with `fs_persist`; stabilized tests with TempDir-based `DATASYNC_FS_BASE` and `#[serial]`
+ - [x] Recovery enhancement: delete invalid-sized `block_*.bin` during reconciliation; fsync `blocks/` dir; tests green
+ - [x] Crash-consistency tests (native fs_persist): finalize/rollback pending metadata; pending deallocation removes stray file; tombstone persists across finalize — all green
+ - [x] fs_persist sync behavior: do not prune `metadata.json` entries based on allocation set; keep/remove `block_*.bin` strictly per metadata; preserves version/timestamp semantics
+ - [x] Metadata semantics: same-data writes still bump `version` and `last_modified_ms` for dirty blocks on sync; batch-write tests ensure only touched blocks update
+ - [x] Full test suites green in default and with `fs_persist`; stabilized tests with TempDir-based `DATASYNC_FS_BASE` and `#[serial]`

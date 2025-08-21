@@ -300,3 +300,210 @@ async fn test_crash_finalize_pending_atomic_multi_block() {
     assert_eq!(rb1, vec![9u8; BLOCK_SIZE]);
     assert_eq!(rb2, vec![8u8; BLOCK_SIZE]);
 }
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_crash_finalize_pending_deallocation_removes_stray_file() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    let db = "test_crash_finalize_pending_dealloc";
+
+    // Instance 1: create two blocks and persist
+    let mut s = BlockStorage::new_with_capacity(db, 8)
+        .await
+        .expect("create storage");
+    let b1 = s.allocate_block().await.expect("alloc1");
+    let b2 = s.allocate_block().await.expect("alloc2");
+    assert_eq!((b1, b2), (1, 2));
+    s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
+    s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+    s.sync().await.expect("sync v1");
+
+    // Paths
+    let base: PathBuf = tmp.path().into();
+    let db_dir = base.join(db);
+    let blocks_dir = db_dir.join("blocks");
+    let meta_path = db_dir.join("metadata.json");
+    let meta_pending_path = db_dir.join("metadata.json.pending");
+
+    // Save v1 metadata and synthesize a pending metadata that removes b2 (deallocation)
+    let meta_v1 = fs::read_to_string(&meta_path).expect("read meta v1");
+    let mut val: serde_json::Value = serde_json::from_str(&meta_v1).expect("parse meta v1");
+    if let Some(entries) = val.get_mut("entries").and_then(|v| v.as_array_mut()) {
+        entries.retain(|ent| {
+            ent.as_array()
+                .and_then(|arr| arr.get(0))
+                .and_then(|v| v.as_u64())
+                .map(|id| id != b2)
+                .unwrap_or(true)
+        });
+    }
+    let meta_dealloc = serde_json::to_string(&val).expect("stringify meta_dealloc");
+    fs::write(&meta_pending_path, meta_dealloc).expect("write pending dealloc");
+    // Restore previous committed state to simulate crash boundary
+    fs::write(&meta_path, &meta_v1).expect("restore meta v1");
+
+    drop(s);
+
+    // Restart: expect finalize (pending references only b1 which is valid)
+    let opts = RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report };
+    let _s2 = BlockStorage::new_with_recovery_options(db, opts)
+        .await
+        .expect("reopen with recovery");
+
+    // Finalized and stray b2 file removed by reconciliation
+    assert!(!meta_pending_path.exists(), "pending should be removed (finalized)");
+    let b2_path = blocks_dir.join(format!("block_{}.bin", b2));
+    assert!(!b2_path.exists(), "stray block file for deallocated b2 should be removed");
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_crash_rollback_pending_deallocation_on_invalid_remaining_file() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    let db = "test_crash_rollback_pending_dealloc";
+
+    // Instance 1: create two blocks and persist
+    let mut s = BlockStorage::new_with_capacity(db, 8)
+        .await
+        .expect("create storage");
+    let b1 = s.allocate_block().await.expect("alloc1");
+    let b2 = s.allocate_block().await.expect("alloc2");
+    assert_eq!((b1, b2), (1, 2));
+    s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
+    s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+    s.sync().await.expect("sync v1");
+
+    // Paths
+    let base: PathBuf = tmp.path().into();
+    let db_dir = base.join(db);
+    let blocks_dir = db_dir.join("blocks");
+    let meta_path = db_dir.join("metadata.json");
+    let meta_pending_path = db_dir.join("metadata.json.pending");
+
+    // Save v1 metadata and synthesize a pending metadata that removes b2 (keep only b1)
+    let meta_v1 = fs::read_to_string(&meta_path).expect("read meta v1");
+    let mut val: serde_json::Value = serde_json::from_str(&meta_v1).expect("parse meta v1");
+    if let Some(entries) = val.get_mut("entries").and_then(|v| v.as_array_mut()) {
+        entries.retain(|ent| {
+            ent.as_array()
+                .and_then(|arr| arr.get(0))
+                .and_then(|v| v.as_u64())
+                .map(|id| id == b1)
+                .unwrap_or(false)
+        });
+    }
+    let meta_dealloc = serde_json::to_string(&val).expect("stringify meta_dealloc");
+    fs::write(&meta_pending_path, meta_dealloc).expect("write pending dealloc");
+
+    // Corrupt the remaining referenced file (b1) to trigger rollback
+    let b1_path = blocks_dir.join(format!("block_{}.bin", b1));
+    assert!(b1_path.exists());
+    fs::write(&b1_path, vec![0u8; BLOCK_SIZE - 1]).expect("corrupt b1 size");
+
+    // Ensure committed metadata remains v1 at crash boundary
+    fs::write(&meta_path, &meta_v1).expect("restore meta v1");
+
+    drop(s);
+
+    // Restart: expect rollback due to invalid referenced file (b1)
+    let opts = RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report };
+    let _s2 = BlockStorage::new_with_recovery_options(db, opts)
+        .await
+        .expect("reopen with recovery");
+
+    assert!(!meta_pending_path.exists(), "pending should be removed (rolled back)");
+
+    // Metadata should still retain b2 (since rollback means we did not apply the deallocation)
+    let meta_now_s = fs::read_to_string(&meta_path).expect("read meta after recovery");
+    let meta_now: serde_json::Value = serde_json::from_str(&meta_now_s).expect("parse meta after");
+    let ids: Vec<u64> = meta_now
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|ent| ent.as_array()
+                    .and_then(|a| a.get(0))
+                    .and_then(|v| v.as_u64()))
+                .collect::<Vec<u64>>()
+        })
+        .unwrap_or_default();
+    assert!(ids.contains(&b2), "rollback should keep b2 present in metadata");
+    assert!(!b1_path.exists(), "invalid-sized b1 should be removed during reconciliation");
+    assert!(!ids.contains(&b1), "metadata should drop invalid b1 during reconciliation");
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+#[cfg(feature = "fs_persist")]
+async fn test_tombstone_persistence_across_finalize() {
+    let tmp = TempDir::new().expect("tempdir");
+    common::set_var("DATASYNC_FS_BASE", tmp.path());
+    let db = "test_tombstone_persistence_across_finalize";
+
+    // Instance 1: create two blocks and persist
+    let mut s = BlockStorage::new_with_capacity(db, 8)
+        .await
+        .expect("create storage");
+    let b1 = s.allocate_block().await.expect("alloc1");
+    let b2 = s.allocate_block().await.expect("alloc2");
+    assert_eq!((b1, b2), (1, 2));
+    s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
+    s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+    s.sync().await.expect("sync v1");
+
+    // Deallocate b2 via API; this should append a tombstone and remove metadata/file
+    s.deallocate_block(b2).await.expect("dealloc b2");
+    s.sync().await.expect("sync after dealloc");
+
+    // Write a new version for b1 to create a pending commit we can finalize at startup
+    s.write_block(b1, vec![9u8; BLOCK_SIZE]).await.expect("write b1 v2");
+    s.sync().await.expect("sync v2");
+
+    // Turn the latest metadata into a pending marker
+    let base: PathBuf = tmp.path().into();
+    let db_dir = base.join(db);
+    let blocks_dir = db_dir.join("blocks");
+    let meta_path = db_dir.join("metadata.json");
+    let meta_pending_path = db_dir.join("metadata.json.pending");
+    let meta_v2 = fs::read_to_string(&meta_path).expect("read meta v2");
+    fs::rename(&meta_path, &meta_pending_path).expect("rename to pending");
+    // Restore an earlier committed state (empty entries is fine here) — not strictly needed
+    fs::write(&meta_path, meta_v2.clone()).expect("restore meta");
+
+    // Verify tombstone exists before restart
+    let dealloc_path = db_dir.join("deallocated.json");
+    let dealloc_s = fs::read_to_string(&dealloc_path).expect("read deallocated.json");
+    let dealloc_v: serde_json::Value = serde_json::from_str(&dealloc_s).expect("parse dealloc v1");
+    let tombs: Vec<u64> = dealloc_v
+        .get("tombstones")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.as_u64()).collect::<Vec<u64>>())
+        .unwrap_or_default();
+    assert!(tombs.contains(&b2), "tombstone for b2 should exist before restart");
+
+    drop(s);
+
+    // Restart: expect finalize and tombstone still present
+    let opts = RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report };
+    let _s2 = BlockStorage::new_with_recovery_options(db, opts)
+        .await
+        .expect("reopen with recovery");
+
+    assert!(!meta_pending_path.exists(), "pending should be removed (finalized)");
+    let dealloc_s2 = fs::read_to_string(&dealloc_path).expect("read deallocated.json after");
+    let dealloc_v2: serde_json::Value = serde_json::from_str(&dealloc_s2).expect("parse dealloc after");
+    let tombs2: Vec<u64> = dealloc_v2
+        .get("tombstones")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.as_u64()).collect::<Vec<u64>>())
+        .unwrap_or_default();
+    assert!(tombs2.contains(&b2), "tombstone for b2 should persist across finalize");
+
+    // And the block file for b2 should not exist
+    let b2_path = blocks_dir.join(format!("block_{}.bin", b2));
+    assert!(!b2_path.exists(), "deallocated block file should remain deleted");
+}
