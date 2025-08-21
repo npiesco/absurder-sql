@@ -53,6 +53,9 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 - [x] Added crash consistency tests in `tests/crash_consistency_tests.rs` covering finalize (when data present) and rollback (when data missing) of a pending commit marker on startup; both pass.
 - [x] Re-ran full suites with and without `fs_persist`: all tests green after gating crash tests under the feature.
 
+- [x] Extended startup recovery to reconcile files vs metadata: remove stray `block_*.bin` files, drop metadata entries for missing/invalid block files, atomically rewrite `metadata.json` and `allocations.json`, and update in-memory maps to match. Added crash-hardened fsyncs (sync temp files, rename targets, and parent directories; fsync `blocks/` after deletions).
+- [x] Added fs_persist tests in `tests/recovery_reconciliation_tests.rs`: stray file removal, missing-file metadata drop, and idempotence across repeated recovery runs. Full suites green in both default and with `fs_persist`.
+
 ## Next Steps (Actionable TDD Roadmap)
 1. Auto Sync Manager (native first)
    - [x] Introduce `SyncPolicy` (interval_ms, max_dirty, max_bytes, debounce_ms; `verify_after_write` flag present)
@@ -78,7 +81,8 @@ Create a **better, faster, more efficient** SQLite WASM implementation than Absu
 3→ Crash Consistency & Atomic Batching
    - [x] Native (fs_persist): Atomic commit marker for metadata (`metadata.json.pending` -> `metadata.json`) in `sync_now()`
    - [x] Native (fs_persist): Startup recovery finalizes/rolls back pending metadata based on block presence; tests in `tests/crash_consistency_tests.rs`
-   - [ ] Native (fs_persist): Extend recovery scan to detect and reconcile mismatches (stray `block_*.bin` vs metadata entries), ensure idempotence
+   - [x] Native (fs_persist): Extend recovery scan to detect and reconcile mismatches (stray `block_*.bin` vs metadata entries), ensure idempotence
+   - [x] Native (fs_persist): Crash-hardened fsyncs in recovery reconciliation (sync temp files, rename targets, and parent directories; fsync `blocks/` after deletions)
    - [ ] Native (fs_persist): Add detailed logging around sync/commit/recovery paths for observability
    - [ ] IndexedDB: Transactional writes {blocks + metadata} with commit marker
    - [ ] IndexedDB: Recovery scans markers to finalize/rollback
