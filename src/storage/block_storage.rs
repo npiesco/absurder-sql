@@ -1996,6 +1996,7 @@ impl BlockStorage {
                 alloc.allocated = allocated.iter().cloned().collect();
                 alloc.allocated.sort_unstable();
                 if let Ok(mut f) = fs::File::create(&alloc_path) { let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes()); }
+                log::info!("wrote allocations.json at {:?}", alloc_path);
                 // Remove stray block files not allocated
                 // Determine valid block ids from metadata; remove files that have no metadata entry
                 let valid_ids: std::collections::HashSet<u64> = if let Some(entries) = meta_val.get("entries").and_then(|e| e.as_array()) {
@@ -2046,6 +2047,7 @@ impl BlockStorage {
                     let mut alt_alloc_path = alt_db_dir.clone();
                     alt_alloc_path.push("allocations.json");
                     if let Ok(mut f) = fs::File::create(&alt_alloc_path) { let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes()); }
+                    log::info!("(alt) wrote allocations.json at {:?}", alt_alloc_path);
                     if let Ok(entries) = fs::read_dir(&alt_blocks_dir) {
                         for entry in entries.flatten() {
                             if let Ok(ft) = entry.file_type() {
@@ -2209,6 +2211,7 @@ impl BlockStorage {
             if let Ok(mut f) = fs::File::create(&alloc_path) {
                 let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes());
             }
+            log::info!("wrote allocations.json at {:?}", alloc_path);
             // Remove any stray block files for deallocated blocks
             // Determine valid ids from metadata; remove files without a metadata entry
             let valid_ids: std::collections::HashSet<u64> = map.keys().cloned().collect();
@@ -2269,6 +2272,7 @@ impl BlockStorage {
                 if let Ok(mut f) = fs::File::create(&alt_alloc_path) {
                     let _ = f.write_all(serde_json::to_string(&alloc).unwrap_or_else(|_| "{}".into()).as_bytes());
                 }
+                log::info!("(alt) wrote allocations.json at {:?}", alt_alloc_path);
                 // cleanup stray files
                 if let Ok(entries) = fs::read_dir(&alt_blocks_dir) {
                     for entry in entries.flatten() {

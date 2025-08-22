@@ -2,7 +2,7 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-08-22 13:44 -0400
+Last updated: 2025-08-22 16:08 -0400
 
 ## Open (in order)
 
@@ -46,3 +46,4 @@ Last updated: 2025-08-22 13:44 -0400
  - [x] Full test suites green in default and with `fs_persist`; stabilized tests with TempDir-based `DATASYNC_FS_BASE` and `#[serial]`
  - [x] Crash consistency logging (native fs_persist): added tests asserting logs for sync start/success, pending metadata write/finalize, cleanup-only path, alt mirror `(alt)` path when `DATASYNC_FS_BASE` changes, and startup recovery stray cleanup plus summary; all green with/without `fs_persist`
  - [x] Test infra: global test logger to capture logs; silenced `dead_code` warnings for helper to keep `-D warnings` builds green
+ - [x] Allocations.json logging (native fs_persist): info-level logs for allocations.json writes during cleanup-only and dirty sync (primary and `(alt)` mirror paths). Added tests `logs_allocations_write_cleanup_only` and `logs_allocations_write_sync_dirty_alt` in `tests/crash_consistency_logging_tests.rs`. Full suites green with and without `fs_persist`.

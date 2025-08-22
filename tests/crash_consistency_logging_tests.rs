@@ -211,3 +211,53 @@ async fn logs_startup_recovery_rolls_back_invalid_pending() {
     assert!(logs.contains("Pending commit references missing block file"), "missing missing-block warn log. logs=\n{}", logs);
     assert!(logs.contains("Rolled back pending metadata commit; kept"), "missing rollback log. logs=\n{}", logs);
 }
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+async fn logs_allocations_write_cleanup_only() {
+    let tmp = TempDir::new().expect("tempdir");
+    setup_env_and_logger(&tmp);
+
+    let mut storage = BlockStorage::new_with_capacity("log_alloc_cleanup", 8)
+        .await
+        .expect("create storage");
+
+    // No dirty blocks; cleanup-only path
+    storage.sync().await.expect("sync");
+
+    let logs = common::take_logs_joined();
+    assert!(logs.contains("No dirty blocks to sync"), "missing 'no dirty' log. logs=\n{}", logs);
+    assert!(logs.contains("wrote allocations.json"), "missing primary allocations write log. logs=\n{}", logs);
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[serial]
+async fn logs_allocations_write_sync_dirty_alt() {
+    let tmp_base = TempDir::new().expect("tempdir base");
+    // Construct with base A
+    common::set_var("DATASYNC_FS_BASE", tmp_base.path());
+    common::init_test_logger();
+    common::clear_logs();
+
+    let mut storage = BlockStorage::new_with_capacity("log_alloc_dirty_alt", 8)
+        .await
+        .expect("create storage");
+
+    // Make a block dirty
+    storage
+        .write_block(3, vec![0xEE; BLOCK_SIZE])
+        .await
+        .expect("write block");
+
+    // Switch to base B before sync to trigger (alt) mirror path
+    let tmp_alt = TempDir::new().expect("tempdir alt");
+    common::set_var("DATASYNC_FS_BASE", tmp_alt.path());
+    common::clear_logs();
+
+    storage.sync().await.expect("sync");
+
+    let logs = common::take_logs_joined();
+    assert!(logs.contains("Syncing 1 dirty blocks"), "missing sync start log. logs=\n{}", logs);
+    assert!(logs.contains("wrote allocations.json"), "missing primary allocations write log. logs=\n{}", logs);
+    assert!(logs.contains("(alt) wrote allocations.json"), "missing alt allocations write log. logs=\n{}", logs);
+}
