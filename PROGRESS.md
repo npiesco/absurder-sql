@@ -2,12 +2,12 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-08-21 13:27 -0400
+Last updated: 2025-08-22 13:44 -0400
 
 ## Open (in order)
 
 1. [ ] Crash Consistency & Atomic Batching (Native + IndexedDB)
-   - [ ] Native (fs_persist): detailed logging around sync/commit/recovery
+   - [x] Native (fs_persist): detailed logging around sync/commit/recovery (implemented with tests)
    - [ ] IndexedDB: transactional writes {blocks + metadata} with commit marker
    - [ ] IndexedDB: recovery scans to finalize/rollback
    - [ ] Idempotent writes keyed by (block_id, version)
@@ -44,3 +44,5 @@ Last updated: 2025-08-21 13:27 -0400
  - [x] fs_persist sync behavior: do not prune `metadata.json` entries based on allocation set; keep/remove `block_*.bin` strictly per metadata; preserves version/timestamp semantics
  - [x] Metadata semantics: same-data writes still bump `version` and `last_modified_ms` for dirty blocks on sync; batch-write tests ensure only touched blocks update
  - [x] Full test suites green in default and with `fs_persist`; stabilized tests with TempDir-based `DATASYNC_FS_BASE` and `#[serial]`
+ - [x] Crash consistency logging (native fs_persist): added tests asserting logs for sync start/success, pending metadata write/finalize, cleanup-only path, alt mirror `(alt)` path when `DATASYNC_FS_BASE` changes, and startup recovery stray cleanup plus summary; all green with/without `fs_persist`
+ - [x] Test infra: global test logger to capture logs; silenced `dead_code` warnings for helper to keep `-D warnings` builds green
