@@ -66,6 +66,8 @@ async fn test_combined_operations() {
     // Query back
     let result = db.execute("SELECT * FROM types_test").await
         .expect("Should select data");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 1, "Should have 1 row");
     
@@ -113,9 +115,11 @@ async fn test_large_dataset_persistence() {
     // Verify count
     let count_result = db.execute("SELECT COUNT(*) FROM large_test").await
         .expect("Should count rows");
+    let count_result: QueryResult = serde_wasm_bindgen::from_value(count_result)
+        .expect("deserialize QueryResult");
     
-    match &count_result.rows[0].values[0] {
-        ColumnValue::Integer(count) => assert_eq!(*count, row_count as i64),
+    match count_result.rows[0].values[0].clone() {
+        ColumnValue::Integer(count) => assert_eq!(count, row_count as i64),
         _ => panic!("Expected integer count"),
     }
     
@@ -154,6 +158,8 @@ async fn test_transaction_consistency() {
     // Verify final balances
     let result = db.execute("SELECT name, balance FROM accounts ORDER BY name").await
         .expect("Should select final balances");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 2, "Should have 2 accounts");
     
@@ -191,6 +197,8 @@ async fn test_schema_changes_persistence() {
     // Verify schema and data
     let result = db.execute("SELECT name, email FROM schema_test ORDER BY id").await
         .expect("Should select with new schema");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.columns, vec!["name", "email"]);
     assert_eq!(result.rows.len(), 2, "Should have 2 rows");
@@ -241,10 +249,15 @@ async fn test_concurrent_database_access() {
         .expect("Should count from db2");
     
     // Both should see data
-    match (&result1.rows[0].values[0], &result2.rows[0].values[0]) {
+    let result1: QueryResult = serde_wasm_bindgen::from_value(result1)
+        .expect("deserialize QueryResult");
+    let result2: QueryResult = serde_wasm_bindgen::from_value(result2)
+        .expect("deserialize QueryResult");
+    
+    match (result1.rows[0].values[0].clone(), result2.rows[0].values[0].clone()) {
         (ColumnValue::Integer(count1), ColumnValue::Integer(count2)) => {
-            assert!(*count1 >= 1, "DB1 should see at least its own insert");
-            assert!(*count2 >= 1, "DB2 should see at least its own insert");
+            assert!(count1 >= 1, "DB1 should see at least its own insert");
+            assert!(count2 >= 1, "DB2 should see at least its own insert");
         }
         _ => panic!("Expected integer counts"),
     }
@@ -294,6 +307,10 @@ async fn test_database_configuration_effects() {
     
     let result_large = db_large.execute("SELECT data FROM config_test").await
         .expect("Should select from large db");
+    let result_small: QueryResult = serde_wasm_bindgen::from_value(result_small)
+        .expect("deserialize QueryResult");
+    let result_large: QueryResult = serde_wasm_bindgen::from_value(result_large)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result_small.rows.len(), 1, "Small db should have 1 row");
     assert_eq!(result_large.rows.len(), 1, "Large db should have 1 row");
@@ -337,6 +354,8 @@ async fn test_comprehensive_crud_operations() {
     // READ: Verify all data
     let all_result = db.execute("SELECT id, name, category, price FROM crud_test ORDER BY id").await
         .expect("Should select all products");
+    let all_result: QueryResult = serde_wasm_bindgen::from_value(all_result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(all_result.rows.len(), 4, "Should have 4 products");
     
@@ -347,6 +366,8 @@ async fn test_comprehensive_crud_operations() {
     // DELETE: Remove cheap items
     let delete_result = db.execute("DELETE FROM crud_test WHERE price < 10.0").await
         .expect("Should delete cheap items");
+    let delete_result: QueryResult = serde_wasm_bindgen::from_value(delete_result)
+        .expect("deserialize QueryResult");
     
     assert!(delete_result.affected_rows >= 1, "Should delete at least 1 item");
     
@@ -356,6 +377,8 @@ async fn test_comprehensive_crud_operations() {
     // Final verification
     let final_result = db.execute("SELECT name, category, price FROM crud_test ORDER BY name").await
         .expect("Should select final state");
+    let final_result: QueryResult = serde_wasm_bindgen::from_value(final_result)
+        .expect("deserialize QueryResult");
     
     assert!(final_result.rows.len() >= 2, "Should have remaining products");
     
@@ -392,6 +415,8 @@ async fn test_bigint_handling() {
     
     let result = db.execute("SELECT large_number FROM bigint_test ORDER BY id").await
         .expect("Should select large numbers");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 3, "Should have 3 large numbers");
     
@@ -439,16 +464,19 @@ async fn test_date_handling() {
     
     let result = db.execute("SELECT event_time, description FROM date_test ORDER BY id").await
         .expect("Should select dates");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 3, "Should have 3 date entries");
     
     for (i, (expected_timestamp, expected_desc)) in events.iter().enumerate() {
-        match &result.rows[i].values[..] {
-            [ColumnValue::Integer(stored_time), ColumnValue::Text(stored_desc)] => {
+        let vals = &result.rows[i].values;
+        match (&vals[0], &vals[1]) {
+            (ColumnValue::Integer(stored_time), ColumnValue::Text(stored_desc)) => {
                 assert_eq!(*stored_time, *expected_timestamp);
                 assert_eq!(stored_desc.as_str(), *expected_desc);
             }
-            [ColumnValue::Date(stored_time), ColumnValue::Text(stored_desc)] => {
+            (ColumnValue::Date(stored_time), ColumnValue::Text(stored_desc)) => {
                 assert_eq!(*stored_time, *expected_timestamp);
                 assert_eq!(stored_desc.as_str(), *expected_desc);
             }
@@ -494,6 +522,8 @@ async fn test_mixed_data_types() {
     
     let result = db.execute("SELECT * FROM mixed_test").await
         .expect("Should select mixed data");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 1, "Should have 1 mixed row");
     

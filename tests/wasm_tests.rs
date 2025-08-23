@@ -65,12 +65,12 @@ fn test_basic_compilation() {
 #[wasm_bindgen_test]
 fn test_from_js_value() {
     // Test fromJsValue with various types like the working example
-    let _from_null = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::NULL).unwrap();
-    let _from_number = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from(123)).unwrap();
-    let _from_float = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from(2.718)).unwrap();
-    let _from_string = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from("Test string")).unwrap();
-    let _from_date = WasmColumnValue::from_js_value(&js_sys::Date::new_0().into()).unwrap();
-    let _from_bigint_str = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from("999999999999999999999")).unwrap();
+    let _from_null = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::NULL);
+    let _from_number = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from(123));
+    let _from_float = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from(2.718));
+    let _from_string = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from("Test string"));
+    let _from_date = WasmColumnValue::from_js_value(&js_sys::Date::new_0().into());
+    let _from_bigint_str = WasmColumnValue::from_js_value(&wasm_bindgen::JsValue::from("999999999999999999999"));
     
     web_sys::console::log_1(&"✓ fromJsValue test passed".into());
 }

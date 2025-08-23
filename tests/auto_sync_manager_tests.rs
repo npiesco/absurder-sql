@@ -1,3 +1,4 @@
+#![cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::{BlockStorage, SyncPolicy, BLOCK_SIZE};
 
 use tempfile::TempDir;

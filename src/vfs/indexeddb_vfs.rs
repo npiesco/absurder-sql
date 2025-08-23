@@ -2,8 +2,10 @@ use crate::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 use crate::types::DatabaseError;
 // use rusqlite::ffi; // Will be used when VFS is fully implemented
 // use std::collections::HashMap; // Will be used when file handles are implemented
-// use std::ffi::{CStr, CString}; // Will be used when VFS is fully implemented
-// use std::os::raw::{c_char, c_int, c_void}; // Will be used when VFS is fully implemented
+#[cfg(target_arch = "wasm32")]
+use std::ffi::CString;
+#[cfg(target_arch = "wasm32")]
+use std::os::raw::c_char;
 // use std::ptr; // Will be used when VFS is fully implemented
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -32,12 +34,42 @@ impl IndexedDBVFS {
     pub fn register(&self, vfs_name: &str) -> Result<(), DatabaseError> {
         log::info!("Registering VFS: {}", vfs_name);
         
-        // For this simplified implementation, we'll register a basic VFS
-        // In a full implementation, you would need to implement all VFS methods
-        // and register with SQLite's VFS system
-        
-        // This is a placeholder - actual VFS registration would require
-        // implementing the full sqlite3_vfs interface
+        // Minimal registration for WASM: alias the default VFS under a custom name
+        // so that sqlite3_open_v2(..., vfs_name) succeeds. We clone the default
+        // sqlite3_vfs struct, set zName to our name, and register it.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let name_c = CString::new(vfs_name)
+                .map_err(|_| DatabaseError::new("INVALID_VFS_NAME", "Invalid VFS name"))?;
+            let name_ptr = name_c.into_raw(); // intentionally leaked on success; test lifetime only
+
+            unsafe {
+                let default_vfs = sqlite_wasm_rs::sqlite3_vfs_find(std::ptr::null());
+                if default_vfs.is_null() {
+                    // reclaim name to avoid leak on error
+                    let _ = CString::from_raw(name_ptr);
+                    return Err(DatabaseError::new("SQLITE_ERROR", "Default VFS not found"));
+                }
+
+                // Copy the default VFS and rename it
+                let mut alias = *default_vfs;
+                alias.pNext = std::ptr::null_mut();
+                alias.zName = name_ptr as *const c_char;
+
+                let alias_box = Box::new(alias);
+                let alias_ptr = Box::into_raw(alias_box);
+
+                let rc = sqlite_wasm_rs::sqlite3_vfs_register(alias_ptr, 0);
+                if rc != sqlite_wasm_rs::SQLITE_OK {
+                    // free allocations to avoid leak on failure
+                    let _ = Box::from_raw(alias_ptr);
+                    let _ = CString::from_raw(name_ptr);
+                    return Err(DatabaseError::new("SQLITE_ERROR", "Failed to register VFS alias"));
+                }
+            }
+        }
+
+        // Native: no-op for now
         Ok(())
     }
 

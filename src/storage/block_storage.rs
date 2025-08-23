@@ -1,6 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+#[cfg(target_arch = "wasm32")]
+use js_sys::Date;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::hash::Hash;
 use crate::types::DatabaseError;
@@ -171,6 +176,7 @@ pub struct BlockStorage {
     base_dir: PathBuf,
     // Background sync settings
     auto_sync_interval: Option<Duration>,
+    #[cfg(not(target_arch = "wasm32"))]
     last_auto_sync: Instant,
     policy: Option<SyncPolicy>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -526,6 +532,7 @@ impl BlockStorage {
             #[cfg(any(target_arch = "wasm32", not(feature = "fs_persist")))]
             deallocated_blocks: HashSet::new(),
             auto_sync_interval: None,
+            #[cfg(not(target_arch = "wasm32"))]
             last_auto_sync: Instant::now(),
             policy: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1127,8 +1134,18 @@ impl BlockStorage {
     }
 
     #[inline]
+    #[cfg(target_arch = "wasm32")]
     fn now_millis() -> u64 {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_else(|_| Duration::from_millis(0));
+        // Date::now() returns milliseconds since UNIX epoch as f64
+        Date::now() as u64
+    }
+
+    #[inline]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn now_millis() -> u64 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_millis(0));
         now.as_millis() as u64
     }
 
@@ -1149,6 +1166,10 @@ impl BlockStorage {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn maybe_auto_sync(&mut self) { /* no-op on wasm */ }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn maybe_auto_sync(&mut self) {
         if let Some(interval) = self.auto_sync_interval {
             if self.last_auto_sync.elapsed() >= interval {
@@ -1607,7 +1628,10 @@ impl BlockStorage {
     /// Enable automatic background syncing of dirty blocks. Interval in milliseconds.
     pub fn enable_auto_sync(&mut self, interval_ms: u64) {
         self.auto_sync_interval = Some(Duration::from_millis(interval_ms));
-        self.last_auto_sync = Instant::now();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.last_auto_sync = Instant::now();
+        }
         self.policy = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
         log::info!("Auto-sync enabled: every {} ms", interval_ms);
         #[cfg(not(target_arch = "wasm32"))]
@@ -1702,7 +1726,10 @@ impl BlockStorage {
     /// Enable automatic background syncing using a SyncPolicy
     pub fn enable_auto_sync_with_policy(&mut self, policy: SyncPolicy) {
         self.policy = Some(policy.clone());
-        self.last_auto_sync = Instant::now();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.last_auto_sync = Instant::now();
+        }
         self.auto_sync_interval = policy.interval_ms.map(Duration::from_millis);
         log::info!("Auto-sync policy enabled: interval={:?}, max_dirty={:?}, max_bytes={:?}", policy.interval_ms, policy.max_dirty, policy.max_dirty_bytes);
         #[cfg(not(target_arch = "wasm32"))]
@@ -2340,6 +2367,7 @@ impl BlockStorage {
             });
         }
         
+        #[cfg(not(target_arch = "wasm32"))]
         let start = Instant::now();
         let dirty_count = {
             let mut dirty = self.dirty_blocks.lock().unwrap();

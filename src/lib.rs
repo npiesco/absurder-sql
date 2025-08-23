@@ -546,4 +546,22 @@ impl WasmColumnValue {
             }
         }
     }
+
+    // --- Rust-friendly alias constructors used in wasm tests ---
+    // These mirror the create* methods but with simpler names and
+    // argument types matching test usage.
+    pub fn null() -> WasmColumnValue { Self::create_null() }
+
+    // Tests call integer(42.0), so accept f64 and cast to i64.
+    pub fn integer(value: f64) -> WasmColumnValue { Self::create_integer(value as i64) }
+
+    pub fn real(value: f64) -> WasmColumnValue { Self::create_real(value) }
+
+    pub fn text(value: String) -> WasmColumnValue { Self::create_text(value) }
+
+    pub fn blob(value: Vec<u8>) -> WasmColumnValue { Self::create_blob(&value) }
+
+    pub fn big_int(value: String) -> WasmColumnValue { Self::create_bigint(&value) }
+
+    pub fn date(timestamp_ms: f64) -> WasmColumnValue { Self::create_date(timestamp_ms) }
 }

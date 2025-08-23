@@ -31,6 +31,8 @@ async fn test_wasm_database_creation() {
     // Query data back
     let result = db.execute("SELECT name FROM wasm_test").await
         .expect("Should select data");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 1, "Should have 1 row");
     
@@ -67,6 +69,8 @@ async fn test_wasm_column_value_types() {
     // Query back and verify types
     let result = db.execute("SELECT * FROM type_test").await
         .expect("Should select typed data");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 1, "Should have 1 typed row");
     
@@ -153,6 +157,8 @@ async fn test_wasm_bigint_handling() {
     // Query back and verify
     let result = db.execute("SELECT big_number FROM bigint_test ORDER BY id").await
         .expect("Should select big numbers");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 3, "Should have 3 big numbers");
     
@@ -198,6 +204,8 @@ async fn test_wasm_date_handling() {
     // Query back and verify
     let result = db.execute("SELECT timestamp_val, description FROM date_test ORDER BY id").await
         .expect("Should select timestamps");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 3, "Should have 3 timestamps");
     
@@ -274,6 +282,8 @@ async fn test_wasm_persistence() {
     // Try to read the persisted data
     let result = db2.execute("SELECT data FROM persist_test").await
         .expect("Should read persisted data");
+    let result: QueryResult = serde_wasm_bindgen::from_value(result)
+        .expect("deserialize QueryResult");
     
     assert_eq!(result.rows.len(), 1, "Should find persisted row");
     
