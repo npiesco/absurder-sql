@@ -2,7 +2,7 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-08-23 00:27 -0400
+Last updated: 2025-08-25 14:39 -0400
 
 ## Open (in order)
 
@@ -48,3 +48,4 @@ Last updated: 2025-08-23 00:27 -0400
  - [x] Test infra: global test logger to capture logs; silenced `dead_code` warnings for helper to keep `-D warnings` builds green
  - [x] Allocations.json logging (native fs_persist): info-level logs for allocations.json writes during cleanup-only and dirty sync (primary and `(alt)` mirror paths). Added tests `logs_allocations_write_cleanup_only` and `logs_allocations_write_sync_dirty_alt` in `tests/crash_consistency_logging_tests.rs`. Full suites green with and without `fs_persist`.
  - [x] WASM VFS baseline: registered custom VFS name by aliasing default, gated WASM-only imports to avoid unused warnings, and verified native+WASM test suites pass; groundwork laid for IndexedDB-backed VFS methods and transactional semantics.
+ - [x] **SQLite WASM Hang Issue Resolution**: Completely resolved infinite hang issue in SQLite WASM integration by replacing problematic custom bindings with stable `sqlite-wasm-rs` crate (v0.4 with precompiled features). Root cause was deprecated WASM module initialization parameters causing infinite loops in `sqlite3_step` calls. Implemented comprehensive regression test suite (6 tests) covering operation timeouts, large result sets, concurrent operations, error conditions, and deprecated pattern detection. All 64 WASM tests + 74 native tests now pass without hangs. Production-ready SQLite WASM integration achieved with full C API compatibility, proper memory management, and robust error handling.
