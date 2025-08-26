@@ -2,12 +2,13 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-08-25 14:39 -0400
+Last updated: 2025-08-25 18:03 -0400
 
 ## Open (in order)
 
 1. [ ] Crash Consistency & Atomic Batching (Native + IndexedDB)
    - [x] Native (fs_persist): detailed logging around sync/commit/recovery (implemented with tests)
+   - [x] WASM/native-test: read visibility gated by commit marker in `read_block_sync()`; checksum verification only for committed data
    - [ ] IndexedDB: transactional writes {blocks + metadata} with commit marker
    - [ ] IndexedDB: recovery scans to finalize/rollback
    - [ ] Idempotent writes keyed by (block_id, version)

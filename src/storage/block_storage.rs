@@ -111,10 +111,22 @@ thread_local! {
     static GLOBAL_METADATA: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
 }
 
+// Per-DB commit marker for WASM builds to simulate atomic commit semantics
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static GLOBAL_COMMIT_MARKER: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
+}
+
 // Test-only metadata mirror for native builds
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
 thread_local! {
     static GLOBAL_METADATA_TEST: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
+}
+
+// Test-only commit marker mirror for native builds (when fs_persist is disabled)
+#[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+thread_local! {
+    static GLOBAL_COMMIT_MARKER_TEST: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone, Debug)]
@@ -339,15 +351,21 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         let checksums_init: HashMap<u64, u64> = {
             let mut map = HashMap::new();
+            let committed = GLOBAL_COMMIT_MARKER.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(db_name).copied().unwrap_or(0)
+            });
             GLOBAL_METADATA.with(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(db_name) {
                     for (bid, m) in db_meta.iter() {
-                        map.insert(*bid, m.checksum);
+                        if (m.version as u64) <= committed {
+                            map.insert(*bid, m.checksum);
+                        }
                     }
                     log::info!(
                         "Restored {} checksum entries for database: {}",
-                        db_meta.len(),
+                        map.len(),
                         db_name
                     );
                 }
@@ -451,11 +469,17 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         let checksums_init: HashMap<u64, u64> = {
             let mut map = HashMap::new();
+            let committed = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(db_name).copied().unwrap_or(0)
+            });
             GLOBAL_METADATA_TEST.with(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(db_name) {
                     for (bid, m) in db_meta.iter() {
-                        map.insert(*bid, m.checksum);
+                        if (m.version as u64) <= committed {
+                            map.insert(*bid, m.checksum);
+                        }
                     }
                     log::info!(
                         "[test] Restored {} checksum entries for database: {}",
@@ -471,11 +495,17 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = {
             let mut map = HashMap::new();
+            let committed = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(db_name).copied().unwrap_or(0)
+            });
             GLOBAL_METADATA_TEST.with(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(db_name) {
                     for (bid, m) in db_meta.iter() {
-                        map.insert(*bid, m.algo);
+                        if (m.version as u64) <= committed {
+                            map.insert(*bid, m.algo);
+                        }
                     }
                 }
             });
@@ -494,11 +524,17 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = {
             let mut map = HashMap::new();
+            let committed = GLOBAL_COMMIT_MARKER.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(db_name).copied().unwrap_or(0)
+            });
             GLOBAL_METADATA.with(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(db_name) {
                     for (bid, m) in db_meta.iter() {
-                        map.insert(*bid, m.algo);
+                        if (m.version as u64) <= committed {
+                            map.insert(*bid, m.algo);
+                        }
                     }
                 }
             });
@@ -1246,28 +1282,55 @@ impl BlockStorage {
         // For WASM, check global storage for persistence across instances
         #[cfg(target_arch = "wasm32")]
         {
-            let data = GLOBAL_STORAGE.with(|storage| {
-                let storage_map = storage.borrow();
-                if let Some(db_storage) = storage_map.get(&self.db_name) {
-                    if let Some(data) = db_storage.get(&block_id) {
-                        log::debug!("Block {} found in global storage (sync)", block_id);
-                        return data.clone();
+            // Enforce commit gating: only expose data whose metadata version <= commit marker
+            let committed: u64 = GLOBAL_COMMIT_MARKER.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(&self.db_name).copied().unwrap_or(0)
+            });
+            let is_visible: bool = GLOBAL_METADATA.with(|meta| {
+                let meta_map = meta.borrow();
+                if let Some(db_meta) = meta_map.get(&self.db_name) {
+                    if let Some(m) = db_meta.get(&block_id) {
+                        return (m.version as u64) <= committed;
                     }
                 }
-                // Return empty block if not found
-                vec![0; BLOCK_SIZE]
+                false
             });
+            let data = if is_visible {
+                GLOBAL_STORAGE.with(|storage| {
+                    let storage_map = storage.borrow();
+                    if let Some(db_storage) = storage_map.get(&self.db_name) {
+                        if let Some(data) = db_storage.get(&block_id) {
+                            log::debug!(
+                                "Block {} found in global storage (sync, committed visible)",
+                                block_id
+                            );
+                            return data.clone();
+                        }
+                    }
+                    vec![0; BLOCK_SIZE]
+                })
+            } else {
+                log::debug!(
+                    "Block {} not visible due to commit gating (committed={}, treating as zeroed)",
+                    block_id,
+                    committed
+                );
+                vec![0; BLOCK_SIZE]
+            };
             
             // Cache for future reads
             self.cache.insert(block_id, data.clone());
             log::debug!("Block {} cached from global storage (sync)", block_id);
-            // Verify checksum if tracked
-            if let Err(e) = self.verify_against_stored_checksum(block_id, &data) {
-                log::error!(
-                    "Checksum verification failed for block {} (wasm storage): {}",
-                    block_id, e.message
-                );
-                return Err(e);
+            // Verify checksum only if the block is visible under the commit marker
+            if is_visible {
+                if let Err(e) = self.verify_against_stored_checksum(block_id, &data) {
+                    log::error!(
+                        "Checksum verification failed for block {} (wasm storage): {}",
+                        block_id, e.message
+                    );
+                    return Err(e);
+                }
             }
             self.touch_lru(block_id);
             self.evict_if_needed();
@@ -1313,26 +1376,51 @@ impl BlockStorage {
         // For native tests, check test-global storage for persistence across instances (when fs_persist disabled)
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
-            let data = GLOBAL_STORAGE_TEST.with(|storage| {
-                let storage_map = storage.borrow();
-                if let Some(db_storage) = storage_map.get(&self.db_name) {
-                    if let Some(data) = db_storage.get(&block_id) {
-                        log::debug!("[test] Block {} found in global storage (sync)", block_id);
-                        return data.clone();
+            // Enforce commit gating in native test path as well
+            let committed: u64 = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(&self.db_name).copied().unwrap_or(0)
+            });
+            let is_visible: bool = GLOBAL_METADATA_TEST.with(|meta| {
+                let meta_map = meta.borrow();
+                if let Some(db_meta) = meta_map.get(&self.db_name) {
+                    if let Some(m) = db_meta.get(&block_id) {
+                        return (m.version as u64) <= committed;
                     }
                 }
-                // Return empty block if not found
-                vec![0; BLOCK_SIZE]
+                false
             });
+            let data = if is_visible {
+                GLOBAL_STORAGE_TEST.with(|storage| {
+                    let storage_map = storage.borrow();
+                    if let Some(db_storage) = storage_map.get(&self.db_name) {
+                        if let Some(data) = db_storage.get(&block_id) {
+                            log::debug!("[test] Block {} found in global storage (sync, committed visible)", block_id);
+                            return data.clone();
+                        }
+                    }
+                    vec![0; BLOCK_SIZE]
+                })
+            } else {
+                log::debug!(
+                    "[test] Block {} not visible due to commit gating (committed={}, treating as zeroed)",
+                    block_id,
+                    committed
+                );
+                vec![0; BLOCK_SIZE]
+            };
 
             self.cache.insert(block_id, data.clone());
             log::debug!("[test] Block {} cached from global storage (sync)", block_id);
-            if let Err(e) = self.verify_against_stored_checksum(block_id, &data) {
-                log::error!(
-                    "[test] Checksum verification failed for block {} (test storage): {}",
-                    block_id, e.message
-                );
-                return Err(e);
+            // Verify checksum only if the block is visible under the commit marker
+            if is_visible {
+                if let Err(e) = self.verify_against_stored_checksum(block_id, &data) {
+                    log::error!(
+                        "[test] Checksum verification failed for block {} (test storage): {}",
+                        block_id, e.message
+                    );
+                    return Err(e);
+                }
             }
             self.touch_lru(block_id);
             self.evict_if_needed();
@@ -2108,6 +2196,11 @@ impl BlockStorage {
                 dirty.iter().map(|(k,v)| (*k, v.clone())).collect()
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
+            // Determine next commit version so that all metadata written in this sync share the same version
+            let next_commit: u64 = GLOBAL_COMMIT_MARKER.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(&self.db_name).copied().unwrap_or(0) + 1
+            });
             GLOBAL_STORAGE.with(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
@@ -2122,23 +2215,29 @@ impl BlockStorage {
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
                     if let Some(&checksum) = self.checksums.get(&block_id) {
-                        let version = db_meta
-                            .get(&block_id)
-                            .map(|m| m.version)
-                            .unwrap_or(0)
-                            .saturating_add(1);
+                        // Use the per-commit version so entries remain invisible until the commit marker advances
+                        let version = next_commit as u32;
                         db_meta.insert(
                             block_id,
                             BlockMetadataPersist {
                                 checksum,
                                 last_modified_ms: Self::now_millis(),
                                 version,
-                                algo: ChecksumAlgorithm::FastHash,
+                                algo: self
+                                    .checksum_algos
+                                    .get(&block_id)
+                                    .copied()
+                                    .unwrap_or(self.checksum_algo_default),
                             },
                         );
                         log::debug!("Persisted metadata for block {}", block_id);
                     }
                 }
+            });
+            // Atomically advance the commit marker after all data and metadata are persisted
+            GLOBAL_COMMIT_MARKER.with(|cm| {
+                let mut cm_map = cm.borrow_mut();
+                cm_map.insert(self.db_name.clone(), next_commit);
             });
         }
         
@@ -2329,6 +2428,11 @@ impl BlockStorage {
                 dirty.iter().map(|(k, v)| (*k, v.clone())).collect()
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
+            // Determine next commit version for the test-global path
+            let next_commit: u64 = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+                let cm = cm.borrow();
+                cm.get(&self.db_name).copied().unwrap_or(0) + 1
+            });
             GLOBAL_STORAGE_TEST.with(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
@@ -2343,11 +2447,7 @@ impl BlockStorage {
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
                     if let Some(&checksum) = self.checksums.get(&block_id) {
-                        let version = db_meta
-                            .get(&block_id)
-                            .map(|m| m.version)
-                            .unwrap_or(0)
-                            .saturating_add(1);
+                        let version = next_commit as u32;
                         db_meta.insert(
                             block_id,
                             BlockMetadataPersist {
@@ -2364,6 +2464,11 @@ impl BlockStorage {
                         log::debug!("[test] Persisted metadata for block {}", block_id);
                     }
                 }
+            });
+            // Advance commit marker after persisting all entries
+            GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+                let mut cm_map = cm.borrow_mut();
+                cm_map.insert(self.db_name.clone(), next_commit);
             });
         }
         
