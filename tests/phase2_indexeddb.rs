@@ -270,6 +270,44 @@ async fn test_persistence_across_instances() {
     web_sys::console::log_1(&"✓ Persistence across instances test passed".into());
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test]
+async fn test_indexeddb_transactional_visibility_across_instances() {
+    // Pre-commit data must not be visible across instances; post-commit must be visible
+    let db_name = "test_db_txn_visibility";
+    let block_id: u64 = 7;
+    let test_data = vec![37u8; BLOCK_SIZE];
+
+    // Instance A: write but do not commit
+    let mut storage_a = BlockStorage::new(db_name).await
+        .expect("Should create storage A");
+    storage_a.write_block(block_id, test_data.clone()).await
+        .expect("Should write block in A");
+
+    // Instance B: before commit, should see zeros
+    {
+        let mut storage_b = BlockStorage::new(db_name).await
+            .expect("Should create storage B");
+        let pre_commit = storage_b.read_block(block_id).await
+            .expect("Should read block pre-commit");
+        assert_eq!(pre_commit, vec![0u8; BLOCK_SIZE], "Uncommitted data must not be visible across instances");
+    }
+
+    // Commit in A
+    storage_a.sync().await.expect("Should sync (commit) in A");
+
+    // Instance C: after commit, should see the data
+    {
+        let mut storage_c = BlockStorage::new(db_name).await
+            .expect("Should create storage C");
+        let post_commit = storage_c.read_block(block_id).await
+            .expect("Should read block post-commit");
+        assert_eq!(post_commit, test_data, "Committed data must be visible across instances");
+    }
+
+    web_sys::console::log_1(&"✓ IndexedDB transactional visibility across instances test passed".into());
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn test_persistence_across_instances() {
