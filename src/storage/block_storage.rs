@@ -2778,3 +2778,208 @@ impl BlockStorage {
         self.allocated_blocks.len()
     }
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_commit_marker_tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    // Helper: set commit marker for a db name in WASM global
+    fn set_commit_marker(db: &str, v: u64) {
+        super::GLOBAL_COMMIT_MARKER.with(|cm| {
+            cm.borrow_mut().insert(db.to_string(), v);
+        });
+    }
+
+    // Helper: get commit marker for a db name in WASM global
+    fn get_commit_marker(db: &str) -> u64 {
+        super::GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow().get(db).copied().unwrap_or(0))
+    }
+
+    #[wasm_bindgen_test]
+    async fn gating_returns_zeroed_until_marker_catches_up_wasm() {
+        let db = "cm_gating_wasm";
+        let mut s = BlockStorage::new(db).await.expect("create storage");
+
+        // Prepare one committed block at version 1
+        let bid = s.allocate_block().await.expect("alloc block");
+        let data_v1 = vec![0x33u8; BLOCK_SIZE];
+        s.write_block(bid, data_v1.clone()).await.expect("write v1");
+        s.sync().await.expect("sync v1");
+
+        // Force commit marker behind metadata version
+        set_commit_marker(db, 0);
+        s.clear_cache();
+        let out0 = s.read_block(bid).await.expect("read with lagging marker");
+        assert_eq!(out0, vec![0u8; BLOCK_SIZE], "uncommitted (by marker) must read as zeroed");
+
+        // Advance marker to include version 1 and verify data becomes visible
+        set_commit_marker(db, 1);
+        s.clear_cache();
+        let out1 = s.read_block(bid).await.expect("read after marker catch-up");
+        assert_eq!(out1, data_v1, "data should be visible once marker >= version");
+    }
+
+    #[wasm_bindgen_test]
+    async fn invisible_blocks_skip_checksum_verification_wasm() {
+        let db = "cm_checksum_skip_wasm";
+        let mut s = BlockStorage::new(db).await.expect("create storage");
+
+        let bid = s.allocate_block().await.expect("alloc block");
+        let data = vec![0x44u8; BLOCK_SIZE];
+        s.write_block(bid, data).await.expect("write v1");
+        s.sync().await.expect("sync v1"); // version becomes 1
+
+        // Make the block invisible by moving commit marker back
+        set_commit_marker(db, 0);
+
+        // Corrupt the stored checksum; invisible reads must NOT verify checksum
+        s.set_block_checksum_for_testing(bid, 1234567);
+        s.clear_cache();
+        let out = s.read_block(bid).await.expect("read while invisible should not error");
+        assert_eq!(out, vec![0u8; BLOCK_SIZE], "invisible block reads as zeroed");
+
+        // Now make it visible; checksum verification should trigger and fail
+        set_commit_marker(db, 1);
+        s.clear_cache();
+        let err = s
+            .read_block(bid)
+            .await
+            .expect_err("expected checksum mismatch once visible");
+        assert_eq!(err.code, "CHECKSUM_MISMATCH");
+    }
+
+    #[wasm_bindgen_test]
+    async fn commit_marker_advances_and_versions_track_syncs_wasm() {
+        let db = "cm_versions_wasm";
+        let mut s = BlockStorage::new_with_capacity(db, 8)
+            .await
+            .expect("create storage");
+
+        let b1 = s.allocate_block().await.expect("alloc b1");
+        let b2 = s.allocate_block().await.expect("alloc b2");
+
+        s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
+        s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+        s.sync().await.expect("sync #1");
+
+        let cm1 = get_commit_marker(db);
+        assert_eq!(cm1, 1, "first sync should advance commit marker to 1");
+        let meta1 = s.get_block_metadata_for_testing();
+        assert_eq!(meta1.get(&b1).unwrap().1 as u64, cm1);
+        assert_eq!(meta1.get(&b2).unwrap().1 as u64, cm1);
+
+        // Update only b1 and sync again; only b1's version should bump
+        s.write_block(b1, vec![3u8; BLOCK_SIZE]).await.expect("write b1 v2");
+        s.sync().await.expect("sync #2");
+
+        let cm2 = get_commit_marker(db);
+        assert_eq!(cm2, 2, "second sync should advance commit marker to 2");
+        let meta2 = s.get_block_metadata_for_testing();
+        assert_eq!(meta2.get(&b1).unwrap().1 as u64, cm2, "updated block tracks new version");
+        assert_eq!(meta2.get(&b2).unwrap().1 as u64, 1, "unchanged block retains prior version");
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "fs_persist")))]
+mod commit_marker_tests {
+    use super::*;
+
+    // Helper: set commit marker for a db name in test-global mirror
+    fn set_commit_marker(db: &str, v: u64) {
+        super::GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            cm.borrow_mut().insert(db.to_string(), v);
+        });
+    }
+
+    // Helper: get commit marker for a db name in test-global mirror
+    fn get_commit_marker(db: &str) -> u64 {
+        super::GLOBAL_COMMIT_MARKER_TEST.with(|cm| cm.borrow().get(db).copied().unwrap_or(0))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn gating_returns_zeroed_until_marker_catches_up() {
+        let db = "cm_gating_basic";
+        let mut s = BlockStorage::new(db).await.expect("create storage");
+
+        // Prepare one committed block at version 1
+        let bid = s.allocate_block().await.expect("alloc block");
+        let data_v1 = vec![0x11u8; BLOCK_SIZE];
+        s.write_block(bid, data_v1.clone()).await.expect("write v1");
+        s.sync().await.expect("sync v1");
+
+        // Force commit marker behind metadata version
+        set_commit_marker(db, 0);
+        s.clear_cache();
+        let out0 = s.read_block(bid).await.expect("read with lagging marker");
+        assert_eq!(out0, vec![0u8; BLOCK_SIZE], "uncommitted (by marker) must read as zeroed");
+
+        // Advance marker to include version 1 and verify data becomes visible
+        set_commit_marker(db, 1);
+        s.clear_cache();
+        let out1 = s.read_block(bid).await.expect("read after marker catch-up");
+        assert_eq!(out1, data_v1, "data should be visible once marker >= version");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn invisible_blocks_skip_checksum_verification() {
+        let db = "cm_checksum_skip";
+        let mut s = BlockStorage::new(db).await.expect("create storage");
+
+        let bid = s.allocate_block().await.expect("alloc block");
+        let data = vec![0xAAu8; BLOCK_SIZE];
+        s.write_block(bid, data.clone()).await.expect("write v1");
+        s.sync().await.expect("sync v1"); // version becomes 1
+
+        // Make the block invisible by moving commit marker back
+        set_commit_marker(db, 0);
+
+        // Corrupt the stored checksum; invisible reads must NOT verify checksum
+        s.set_block_checksum_for_testing(bid, 1234567);
+        s.clear_cache();
+        let out = s.read_block(bid).await.expect("read while invisible should not error");
+        assert_eq!(out, vec![0u8; BLOCK_SIZE], "invisible block reads as zeroed");
+
+        // Now make it visible; checksum verification should trigger and fail
+        set_commit_marker(db, 1);
+        s.clear_cache();
+        let err = s
+            .read_block(bid)
+            .await
+            .expect_err("expected checksum mismatch once visible");
+        assert_eq!(err.code, "CHECKSUM_MISMATCH");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn commit_marker_advances_and_versions_track_syncs() {
+        let db = "cm_versions";
+        let mut s = BlockStorage::new_with_capacity(db, 8)
+            .await
+            .expect("create storage");
+
+        let b1 = s.allocate_block().await.expect("alloc b1");
+        let b2 = s.allocate_block().await.expect("alloc b2");
+
+        s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
+        s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+        s.sync().await.expect("sync #1");
+
+        let cm1 = get_commit_marker(db);
+        assert_eq!(cm1, 1, "first sync should advance commit marker to 1");
+        let meta1 = s.get_block_metadata_for_testing();
+        assert_eq!(meta1.get(&b1).unwrap().1 as u64, cm1);
+        assert_eq!(meta1.get(&b2).unwrap().1 as u64, cm1);
+
+        // Update only b1 and sync again; only b1's version should bump
+        s.write_block(b1, vec![3u8; BLOCK_SIZE]).await.expect("write b1 v2");
+        s.sync().await.expect("sync #2");
+
+        let cm2 = get_commit_marker(db);
+        assert_eq!(cm2, 2, "second sync should advance commit marker to 2");
+        let meta2 = s.get_block_metadata_for_testing();
+        assert_eq!(meta2.get(&b1).unwrap().1 as u64, cm2, "updated block tracks new version");
+        assert_eq!(meta2.get(&b2).unwrap().1 as u64, 1, "unchanged block retains prior version");
+    }
+}
