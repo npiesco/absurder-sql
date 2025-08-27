@@ -10,3 +10,4 @@ manager_test_db/
 threshold_immediate_db/
 test_sqlite_creation.db/
 test_*/
+.DS_Store
