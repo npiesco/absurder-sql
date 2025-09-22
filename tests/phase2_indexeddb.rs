@@ -61,6 +61,9 @@ async fn test_block_storage_read_write() {
     storage.write_block(block_id, test_data.clone()).await
         .expect("Should write block");
     
+    // Sync to commit the data (required for commit marker gating)
+    storage.sync().await.expect("Should sync");
+    
     // Read block back
     let read_data = storage.read_block(block_id).await
         .expect("Should read block");

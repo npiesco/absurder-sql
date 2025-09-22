@@ -28,7 +28,7 @@ async fn test_read_verifies_checksum_and_errors_on_mismatch() {
     #[allow(unused_variables)]
     {
         // Only available in tests/debug builds; ignored in release
-        storage.set_block_checksum_for_testing(1, old_csum.wrapping_add(12345));
+        storage.set_block_checksum_for_testing(1, old_csum.wrapping_add(12345).into());
     }
 
     // Now a read should verify checksum and return an error
