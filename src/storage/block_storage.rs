@@ -7,8 +7,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use js_sys::Date;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::hash::Hash;
 use crate::types::DatabaseError;
+use super::metadata::{ChecksumManager, ChecksumAlgorithm, BlockMetadataPersist};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle as TokioJoinHandle;
 
@@ -33,25 +33,7 @@ thread_local! {
     static GLOBAL_ALLOCATION_MAP_TEST: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
 }
 
-// Persistent metadata storage for WASM builds (and tests on native). Also reused for fs_persist.
-#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions)), feature = "fs_persist"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-#[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]
-enum ChecksumAlgorithm { FastHash, CRC32 }
-
-#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions)), feature = "fs_persist"))]
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]
-struct BlockMetadataPersist {
-    checksum: u64,
-    #[allow(dead_code)]
-    last_modified_ms: u64,
-    #[allow(dead_code)]
-    version: u32,
-    #[allow(dead_code)]
-    algo: ChecksumAlgorithm,
-}
+// Persistent metadata storage moved to metadata module
 
 #[derive(Clone, Debug, Default)]
 pub struct RecoveryOptions {
@@ -403,12 +385,8 @@ pub struct BlockStorage {
     next_block_id: u64,
     capacity: usize,
     lru_order: VecDeque<u64>,
-    // Simple integrity metadata: checksum per block (computed on write)
-    checksums: HashMap<u64, u64>,
-    // Per-block checksum algorithm (persisted)
-    checksum_algos: HashMap<u64, ChecksumAlgorithm>,
-    // Default algorithm for new blocks (can be selected via env)
-    checksum_algo_default: ChecksumAlgorithm,
+    // Checksum management (moved to metadata module)
+    checksum_manager: ChecksumManager,
     #[allow(dead_code)]
     db_name: String,
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -460,9 +438,7 @@ impl BlockStorage {
             next_block_id: 1,
             capacity: 128,
             lru_order: VecDeque::new(),
-            checksums: HashMap::new(),
-            checksum_algos: HashMap::new(),
-            checksum_algo_default: ChecksumAlgorithm::CRC32,
+            checksum_manager: ChecksumManager::new(ChecksumAlgorithm::CRC32),
             db_name: db_name.to_string(),
             auto_sync_interval: None,
             policy: None,
@@ -833,9 +809,11 @@ impl BlockStorage {
             next_block_id,
             capacity: DEFAULT_CACHE_CAPACITY,
             lru_order: VecDeque::new(),
-            checksums: checksums_init,
-            checksum_algos: checksum_algos_init,
-            checksum_algo_default,
+            checksum_manager: ChecksumManager::with_data(
+                checksums_init,
+                checksum_algos_init,
+                checksum_algo_default,
+            ),
             db_name: db_name.to_string(),
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
             base_dir: fs_base_dir,
@@ -1173,9 +1151,11 @@ impl BlockStorage {
             cache: HashMap::new(),
             lru_order: VecDeque::new(),
             capacity: 1000,
-            checksums: checksums_init,
-            checksum_algos: checksum_algos_init,
-            checksum_algo_default: ChecksumAlgorithm::CRC32,
+            checksum_manager: ChecksumManager::with_data(
+                checksums_init,
+                checksum_algos_init,
+                ChecksumAlgorithm::CRC32,
+            ),
             dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
             allocated_blocks,
             next_block_id,
@@ -1328,8 +1308,7 @@ impl BlockStorage {
                                 }
                             }
                         }
-                        self.checksums = checksums_new;
-                        self.checksum_algos = algos_new;
+                        self.checksum_manager.replace_all(checksums_new, algos_new);
                     }
                 } else {
                     // Rollback: just remove the pending file, retain existing metadata.json
@@ -1706,8 +1685,7 @@ impl BlockStorage {
         self.cache.remove(&block_id);
         
         // Remove checksum metadata
-        self.checksums.remove(&block_id);
-        self.checksum_algos.remove(&block_id);
+        self.checksum_manager.remove_checksum(block_id);
         
         // Remove from filesystem if fs_persist is enabled
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -1800,22 +1778,7 @@ impl BlockStorage {
         now.as_millis() as u64
     }
 
-    fn compute_checksum_with(data: &[u8], algo: ChecksumAlgorithm) -> u64 {
-        match algo {
-            ChecksumAlgorithm::FastHash => {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::Hasher;
-                let mut hasher = DefaultHasher::new();
-                data.hash(&mut hasher);
-                hasher.finish()
-            }
-            ChecksumAlgorithm::CRC32 => {
-                let mut hasher = crc32fast::Hasher::new();
-                hasher.update(data);
-                hasher.finalize() as u64
-            }
-        }
-    }
+    // compute_checksum_with moved to ChecksumManager
 
     #[cfg(target_arch = "wasm32")]
     fn maybe_auto_sync(&mut self) { /* no-op on wasm */ }
@@ -1840,38 +1803,7 @@ impl BlockStorage {
         block_id: u64,
         data: &[u8],
     ) -> Result<(), DatabaseError> {
-        if let Some(expected) = self.checksums.get(&block_id) {
-            let algo = self
-                .checksum_algos
-                .get(&block_id)
-                .copied()
-                .unwrap_or(self.checksum_algo_default);
-            let actual = Self::compute_checksum_with(data, algo);
-            if *expected != actual {
-                // Try other known algorithms to detect algorithm mismatch
-                let known_algos = [ChecksumAlgorithm::FastHash, ChecksumAlgorithm::CRC32];
-                for alt in known_algos.iter().copied().filter(|a| *a != algo) {
-                    let alt_sum = Self::compute_checksum_with(data, alt);
-                    if *expected == alt_sum {
-                        return Err(DatabaseError::new(
-                            "ALGO_MISMATCH",
-                            &format!(
-                                "Checksum algorithm mismatch for block {}: stored algo {:?}, but data matches {:?}",
-                                block_id, algo, alt
-                            ),
-                        ));
-                    }
-                }
-                return Err(DatabaseError::new(
-                    "CHECKSUM_MISMATCH",
-                    &format!(
-                        "Checksum mismatch for block {}: expected {}, got {}",
-                        block_id, expected, actual
-                    ),
-                ));
-            }
-        }
-        Ok(())
+        self.checksum_manager.validate_checksum(block_id, data)
     }
 
     /// Synchronous block read for environments that require sync access (e.g., VFS callbacks)
@@ -2434,14 +2366,7 @@ impl BlockStorage {
         }
         // Update checksum metadata on write
         if let Some(bytes) = self.cache.get(&block_id) {
-            let algo = self
-                .checksum_algos
-                .get(&block_id)
-                .copied()
-                .unwrap_or(self.checksum_algo_default);
-            let csum = Self::compute_checksum_with(bytes, algo);
-            self.checksums.insert(block_id, csum);
-            self.checksum_algos.insert(block_id, algo);
+            self.checksum_manager.store_checksum(block_id, bytes);
         }
         // Record write time for debounce tracking (native)
         #[cfg(not(target_arch = "wasm32"))]
@@ -2525,7 +2450,7 @@ impl BlockStorage {
 
     /// Get block checksum for verification
     pub fn get_block_checksum(&self, block_id: u64) -> Option<u32> {
-        self.checksums.get(&block_id).map(|&checksum| checksum as u32)
+        self.checksum_manager.get_checksum(block_id).map(|checksum| checksum as u32)
     }
 
     /// Get current commit marker for this database (WASM only, for testing)
@@ -2605,7 +2530,7 @@ impl BlockStorage {
 
     #[cfg(any(test, debug_assertions))]
     pub fn set_block_checksum_for_testing(&mut self, block_id: u64, checksum: u64) {
-        self.checksums.insert(block_id, checksum);
+        self.checksum_manager.set_checksum_for_testing(block_id, checksum);
     }
 
     /// Enable automatic background syncing of dirty blocks. Interval in milliseconds.
@@ -2981,7 +2906,7 @@ impl BlockStorage {
                                 if let Some(obj) = arr.get_mut(1).and_then(|v| v.as_object_mut()) {
                                     let ok = obj.get("algo").and_then(|v| v.as_str()).map(|s| s == "FastHash" || s == "CRC32").unwrap_or(false);
                                     if !ok {
-                                        let def = match self.checksum_algo_default { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
+                                        let def = match self.checksum_manager.default_algorithm() { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
                                         obj.insert("algo".into(), serde_json::Value::String(def.into()));
                                     }
                                 }
@@ -3161,7 +3086,7 @@ impl BlockStorage {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
-                    if let Some(&checksum) = self.checksums.get(&block_id) {
+                    if let Some(checksum) = self.checksum_manager.get_checksum(block_id) {
                         // Use the per-commit version so entries remain invisible until the commit marker advances
                         let version = next_commit as u32;
                         db_meta.insert(
@@ -3170,11 +3095,7 @@ impl BlockStorage {
                                 checksum,
                                 last_modified_ms: Self::now_millis(),
                                 version,
-                                algo: self
-                                    .checksum_algos
-                                    .get(&block_id)
-                                    .copied()
-                                    .unwrap_or(self.checksum_algo_default),
+                                algo: self.checksum_manager.get_algorithm(block_id),
                             },
                         );
                         log::debug!("Persisted metadata for block {}", block_id);
@@ -3374,13 +3295,9 @@ impl BlockStorage {
                 block_file.push(format!("block_{}.bin", block_id));
                 if let Ok(mut f) = fs::File::create(&block_file) { let _ = f.write_all(&data); }
                 // update metadata
-                if let Some(&checksum) = self.checksums.get(&block_id) {
+                if let Some(checksum) = self.checksum_manager.get_checksum(block_id) {
                     let version_u64 = map.get(&block_id).and_then(|m| m.get("version")).and_then(|v| v.as_u64()).unwrap_or(0).saturating_add(1);
-                    let algo = self
-                        .checksum_algos
-                        .get(&block_id)
-                        .copied()
-                        .unwrap_or(self.checksum_algo_default);
+                    let algo = self.checksum_manager.get_algorithm(block_id);
                     let algo_str = match algo { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
                     let mut obj = serde_json::Map::new();
                     obj.insert("checksum".into(), serde_json::Value::from(checksum));
@@ -3394,7 +3311,7 @@ impl BlockStorage {
             for (_id, obj) in map.iter_mut() {
                 let ok = obj.get("algo").and_then(|v| v.as_str()).map(|s| s == "FastHash" || s == "CRC32").unwrap_or(false);
                 if !ok {
-                    let def = match self.checksum_algo_default { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
+                    let def = match self.checksum_manager.default_algorithm() { ChecksumAlgorithm::CRC32 => "CRC32", _ => "FastHash" };
                     obj.insert("algo".into(), serde_json::Value::String(def.into()));
                 }
             }
@@ -3535,7 +3452,7 @@ impl BlockStorage {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
-                    if let Some(&checksum) = self.checksums.get(&block_id) {
+                    if let Some(checksum) = self.checksum_manager.get_checksum(block_id) {
                         let version = next_commit as u32;
                         db_meta.insert(
                             block_id,
@@ -3543,11 +3460,7 @@ impl BlockStorage {
                                 checksum,
                                 last_modified_ms: Self::now_millis(),
                                 version,
-                                algo: self
-                                    .checksum_algos
-                                    .get(&block_id)
-                                    .copied()
-                                    .unwrap_or(self.checksum_algo_default),
+                                algo: self.checksum_manager.get_algorithm(block_id),
                             },
                         );
                         log::debug!("[test] Persisted metadata for block {}", block_id);
@@ -3901,7 +3814,7 @@ impl BlockStorage {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
-                    if let Some(&checksum) = self.checksums.get(&block_id) {
+                    if let Some(checksum) = self.checksum_manager.get_checksum(block_id) {
                         // Use the per-commit version so entries remain invisible until the commit marker advances
                         let version = next_commit as u32;
                         db_meta.insert(
@@ -3913,11 +3826,7 @@ impl BlockStorage {
                                     .unwrap_or_default()
                                     .as_millis() as u64,
                                 version,
-                                algo: self
-                                    .checksum_algos
-                                    .get(&block_id)
-                                    .copied()
-                                    .unwrap_or(self.checksum_algo_default),
+                                algo: self.checksum_manager.get_algorithm(block_id),
                             },
                         );
                         log::debug!("Persisted metadata for block {} in native test path", block_id);
@@ -4029,7 +3938,7 @@ impl BlockStorage {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
-                    if let Some(&checksum) = self.checksums.get(&block_id) {
+                    if let Some(checksum) = self.checksum_manager.get_checksum(block_id) {
                         // Use the per-commit version so entries remain invisible until the commit marker advances
                         let version = next_commit as u32;
                         db_meta.insert(
@@ -4038,11 +3947,7 @@ impl BlockStorage {
                                 checksum,
                                 last_modified_ms: Self::now_millis(),
                                 version,
-                                algo: self
-                                    .checksum_algos
-                                    .get(&block_id)
-                                    .copied()
-                                    .unwrap_or(self.checksum_algo_default),
+                                algo: self.checksum_manager.get_algorithm(block_id),
                             },
                         );
                         log::debug!("Persisted metadata for block {}", block_id);
@@ -4365,9 +4270,8 @@ impl BlockStorage {
         // Clear from cache and dirty blocks
         self.cache.remove(&block_id);
         self.dirty_blocks.lock().unwrap().remove(&block_id);
-        self.checksums.remove(&block_id);
-        // Remove per-block algorithm metadata so reuses adopt the current default
-        self.checksum_algos.remove(&block_id);
+        // Remove checksum metadata
+        self.checksum_manager.remove_checksum(block_id);
         
         // For WASM, remove from global storage
         #[cfg(target_arch = "wasm32")]
