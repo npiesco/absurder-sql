@@ -455,8 +455,8 @@ unsafe extern "C" fn x_open_simple(
         
         // For non-ephemeral files, calculate and set correct file size based on existing data
         if !ephemeral {
-            use crate::storage::block_storage::GLOBAL_STORAGE;
-            let calculated_size = GLOBAL_STORAGE.with(|gs| {
+            use crate::storage::vfs_sync::with_global_storage;
+            let calculated_size = with_global_storage(|gs| {
                 if let Some(db) = gs.borrow().get(&db_name) {
                     if db.is_empty() {
                         0
@@ -516,9 +516,9 @@ unsafe extern "C" fn x_open(
     
     if !has_storage {
         // Check if this database has existing data in global storage
-        use crate::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
-        let has_existing_data = GLOBAL_STORAGE.with(|gs| gs.borrow().contains_key(&db_name)) ||
-                               GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow().contains_key(&db_name));
+        use crate::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        let has_existing_data = with_global_storage(|gs| gs.borrow().contains_key(&db_name)) ||
+                               with_global_commit_marker(|cm| cm.borrow().contains_key(&db_name));
         
         if has_existing_data {
             // Auto-register storage for existing database
@@ -547,8 +547,8 @@ unsafe extern "C" fn x_open(
                 
                 // Also log how many blocks are in global storage for this database
                 // Use the same GLOBAL_STORAGE as BlockStorage
-                use crate::storage::block_storage::GLOBAL_STORAGE;
-                GLOBAL_STORAGE.with(|storage| {
+                use crate::storage::vfs_sync::with_global_storage;
+                with_global_storage(|storage| {
                     let storage_map = storage.borrow();
                     if let Some(db_storage) = storage_map.get(&db_name) {
                         #[cfg(target_arch = "wasm32")]
@@ -590,13 +590,13 @@ unsafe extern "C" fn x_open(
         
         // For non-ephemeral files, calculate and set correct file size based on existing data
         if !ephemeral {
-            use crate::storage::block_storage::GLOBAL_STORAGE;
-            let has_existing_blocks = GLOBAL_STORAGE.with(|gs| {
+            use crate::storage::vfs_sync::with_global_storage;
+            let has_existing_blocks = with_global_storage(|gs| {
                 gs.borrow().get(&db_name).map(|db| !db.is_empty()).unwrap_or(false)
             });
             
             if has_existing_blocks {
-                let max_block_id = GLOBAL_STORAGE.with(|gs| {
+                let max_block_id = with_global_storage(|gs| {
                     gs.borrow().get(&db_name).map(|db| {
                         db.keys().max().copied().unwrap_or(0)
                     }).unwrap_or(0)
@@ -698,8 +698,8 @@ unsafe extern "C" fn x_write_stub(
         let copy_len = std::cmp::min(remaining, 4096 - block_offset);
         
         // Read existing block data
-        use crate::storage::block_storage::GLOBAL_STORAGE;
-        let mut block_data = GLOBAL_STORAGE.with(|gs| {
+        use crate::storage::vfs_sync::with_global_storage;
+        let mut block_data = with_global_storage(|gs| {
             gs.borrow()
                 .get(db_name)
                 .and_then(|db| db.get(&block_id))
@@ -712,7 +712,7 @@ unsafe extern "C" fn x_write_stub(
             .copy_from_slice(&data[data_offset..data_offset + copy_len]);
         
         // Store the updated block
-        GLOBAL_STORAGE.with(|gs| {
+        with_global_storage(|gs| {
             gs.borrow_mut()
                 .entry(db_name.clone())
                 .or_insert_with(std::collections::HashMap::new)
@@ -767,8 +767,8 @@ unsafe extern "C" fn x_truncate_stub(p_file: *mut sqlite_wasm_rs::sqlite3_file, 
     let last_block = if new_size == 0 { 0 } else { (new_size - 1) / 4096 };
     let db_name = &vf_ref.handle.filename;
     
-    use crate::storage::block_storage::GLOBAL_STORAGE;
-    GLOBAL_STORAGE.with(|gs| {
+    use crate::storage::vfs_sync::with_global_storage;
+    with_global_storage(|gs| {
         if let Some(db) = gs.borrow_mut().get_mut(db_name) {
             db.retain(|&block_id, _| block_id <= last_block);
         }
@@ -977,7 +977,7 @@ unsafe extern "C" fn x_sync(p_file: *mut sqlite_wasm_rs::sqlite3_file, _flags: c
     web_sys::console::log_1(&format!("VFS x_sync: Performing sync for {} to advance commit marker", db_name).into());
     
     // Use the blocking VFS sync function to advance commit marker and wait for persistence
-    use crate::storage::block_storage::vfs_sync_database_blocking;
+    use crate::storage::vfs_sync_database_blocking;
     match vfs_sync_database_blocking(db_name) {
         Ok(_) => {
             #[cfg(target_arch = "wasm32")]
@@ -1057,7 +1057,7 @@ unsafe extern "C" fn x_access(
     let db_name = norm;
 
     // Check if specific file exists
-    use crate::storage::block_storage::GLOBAL_STORAGE;
+    use crate::storage::vfs_sync::with_global_storage;
     let exists = if name_str.ends_with("-journal") || name_str.ends_with("-wal") || name_str.ends_with("-shm") {
         // Auxiliary files are ephemeral and should be reported as not existing
         // unless they are actually open in the registry
@@ -1066,7 +1066,7 @@ unsafe extern "C" fn x_access(
         // For main database files, check if they exist in storage
         STORAGE_REGISTRY.with(|reg| {
             reg.borrow().contains_key(&db_name)
-        }) || GLOBAL_STORAGE.with(|gs| {
+        }) || with_global_storage(|gs| {
             gs.borrow().get(&db_name).map(|db| !db.is_empty()).unwrap_or(false)
         })
     };

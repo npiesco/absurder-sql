@@ -57,10 +57,10 @@ async fn test_transaction_commit_persists_across_instances() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
     
@@ -138,10 +138,10 @@ async fn test_transaction_rollback_discards_changes() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
     
@@ -192,10 +192,10 @@ async fn test_crash_consistency_uncommitted_is_not_visible() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
     

@@ -64,10 +64,10 @@ async fn test_transaction_begin_commit() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
 
@@ -123,10 +123,10 @@ async fn test_transaction_rollback() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
 
@@ -182,10 +182,10 @@ async fn test_implicit_transaction() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
 
@@ -231,10 +231,10 @@ async fn test_transaction_persistence_across_instances() {
     // Clear global storage to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::block_storage::{GLOBAL_STORAGE, GLOBAL_COMMIT_MARKER};
+        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
         use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
-        GLOBAL_STORAGE.with(|gs| gs.borrow_mut().clear());
-        GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow_mut().clear());
+        with_global_storage(|gs| gs.borrow_mut().clear());
+        with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
     }
 

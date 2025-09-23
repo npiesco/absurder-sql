@@ -9,29 +9,19 @@ use js_sys::Date;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use crate::types::DatabaseError;
 use super::metadata::{ChecksumManager, ChecksumAlgorithm, BlockMetadataPersist};
+use super::vfs_sync;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle as TokioJoinHandle;
 
 #[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
+#[allow(unused_imports)]
 use std::cell::RefCell;
 
 // FS persistence imports (native only when feature is enabled)
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 use std::{env, fs, io::{Read, Write}, path::PathBuf};
 
-// Global storage for WASM to maintain data across instances
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    pub static GLOBAL_STORAGE: RefCell<HashMap<String, HashMap<u64, Vec<u8>>>> = RefCell::new(HashMap::new());
-    static GLOBAL_ALLOCATION_MAP: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
-}
-
-// Test-only global storage mirrors for native builds so tests can run with `cargo test`
-#[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
-thread_local! {
-    static GLOBAL_STORAGE_TEST: RefCell<HashMap<String, HashMap<u64, Vec<u8>>>> = RefCell::new(HashMap::new());
-    static GLOBAL_ALLOCATION_MAP_TEST: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
-}
+// Global storage management moved to vfs_sync module
 
 // Persistent metadata storage moved to metadata module
 
@@ -88,38 +78,19 @@ struct FsAlloc { allocated: Vec<u64> }
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct FsDealloc { tombstones: Vec<u64> }
 
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    static GLOBAL_METADATA: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
-}
-
-// Per-DB commit marker for WASM builds to simulate atomic commit semantics
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    pub static GLOBAL_COMMIT_MARKER: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
-}
-
-// Global registry of active BlockStorage instances for VFS sync
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    static STORAGE_REGISTRY: RefCell<HashMap<String, std::rc::Weak<std::cell::RefCell<BlockStorage>>>> = RefCell::new(HashMap::new());
-}
+// Global metadata and commit marker management moved to vfs_sync module
 
 /// Register a BlockStorage instance for VFS sync callbacks
 #[cfg(target_arch = "wasm32")]
 pub fn register_storage_for_vfs_sync(db_name: &str, storage: std::rc::Weak<std::cell::RefCell<BlockStorage>>) {
-    STORAGE_REGISTRY.with(|registry| {
-        let mut registry = registry.borrow_mut();
-        registry.insert(db_name.to_string(), storage);
-        web_sys::console::log_1(&format!("VFS: Registered storage instance for {}", db_name).into());
-    });
+    vfs_sync::register_storage_for_vfs_sync(db_name, storage);
 }
 
 /// Trigger a sync for a specific database from VFS
 #[cfg(target_arch = "wasm32")]
 pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     // Advance the commit marker to make writes visible
-    let _next_commit = GLOBAL_COMMIT_MARKER.with(|cm| {
+    let _next_commit = vfs_sync::with_global_commit_marker(|cm| {
         let mut cm = cm.borrow_mut();
         let current = cm.get(db_name).copied().unwrap_or(0);
         let new_marker = current + 1;
@@ -132,7 +103,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     let db_name_clone = db_name.to_string();
     wasm_bindgen_futures::spawn_local(async move {
         // Collect all data from global storage for this database
-        let (blocks_to_persist, metadata_to_persist) = GLOBAL_STORAGE.with(|storage| {
+        let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
             let storage_map = storage.borrow();
             let blocks = if let Some(db_storage) = storage_map.get(&db_name_clone) {
                 db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
@@ -141,7 +112,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
             };
 
             // Also collect metadata
-            let metadata = GLOBAL_METADATA.with(|meta| {
+            let metadata = vfs_sync::with_global_metadata(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(&db_name_clone) {
                     db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
@@ -157,7 +128,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
             // Create a temporary storage instance just for persistence
             match BlockStorage::new(&db_name_clone).await {
                 Ok(storage) => {
-                    let next_commit = GLOBAL_COMMIT_MARKER.with(|cm| {
+                    let next_commit = vfs_sync::with_global_commit_marker(|cm| {
                         let cm = cm.borrow();
                         cm.get(&db_name_clone).copied().unwrap_or(0)
                     });
@@ -187,7 +158,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
 #[cfg(target_arch = "wasm32")]
 pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
     // Advance the commit marker to make writes visible
-    let next_commit = GLOBAL_COMMIT_MARKER.with(|cm| {
+    let next_commit = vfs_sync::with_global_commit_marker(|cm| {
         let mut cm = cm.borrow_mut();
         let current = cm.get(db_name).copied().unwrap_or(0);
         let new_marker = current + 1;
@@ -197,7 +168,7 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
     });
 
     // Collect all data from global storage for this database
-    let (blocks_to_persist, metadata_to_persist) = GLOBAL_STORAGE.with(|storage| {
+    let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
         let storage_map = storage.borrow();
         let blocks = if let Some(db_storage) = storage_map.get(db_name) {
             db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
@@ -206,7 +177,7 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
         };
 
         // Also collect metadata
-        let metadata = GLOBAL_METADATA.with(|meta| {
+        let metadata = vfs_sync::with_global_metadata(|meta| {
             let meta_map = meta.borrow();
             if let Some(db_meta) = meta_map.get(db_name) {
                 db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
@@ -459,7 +430,7 @@ impl BlockStorage {
         }
         
         // Debug: Log what's in global storage after restoration
-        GLOBAL_STORAGE.with(|storage| {
+        vfs_sync::with_global_storage(|storage| {
             let storage_map = storage.borrow();
             if let Some(db_storage) = storage_map.get(db_name) {
                 #[cfg(target_arch = "wasm32")]
@@ -528,7 +499,7 @@ impl BlockStorage {
                 let mut allocated_blocks = HashSet::new();
                 let mut next_block_id: u64 = 1;
 
-                GLOBAL_ALLOCATION_MAP.with(|allocation_map| {
+                vfs_sync::with_global_allocation_map(|allocation_map| {
                     let allocation_map = allocation_map.borrow();
                     if let Some(existing_allocations) = allocation_map.get(db_name) {
                         allocated_blocks = existing_allocations.clone();
@@ -572,7 +543,7 @@ impl BlockStorage {
                 let mut allocated_blocks = HashSet::new();
                 let mut next_block_id: u64 = 1;
 
-                GLOBAL_ALLOCATION_MAP_TEST.with(|allocation_map| {
+                vfs_sync::with_global_allocation_map(|allocation_map| {
                     let allocation_map = allocation_map.borrow();
                     if let Some(existing_allocations) = allocation_map.get(db_name) {
                         allocated_blocks = existing_allocations.clone();
@@ -602,11 +573,11 @@ impl BlockStorage {
             let restored_from_indexeddb = Self::restore_from_indexeddb(db_name).await;
             
             let mut map = HashMap::new();
-            let committed = GLOBAL_COMMIT_MARKER.with(|cm| {
+            let committed = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 cm.get(db_name).copied().unwrap_or(0)
             });
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(db_name) {
                     for (bid, m) in db_meta.iter() {
@@ -721,7 +692,7 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         let checksums_init: HashMap<u64, u64> = {
             let mut map = HashMap::new();
-            let committed = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            let committed = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 cm.get(db_name).copied().unwrap_or(0)
             });
@@ -747,7 +718,7 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = {
             let mut map = HashMap::new();
-            let committed = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            let committed = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 cm.get(db_name).copied().unwrap_or(0)
             });
@@ -776,11 +747,11 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = {
             let mut map = HashMap::new();
-            let committed = GLOBAL_COMMIT_MARKER.with(|cm| {
+            let committed = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 cm.get(db_name).copied().unwrap_or(0)
             });
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(db_name) {
                     for (bid, m) in db_meta.iter() {
@@ -860,7 +831,7 @@ impl BlockStorage {
         web_sys::console::log_1(&format!("DEBUG: Starting restoration for {}", db_name).into());
         
         // First check if commit marker already exists in global state (cross-instance sharing)
-        let existing_marker = GLOBAL_COMMIT_MARKER.with(|cm| {
+        let existing_marker = vfs_sync::with_global_commit_marker(|cm| {
             cm.borrow().get(db_name).copied()
         });
         
@@ -971,7 +942,7 @@ impl BlockStorage {
                 web_sys::console::log_1(&format!("DEBUG: Result is not null/undefined").into());
                                     if let Some(commit_marker) = result.as_f64() {
                                         let commit_u64 = commit_marker as u64;
-                                        GLOBAL_COMMIT_MARKER.with(|cm| {
+                                        vfs_sync::with_global_commit_marker(|cm| {
                                             cm.borrow_mut().insert(db_name.to_string(), commit_u64);
                                         });
                                         #[cfg(target_arch = "wasm32")]
@@ -1639,7 +1610,7 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
             let mut found_data = None;
-            GLOBAL_STORAGE_TEST.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let storage_map = storage.borrow();
                 if let Some(db_storage) = storage_map.get(&self.db_name) {
                     if let Some(data) = db_storage.get(&block_id) {
@@ -1656,7 +1627,7 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         {
             let mut found_data = None;
-            GLOBAL_STORAGE.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let storage_map = storage.borrow();
                 if let Some(db_storage) = storage_map.get(&self.db_name) {
                     if let Some(data) = db_storage.get(&block_id) {
@@ -1700,7 +1671,7 @@ impl BlockStorage {
         // Remove from test storage
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
-            GLOBAL_STORAGE_TEST.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
                     db_storage.remove(&block_id);
@@ -1711,7 +1682,7 @@ impl BlockStorage {
         // Remove from WASM storage
         #[cfg(target_arch = "wasm32")]
         {
-            GLOBAL_STORAGE.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
                     db_storage.remove(&block_id);
@@ -1837,7 +1808,7 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         {
             // Enforce commit gating: only expose data whose metadata version <= commit marker
-            let committed: u64 = GLOBAL_COMMIT_MARKER.with(|cm| {
+            let committed: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 let marker = cm.get(&self.db_name).copied().unwrap_or(0);
                 #[cfg(target_arch = "wasm32")]
@@ -1853,7 +1824,7 @@ impl BlockStorage {
                 web_sys::console::log_1(&format!("DEBUG: Block {} is structural, always visible", block_id).into());
                 true
             } else {
-                GLOBAL_METADATA.with(|meta| {
+                vfs_sync::with_global_metadata(|meta| {
                     let meta_map = meta.borrow();
                     if let Some(db_meta) = meta_map.get(&self.db_name) {
                         if let Some(m) = db_meta.get(&block_id) {
@@ -1865,7 +1836,7 @@ impl BlockStorage {
                     }
                     // If block has no metadata but exists in global storage, make it visible
                     // This handles blocks written before metadata tracking
-                    let exists_in_storage = GLOBAL_STORAGE.with(|storage| {
+                    let exists_in_storage = vfs_sync::with_global_storage(|storage| {
                         let storage_map = storage.borrow();
                         storage_map.get(&self.db_name)
                             .map(|db_storage| db_storage.contains_key(&block_id))
@@ -1885,7 +1856,7 @@ impl BlockStorage {
             };
             let data = if is_visible {
                 // First try to get from global storage (cross-instance data)
-                let global_data = GLOBAL_STORAGE.with(|storage| {
+                let global_data = vfs_sync::with_global_storage(|storage| {
                     let storage_map = storage.borrow();
                     #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(&format!("DEBUG: Checking global storage for block {} in database {} (total dbs: {})", block_id, self.db_name, storage_map.len()).into());
@@ -1997,7 +1968,7 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
             // Enforce commit gating in native test path as well
-            let committed: u64 = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            let committed: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 cm.get(&self.db_name).copied().unwrap_or(0)
             });
@@ -2011,7 +1982,7 @@ impl BlockStorage {
                 false
             });
             let data = if is_visible {
-                GLOBAL_STORAGE_TEST.with(|storage| {
+                vfs_sync::with_global_storage(|storage| {
                     let storage_map = storage.borrow();
                     if let Some(db_storage) = storage_map.get(&self.db_name) {
                         if let Some(data) = db_storage.get(&block_id) {
@@ -2119,7 +2090,7 @@ impl BlockStorage {
                         return Err(e);
                     }
                 } else {
-                    let maybe_bytes = GLOBAL_STORAGE.with(|storage| {
+                    let maybe_bytes = vfs_sync::with_global_storage(|storage| {
                         let storage_map = storage.borrow();
                         storage_map
                             .get(&self.db_name)
@@ -2148,7 +2119,7 @@ impl BlockStorage {
                         return Err(e);
                     }
                 } else {
-                    let maybe_bytes = GLOBAL_STORAGE_TEST.with(|storage| {
+                    let maybe_bytes = vfs_sync::with_global_storage(|storage| {
                         let storage_map = storage.borrow();
                         storage_map
                             .get(&self.db_name)
@@ -2172,7 +2143,7 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         {
             // Check if this block already exists in global storage with committed data
-            let existing_data = GLOBAL_STORAGE.with(|storage| {
+            let existing_data = vfs_sync::with_global_storage(|storage| {
                 let storage_map = storage.borrow();
                 if let Some(db_storage) = storage_map.get(&self.db_name) {
                     db_storage.get(&block_id).cloned()
@@ -2182,7 +2153,7 @@ impl BlockStorage {
             });
             
             // Check if there's existing metadata for this block
-            let has_committed_metadata = GLOBAL_METADATA.with(|meta| {
+            let has_committed_metadata = vfs_sync::with_global_metadata(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                     if let Some(metadata) = db_meta.get(&block_id) {
@@ -2225,7 +2196,7 @@ impl BlockStorage {
                 }
             } else {
                 // Check if there's committed data in global storage that we haven't seen yet
-                let has_global_committed_data = GLOBAL_METADATA.with(|meta| {
+                let has_global_committed_data = vfs_sync::with_global_metadata(|meta| {
                     let meta_map = meta.borrow();
                     if let Some(db_meta) = meta_map.get(&self.db_name) {
                         if let Some(metadata) = db_meta.get(&block_id) {
@@ -2249,7 +2220,7 @@ impl BlockStorage {
             };
             
             if should_write {
-                GLOBAL_STORAGE.with(|storage| {
+                vfs_sync::with_global_storage(|storage| {
                     let mut storage_map = storage.borrow_mut();
                     let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                     
@@ -2278,7 +2249,7 @@ impl BlockStorage {
             }
             
             // Always ensure metadata exists for the block, even if we skipped the write
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 if !db_meta.contains_key(&block_id) {
@@ -2287,7 +2258,7 @@ impl BlockStorage {
                         data.clone()
                     } else {
                         // Use existing data from global storage
-                        GLOBAL_STORAGE.with(|storage| {
+                        vfs_sync::with_global_storage(|storage| {
                             let storage_map = storage.borrow();
                             if let Some(db_storage) = storage_map.get(&self.db_name) {
                                 if let Some(existing) = db_storage.get(&block_id) {
@@ -2328,7 +2299,7 @@ impl BlockStorage {
                         data.clone()
                     } else {
                         // Use existing data from global test storage
-                        GLOBAL_STORAGE_TEST.with(|storage| {
+                        vfs_sync::with_global_storage(|storage| {
                             let storage_map = storage.borrow();
                             if let Some(db_storage) = storage_map.get(&self.db_name) {
                                 if let Some(existing) = db_storage.get(&block_id) {
@@ -2456,7 +2427,7 @@ impl BlockStorage {
     /// Get current commit marker for this database (WASM only, for testing)
     #[cfg(target_arch = "wasm32")]
     pub fn get_commit_marker(&self) -> u64 {
-        GLOBAL_COMMIT_MARKER.with(|cm| {
+        vfs_sync::with_global_commit_marker(|cm| {
             cm.borrow().get(&self.db_name).copied().unwrap_or(0)
         })
     }
@@ -2464,7 +2435,7 @@ impl BlockStorage {
     /// Check if this database has any blocks in storage (WASM only)
     #[cfg(target_arch = "wasm32")]
     pub fn has_any_blocks(&self) -> bool {
-        GLOBAL_STORAGE.with(|gs| {
+        vfs_sync::with_global_storage(|gs| {
             gs.borrow().get(&self.db_name).map_or(false, |blocks| !blocks.is_empty())
         })
     }
@@ -2485,7 +2456,7 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         {
             let mut out = HashMap::new();
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let meta_map = meta.borrow();
                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                     for (bid, m) in db_meta.iter() {
@@ -3018,7 +2989,7 @@ impl BlockStorage {
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             // Determine next commit version so that all metadata written in this sync share the same version
-            let next_commit: u64 = GLOBAL_COMMIT_MARKER.with(|cm| {
+            let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 let current = cm.get(&self.db_name).copied().unwrap_or(0);
                 #[cfg(target_arch = "wasm32")]
@@ -3027,7 +2998,7 @@ impl BlockStorage {
             });
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&format!("DEBUG: Next commit marker for {}: {}", self.db_name, next_commit).into());
-            GLOBAL_STORAGE.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in &to_persist {
@@ -3035,7 +3006,7 @@ impl BlockStorage {
                     let should_update = if let Some(existing) = db_storage.get(block_id) {
                         if existing != data {
                             // Check if existing data has committed metadata (version > 0)
-                            let has_committed_metadata = GLOBAL_METADATA.with(|meta| {
+                            let has_committed_metadata = vfs_sync::with_global_metadata(|meta| {
                                 let meta_map = meta.borrow();
                                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                                     if let Some(metadata) = db_meta.get(block_id) {
@@ -3082,7 +3053,7 @@ impl BlockStorage {
                 }
             });
             // Persist corresponding metadata entries
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
@@ -3103,7 +3074,7 @@ impl BlockStorage {
                 }
             });
             // Atomically advance the commit marker after all data and metadata are persisted
-            GLOBAL_COMMIT_MARKER.with(|cm| {
+            vfs_sync::with_global_commit_marker(|cm| {
                 let mut cm_map = cm.borrow_mut();
                 cm_map.insert(self.db_name.clone(), next_commit);
             });
@@ -3435,11 +3406,11 @@ impl BlockStorage {
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             // Determine next commit version for the test-global path
-            let next_commit: u64 = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 cm.get(&self.db_name).copied().unwrap_or(0) + 1
             });
-            GLOBAL_STORAGE_TEST.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in &to_persist {
@@ -3468,7 +3439,7 @@ impl BlockStorage {
                 }
             });
             // Advance commit marker after persisting all entries
-            GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            vfs_sync::with_global_commit_marker(|cm| {
                 let mut cm_map = cm.borrow_mut();
                 cm_map.insert(self.db_name.clone(), next_commit);
             });
@@ -3535,7 +3506,7 @@ impl BlockStorage {
     pub async fn sync_async(&mut self) -> Result<(), DatabaseError> {
         web_sys::console::log_1(&"DEBUG: Using ASYNC sync_async method".into());
         // Get current commit marker
-        let current_commit = GLOBAL_COMMIT_MARKER.with(|cm| {
+        let current_commit = vfs_sync::with_global_commit_marker(|cm| {
             let cm = cm.borrow();
             cm.get(&self.db_name).copied().unwrap_or(0)
         });
@@ -3549,7 +3520,7 @@ impl BlockStorage {
         let mut metadata_to_persist = Vec::new();
         
         for (&block_id, block_data) in &self.cache {
-            let should_update = GLOBAL_STORAGE.with(|storage| {
+            let should_update = vfs_sync::with_global_storage(|storage| {
                 let storage = storage.borrow();
                 if let Some(db_storage) = storage.get(&self.db_name) {
                     if let Some(existing_data) = db_storage.get(&block_id) {
@@ -3595,7 +3566,7 @@ impl BlockStorage {
         }
         
         // Update global storage
-        GLOBAL_STORAGE.with(|storage| {
+        vfs_sync::with_global_storage(|storage| {
             let mut storage = storage.borrow_mut();
             let db_storage = storage.entry(self.db_name.clone()).or_insert_with(std::collections::HashMap::new);
             for (block_id, block_data) in &to_persist {
@@ -3604,7 +3575,7 @@ impl BlockStorage {
         });
         
         // Update global metadata
-        GLOBAL_METADATA.with(|metadata| {
+        vfs_sync::with_global_metadata(|metadata| {
             let mut metadata = metadata.borrow_mut();
             let db_metadata = metadata.entry(self.db_name.clone()).or_insert_with(std::collections::HashMap::new);
             for (block_id, version) in &metadata_to_persist {
@@ -3618,7 +3589,7 @@ impl BlockStorage {
         });
         
         // Update commit marker AFTER data and metadata are persisted
-        GLOBAL_COMMIT_MARKER.with(|cm| {
+        vfs_sync::with_global_commit_marker(|cm| {
             let mut cm_map = cm.borrow_mut();
             cm_map.insert(self.db_name.clone(), next_commit);
         });
@@ -3641,7 +3612,7 @@ impl BlockStorage {
 
     /// Event-based async IndexedDB persistence
     #[cfg(target_arch = "wasm32")]
-    async fn persist_to_indexeddb_event_based(&self, blocks: Vec<(u64, Vec<u8>)>, metadata: Vec<(u64, u64)>, commit_marker: u64) -> Result<(), DatabaseError> {
+    pub async fn persist_to_indexeddb_event_based(&self, blocks: Vec<(u64, Vec<u8>)>, metadata: Vec<(u64, u64)>, commit_marker: u64) -> Result<(), DatabaseError> {
         use wasm_bindgen::JsCast;
         use wasm_bindgen::closure::Closure;
         use futures::channel::oneshot;
@@ -3791,7 +3762,7 @@ impl BlockStorage {
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             
             // Determine next commit version for native test path
-            let next_commit: u64 = GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 let current = cm.get(&self.db_name).copied().unwrap_or(0);
                 log::debug!("DEBUG: Current commit marker for {}: {}", self.db_name, current);
@@ -3800,7 +3771,7 @@ impl BlockStorage {
             log::debug!("DEBUG: Next commit marker for {}: {}", self.db_name, next_commit);
             
             // Persist to native test global storage
-            GLOBAL_STORAGE_TEST.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in &to_persist {
@@ -3835,7 +3806,7 @@ impl BlockStorage {
             });
             
             // Atomically advance the commit marker after all data and metadata are persisted
-            GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+            vfs_sync::with_global_commit_marker(|cm| {
                 let mut cm_map = cm.borrow_mut();
                 cm_map.insert(self.db_name.clone(), next_commit);
                 log::debug!("Advanced commit marker for {} to {}", self.db_name, next_commit);
@@ -3870,7 +3841,7 @@ impl BlockStorage {
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             // Determine next commit version so that all metadata written in this sync share the same version
-            let next_commit: u64 = GLOBAL_COMMIT_MARKER.with(|cm| {
+            let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 let current = cm.get(&self.db_name).copied().unwrap_or(0);
                 #[cfg(target_arch = "wasm32")]
@@ -3879,7 +3850,7 @@ impl BlockStorage {
             });
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&format!("DEBUG: Next commit marker for {}: {}", self.db_name, next_commit).into());
-            GLOBAL_STORAGE.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in &to_persist {
@@ -3887,7 +3858,7 @@ impl BlockStorage {
                     let should_update = if let Some(existing) = db_storage.get(block_id) {
                         if existing != data {
                             // Check if existing data has committed metadata (version > 0)
-                            let has_committed_metadata = GLOBAL_METADATA.with(|meta| {
+                            let has_committed_metadata = vfs_sync::with_global_metadata(|meta| {
                                 let meta_map = meta.borrow();
                                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                                     if let Some(metadata) = db_meta.get(block_id) {
@@ -3934,7 +3905,7 @@ impl BlockStorage {
                 }
             });
             // Persist corresponding metadata entries
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
@@ -3955,7 +3926,7 @@ impl BlockStorage {
                 }
             });
             // Atomically advance the commit marker after all data and metadata are persisted
-            GLOBAL_COMMIT_MARKER.with(|cm| {
+            vfs_sync::with_global_commit_marker(|cm| {
                 let mut cm_map = cm.borrow_mut();
                 cm_map.insert(self.db_name.clone(), next_commit);
             });
@@ -4194,7 +4165,7 @@ impl BlockStorage {
         // For WASM, persist allocation state to global storage
         #[cfg(target_arch = "wasm32")]
         {
-            GLOBAL_ALLOCATION_MAP.with(|allocation_map| {
+            vfs_sync::with_global_allocation_map(|allocation_map| {
                 let mut allocation_map = allocation_map.borrow_mut();
                 let db_allocations = allocation_map.entry(self.db_name.clone()).or_insert_with(HashSet::new);
                 db_allocations.insert(block_id);
@@ -4241,7 +4212,7 @@ impl BlockStorage {
         // For native tests, mirror allocation state to test-global (when fs_persist disabled)
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
-            GLOBAL_ALLOCATION_MAP_TEST.with(|allocation_map| {
+            vfs_sync::with_global_allocation_map(|allocation_map| {
                 let mut allocation_map = allocation_map.borrow_mut();
                 let db_allocations = allocation_map.entry(self.db_name.clone()).or_insert_with(HashSet::new);
                 db_allocations.insert(block_id);
@@ -4276,14 +4247,14 @@ impl BlockStorage {
         // For WASM, remove from global storage
         #[cfg(target_arch = "wasm32")]
         {
-            GLOBAL_STORAGE.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
                     db_storage.remove(&block_id);
                 }
             });
             
-            GLOBAL_ALLOCATION_MAP.with(|allocation_map| {
+            vfs_sync::with_global_allocation_map(|allocation_map| {
                 let mut allocation_map = allocation_map.borrow_mut();
                 if let Some(db_allocations) = allocation_map.get_mut(&self.db_name) {
                     db_allocations.remove(&block_id);
@@ -4291,7 +4262,7 @@ impl BlockStorage {
             });
 
             // Remove persisted metadata entry as well
-            GLOBAL_METADATA.with(|meta| {
+            vfs_sync::with_global_metadata(|meta| {
                 let mut meta_map = meta.borrow_mut();
                 if let Some(db_meta) = meta_map.get_mut(&self.db_name) {
                     db_meta.remove(&block_id);
@@ -4355,14 +4326,14 @@ impl BlockStorage {
         // For native tests, mirror removal from test-globals (when fs_persist disabled)
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
-            GLOBAL_STORAGE_TEST.with(|storage| {
+            vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
                 if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
                     db_storage.remove(&block_id);
                 }
             });
             
-            GLOBAL_ALLOCATION_MAP_TEST.with(|allocation_map| {
+            vfs_sync::with_global_allocation_map(|allocation_map| {
                 let mut allocation_map = allocation_map.borrow_mut();
                 if let Some(db_allocations) = allocation_map.get_mut(&self.db_name) {
                     db_allocations.remove(&block_id);
@@ -4401,14 +4372,14 @@ mod wasm_commit_marker_tests {
 
     // Helper: set commit marker for a db name in WASM global
     fn set_commit_marker(db: &str, v: u64) {
-        super::GLOBAL_COMMIT_MARKER.with(|cm| {
+        super::vfs_sync::with_global_commit_marker(|cm| {
             cm.borrow_mut().insert(db.to_string(), v);
         });
     }
 
     // Helper: get commit marker for a db name in WASM global
     fn get_commit_marker(db: &str) -> u64 {
-        super::GLOBAL_COMMIT_MARKER.with(|cm| cm.borrow().get(db).copied().unwrap_or(0))
+        vfs_sync::with_global_commit_marker(|cm| cm.borrow().get(db).copied().unwrap_or(0))
     }
 
     #[wasm_bindgen_test]
@@ -4500,14 +4471,14 @@ mod commit_marker_tests {
 
     // Helper: set commit marker for a db name in test-global mirror
     fn set_commit_marker(db: &str, v: u64) {
-        super::GLOBAL_COMMIT_MARKER_TEST.with(|cm| {
+        super::vfs_sync::with_global_commit_marker(|cm| {
             cm.borrow_mut().insert(db.to_string(), v);
         });
     }
 
     // Helper: get commit marker for a db name in test-global mirror
     fn get_commit_marker(db: &str) -> u64 {
-        super::GLOBAL_COMMIT_MARKER_TEST.with(|cm| cm.borrow().get(db).copied().unwrap_or(0))
+        super::vfs_sync::with_global_commit_marker(|cm| cm.borrow().get(db).copied().unwrap_or(0))
     }
 
     #[tokio::test(flavor = "current_thread")]
