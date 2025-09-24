@@ -52,7 +52,7 @@ async fn fs_persist_metadata_and_data_across_instances() {
     assert!(version2 >= 1, "version should be at least 1 after first sync");
     assert!(last_ms2 > 0, "have last_modified_ms");
     let expected_checksum = s2.get_block_checksum(b1).expect("checksum present");
-    assert_eq!(checksum2, expected_checksum, "checksum should match computed");
+    assert_eq!(checksum2 as u32, expected_checksum, "checksum should match computed");
 
     // Write again and sync to bump version, then ensure it persists to next instance
     s2.write_block(b1, d1.clone()).await.expect("rewrite same-data");

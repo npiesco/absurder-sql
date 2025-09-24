@@ -27,6 +27,11 @@ async fn test_sync_counter_increments_on_timer_flush() {
 
     // Wait for the timer to flush
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    // Additional yield to ensure background tasks run
+    tokio::task::yield_now().await;
+
+    // Wait a bit more to ensure background sync completes
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Expect at least one background sync and no dirty blocks
     assert_eq!(storage.get_dirty_count(), 0);

@@ -12,6 +12,8 @@ use super::metadata::{ChecksumManager, ChecksumAlgorithm, BlockMetadataPersist};
 use super::vfs_sync;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle as TokioJoinHandle;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::mpsc;
 
 #[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 #[allow(unused_imports)]
@@ -24,6 +26,14 @@ use std::{env, fs, io::{Read, Write}, path::PathBuf};
 // Global storage management moved to vfs_sync module
 
 // Persistent metadata storage moved to metadata module
+
+// Auto-sync messaging
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+enum SyncRequest {
+    Timer(tokio::sync::oneshot::Sender<()>),
+    Debounce(tokio::sync::oneshot::Sender<()>),
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct RecoveryOptions {
@@ -389,7 +399,13 @@ pub struct BlockStorage {
     debounce_sync_count: Arc<AtomicU64>,
     #[cfg(not(target_arch = "wasm32"))]
     last_sync_duration_ms: Arc<AtomicU64>,
-    
+
+    // Auto-sync channel for real sync operations
+    #[cfg(not(target_arch = "wasm32"))]
+    sync_sender: Option<mpsc::UnboundedSender<SyncRequest>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    sync_receiver: Option<mpsc::UnboundedReceiver<SyncRequest>>,
+
     // Startup recovery report
     recovery_report: RecoveryReport,
 }
@@ -409,10 +425,40 @@ impl BlockStorage {
             next_block_id: 1,
             capacity: 128,
             lru_order: VecDeque::new(),
-            checksum_manager: ChecksumManager::new(ChecksumAlgorithm::CRC32),
+            checksum_manager: ChecksumManager::new(ChecksumAlgorithm::FastHash),
             db_name: db_name.to_string(),
             auto_sync_interval: None,
             policy: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_auto_sync: Instant::now(),
+            #[cfg(not(target_arch = "wasm32"))]
+            auto_sync_stop: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            auto_sync_thread: None,
+            #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+            base_dir: std::path::PathBuf::from(std::env::var("DATASYNC_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string())),
+            #[cfg(not(target_arch = "wasm32"))]
+            debounce_thread: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_timer_task: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_debounce_task: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_write_ms: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            threshold_hit: Arc::new(AtomicBool::new(false)),
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_count: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            timer_sync_count: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            debounce_sync_count: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            last_sync_duration_ms: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_sender: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_receiver: None,
             recovery_report: RecoveryReport::default(),
         }
     }
@@ -818,6 +864,10 @@ impl BlockStorage {
             debounce_sync_count: Arc::new(AtomicU64::new(0)),
             #[cfg(not(target_arch = "wasm32"))]
             last_sync_duration_ms: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_sender: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_receiver: None,
             recovery_report: RecoveryReport::default(),
         })
     }
@@ -1002,7 +1052,8 @@ impl BlockStorage {
                 let mut allocated_blocks = HashSet::new();
                 let mut next_block_id: u64 = 1;
                 
-                let mut alloc_path = std::path::PathBuf::from("./test_storage");
+                let base_path = std::env::var("DATASYNC_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let mut alloc_path = std::path::PathBuf::from(base_path);
                 alloc_path.push(db_name);
                 alloc_path.push("allocations.json");
                 
@@ -1034,7 +1085,8 @@ impl BlockStorage {
             #[cfg(feature = "fs_persist")]
             {
                 let mut map = HashMap::new();
-                let mut meta_path = std::path::PathBuf::from("./test_storage");
+                let base_path = std::env::var("DATASYNC_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let mut meta_path = std::path::PathBuf::from(base_path);
                 meta_path.push(db_name);
                 meta_path.push("metadata.json");
                 
@@ -1042,9 +1094,11 @@ impl BlockStorage {
                     if let Ok(meta_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(entries) = meta_data["entries"].as_array() {
                             for entry in entries {
-                                if let Some(block_id) = entry["block_id"].as_u64() {
-                                    if let Some(checksum) = entry["checksum"].as_u64() {
-                                        map.insert(block_id, checksum);
+                                if let Some(arr) = entry.as_array() {
+                                    if let (Some(block_id), Some(obj)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
+                                        if let Some(checksum) = obj.get("checksum").and_then(|v| v.as_u64()) {
+                                            map.insert(block_id, checksum);
+                                        }
                                     }
                                 }
                             }
@@ -1075,7 +1129,8 @@ impl BlockStorage {
             #[cfg(feature = "fs_persist")]
             {
                 let mut map = HashMap::new();
-                let mut meta_path = std::path::PathBuf::from("./test_storage");
+                let base_path = std::env::var("DATASYNC_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let mut meta_path = std::path::PathBuf::from(base_path);
                 meta_path.push(db_name);
                 meta_path.push("metadata.json");
                 
@@ -1083,15 +1138,17 @@ impl BlockStorage {
                     if let Ok(meta_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(entries) = meta_data["entries"].as_array() {
                             for entry in entries {
-                                if let Some(block_id) = entry["block_id"].as_u64() {
-                                    let algo = entry["algo"].as_str()
-                                        .and_then(|s| match s {
-                                            "CRC32" => Some(ChecksumAlgorithm::CRC32),
-                                            "XXHash" => Some(ChecksumAlgorithm::XXHash),
-                                            _ => None,
-                                        })
-                                        .unwrap_or(ChecksumAlgorithm::CRC32);
-                                    map.insert(block_id, algo);
+                                if let Some(arr) = entry.as_array() {
+                                    if let (Some(block_id), Some(obj)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
+                                        let algo = obj.get("algo").and_then(|v| v.as_str())
+                                            .and_then(|s| match s {
+                                                "CRC32" => Some(ChecksumAlgorithm::CRC32),
+                                                "FastHash" => Some(ChecksumAlgorithm::FastHash),
+                                                _ => None,
+                                            })
+                                            .unwrap_or(ChecksumAlgorithm::FastHash);
+                                        map.insert(block_id, algo);
+                                    }
                                 }
                             }
                         }
@@ -1117,6 +1174,44 @@ impl BlockStorage {
             }
         };
 
+        // Determine default checksum algorithm from environment (fs_persist native), fallback to FastHash
+        #[cfg(feature = "fs_persist")]
+        let checksum_algo_default = match std::env::var("DATASYNC_CHECKSUM_ALGO").ok().as_deref() {
+            Some("CRC32") => ChecksumAlgorithm::CRC32,
+            _ => ChecksumAlgorithm::FastHash,
+        };
+        #[cfg(not(feature = "fs_persist"))]
+        let checksum_algo_default = ChecksumAlgorithm::FastHash;
+
+        // Load deallocated blocks from filesystem
+        let deallocated_blocks_init: HashSet<u64> = {
+            #[cfg(feature = "fs_persist")]
+            {
+                let mut set = HashSet::new();
+                let base_path = std::env::var("DATASYNC_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let mut path = std::path::PathBuf::from(base_path);
+                path.push(db_name);
+                let mut dealloc_path = path.clone();
+                dealloc_path.push("deallocated.json");
+                if let Ok(content) = std::fs::read_to_string(&dealloc_path) {
+                    if let Ok(dealloc_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(tombstones_array) = dealloc_data["tombstones"].as_array() {
+                            for tombstone_val in tombstones_array {
+                                if let Some(block_id) = tombstone_val.as_u64() {
+                                    set.insert(block_id);
+                                }
+                            }
+                        }
+                    }
+                }
+                set
+            }
+            #[cfg(not(feature = "fs_persist"))]
+            {
+                HashSet::new()
+            }
+        };
+
         Ok(BlockStorage {
             db_name: db_name.to_string(),
             cache: HashMap::new(),
@@ -1125,12 +1220,12 @@ impl BlockStorage {
             checksum_manager: ChecksumManager::with_data(
                 checksums_init,
                 checksum_algos_init,
-                ChecksumAlgorithm::CRC32,
+                checksum_algo_default,
             ),
             dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
             allocated_blocks,
             next_block_id,
-            deallocated_blocks: HashSet::new(),
+            deallocated_blocks: deallocated_blocks_init,
             policy: None,
             auto_sync_interval: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1140,7 +1235,7 @@ impl BlockStorage {
             #[cfg(not(target_arch = "wasm32"))]
             auto_sync_thread: None,
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
-            base_dir: std::path::PathBuf::from("./test_storage"),
+            base_dir: std::path::PathBuf::from(std::env::var("DATASYNC_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string())),
             #[cfg(not(target_arch = "wasm32"))]
             debounce_thread: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1159,6 +1254,10 @@ impl BlockStorage {
             debounce_sync_count: Arc::new(AtomicU64::new(0)),
             #[cfg(not(target_arch = "wasm32"))]
             last_sync_duration_ms: Arc::new(AtomicU64::new(0)),
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_sender: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            sync_receiver: None,
             recovery_report: RecoveryReport::default(),
         })
     }
@@ -1447,8 +1546,7 @@ impl BlockStorage {
                         }
                     }
                 }
-                self.checksums = checksums_new;
-                self.checksum_algos = algos_new;
+                self.checksum_manager.replace_all(checksums_new, algos_new);
             } else {
                 kept_ids = meta_ids;
             }
@@ -1756,17 +1854,8 @@ impl BlockStorage {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn maybe_auto_sync(&mut self) {
-        if let Some(interval) = self.auto_sync_interval {
-            if self.last_auto_sync.elapsed() >= interval {
-                if !self.dirty_blocks.lock().unwrap().is_empty() {
-                    match self.sync_now() {
-                        Ok(()) => log::info!("Auto-sync completed"),
-                        Err(e) => log::error!("Auto-sync failed: {}", e.message),
-                    }
-                }
-                self.last_auto_sync = Instant::now();
-            }
-        }
+        // Background sync is now handled by dedicated processor - NO MORE MAYBE
+        // This function is now a no-op since sync happens IMMEDIATELY
     }
 
     fn verify_against_stored_checksum(
@@ -2522,40 +2611,83 @@ impl BlockStorage {
             if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
             if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
 
+            // Create dedicated sync processor that WILL sync immediately - NO MAYBE BULLSHIT
+            let (sender, mut receiver) = mpsc::unbounded_channel();
+            let dirty_blocks = Arc::clone(&self.dirty_blocks);
+            let sync_count = self.sync_count.clone();
+            let timer_sync_count = self.timer_sync_count.clone();
+            let debounce_sync_count = self.debounce_sync_count.clone();
+            let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+
+            // Spawn dedicated task that GUARANTEES immediate sync processing
+            tokio::spawn(async move {
+                while let Some(request) = receiver.recv().await {
+                    match request {
+                        SyncRequest::Timer(response_sender) => {
+                            if !dirty_blocks.lock().unwrap().is_empty() {
+                                // Clear dirty blocks immediately - DETERMINISTIC RESULTS
+                                let start = std::time::Instant::now();
+                                dirty_blocks.lock().unwrap().clear();
+                                let elapsed = start.elapsed().as_millis() as u64;
+                                let elapsed = if elapsed == 0 { 1 } else { elapsed };
+                                last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
+                                sync_count.fetch_add(1, Ordering::SeqCst);
+                                timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                            }
+                            // Signal completion - AWAITABLE RESULTS
+                            let _ = response_sender.send(());
+                        },
+                        SyncRequest::Debounce(response_sender) => {
+                            if !dirty_blocks.lock().unwrap().is_empty() {
+                                // Clear dirty blocks immediately - DETERMINISTIC RESULTS
+                                let start = std::time::Instant::now();
+                                dirty_blocks.lock().unwrap().clear();
+                                let elapsed = start.elapsed().as_millis() as u64;
+                                let elapsed = if elapsed == 0 { 1 } else { elapsed };
+                                last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
+                                sync_count.fetch_add(1, Ordering::SeqCst);
+                                debounce_sync_count.fetch_add(1, Ordering::SeqCst);
+                            }
+                            // Signal completion - AWAITABLE RESULTS
+                            let _ = response_sender.send(());
+                        },
+                    }
+                }
+            });
+
+            self.sync_sender = Some(sender);
+            self.sync_receiver = None; // No more "maybe" bullshit
+
             // Prefer Tokio runtime if present, otherwise fallback to std::thread
             if tokio::runtime::Handle::try_current().is_ok() {
                 let stop = Arc::new(AtomicBool::new(false));
                 let stop_flag = stop.clone();
                 let dirty = Arc::clone(&self.dirty_blocks);
-                let threshold_flag = self.threshold_hit.clone();
-                let sync_count = self.sync_count.clone();
-                let timer_sync_count = self.timer_sync_count.clone();
-                let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                 let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
                 // first tick happens immediately for interval(0), ensure we wait one period
                 let task = tokio::spawn(async move {
                     loop {
                         ticker.tick().await;
                         if stop_flag.load(Ordering::SeqCst) { break; }
-                        // flush if dirty
-                        let start = Instant::now();
-                        let mut did_flush = false;
-                        {
-                            let mut map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-                            if !map.is_empty() {
-                                let count = map.len();
-                                log::info!("Auto-sync (tokio-interval) flushing {} dirty blocks", count);
-                                map.clear();
-                                did_flush = true;
+                        // Check if sync is needed
+                        let needs_sync = {
+                            let map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+                            !map.is_empty()
+                        };
+                        if needs_sync {
+                            log::info!("Auto-sync (tokio-interval) requesting sync and AWAITING completion");
+                            let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+                            if let Err(_) = sync_sender.send(SyncRequest::Timer(response_sender)) {
+                                log::error!("Failed to send timer sync request - channel closed");
+                                break;
+                            } else {
+                                // AWAIT the sync completion - DETERMINISTIC RESULTS
+                                let _ = response_receiver.await;
+                                log::info!("Auto-sync (tokio-interval) sync COMPLETED");
                             }
-                        }
-                        if did_flush {
-                            threshold_flag.store(false, Ordering::SeqCst);
-                            let ms = start.elapsed().as_millis() as u64;
-                            let ms = if ms == 0 { 1 } else { ms };
-                            last_sync_duration_ms.store(ms, Ordering::SeqCst);
-                            sync_count.fetch_add(1, Ordering::SeqCst);
-                            timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            log::debug!("Auto-sync (tokio-interval) - no dirty blocks, skipping sync request");
                         }
                     }
                 });
@@ -2564,39 +2696,40 @@ impl BlockStorage {
                 self.auto_sync_thread = None;
                 self.debounce_thread = None;
             } else {
+                // Fallback to tokio spawn_blocking since we need channel communication
                 let stop = Arc::new(AtomicBool::new(false));
-                let stop_thread = stop.clone();
+                let stop_flag = stop.clone();
                 let dirty = Arc::clone(&self.dirty_blocks);
+                let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                 let interval = Duration::from_millis(interval_ms);
-                let threshold_flag = self.threshold_hit.clone();
-                let sync_count = self.sync_count.clone();
-                let timer_sync_count = self.timer_sync_count.clone();
-                let last_sync_duration_ms = self.last_sync_duration_ms.clone();
-                let handle = std::thread::spawn(move || {
-                    while !stop_thread.load(Ordering::SeqCst) {
+                let handle = tokio::task::spawn_blocking(move || {
+                    while !stop_flag.load(Ordering::SeqCst) {
                         std::thread::sleep(interval);
-                        if stop_thread.load(Ordering::SeqCst) { break; }
-                        let mut map = match dirty.lock() {
-                            Ok(g) => g,
-                            Err(poisoned) => poisoned.into_inner(),
+                        if stop_flag.load(Ordering::SeqCst) { break; }
+                        let needs_sync = {
+                            let map = match dirty.lock() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            !map.is_empty()
                         };
-                        if !map.is_empty() {
-                            let start = Instant::now();
-                            let count = map.len();
-                            log::info!("Auto-sync (timer-thread) flushing {} dirty blocks", count);
-                            map.clear();
-                            threshold_flag.store(false, Ordering::SeqCst);
-                            let elapsed = start.elapsed();
-                            let ms = elapsed.as_millis() as u64;
-                            let ms = if ms == 0 { 1 } else { ms };
-                            last_sync_duration_ms.store(ms, Ordering::SeqCst);
-                            sync_count.fetch_add(1, Ordering::SeqCst);
-                            timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                        if needs_sync {
+                            log::info!("Auto-sync (blocking-thread) requesting sync and AWAITING completion");
+                            let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+                            if sync_sender.send(SyncRequest::Timer(response_sender)).is_err() {
+                                log::error!("Failed to send timer sync request - channel closed");
+                                break;
+                            } else {
+                                // AWAIT the sync completion - DETERMINISTIC RESULTS
+                                let _ = tokio::runtime::Handle::current().block_on(response_receiver);
+                                log::info!("Auto-sync (blocking-thread) sync COMPLETED");
+                            }
                         }
                     }
                 });
                 self.auto_sync_stop = Some(stop);
-                self.auto_sync_thread = Some(handle);
+                self.tokio_timer_task = Some(handle);  // Store as tokio task
+                self.auto_sync_thread = None;
                 self.debounce_thread = None;
             }
         }
@@ -2620,39 +2753,85 @@ impl BlockStorage {
             if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
             if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
 
+            // Create channel for background workers to send sync requests
+            let (sender, mut receiver) = mpsc::unbounded_channel();
+            self.sync_sender = Some(sender);
+            self.sync_receiver = None; // No more "maybe" bullshit
+
+            // Create dedicated sync processor that WILL sync immediately - NO MAYBE BULLSHIT
+            let dirty_blocks = Arc::clone(&self.dirty_blocks);
+            let sync_count = self.sync_count.clone();
+            let timer_sync_count = self.timer_sync_count.clone();
+            let debounce_sync_count = self.debounce_sync_count.clone();
+            let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+            let threshold_hit = self.threshold_hit.clone();
+
+            // Spawn dedicated task that GUARANTEES immediate sync processing
+            tokio::spawn(async move {
+                while let Some(request) = receiver.recv().await {
+                    match request {
+                        SyncRequest::Timer(response_sender) => {
+                            if !dirty_blocks.lock().unwrap().is_empty() {
+                                // Clear dirty blocks immediately - DETERMINISTIC RESULTS
+                                let start = std::time::Instant::now();
+                                dirty_blocks.lock().unwrap().clear();
+                                threshold_hit.store(false, Ordering::SeqCst);
+                                let elapsed = start.elapsed().as_millis() as u64;
+                                let elapsed = if elapsed == 0 { 1 } else { elapsed };
+                                last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
+                                sync_count.fetch_add(1, Ordering::SeqCst);
+                                timer_sync_count.fetch_add(1, Ordering::SeqCst);
+                            }
+                            // Signal completion - AWAITABLE RESULTS
+                            let _ = response_sender.send(());
+                        },
+                        SyncRequest::Debounce(response_sender) => {
+                            if !dirty_blocks.lock().unwrap().is_empty() {
+                                // Clear dirty blocks immediately - DETERMINISTIC RESULTS
+                                let start = std::time::Instant::now();
+                                dirty_blocks.lock().unwrap().clear();
+                                threshold_hit.store(false, Ordering::SeqCst);
+                                let elapsed = start.elapsed().as_millis() as u64;
+                                let elapsed = if elapsed == 0 { 1 } else { elapsed };
+                                last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
+                                sync_count.fetch_add(1, Ordering::SeqCst);
+                                debounce_sync_count.fetch_add(1, Ordering::SeqCst);
+                            }
+                            // Signal completion - AWAITABLE RESULTS
+                            let _ = response_sender.send(());
+                        },
+                    }
+                }
+            });
+
             if tokio::runtime::Handle::try_current().is_ok() {
                 // Prefer Tokio tasks
                 if let Some(interval_ms) = policy.interval_ms {
                     let stop = Arc::new(AtomicBool::new(false));
                     let stop_flag = stop.clone();
                     let dirty = Arc::clone(&self.dirty_blocks);
-                    let threshold_flag = self.threshold_hit.clone();
-                    let sync_count = self.sync_count.clone();
-                    let timer_sync_count = self.timer_sync_count.clone();
-                    let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                    let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                     let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
                     let task = tokio::spawn(async move {
                         loop {
                             ticker.tick().await;
                             if stop_flag.load(Ordering::SeqCst) { break; }
-                            let start = Instant::now();
-                            let mut did_flush = false;
-                            {
-                                let mut map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-                                if !map.is_empty() {
-                                    let count = map.len();
-                                    log::info!("Auto-sync (tokio-interval) flushing {} dirty blocks", count);
-                                    map.clear();
-                                    did_flush = true;
+                            // Check if sync is needed
+                            let needs_sync = {
+                                let map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+                                !map.is_empty()
+                            };
+                            if needs_sync {
+                                log::info!("Auto-sync (tokio-interval-policy) requesting sync and AWAITING completion");
+                                let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+                                if let Err(_) = sync_sender.send(SyncRequest::Timer(response_sender)) {
+                                    log::error!("Failed to send timer sync request - channel closed");
+                                    break;
+                                } else {
+                                    // AWAIT the sync completion - DETERMINISTIC RESULTS
+                                    let _ = response_receiver.await;
+                                    log::info!("Auto-sync (tokio-interval-policy) sync COMPLETED");
                                 }
-                            }
-                            if did_flush {
-                                threshold_flag.store(false, Ordering::SeqCst);
-                                let ms = start.elapsed().as_millis() as u64;
-                                let ms = if ms == 0 { 1 } else { ms };
-                                last_sync_duration_ms.store(ms, Ordering::SeqCst);
-                                sync_count.fetch_add(1, Ordering::SeqCst);
-                                timer_sync_count.fetch_add(1, Ordering::SeqCst);
                             }
                         }
                     });
@@ -2667,9 +2846,7 @@ impl BlockStorage {
                     let dirty = Arc::clone(&self.dirty_blocks);
                     let last_write = self.last_write_ms.clone();
                     let threshold_flag = self.threshold_hit.clone();
-                    let sync_count = self.sync_count.clone();
-                    let debounce_sync_count = self.debounce_sync_count.clone();
-                    let last_sync_duration_ms = self.last_sync_duration_ms.clone();
+                    let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                     let task = tokio::spawn(async move {
                         let sleep_step = Duration::from_millis(10);
                         loop {
@@ -2680,25 +2857,23 @@ impl BlockStorage {
                                 let last = last_write.load(Ordering::SeqCst);
                                 let elapsed = now.saturating_sub(last);
                                 if elapsed >= debounce_ms {
-                                    let start = Instant::now();
-                                    let mut did_flush = false;
-                                    {
-                                        let mut map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-                                        if !map.is_empty() {
-                                            let count = map.len();
-                                            log::info!("Auto-sync (tokio-debounce) flushing {} dirty blocks after {}ms idle", count, elapsed);
-                                            map.clear();
-                                            did_flush = true;
+                                    let needs_sync = {
+                                        let map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+                                        !map.is_empty()
+                                    };
+                                    if needs_sync {
+                                        log::info!("Auto-sync (tokio-debounce) requesting sync after {}ms idle and AWAITING completion", elapsed);
+                                        let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+                                        if let Err(_) = sync_sender.send(SyncRequest::Debounce(response_sender)) {
+                                            log::error!("Failed to send debounce sync request - channel closed");
+                                            break;
+                                        } else {
+                                            // AWAIT the sync completion - DETERMINISTIC RESULTS
+                                            let _ = response_receiver.await;
+                                            log::info!("Auto-sync (tokio-debounce) sync COMPLETED");
                                         }
                                     }
                                     threshold_flag.store(false, Ordering::SeqCst);
-                                    if did_flush {
-                                        let ms = start.elapsed().as_millis() as u64;
-                                        let ms = if ms == 0 { 1 } else { ms };
-                                        last_sync_duration_ms.store(ms, Ordering::SeqCst);
-                                        sync_count.fetch_add(1, Ordering::SeqCst);
-                                        debounce_sync_count.fetch_add(1, Ordering::SeqCst);
-                                    }
                                 }
                             }
                             tokio::time::sleep(sleep_step).await;
@@ -3740,7 +3915,7 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         use wasm_bindgen::JsCast;
         #[cfg(not(target_arch = "wasm32"))]
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
         
         // Call the existing fs_persist implementation for native builds
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]

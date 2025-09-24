@@ -31,6 +31,13 @@ fn default_hasher_checksum(data: &[u8]) -> u64 {
 async fn test_default_algo_is_fasthash_and_persisted() {
     let tmp = TempDir::new().expect("tempdir");
     common::set_var("DATASYNC_FS_BASE", tmp.path());
+    
+    // Ensure no checksum algorithm is set in environment to test default behavior
+    {
+        let _g = common::ENV_LOCK.lock().expect("env lock poisoned");
+        unsafe { std::env::remove_var("DATASYNC_CHECKSUM_ALGO") }
+        drop(_g);
+    }
     let db = "test_default_algo_persist";
     let mut s = BlockStorage::new_with_capacity(db, 4).await.expect("create storage");
 
