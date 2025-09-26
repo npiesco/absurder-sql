@@ -3899,29 +3899,6 @@ impl BlockStorage {
         self.cache.contains_key(&block_id)
     }
 
-    /// Get the number of completed sync operations (native only metric)
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_sync_count(&self) -> u64 {
-        self.sync_count.load(Ordering::SeqCst)
-    }
-
-    /// Get the number of timer-based background syncs
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_timer_sync_count(&self) -> u64 {
-        self.timer_sync_count.load(Ordering::SeqCst)
-    }
-
-    /// Get the number of debounce-based background syncs
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_debounce_sync_count(&self) -> u64 {
-        self.debounce_sync_count.load(Ordering::SeqCst)
-    }
-
-    /// Get the duration in ms of the last sync operation (>=1 when a sync occurs)
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_last_sync_duration_ms(&self) -> u64 {
-        self.last_sync_duration_ms.load(Ordering::SeqCst)
-    }
 
     /// Allocate a new block and return its ID
     pub async fn allocate_block(&mut self) -> Result<u64, DatabaseError> {
