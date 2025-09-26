@@ -441,4 +441,13 @@ impl super::BlockStorage {
     pub fn get_last_sync_duration_ms(&self) -> u64 {
         self.last_sync_duration_ms.load(Ordering::SeqCst)
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn maybe_auto_sync(&mut self) { /* no-op on wasm */ }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn maybe_auto_sync(&mut self) {
+        // Background sync is now handled by dedicated processor - NO MORE MAYBE
+        // This function is now a no-op since sync happens IMMEDIATELY
+    }
 }

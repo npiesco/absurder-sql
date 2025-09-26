@@ -1849,14 +1849,6 @@ impl BlockStorage {
 
     // compute_checksum_with moved to ChecksumManager
 
-    #[cfg(target_arch = "wasm32")]
-    fn maybe_auto_sync(&mut self) { /* no-op on wasm */ }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn maybe_auto_sync(&mut self) {
-        // Background sync is now handled by dedicated processor - NO MORE MAYBE
-        // This function is now a no-op since sync happens IMMEDIATELY
-    }
 
     fn verify_against_stored_checksum(
         &self,

@@ -1,4 +1,4 @@
-# DataSync Progress Tracker (Ordered, Checkboxes)
+/Users/nicholas.piesco/Downloads/DataSync/PROGRESS.md# DataSync Progress Tracker (Ordered, Checkboxes)
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
@@ -31,8 +31,8 @@ Last updated: 2025-08-27 14:17 -0400
 5. [ ] VFS Durability Mapping
    - [ ] Map SQLite VFS `xSync` to `force_sync()` with durability guarantees; add tests
 
-6. [ ] Auto Sync Manager (native) extraction
-   - [ ] Extract dedicated `AutoSyncManager` from `BlockStorage` (keep `SyncPolicy`/debounce/threshold semantics)
+6. [x] Auto Sync Manager (native) extraction
+   - [x] Extract dedicated `AutoSyncManager` from `BlockStorage` (keep `SyncPolicy`/debounce/threshold semantics)
 
 ---
 
