@@ -2,6 +2,7 @@ pub mod block_storage;
 pub mod async_bridge;
 pub mod metadata;
 pub mod vfs_sync;
+pub mod auto_sync;
 
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 #[cfg(target_arch = "wasm32")]

@@ -30,7 +30,7 @@ use std::{env, fs, io::{Read, Write}, path::PathBuf};
 // Auto-sync messaging
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
-enum SyncRequest {
+pub(super) enum SyncRequest {
     Timer(tokio::sync::oneshot::Sender<()>),
     Debounce(tokio::sync::oneshot::Sender<()>),
 }
@@ -359,7 +359,7 @@ const METADATA_STORE: &str = "metadata";
 
 pub struct BlockStorage {
     cache: HashMap<u64, Vec<u8>>,
-    dirty_blocks: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
+    pub(super) dirty_blocks: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
     allocated_blocks: HashSet<u64>,
     #[allow(dead_code)]
     deallocated_blocks: HashSet<u64>,
@@ -373,38 +373,38 @@ pub struct BlockStorage {
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     base_dir: PathBuf,
     // Background sync settings
-    auto_sync_interval: Option<Duration>,
+    pub(super) auto_sync_interval: Option<Duration>,
     #[cfg(not(target_arch = "wasm32"))]
-    last_auto_sync: Instant,
-    policy: Option<SyncPolicy>,
+    pub(super) last_auto_sync: Instant,
+    pub(super) policy: Option<SyncPolicy>,
     #[cfg(not(target_arch = "wasm32"))]
-    auto_sync_stop: Option<Arc<AtomicBool>>,
+    pub(super) auto_sync_stop: Option<Arc<AtomicBool>>,
     #[cfg(not(target_arch = "wasm32"))]
-    auto_sync_thread: Option<std::thread::JoinHandle<()>>,
+    pub(super) auto_sync_thread: Option<std::thread::JoinHandle<()>>,
     #[cfg(not(target_arch = "wasm32"))]
-    debounce_thread: Option<std::thread::JoinHandle<()>>,
+    pub(super) debounce_thread: Option<std::thread::JoinHandle<()>>,
     #[cfg(not(target_arch = "wasm32"))]
-    tokio_timer_task: Option<TokioJoinHandle<()>>,
+    pub(super) tokio_timer_task: Option<TokioJoinHandle<()>>,
     #[cfg(not(target_arch = "wasm32"))]
-    tokio_debounce_task: Option<TokioJoinHandle<()>>,
+    pub(super) tokio_debounce_task: Option<TokioJoinHandle<()>>,
     #[cfg(not(target_arch = "wasm32"))]
-    last_write_ms: Arc<AtomicU64>,
+    pub(super) last_write_ms: Arc<AtomicU64>,
     #[cfg(not(target_arch = "wasm32"))]
-    threshold_hit: Arc<AtomicBool>,
+    pub(super) threshold_hit: Arc<AtomicBool>,
     #[cfg(not(target_arch = "wasm32"))]
-    sync_count: Arc<AtomicU64>,
+    pub(super) sync_count: Arc<AtomicU64>,
     #[cfg(not(target_arch = "wasm32"))]
-    timer_sync_count: Arc<AtomicU64>,
+    pub(super) timer_sync_count: Arc<AtomicU64>,
     #[cfg(not(target_arch = "wasm32"))]
-    debounce_sync_count: Arc<AtomicU64>,
+    pub(super) debounce_sync_count: Arc<AtomicU64>,
     #[cfg(not(target_arch = "wasm32"))]
-    last_sync_duration_ms: Arc<AtomicU64>,
+    pub(super) last_sync_duration_ms: Arc<AtomicU64>,
 
     // Auto-sync channel for real sync operations
     #[cfg(not(target_arch = "wasm32"))]
-    sync_sender: Option<mpsc::UnboundedSender<SyncRequest>>,
+    pub(super) sync_sender: Option<mpsc::UnboundedSender<SyncRequest>>,
     #[cfg(not(target_arch = "wasm32"))]
-    sync_receiver: Option<mpsc::UnboundedReceiver<SyncRequest>>,
+    pub(super) sync_receiver: Option<mpsc::UnboundedReceiver<SyncRequest>>,
 
     // Startup recovery report
     recovery_report: RecoveryReport,
@@ -2593,147 +2593,6 @@ impl BlockStorage {
         self.checksum_manager.set_checksum_for_testing(block_id, checksum);
     }
 
-    /// Enable automatic background syncing of dirty blocks. Interval in milliseconds.
-    pub fn enable_auto_sync(&mut self, interval_ms: u64) {
-        self.auto_sync_interval = Some(Duration::from_millis(interval_ms));
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.last_auto_sync = Instant::now();
-        }
-        self.policy = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
-        log::info!("Auto-sync enabled: every {} ms", interval_ms);
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // stop previous workers if any
-            if let Some(stop) = &self.auto_sync_stop { stop.store(true, Ordering::SeqCst); }
-            if let Some(handle) = self.auto_sync_thread.take() { let _ = handle.join(); }
-            if let Some(handle) = self.debounce_thread.take() { let _ = handle.join(); }
-            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
-            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
-
-            // Create dedicated sync processor that WILL sync immediately - NO MAYBE BULLSHIT
-            let (sender, mut receiver) = mpsc::unbounded_channel();
-            let dirty_blocks = Arc::clone(&self.dirty_blocks);
-            let sync_count = self.sync_count.clone();
-            let timer_sync_count = self.timer_sync_count.clone();
-            let debounce_sync_count = self.debounce_sync_count.clone();
-            let last_sync_duration_ms = self.last_sync_duration_ms.clone();
-
-            // Spawn dedicated task that GUARANTEES immediate sync processing
-            tokio::spawn(async move {
-                while let Some(request) = receiver.recv().await {
-                    match request {
-                        SyncRequest::Timer(response_sender) => {
-                            if !dirty_blocks.lock().unwrap().is_empty() {
-                                // Clear dirty blocks immediately - DETERMINISTIC RESULTS
-                                let start = std::time::Instant::now();
-                                dirty_blocks.lock().unwrap().clear();
-                                let elapsed = start.elapsed().as_millis() as u64;
-                                let elapsed = if elapsed == 0 { 1 } else { elapsed };
-                                last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
-                                sync_count.fetch_add(1, Ordering::SeqCst);
-                                timer_sync_count.fetch_add(1, Ordering::SeqCst);
-                            }
-                            // Signal completion - AWAITABLE RESULTS
-                            let _ = response_sender.send(());
-                        },
-                        SyncRequest::Debounce(response_sender) => {
-                            if !dirty_blocks.lock().unwrap().is_empty() {
-                                // Clear dirty blocks immediately - DETERMINISTIC RESULTS
-                                let start = std::time::Instant::now();
-                                dirty_blocks.lock().unwrap().clear();
-                                let elapsed = start.elapsed().as_millis() as u64;
-                                let elapsed = if elapsed == 0 { 1 } else { elapsed };
-                                last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
-                                sync_count.fetch_add(1, Ordering::SeqCst);
-                                debounce_sync_count.fetch_add(1, Ordering::SeqCst);
-                            }
-                            // Signal completion - AWAITABLE RESULTS
-                            let _ = response_sender.send(());
-                        },
-                    }
-                }
-            });
-
-            self.sync_sender = Some(sender);
-            self.sync_receiver = None; // No more "maybe" bullshit
-
-            // Prefer Tokio runtime if present, otherwise fallback to std::thread
-            if tokio::runtime::Handle::try_current().is_ok() {
-                let stop = Arc::new(AtomicBool::new(false));
-                let stop_flag = stop.clone();
-                let dirty = Arc::clone(&self.dirty_blocks);
-                let sync_sender = self.sync_sender.as_ref().unwrap().clone();
-                let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
-                // first tick happens immediately for interval(0), ensure we wait one period
-                let task = tokio::spawn(async move {
-                    loop {
-                        ticker.tick().await;
-                        if stop_flag.load(Ordering::SeqCst) { break; }
-                        // Check if sync is needed
-                        let needs_sync = {
-                            let map = match dirty.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-                            !map.is_empty()
-                        };
-                        if needs_sync {
-                            log::info!("Auto-sync (tokio-interval) requesting sync and AWAITING completion");
-                            let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-                            if let Err(_) = sync_sender.send(SyncRequest::Timer(response_sender)) {
-                                log::error!("Failed to send timer sync request - channel closed");
-                                break;
-                            } else {
-                                // AWAIT the sync completion - DETERMINISTIC RESULTS
-                                let _ = response_receiver.await;
-                                log::info!("Auto-sync (tokio-interval) sync COMPLETED");
-                            }
-                        } else {
-                            log::debug!("Auto-sync (tokio-interval) - no dirty blocks, skipping sync request");
-                        }
-                    }
-                });
-                self.auto_sync_stop = Some(stop);
-                self.tokio_timer_task = Some(task);
-                self.auto_sync_thread = None;
-                self.debounce_thread = None;
-            } else {
-                // Fallback to tokio spawn_blocking since we need channel communication
-                let stop = Arc::new(AtomicBool::new(false));
-                let stop_flag = stop.clone();
-                let dirty = Arc::clone(&self.dirty_blocks);
-                let sync_sender = self.sync_sender.as_ref().unwrap().clone();
-                let interval = Duration::from_millis(interval_ms);
-                let handle = tokio::task::spawn_blocking(move || {
-                    while !stop_flag.load(Ordering::SeqCst) {
-                        std::thread::sleep(interval);
-                        if stop_flag.load(Ordering::SeqCst) { break; }
-                        let needs_sync = {
-                            let map = match dirty.lock() {
-                                Ok(g) => g,
-                                Err(poisoned) => poisoned.into_inner(),
-                            };
-                            !map.is_empty()
-                        };
-                        if needs_sync {
-                            log::info!("Auto-sync (blocking-thread) requesting sync and AWAITING completion");
-                            let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-                            if sync_sender.send(SyncRequest::Timer(response_sender)).is_err() {
-                                log::error!("Failed to send timer sync request - channel closed");
-                                break;
-                            } else {
-                                // AWAIT the sync completion - DETERMINISTIC RESULTS
-                                let _ = tokio::runtime::Handle::current().block_on(response_receiver);
-                                log::info!("Auto-sync (blocking-thread) sync COMPLETED");
-                            }
-                        }
-                    }
-                });
-                self.auto_sync_stop = Some(stop);
-                self.tokio_timer_task = Some(handle);  // Store as tokio task
-                self.auto_sync_thread = None;
-                self.debounce_thread = None;
-            }
-        }
-    }
 
     /// Enable automatic background syncing using a SyncPolicy
     pub fn enable_auto_sync_with_policy(&mut self, policy: SyncPolicy) {
