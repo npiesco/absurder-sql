@@ -396,4 +396,25 @@ impl super::BlockStorage {
             }
         }
     }
+
+    /// Disable automatic background syncing.
+    pub fn disable_auto_sync(&mut self) {
+        self.auto_sync_interval = None;
+        log::info!("Auto-sync disabled");
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(stop) = &self.auto_sync_stop {
+                stop.store(true, Ordering::SeqCst);
+            }
+            if let Some(handle) = self.auto_sync_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(handle) = self.debounce_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
+            self.auto_sync_stop = None;
+        }
+    }
 }
