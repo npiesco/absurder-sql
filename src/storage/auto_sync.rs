@@ -32,7 +32,7 @@ impl super::BlockStorage {
 
             // Create dedicated sync processor that WILL sync immediately - NO MAYBE BULLSHIT
             let (sender, mut receiver) = mpsc::unbounded_channel();
-            let dirty_blocks = Arc::clone(&self.dirty_blocks);
+            let dirty_blocks = Arc::clone(self.get_dirty_blocks());
             let sync_count = self.sync_count.clone();
             let timer_sync_count = self.timer_sync_count.clone();
             let debounce_sync_count = self.debounce_sync_count.clone();
@@ -81,7 +81,7 @@ impl super::BlockStorage {
             if tokio::runtime::Handle::try_current().is_ok() {
                 let stop = Arc::new(AtomicBool::new(false));
                 let stop_flag = stop.clone();
-                let dirty = Arc::clone(&self.dirty_blocks);
+                let dirty = Arc::clone(self.get_dirty_blocks());
                 let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                 let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
                 // first tick happens immediately for interval(0), ensure we wait one period
@@ -118,7 +118,7 @@ impl super::BlockStorage {
                 // Fallback to tokio spawn_blocking since we need channel communication
                 let stop = Arc::new(AtomicBool::new(false));
                 let stop_flag = stop.clone();
-                let dirty = Arc::clone(&self.dirty_blocks);
+                let dirty = Arc::clone(self.get_dirty_blocks());
                 let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                 let interval = Duration::from_millis(interval_ms);
                 let handle = tokio::task::spawn_blocking(move || {
@@ -178,7 +178,7 @@ impl super::BlockStorage {
             self.sync_receiver = None; // No more "maybe" bullshit
 
             // Create dedicated sync processor that WILL sync immediately - NO MAYBE BULLSHIT
-            let dirty_blocks = Arc::clone(&self.dirty_blocks);
+            let dirty_blocks = Arc::clone(self.get_dirty_blocks());
             let sync_count = self.sync_count.clone();
             let timer_sync_count = self.timer_sync_count.clone();
             let debounce_sync_count = self.debounce_sync_count.clone();
@@ -228,7 +228,7 @@ impl super::BlockStorage {
                 if let Some(interval_ms) = policy.interval_ms {
                     let stop = Arc::new(AtomicBool::new(false));
                     let stop_flag = stop.clone();
-                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let dirty = Arc::clone(self.get_dirty_blocks());
                     let sync_sender = self.sync_sender.as_ref().unwrap().clone();
                     let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
                     let task = tokio::spawn(async move {
@@ -262,7 +262,7 @@ impl super::BlockStorage {
 
                 if let Some(debounce_ms) = policy.debounce_ms {
                     let stop_flag = self.auto_sync_stop.get_or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
-                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let dirty = Arc::clone(self.get_dirty_blocks());
                     let last_write = self.last_write_ms.clone();
                     let threshold_flag = self.threshold_hit.clone();
                     let sync_sender = self.sync_sender.as_ref().unwrap().clone();
@@ -310,7 +310,7 @@ impl super::BlockStorage {
                 if let Some(interval_ms) = policy.interval_ms {
                     let stop = Arc::new(AtomicBool::new(false));
                     let stop_thread = stop.clone();
-                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let dirty = Arc::clone(self.get_dirty_blocks());
                     let interval = Duration::from_millis(interval_ms);
                     let threshold_flag = self.threshold_hit.clone();
                     let sync_count = self.sync_count.clone();
@@ -350,7 +350,7 @@ impl super::BlockStorage {
                 if let Some(debounce_ms) = policy.debounce_ms {
                     let stop = self.auto_sync_stop.get_or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
                     let stop_thread = stop.clone();
-                    let dirty = Arc::clone(&self.dirty_blocks);
+                    let dirty = Arc::clone(self.get_dirty_blocks());
                     let last_write = self.last_write_ms.clone();
                     let threshold_flag = self.threshold_hit.clone();
                     let sync_count = self.sync_count.clone();
