@@ -56,13 +56,13 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
         if !blocks_to_persist.is_empty() {
             // Create a temporary storage instance just for persistence
             match BlockStorage::new(&db_name_clone).await {
-                Ok(storage) => {
+                Ok(_storage) => {
                     let next_commit = vfs_sync::with_global_commit_marker(|cm| {
                         let cm = cm.borrow();
                         cm.get(&db_name_clone).copied().unwrap_or(0)
                     });
 
-                    match storage.persist_to_indexeddb_event_based(blocks_to_persist, metadata_to_persist, next_commit).await {
+                    match super::wasm_indexeddb::persist_to_indexeddb_event_based(&db_name_clone, blocks_to_persist, metadata_to_persist, next_commit).await {
                         Ok(_) => {
                             web_sys::console::log_1(&format!("VFS sync: Successfully persisted {} to IndexedDB", db_name_clone).into());
                         }
@@ -128,8 +128,8 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
     let fut = async move {
         // Create a temporary storage instance just for persistence
         match BlockStorage::new(&db_name_string).await {
-            Ok(storage) => {
-                match storage.persist_to_indexeddb_event_based(blocks_to_persist, metadata_to_persist, next_commit).await {
+            Ok(_storage) => {
+                match super::wasm_indexeddb::persist_to_indexeddb_event_based(&db_name_string, blocks_to_persist, metadata_to_persist, next_commit).await {
                     Ok(_) => {
                         web_sys::console::log_1(&format!("VFS sync: Successfully persisted {} to IndexedDB", db_name_string).into());
 
