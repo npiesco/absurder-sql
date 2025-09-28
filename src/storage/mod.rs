@@ -5,6 +5,9 @@ pub mod auto_sync;
 pub mod fs_persist;
 pub mod recovery;
 pub mod constructors;
+pub mod io_operations;
+pub mod sync_operations;
+pub mod allocation;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_vfs_sync;
 #[cfg(target_arch = "wasm32")]
