@@ -206,19 +206,48 @@ pub async fn persist_to_indexeddb_event_based(db_name: &str, blocks: Vec<(u64, V
     use wasm_bindgen::closure::Closure;
     use futures::channel::oneshot;
     
+    web_sys::console::log_1(&"DEBUG: persist_to_indexeddb_event_based starting".into());
+    
     let window = web_sys::window().unwrap();
     let idb_factory = window.indexed_db().unwrap().unwrap();
+    web_sys::console::log_1(&"DEBUG: Got IndexedDB factory".into());
+    
     let open_req = idb_factory.open_with_u32("sqlite_storage", 1).unwrap();
+    web_sys::console::log_1(&"DEBUG: Created open request".into());
     
     // Set up upgrade handler
     let upgrade_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-        let target = event.target().unwrap();
-        let db: web_sys::IdbDatabase = target.dyn_into().unwrap();
-        if !db.object_store_names().contains("blocks") {
-            db.create_object_store("blocks").unwrap();
-        }
-        if !db.object_store_names().contains("metadata") {
-            db.create_object_store("metadata").unwrap();
+        web_sys::console::log_1(&"DEBUG: IndexedDB upgrade handler called".into());
+        
+        match (|| -> Result<(), Box<dyn std::error::Error>> {
+            let target = event.target().ok_or("No event target")?;
+            web_sys::console::log_1(&"DEBUG: Got event target in upgrade handler".into());
+            
+            let request: web_sys::IdbOpenDbRequest = target.dyn_into().map_err(|_| "Failed to cast to IdbOpenDbRequest")?;
+            web_sys::console::log_1(&"DEBUG: Cast to IdbOpenDbRequest in upgrade handler".into());
+            
+            let result = request.result().map_err(|_| "Failed to get result from request")?;
+            web_sys::console::log_1(&"DEBUG: Got result from request in upgrade handler".into());
+            
+            let db: web_sys::IdbDatabase = result.dyn_into().map_err(|_| "Failed to cast result to IdbDatabase")?;
+            web_sys::console::log_1(&"DEBUG: Cast result to IdbDatabase in upgrade handler".into());
+            
+            if !db.object_store_names().contains("blocks") {
+                db.create_object_store("blocks").map_err(|_| "Failed to create blocks store")?;
+                web_sys::console::log_1(&"DEBUG: Created blocks object store".into());
+            }
+            if !db.object_store_names().contains("metadata") {
+                db.create_object_store("metadata").map_err(|_| "Failed to create metadata store")?;
+                web_sys::console::log_1(&"DEBUG: Created metadata object store".into());
+            }
+            
+            web_sys::console::log_1(&"DEBUG: Upgrade handler completed successfully".into());
+            Ok(())
+        })() {
+            Ok(_) => {},
+            Err(e) => {
+                web_sys::console::log_1(&format!("DEBUG: Upgrade handler error: {}", e).into());
+            }
         }
     }) as Box<dyn FnMut(_)>);
     open_req.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
@@ -231,10 +260,22 @@ pub async fn persist_to_indexeddb_event_based(db_name: &str, blocks: Vec<(u64, V
     let success_closure = {
         let open_tx = open_tx.clone();
         Closure::wrap(Box::new(move |event: web_sys::Event| {
+            web_sys::console::log_1(&"DEBUG: IndexedDB open success handler called".into());
             if let Some(sender) = open_tx.borrow_mut().take() {
+                web_sys::console::log_1(&"DEBUG: Got sender from RefCell".into());
                 let target = event.target().unwrap();
-                let db: web_sys::IdbDatabase = target.dyn_into().unwrap();
-                let _ = sender.send(Ok(db));
+                web_sys::console::log_1(&"DEBUG: Got event target".into());
+                let request: web_sys::IdbOpenDbRequest = target.dyn_into().unwrap();
+                web_sys::console::log_1(&"DEBUG: Cast to IdbOpenDbRequest".into());
+                let result = request.result().unwrap();
+                web_sys::console::log_1(&"DEBUG: Got result from request".into());
+                let db: web_sys::IdbDatabase = result.dyn_into().unwrap();
+                web_sys::console::log_1(&"DEBUG: Cast result to IdbDatabase".into());
+                web_sys::console::log_1(&"DEBUG: Sending database to channel".into());
+                let send_result = sender.send(Ok(db));
+                web_sys::console::log_1(&format!("DEBUG: Channel send result: {:?}", send_result.is_ok()).into());
+            } else {
+                web_sys::console::log_1(&"DEBUG: No sender available in RefCell".into());
             }
         }) as Box<dyn FnMut(_)>)
     };
@@ -242,6 +283,7 @@ pub async fn persist_to_indexeddb_event_based(db_name: &str, blocks: Vec<(u64, V
     let error_closure = {
         let open_tx = open_tx.clone();
         Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            web_sys::console::log_1(&"DEBUG: IndexedDB open error handler called".into());
             if let Some(sender) = open_tx.borrow_mut().take() {
                 let _ = sender.send(Err("Failed to open IndexedDB".to_string()));
             }
@@ -253,17 +295,45 @@ pub async fn persist_to_indexeddb_event_based(db_name: &str, blocks: Vec<(u64, V
     success_closure.forget();
     error_closure.forget();
     
+    web_sys::console::log_1(&"DEBUG: About to await open_rx channel".into());
     let db = match open_rx.await {
-        Ok(Ok(db)) => db,
-        Ok(Err(e)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
-        Err(_) => return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error")),
+        Ok(Ok(db)) => {
+            web_sys::console::log_1(&"DEBUG: Successfully received database from channel".into());
+            db
+        },
+        Ok(Err(e)) => {
+            web_sys::console::log_1(&format!("DEBUG: Database open error: {}", e).into());
+            return Err(DatabaseError::new("INDEXEDDB_ERROR", &e));
+        },
+        Err(_) => {
+            web_sys::console::log_1(&"DEBUG: Channel error while waiting for database".into());
+            return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error"));
+        },
     };
+    
+    web_sys::console::log_1(&"DEBUG: Starting IndexedDB transaction".into());
+    
+    // Check if object stores exist
+    let store_names_list = db.object_store_names();
+    web_sys::console::log_1(&format!("DEBUG: Available object stores: {}", store_names_list.length()).into());
+    for i in 0..store_names_list.length() {
+        if let Some(name) = store_names_list.get(i) {
+            web_sys::console::log_1(&format!("DEBUG: Store {}: {:?}", i, name).into());
+        }
+    }
+    
+    // Check if required stores exist
+    if !store_names_list.contains("blocks") || !store_names_list.contains("metadata") {
+        web_sys::console::log_1(&"DEBUG: Required object stores missing, cannot create transaction".into());
+        return Err(DatabaseError::new("INDEXEDDB_ERROR", "Required object stores not found"));
+    }
     
     // Start transaction
     let store_names = js_sys::Array::new();
     store_names.push(&"blocks".into());
     store_names.push(&"metadata".into());
     let transaction = db.transaction_with_str_sequence_and_mode(&store_names, web_sys::IdbTransactionMode::Readwrite).unwrap();
+    web_sys::console::log_1(&"DEBUG: Created IndexedDB transaction".into());
     
     let blocks_store = transaction.object_store("blocks").unwrap();
     let metadata_store = transaction.object_store("metadata").unwrap();
@@ -438,4 +508,29 @@ pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError>
     }
     
     Ok(())
+}
+
+/// Simplified IndexedDB persistence for crash simulation
+/// Writes blocks and metadata to IndexedDB without advancing commit marker
+#[cfg(target_arch = "wasm32")]
+pub async fn persist_to_indexeddb(
+    db_name: &str,
+    blocks: std::collections::HashMap<u64, Vec<u8>>,
+    metadata: Vec<(u64, u64)>,
+) -> Result<(), DatabaseError> {
+    web_sys::console::log_1(&format!("DEBUG: persist_to_indexeddb called for {} blocks", blocks.len()).into());
+    
+    // Convert HashMap to Vec for the existing function
+    let blocks_vec: Vec<(u64, Vec<u8>)> = blocks.into_iter().collect();
+    web_sys::console::log_1(&format!("DEBUG: Converted HashMap to Vec, now have {} block entries", blocks_vec.len()).into());
+    
+    web_sys::console::log_1(&"DEBUG: About to call persist_to_indexeddb_event_based".into());
+    
+    // For crash simulation, we'll use the existing event-based persistence
+    // but without advancing the commit marker (that's handled by the caller)
+    let result = persist_to_indexeddb_event_based(db_name, blocks_vec, metadata, 0).await;
+    
+    web_sys::console::log_1(&format!("DEBUG: persist_to_indexeddb_event_based completed with result: {:?}", result.is_ok()).into());
+    
+    result
 }

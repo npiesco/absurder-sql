@@ -64,6 +64,13 @@ pub enum CorruptionAction {
     Fail,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum CrashRecoveryAction {
+    NoActionNeeded,
+    Rollback,
+    Finalize,
+}
+
 impl Default for CorruptionAction {
     fn default() -> Self {
         CorruptionAction::Report
@@ -944,6 +951,274 @@ impl BlockStorage {
     /// Get the number of currently allocated blocks
     pub fn get_allocated_count(&self) -> usize {
         self.allocated_blocks.len()
+    }
+
+    /// Crash simulation: simulate crash during IndexedDB commit
+    /// If `blocks_written` is true, blocks are written to IndexedDB but commit marker doesn't advance
+    /// If `blocks_written` is false, crash occurs before blocks are written
+    #[cfg(target_arch = "wasm32")]
+    pub async fn crash_simulation_sync(&mut self, blocks_written: bool) -> Result<(), DatabaseError> {
+        log::info!("CRASH SIMULATION: Starting crash simulation with blocks_written={}", blocks_written);
+        web_sys::console::log_1(&format!("CRASH SIMULATION: Starting crash simulation with blocks_written={}", blocks_written).into());
+        
+        if blocks_written {
+            // Simulate crash after blocks are written but before commit marker advances
+            // This is the most critical crash scenario to test
+            
+            // Step 1: Write blocks to IndexedDB (simulate partial transaction completion)
+            let dirty_blocks = {
+                let dirty = self.dirty_blocks.lock().unwrap();
+                dirty.clone()
+            };
+            
+            if !dirty_blocks.is_empty() {
+                log::info!("CRASH SIMULATION: Writing {} blocks to IndexedDB before crash", dirty_blocks.len());
+                web_sys::console::log_1(&format!("CRASH SIMULATION: Writing {} blocks to IndexedDB before crash", dirty_blocks.len()).into());
+                
+                // Use the existing IndexedDB persistence logic but don't advance commit marker
+                let metadata_to_persist: Vec<(u64, u64)> = dirty_blocks
+                    .keys()
+                    .map(|&block_id| {
+                        let next_commit = self.get_commit_marker() + 1;
+                        (block_id, next_commit)
+                    })
+                    .collect();
+                
+                web_sys::console::log_1(&format!("CRASH SIMULATION: About to call persist_to_indexeddb for {} blocks", dirty_blocks.len()).into());
+                
+                // Write blocks and metadata to IndexedDB
+                super::wasm_indexeddb::persist_to_indexeddb(
+                    &self.db_name,
+                    dirty_blocks,
+                    metadata_to_persist,
+                ).await?;
+                
+                web_sys::console::log_1(&"CRASH SIMULATION: persist_to_indexeddb completed successfully".into());
+                
+                log::info!("CRASH SIMULATION: Blocks written to IndexedDB, simulating crash before commit marker advance");
+                
+                // Clear dirty blocks (they're now in IndexedDB)
+                self.dirty_blocks.lock().unwrap().clear();
+                
+                // DON'T advance commit marker - this simulates the crash
+                // In a real crash, the commit marker update would fail
+                
+                return Ok(());
+            } else {
+                log::info!("CRASH SIMULATION: No dirty blocks to write");
+                return Ok(());
+            }
+        } else {
+            // Simulate crash before blocks are written
+            log::info!("CRASH SIMULATION: Simulating crash before blocks are written to IndexedDB");
+            
+            // Just return success - blocks remain dirty, nothing written to IndexedDB
+            return Ok(());
+        }
+    }
+
+    /// Crash simulation: simulate partial block writes during IndexedDB commit
+    /// Only specified blocks are written to IndexedDB before crash
+    #[cfg(target_arch = "wasm32")]
+    pub async fn crash_simulation_partial_sync(&mut self, blocks_to_write: &[u64]) -> Result<(), DatabaseError> {
+        log::info!("CRASH SIMULATION: Starting partial crash simulation for {} blocks", blocks_to_write.len());
+        
+        let dirty_blocks = {
+            let dirty = self.dirty_blocks.lock().unwrap();
+            dirty.clone()
+        };
+        
+        // Filter to only the blocks we want to "successfully" write before crash
+        let partial_blocks: std::collections::HashMap<u64, Vec<u8>> = dirty_blocks
+            .into_iter()
+            .filter(|(block_id, _)| blocks_to_write.contains(block_id))
+            .collect();
+        
+        if !partial_blocks.is_empty() {
+            log::info!("CRASH SIMULATION: Writing {} out of {} blocks before crash", 
+                      partial_blocks.len(), blocks_to_write.len());
+            
+            let metadata_to_persist: Vec<(u64, u64)> = partial_blocks
+                .keys()
+                .map(|&block_id| {
+                    let next_commit = self.get_commit_marker() + 1;
+                    (block_id, next_commit)
+                })
+                .collect();
+            
+            // Write only the partial blocks to IndexedDB
+            super::wasm_indexeddb::persist_to_indexeddb(
+                &self.db_name,
+                partial_blocks.clone(),
+                metadata_to_persist,
+            ).await?;
+            
+            // Remove only the written blocks from dirty_blocks
+            {
+                let mut dirty = self.dirty_blocks.lock().unwrap();
+                for block_id in partial_blocks.keys() {
+                    dirty.remove(block_id);
+                }
+            }
+            
+            log::info!("CRASH SIMULATION: Partial blocks written, simulating crash before commit marker advance");
+            
+            // DON'T advance commit marker - simulates crash during transaction
+        }
+        
+        Ok(())
+    }
+
+    /// Perform crash recovery: detect and handle incomplete IndexedDB transactions
+    /// This method detects inconsistencies between IndexedDB state and commit markers
+    /// and either finalizes or rolls back incomplete transactions
+    #[cfg(target_arch = "wasm32")]
+    pub async fn perform_crash_recovery(&mut self) -> Result<CrashRecoveryAction, DatabaseError> {
+        log::info!("CRASH RECOVERY: Starting crash recovery scan for database: {}", self.db_name);
+        web_sys::console::log_1(&format!("CRASH RECOVERY: Starting crash recovery scan for database: {}", self.db_name).into());
+        
+        // Step 1: Get current commit marker
+        let current_marker = self.get_commit_marker();
+        log::info!("CRASH RECOVERY: Current commit marker: {}", current_marker);
+        web_sys::console::log_1(&format!("CRASH RECOVERY: Current commit marker: {}", current_marker).into());
+        
+        // Step 2: Scan IndexedDB for blocks with versions > commit marker
+        // These represent incomplete transactions that need recovery
+        let inconsistent_blocks = self.scan_for_inconsistent_blocks(current_marker).await?;
+        
+        if inconsistent_blocks.is_empty() {
+            log::info!("CRASH RECOVERY: No inconsistent blocks found, system is consistent");
+            return Ok(CrashRecoveryAction::NoActionNeeded);
+        }
+        
+        log::info!("CRASH RECOVERY: Found {} inconsistent blocks that need recovery", inconsistent_blocks.len());
+        
+        // Step 3: Determine recovery action based on transaction completeness
+        let recovery_action = self.determine_recovery_action(&inconsistent_blocks).await?;
+        
+        match recovery_action {
+            CrashRecoveryAction::Rollback => {
+                log::info!("CRASH RECOVERY: Performing rollback of incomplete transaction");
+                self.rollback_incomplete_transaction(&inconsistent_blocks).await?;
+            }
+            CrashRecoveryAction::Finalize => {
+                log::info!("CRASH RECOVERY: Performing finalization of complete transaction");
+                self.finalize_complete_transaction(&inconsistent_blocks).await?;
+            }
+            CrashRecoveryAction::NoActionNeeded => {
+                // Already handled above
+            }
+        }
+        
+        log::info!("CRASH RECOVERY: Recovery completed successfully");
+        Ok(recovery_action)
+    }
+
+    /// Scan IndexedDB for blocks with versions greater than the commit marker
+    #[cfg(target_arch = "wasm32")]
+    async fn scan_for_inconsistent_blocks(&self, commit_marker: u64) -> Result<Vec<(u64, u64)>, DatabaseError> {
+        log::info!("CRASH RECOVERY: Scanning for blocks with version > {}", commit_marker);
+        
+        // This is a simplified implementation - in a real system we'd scan IndexedDB directly
+        // For now, we'll check the global metadata storage
+        let mut inconsistent_blocks = Vec::new();
+        
+        vfs_sync::with_global_metadata(|meta| {
+            let meta_map = meta.borrow();
+            if let Some(db_meta) = meta_map.get(&self.db_name) {
+                for (block_id, metadata) in db_meta.iter() {
+                    if metadata.version as u64 > commit_marker {
+                        log::info!("CRASH RECOVERY: Found inconsistent block {} with version {} > marker {}", 
+                                  block_id, metadata.version, commit_marker);
+                        inconsistent_blocks.push((*block_id, metadata.version as u64));
+                    }
+                }
+            }
+        });
+        
+        Ok(inconsistent_blocks)
+    }
+
+    /// Determine whether to rollback or finalize based on transaction completeness
+    #[cfg(target_arch = "wasm32")]
+    async fn determine_recovery_action(&self, inconsistent_blocks: &[(u64, u64)]) -> Result<CrashRecoveryAction, DatabaseError> {
+        // Simple heuristic: if all inconsistent blocks have the same version (next expected commit),
+        // then the transaction was likely complete and should be finalized.
+        // Otherwise, rollback to maintain consistency.
+        
+        let expected_next_commit = self.get_commit_marker() + 1;
+        let all_same_version = inconsistent_blocks
+            .iter()
+            .all(|(_, version)| *version == expected_next_commit);
+        
+        if all_same_version && !inconsistent_blocks.is_empty() {
+            log::info!("CRASH RECOVERY: All inconsistent blocks have expected version {}, finalizing transaction", expected_next_commit);
+            Ok(CrashRecoveryAction::Finalize)
+        } else {
+            log::info!("CRASH RECOVERY: Inconsistent block versions detected, rolling back transaction");
+            Ok(CrashRecoveryAction::Rollback)
+        }
+    }
+
+    /// Rollback incomplete transaction by removing inconsistent blocks
+    #[cfg(target_arch = "wasm32")]
+    async fn rollback_incomplete_transaction(&mut self, inconsistent_blocks: &[(u64, u64)]) -> Result<(), DatabaseError> {
+        log::info!("CRASH RECOVERY: Rolling back {} inconsistent blocks", inconsistent_blocks.len());
+        
+        // Remove inconsistent blocks from global metadata
+        vfs_sync::with_global_metadata(|meta| {
+            let mut meta_map = meta.borrow_mut();
+            if let Some(db_meta) = meta_map.get_mut(&self.db_name) {
+                for (block_id, _) in inconsistent_blocks {
+                    log::info!("CRASH RECOVERY: Removing inconsistent block {} from metadata", block_id);
+                    db_meta.remove(block_id);
+                }
+            }
+        });
+        
+        // Clear any cached data for these blocks
+        for (block_id, _) in inconsistent_blocks {
+            self.cache.remove(block_id);
+            // Remove from LRU order
+            self.lru_order.retain(|&id| id != *block_id);
+        }
+        
+        // TODO: In a complete implementation, we'd also remove the blocks from IndexedDB
+        // For now, the commit marker gating will make them invisible
+        
+        log::info!("CRASH RECOVERY: Rollback completed");
+        Ok(())
+    }
+
+    /// Finalize complete transaction by advancing commit marker
+    #[cfg(target_arch = "wasm32")]
+    async fn finalize_complete_transaction(&mut self, inconsistent_blocks: &[(u64, u64)]) -> Result<(), DatabaseError> {
+        log::info!("CRASH RECOVERY: Finalizing transaction for {} blocks", inconsistent_blocks.len());
+        
+        // Find the target commit marker (should be consistent across all blocks)
+        if let Some((_, target_version)) = inconsistent_blocks.first() {
+            let new_commit_marker = *target_version;
+            
+            // Advance the commit marker to make the blocks visible
+            vfs_sync::with_global_commit_marker(|cm| {
+                cm.borrow_mut().insert(self.db_name.clone(), new_commit_marker);
+            });
+            
+            log::info!("CRASH RECOVERY: Advanced commit marker from {} to {}", 
+                      self.get_commit_marker(), new_commit_marker);
+            
+            // Update checksums for the finalized blocks
+            for (block_id, _) in inconsistent_blocks {
+                // Read the block data to compute and store checksum
+                if let Ok(data) = self.read_block_sync(*block_id) {
+                    self.checksum_manager.store_checksum(*block_id, &data);
+                    log::info!("CRASH RECOVERY: Updated checksum for finalized block {}", block_id);
+                }
+            }
+        }
+        
+        log::info!("CRASH RECOVERY: Finalization completed");
+        Ok(())
     }
 }
 
