@@ -29,7 +29,14 @@ struct FsDealloc { tombstones: Vec<u64> }
 pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
     log::info!("Creating BlockStorage for database: {}", db_name);
     
-    // Try to restore from IndexedDB first
+    // Perform IndexedDB recovery scan first
+    let recovery_performed = super::wasm_indexeddb::perform_indexeddb_recovery_scan(db_name).await
+        .unwrap_or(false);
+    if recovery_performed {
+        log::info!("IndexedDB recovery scan completed for: {}", db_name);
+    }
+    
+    // Try to restore from IndexedDB
     let restored = super::wasm_indexeddb::restore_from_indexeddb(db_name).await;
     if restored {
         log::info!("Successfully restored BlockStorage from IndexedDB for: {}", db_name);

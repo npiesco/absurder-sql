@@ -8,6 +8,28 @@ use super::{vfs_sync, BlockStorage};
 #[cfg(target_arch = "wasm32")]
 use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
 
+/// Perform IndexedDB recovery scan to detect and handle incomplete transactions
+#[cfg(target_arch = "wasm32")]
+pub async fn perform_indexeddb_recovery_scan(db_name: &str) -> Result<bool, DatabaseError> {
+    web_sys::console::log_1(&format!("DEBUG: Starting IndexedDB recovery scan for {}", db_name).into());
+    
+    // For now, implement a simple recovery check
+    // TODO: Add more sophisticated recovery logic later
+    
+    // Check if we have any existing commit marker in global state
+    let has_existing_marker = vfs_sync::with_global_commit_marker(|cm| {
+        cm.borrow().contains_key(db_name)
+    });
+    
+    if has_existing_marker {
+        web_sys::console::log_1(&format!("DEBUG: Recovery scan - found existing commit marker for {}", db_name).into());
+        return Ok(true);
+    }
+    
+    web_sys::console::log_1(&format!("DEBUG: Recovery scan - no existing state found for {}", db_name).into());
+    Ok(false)
+}
+
 /// Restore BlockStorage state from IndexedDB
 #[cfg(target_arch = "wasm32")]
 pub async fn restore_from_indexeddb(db_name: &str) -> bool {

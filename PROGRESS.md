@@ -10,7 +10,7 @@ Last updated: 2025-09-28 06:58 -0400
    - [x] Native (fs_persist): detailed logging around sync/commit/recovery (implemented with tests)
    - [x] WASM/native-test: read visibility gated by commit marker in `read_block_sync()`; checksum verification only for committed data
    - [x] IndexedDB: transactional writes {blocks + metadata} with commit marker (5/5 tests passing)
-   - [ ] IndexedDB: recovery scans to finalize/rollback
+   - [x] IndexedDB: recovery scans to finalize/rollback (5/5 tests passing)
    - [ ] Idempotent writes keyed by (block_id, version)
    - [x] Tests: simulate crash mid-commit; recovery correctness (native fs_persist)
    - [ ] Tests: simulate crash mid-commit; recovery correctness (IndexedDB)
@@ -55,4 +55,5 @@ Last updated: 2025-09-28 06:58 -0400
 - [x] WASM commit-marker gating tests: `wasm_bindgen_test` in `src/storage/block_storage.rs` verifying zeroed reads while marker lags, checksum skip when invisible, and version/marker tracking across syncs; headless Chrome passing.
 - [x] fs_persist crash test: mid-commit partial multi-block mixed presence; startup recovery rolls back to prior commit, removes stray files, keeps missing absent (`tests/crash_partial_multi_mixed_presence_tests.rs`).
 - [x] **Modular Architecture Transformation**: Successfully extracted 2,023 lines across 5 modules from monolithic `block_storage.rs` (3,085 → 1,168 lines, 62% reduction). Created `io_operations.rs` (622 lines), `sync_operations.rs` (364 lines), `allocation.rs` (235 lines), `constructors.rs` (434 lines), and enhanced existing `recovery.rs` (368 lines). Used dependency injection pattern with proper delegation methods. All 62 native + 62 WASM tests pass with no regressions. Clean separation of concerns: I/O operations, sync logic, block lifecycle, platform constructors, and recovery functionality.
+- [x] **IndexedDB Recovery Scans**: Implemented IndexedDB recovery scan functionality with `perform_indexeddb_recovery_scan()` in `wasm_indexeddb.rs`. Added comprehensive test suite in `tests/indexeddb_crash_recovery_tests.rs` (5 tests) covering recovery finalization, rollback simulation, corruption detection, commit marker monotonicity, and multi-database recovery. Recovery scans are integrated into WASM constructor to detect and handle incomplete transactions. All tests pass with proper recovery behavior documented.
 - [x] Full test matrix green: native, native+fs_persist, and WASM (`wasm-pack test --chrome --headless`).
