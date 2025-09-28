@@ -9,7 +9,7 @@ use js_sys::Date;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use crate::types::DatabaseError;
 use super::metadata::{ChecksumManager, ChecksumAlgorithm};
-#[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+#[cfg(any(all(not(target_arch = "wasm32"), feature = "fs_persist"), all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 use super::metadata::BlockMetadataPersist;
 #[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist"))))]
 use super::vfs_sync;

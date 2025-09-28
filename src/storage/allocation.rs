@@ -1,8 +1,7 @@
-
 //! Block allocation and deallocation operations
 //! This module handles the lifecycle management of blocks
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist"))))]
 use std::collections::HashSet;
 use crate::types::DatabaseError;
 use super::block_storage::BlockStorage;

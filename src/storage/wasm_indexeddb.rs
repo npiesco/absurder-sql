@@ -106,7 +106,7 @@ pub async fn restore_from_indexeddb(db_name: &str) -> bool {
             web_sys::console::log_1(&format!("DEBUG: Found metadata store").into());
                     let transaction = db.transaction_with_str("metadata").unwrap();
                     let store = transaction.object_store("metadata").unwrap();
-                    let commit_key = format!("{}_commit_marker", db_name);
+                    let commit_key = format!("{}:commit_marker", db_name);
                     
                     #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&format!("DEBUG: Looking for key: {}", commit_key).into());
@@ -268,17 +268,24 @@ pub async fn persist_to_indexeddb_event_based(db_name: &str, blocks: Vec<(u64, V
     let blocks_store = transaction.object_store("blocks").unwrap();
     let metadata_store = transaction.object_store("metadata").unwrap();
     
-    // Store blocks
-    for (block_id, block_data) in blocks {
-        let key = format!("{}:{}", db_name, block_id);
-        let value = js_sys::Uint8Array::from(&block_data[..]);
-        let _ = blocks_store.put_with_key(&value, &key.into());
+    // Store blocks with idempotent keys: (db_name, block_id, version)
+    for (block_id, block_data) in &blocks {
+        // Find the corresponding version for this block_id
+        if let Some((_, version)) = metadata.iter().find(|(id, _)| *id == *block_id) {
+            let key = format!("{}:{}:{}", db_name, block_id, version);
+            let value = js_sys::Uint8Array::from(&block_data[..]);
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("DEBUG: Storing block with idempotent key: {}", key).into());
+            let _ = blocks_store.put_with_key(&value, &key.into());
+        }
     }
     
-    // Store metadata
+    // Store metadata with idempotent keys: (db_name, block_id, version)
     for (block_id, version) in metadata {
-        let key = format!("{}:{}", db_name, block_id);
+        let key = format!("{}:{}:{}", db_name, block_id, version);
         let value = js_sys::Number::from(version as f64);
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("DEBUG: Storing metadata with idempotent key: {}", key).into());
         let _ = metadata_store.put_with_key(&value, &key.into());
     }
     

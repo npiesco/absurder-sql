@@ -2,7 +2,7 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-09-28 06:58 -0400
+Last updated: 2025-09-28 07:55 -0400
 
 ## Open (in order)
 
@@ -11,7 +11,7 @@ Last updated: 2025-09-28 06:58 -0400
    - [x] WASM/native-test: read visibility gated by commit marker in `read_block_sync()`; checksum verification only for committed data
    - [x] IndexedDB: transactional writes {blocks + metadata} with commit marker (5/5 tests passing)
    - [x] IndexedDB: recovery scans to finalize/rollback (5/5 tests passing)
-   - [ ] Idempotent writes keyed by (block_id, version)
+   - [x] Idempotent writes keyed by (block_id, version) (6/6 tests passing)
    - [x] Tests: simulate crash mid-commit; recovery correctness (native fs_persist)
    - [ ] Tests: simulate crash mid-commit; recovery correctness (IndexedDB)
 
@@ -56,4 +56,5 @@ Last updated: 2025-09-28 06:58 -0400
 - [x] fs_persist crash test: mid-commit partial multi-block mixed presence; startup recovery rolls back to prior commit, removes stray files, keeps missing absent (`tests/crash_partial_multi_mixed_presence_tests.rs`).
 - [x] **Modular Architecture Transformation**: Successfully extracted 2,023 lines across 5 modules from monolithic `block_storage.rs` (3,085 → 1,168 lines, 62% reduction). Created `io_operations.rs` (622 lines), `sync_operations.rs` (364 lines), `allocation.rs` (235 lines), `constructors.rs` (434 lines), and enhanced existing `recovery.rs` (368 lines). Used dependency injection pattern with proper delegation methods. All 62 native + 62 WASM tests pass with no regressions. Clean separation of concerns: I/O operations, sync logic, block lifecycle, platform constructors, and recovery functionality.
 - [x] **IndexedDB Recovery Scans**: Implemented IndexedDB recovery scan functionality with `perform_indexeddb_recovery_scan()` in `wasm_indexeddb.rs`. Added comprehensive test suite in `tests/indexeddb_crash_recovery_tests.rs` (5 tests) covering recovery finalization, rollback simulation, corruption detection, commit marker monotonicity, and multi-database recovery. Recovery scans are integrated into WASM constructor to detect and handle incomplete transactions. All tests pass with proper recovery behavior documented.
+- [x] **Idempotent Writes Keyed by (block_id, version)**: Implemented true idempotent writes for IndexedDB using composite keys `"db_name:block_id:version"` instead of `"db_name:block_id"`. This ensures that the same (block_id, version) combination can be written multiple times safely without overwriting committed data. Added comprehensive test suite in `tests/idempotent_writes_tests.rs` (6 tests) covering same-version writes, different-version writes, concurrent writes, checksum consistency, and metadata handling. Fixed conditional compilation issues for proper cross-platform import handling. All test matrix passes: cargo test --features fs_persist, wasm-pack test --chrome --headless, and cargo test.
 - [x] Full test matrix green: native, native+fs_persist, and WASM (`wasm-pack test --chrome --headless`).
