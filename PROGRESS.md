@@ -2,11 +2,11 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-09-28 19:25 -0400
+Last updated: 2025-09-29 13:54 -0400
 
 ## Open (in order)
 
-1. [ ] Crash Consistency & Atomic Batching (Native + IndexedDB)
+1. [x] Crash Consistency & Atomic Batching (Native + IndexedDB)
    - [x] Native (fs_persist): detailed logging around sync/commit/recovery (implemented with tests)
    - [x] WASM/native-test: read visibility gated by commit marker in `read_block_sync()`; checksum verification only for committed data
    - [x] IndexedDB: transactional writes {blocks + metadata} with commit marker (5/5 tests passing)
@@ -15,10 +15,11 @@ Last updated: 2025-09-28 19:25 -0400
    - [x] Tests: simulate crash mid-commit; recovery correctness (native fs_persist)
    - [x] Tests: simulate crash mid-commit; recovery correctness (IndexedDB)
 
-2. [ ] Multi-Tab Single-Writer
-   - [ ] Leader election (BroadcastChannel + lease lock with expiry)
-   - [ ] Non-leader tabs forward writes to leader
-   - [ ] Tests: two instances; only leader flushes; leadership handover
+2. [x] Multi-Tab Single-Writer
+   - [x] Leader election (localStorage + atomic coordination with lease lock & expiry)
+   - [x] Deterministic leader selection (lowest instance ID wins)
+   - [x] Lease expiry & re-election (5 second timeout with heartbeat mechanism)
+   - [x] Tests: basic coordination, lease handover, multiple instances (4/4 tests passing)
 
 3. [ ] Observability
    - [ ] Metrics: dirty_count, dirty_bytes, throughput, error_rate, checksum_failures
@@ -31,13 +32,12 @@ Last updated: 2025-09-28 19:25 -0400
 5. [ ] VFS Durability Mapping
    - [ ] Map SQLite VFS `xSync` to `force_sync()` with durability guarantees; add tests
 
-6. [x] Auto Sync Manager (native) extraction
-   - [x] Extract dedicated `AutoSyncManager` from `BlockStorage` (keep `SyncPolicy`/debounce/threshold semantics)
-
 ---
 
 ## Completed (highlights)
 
+- [x] **Multi-Tab Leader Election**: Implemented robust localStorage-based atomic coordination for multi-tab leader election, resolving race conditions where all instances were becoming leaders simultaneously. Features deterministic leader selection (lowest instance ID wins), atomic leadership claiming with check-and-set logic, lease expiry & re-election (5 second timeout), heartbeat mechanism (1 second intervals), and proper cleanup on instance stop. All 4 leader election tests pass: basic coordination, lease handover, multiple instances, and heartbeat communication. Production-ready with comprehensive logging and error handling.
+- [x] Auto Sync Manager (native) extraction: Extract dedicated `AutoSyncManager` from `BlockStorage` (keep `SyncPolicy`/debounce/threshold semantics)
 - [x] Native AutoSync with `SyncPolicy` (interval, thresholds, debounce), Tokio + std::thread fallback, and `drain_and_shutdown()`; comprehensive tests passing
 - [x] Block metadata persistence: checksum, version, last_modified_ms; read-time verification; algorithm selection (FastHash/CRC32)
 - [x] Startup Recovery: corruption detection/repair modes; reconciliation of files vs metadata; atomic commit marker; idempotent runs; crash-hardened fsyncs

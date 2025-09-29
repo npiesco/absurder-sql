@@ -201,6 +201,10 @@ pub struct BlockStorage {
 
     // Startup recovery report
     pub(super) recovery_report: RecoveryReport,
+    
+    // Leader election manager (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    pub(super) leader_election: Option<super::leader_election::LeaderElectionManager>,
 }
 
 impl BlockStorage {
@@ -253,6 +257,8 @@ impl BlockStorage {
             #[cfg(not(target_arch = "wasm32"))]
             sync_receiver: None,
             recovery_report: RecoveryReport::default(),
+            #[cfg(target_arch = "wasm32")]
+            leader_election: None,
         }
     }
 
@@ -1219,6 +1225,90 @@ impl BlockStorage {
         
         log::info!("CRASH RECOVERY: Finalization completed");
         Ok(())
+    }
+
+    // Leader Election Methods (WASM only)
+    
+    /// Start leader election process
+    #[cfg(target_arch = "wasm32")]
+    pub async fn start_leader_election(&mut self) -> Result<(), DatabaseError> {
+        if self.leader_election.is_none() {
+            let mut manager = super::leader_election::LeaderElectionManager::new(self.db_name.clone());
+            manager.start_election().await?;
+            self.leader_election = Some(manager);
+        }
+        Ok(())
+    }
+    
+    /// Check if this instance is the leader (with re-election on lease expiry)
+    #[cfg(target_arch = "wasm32")]
+    pub async fn is_leader(&mut self) -> bool {
+        // Start leader election if not already started
+        if self.leader_election.is_none() {
+            web_sys::console::log_1(&format!("DEBUG: Starting leader election for {}", self.db_name).into());
+            if let Err(e) = self.start_leader_election().await {
+                web_sys::console::log_1(&format!("ERROR: Failed to start leader election: {:?}", e).into());
+                return false;
+            }
+        }
+        
+        if let Some(ref mut manager) = self.leader_election {
+            let is_leader = manager.is_leader().await;
+            
+            // If no current leader (lease expired), trigger re-election
+            if !is_leader {
+                let state = manager.state.borrow();
+                if state.leader_id.is_none() {
+                    web_sys::console::log_1(&format!("DEBUG: No current leader for {} - triggering re-election", self.db_name).into());
+                    drop(state);
+                    let _ = manager.try_become_leader().await;
+                    
+                    // Start heartbeat if we became leader
+                    let new_is_leader = manager.state.borrow().is_leader;
+                    if new_is_leader && manager.heartbeat_interval.is_none() {
+                        let _ = manager.start_heartbeat();
+                    }
+                    
+                    web_sys::console::log_1(&format!("DEBUG: is_leader() for {} = {} (after re-election)", self.db_name, new_is_leader).into());
+                    return new_is_leader;
+                }
+            }
+            
+            web_sys::console::log_1(&format!("DEBUG: is_leader() for {} = {}", self.db_name, is_leader).into());
+            is_leader
+        } else {
+            web_sys::console::log_1(&format!("DEBUG: No leader election manager for {}", self.db_name).into());
+            false
+        }
+    }
+    
+    /// Stop leader election (e.g., when tab is closing)
+    #[cfg(target_arch = "wasm32")]
+    pub async fn stop_leader_election(&mut self) -> Result<(), DatabaseError> {
+        if let Some(mut manager) = self.leader_election.take() {
+            manager.stop_election().await?;
+        }
+        Ok(())
+    }
+    
+    /// Send a leader heartbeat (for testing)
+    #[cfg(target_arch = "wasm32")]
+    pub async fn send_leader_heartbeat(&self) -> Result<(), DatabaseError> {
+        if let Some(ref manager) = self.leader_election {
+            manager.send_heartbeat().await
+        } else {
+            Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
+        }
+    }
+    
+    /// Get timestamp of last received leader heartbeat
+    #[cfg(target_arch = "wasm32")]
+    pub async fn get_last_leader_heartbeat(&self) -> Result<u64, DatabaseError> {
+        if let Some(ref manager) = self.leader_election {
+            Ok(manager.get_last_heartbeat().await)
+        } else {
+            Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
+        }
     }
 }
 

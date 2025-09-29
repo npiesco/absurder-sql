@@ -438,5 +438,7 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         #[cfg(not(target_arch = "wasm32"))]
         sync_receiver: None,
         recovery_report: RecoveryReport::default(),
+        #[cfg(target_arch = "wasm32")]
+        leader_election: None,
     })
 }

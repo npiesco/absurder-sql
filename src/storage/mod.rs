@@ -12,6 +12,8 @@ pub mod allocation;
 pub mod wasm_vfs_sync;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_indexeddb;
+#[cfg(target_arch = "wasm32")]
+pub mod leader_election;
 
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 #[cfg(target_arch = "wasm32")]
