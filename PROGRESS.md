@@ -2,11 +2,22 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-09-29 22:55 -0400
+Last updated: 2025-09-30 14:02 -0400
 
 ## Open (in order)
 
-1. [x] Crash Consistency & Atomic Batching (Native + IndexedDB)
+1. [ ] VFS Write Buffering Performance Optimization
+   - [x] VFS successfully integrated with IndexedDB backend
+   - [x] Database persistence working correctly
+   - [x] Read performance competitive (1.5ms vs 1.4ms absurd-sql)
+   - [ ] Write performance needs optimization (32ms vs 5.9ms absurd-sql for inserts)
+   - [ ] Root cause identified: synchronous writes to GLOBAL_STORAGE on every x_write
+   - [ ] Solution: Implement write buffering strategy (buffer writes in memory, flush periodically)
+   - [ ] Research absurd-sql's write buffering implementation for design patterns
+   - [ ] Implement lazy write buffering in VFS layer
+   - [ ] Benchmark after optimization to match absurd-sql performance
+
+2. [x] Crash Consistency & Atomic Batching (Native + IndexedDB)
    - [x] Native (fs_persist): detailed logging around sync/commit/recovery (implemented with tests)
    - [x] WASM/native-test: read visibility gated by commit marker in `read_block_sync()`; checksum verification only for committed data
    - [x] IndexedDB: transactional writes {blocks + metadata} with commit marker (5/5 tests passing)
@@ -15,23 +26,23 @@ Last updated: 2025-09-29 22:55 -0400
    - [x] Tests: simulate crash mid-commit; recovery correctness (native fs_persist)
    - [x] Tests: simulate crash mid-commit; recovery correctness (IndexedDB)
 
-2. [x] Multi-Tab Single-Writer
+3. [x] Multi-Tab Single-Writer
    - [x] Leader election (localStorage + atomic coordination with lease lock & expiry)
    - [x] Deterministic leader selection (lowest instance ID wins)
    - [x] Lease expiry & re-election (5 second timeout with heartbeat mechanism)
    - [x] Tests: basic coordination, lease handover, multiple instances (4/4 tests passing)
 
-3. [x] Observability
+4. [x] Observability
    - [x] Metrics: dirty_count, dirty_bytes, throughput, error_rate, checksum_failures
    - [x] Events/callbacks: on_sync_start/success/failure; backpressure signals
    - [x] WASM sync_count tracking fix: proper cross-platform observability integration
 
-4. [x] WASM AutoSync Manager
+5. [x] WASM AutoSync Manager
    - [x] Event-driven architecture (requestIdleCallback, visibility change, beforeunload)
    - [x] Threshold-based syncing via maybe_auto_sync()
    - [x] Comprehensive test suite (8/8 tests passing in headless Chrome)
 
-5. [x] VFS Durability Mapping
+6. [x] VFS Durability Mapping
    - [x] Implemented `force_sync()` method with durability guarantees (waits for IndexedDB persistence)
    - [x] Fixed IndexedDB database name consistency ("block_storage" across all operations)
    - [x] Fixed IndexedDB version and upgrade handlers (version 2 with proper object store creation)
