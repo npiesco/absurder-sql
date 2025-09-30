@@ -38,21 +38,36 @@ impl Database {
     pub async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
         use std::ffi::CString;
         
+        // Use IndexedDB VFS for persistence instead of in-memory
+        // First, ensure the IndexedDB VFS is registered
+        let vfs = crate::vfs::IndexedDBVFS::new(&config.name).await?;
+        vfs.register("indexeddb")?;
+        
+        // Open database with IndexedDB VFS
+        // Don't add .db extension if it already has one
+        let filename = if config.name.ends_with(".db") {
+            config.name.clone()
+        } else {
+            format!("{}.db", config.name)
+        };
+        
         let mut db = std::ptr::null_mut();
-        let db_name = CString::new(format!("mem:{}", config.name))
+        let db_name = CString::new(format!("file:{}", filename))
             .map_err(|_| DatabaseError::new("INVALID_NAME", "Invalid database name"))?;
+        let vfs_name = CString::new("indexeddb")
+            .map_err(|_| DatabaseError::new("INVALID_VFS", "Invalid VFS name"))?;
         
         let ret = unsafe {
             sqlite_wasm_rs::sqlite3_open_v2(
                 db_name.as_ptr(),
                 &mut db as *mut _,
                 sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
-                std::ptr::null()
+                vfs_name.as_ptr()
             )
         };
         
         if ret != sqlite_wasm_rs::SQLITE_OK {
-            return Err(DatabaseError::new("SQLITE_ERROR", "Failed to open database"));
+            return Err(DatabaseError::new("SQLITE_ERROR", "Failed to open database with IndexedDB VFS"));
         }
         
         Ok(Database {

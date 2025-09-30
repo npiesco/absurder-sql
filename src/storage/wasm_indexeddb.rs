@@ -7,6 +7,8 @@ use crate::types::DatabaseError;
 use super::{vfs_sync, BlockStorage};
 #[cfg(target_arch = "wasm32")]
 use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
+#[cfg(target_arch = "wasm32")]
+use std::collections::HashMap;
 
 /// Perform IndexedDB recovery scan to detect and handle incomplete transactions
 #[cfg(target_arch = "wasm32")]
@@ -44,14 +46,60 @@ pub async fn restore_from_indexeddb(db_name: &str) -> bool {
         cm.borrow().get(db_name).copied()
     });
     
-    if let Some(marker) = existing_marker {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("DEBUG: Found existing commit marker {} in global state for {}", marker, db_name).into());
-        return true;
-    }
+    // Check if blocks are already loaded (regardless of commit marker)
+    let has_blocks = vfs_sync::with_global_storage(|gs| {
+        gs.borrow().get(db_name).map(|db_storage| !db_storage.is_empty()).unwrap_or(false)
+    });
     
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("DEBUG: No existing commit marker found, trying IndexedDB restoration for {}", db_name).into());
+    if let Some(_marker) = existing_marker {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("DEBUG: Found existing commit marker in global state for {}", db_name).into());
+        
+        if has_blocks {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("DEBUG: Blocks already loaded, skipping restoration").into());
+            return true;
+        }
+        
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("DEBUG: Commit marker exists but no blocks - opening IndexedDB to restore blocks").into());
+        
+        // Open IndexedDB to restore blocks
+        let window = web_sys::window().unwrap();
+        let idb_factory = window.indexed_db().unwrap().unwrap();
+        let open_req = idb_factory.open_with_u32("block_storage", 2).unwrap();
+        
+        let (tx, rx) = futures::channel::oneshot::channel::<Result<web_sys::IdbDatabase, String>>();
+        let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
+        
+        let success_tx = tx.clone();
+        let success_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(tx) = success_tx.borrow_mut().take() {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
+                let result = request.result().unwrap();
+                let db: web_sys::IdbDatabase = result.unchecked_into();
+                let _ = tx.send(Ok(db));
+            }
+        }) as Box<dyn FnMut(_)>);
+        
+        open_req.set_onsuccess(Some(success_callback.as_ref().unchecked_ref()));
+        success_callback.forget();
+        
+        if let Ok(Ok(db)) = rx.await {
+            if let Err(e) = restore_blocks_from_indexeddb(&db, db_name).await {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(&format!("DEBUG: Failed to restore blocks: {:?}", e).into());
+                return false;
+            }
+            return true;
+        }
+        
+        return false;
+    } else {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("DEBUG: No existing commit marker found, trying IndexedDB restoration for {}", db_name).into());
+    }
     
     let window = web_sys::window().unwrap();
     let idb_factory = window.indexed_db().unwrap().unwrap();
@@ -176,6 +224,23 @@ pub async fn restore_from_indexeddb(db_name: &str) -> bool {
                                     });
                                     #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&format!("DEBUG: Restored commit marker {} for {}", commit_u64, db_name).into());
+                                    
+                                    // NOW RESTORE THE ACTUAL BLOCKS FROM INDEXEDDB
+                                    #[cfg(target_arch = "wasm32")]
+                                    web_sys::console::log_1(&format!("DEBUG: About to call restore_blocks_from_indexeddb").into());
+                                    
+                                    match restore_blocks_from_indexeddb(&db, db_name).await {
+                                        Ok(_) => {
+                                            #[cfg(target_arch = "wasm32")]
+                                            web_sys::console::log_1(&format!("DEBUG: Successfully restored blocks").into());
+                                        }
+                                        Err(e) => {
+                                            #[cfg(target_arch = "wasm32")]
+                                            web_sys::console::log_1(&format!("DEBUG: Failed to restore blocks: {:?}", e).into());
+                                            return false;
+                                        }
+                                    }
+                                    
                                     return true;
                                 } else {
                                     #[cfg(target_arch = "wasm32")]
@@ -217,6 +282,102 @@ pub async fn restore_from_indexeddb(db_name: &str) -> bool {
     #[cfg(target_arch = "wasm32")]
     web_sys::console::log_1(&format!("DEBUG: No commit marker found for {} in IndexedDB", db_name).into());
     false
+}
+
+/// Restore blocks from IndexedDB into global storage
+#[cfg(target_arch = "wasm32")]
+async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str) -> Result<(), DatabaseError> {
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen::JsCast;
+    
+    web_sys::console::log_1(&format!("DEBUG: Restoring blocks for {} from IndexedDB", db_name).into());
+    
+    // Create transaction for both blocks and metadata
+    let store_names = js_sys::Array::new();
+    store_names.push(&JsValue::from_str("blocks"));
+    store_names.push(&JsValue::from_str("metadata"));
+    
+    let transaction = db.transaction_with_str_sequence(&store_names)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create transaction"))?;
+    
+    let blocks_store = transaction.object_store("blocks")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get blocks store"))?;
+    
+    let _metadata_store = transaction.object_store("metadata")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
+    
+    // Get all blocks for this database (keys start with "db_name:")
+    let key_range = web_sys::IdbKeyRange::bound(
+        &JsValue::from_str(&format!("{}:", db_name)),
+        &JsValue::from_str(&format!("{}:\u{FFFF}", db_name))
+    ).map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create key range"))?;
+    
+    let blocks_cursor_req = blocks_store.open_cursor_with_range(&key_range)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open blocks cursor"))?;
+    
+    // Use event-based approach to iterate cursor
+    let (tx, rx) = futures::channel::oneshot::channel::<Result<(), String>>();
+    let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
+    let blocks_data = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    
+    let blocks_data_clone = blocks_data.clone();
+    let tx_clone = tx.clone();
+    let success_closure = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+        let target = event.target().unwrap();
+        let request: web_sys::IdbRequest = target.unchecked_into();
+        let result = request.result().unwrap();
+        
+        if !result.is_null() {
+            let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+            let key = cursor.key().unwrap().as_string().unwrap();
+            let value = cursor.value().unwrap();
+            
+            // Parse key: "db_name:block_id:checksum"
+            let parts: Vec<&str> = key.split(':').collect();
+            if parts.len() >= 2 {
+                if let Ok(block_id) = parts[1].parse::<u64>() {
+                    // Get the block data (Uint8Array)
+                    if let Ok(array) = value.dyn_into::<js_sys::Uint8Array>() {
+                        let mut data = vec![0u8; array.length() as usize];
+                        array.copy_to(&mut data);
+                        blocks_data_clone.borrow_mut().push((block_id, data));
+                    }
+                }
+            }
+            
+            // Continue to next
+            let _ = cursor.continue_();
+        } else {
+            // Done iterating
+            if let Some(sender) = tx_clone.borrow_mut().take() {
+                let _ = sender.send(Ok(()));
+            }
+        }
+    }) as Box<dyn FnMut(_)>);
+    
+    blocks_cursor_req.set_onsuccess(Some(success_closure.as_ref().unchecked_ref()));
+    success_closure.forget();
+    
+    // Wait for cursor iteration to complete
+    let _ = rx.await;
+    
+    // Now restore blocks to global storage
+    let restored_blocks = blocks_data.borrow().clone();
+    web_sys::console::log_1(&format!("DEBUG: Restored {} blocks from IndexedDB", restored_blocks.len()).into());
+    
+    for (block_id, data) in restored_blocks {
+        vfs_sync::with_global_storage(|gs| {
+            let mut storage_map = gs.borrow_mut();
+            let db_storage = storage_map.entry(db_name.to_string()).or_insert_with(HashMap::new);
+            db_storage.insert(block_id, data.clone());
+        });
+        
+        // Also restore metadata
+        // TODO: Restore metadata from metadata store similarly
+    }
+    
+    web_sys::console::log_1(&format!("DEBUG: Successfully restored blocks for {}", db_name).into());
+    Ok(())
 }
 
 /// Event-based async IndexedDB persistence

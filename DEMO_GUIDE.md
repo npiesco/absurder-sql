@@ -29,6 +29,11 @@ Output:
 Serving HTTP on :: port 8080 (http://[::]:8080/) ...
 ```
 
+### 2.5 **Kill the Web Server**
+```bash
+lsof -ti:8080 | xargs kill -9
+```
+
 ### 3. **Open the Demo**
 Navigate to: `http://localhost:8080/examples/web_demo.html`
 

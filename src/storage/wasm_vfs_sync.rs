@@ -195,16 +195,20 @@ pub async fn persist_commit_marker_to_indexeddb(db_name: &str, commit_marker: u6
     // Handle success
     let tx_clone = tx.clone();
     let success_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-        let target = event.target().unwrap();
-        let db: web_sys::IdbDatabase = target.dyn_into().unwrap();
+        let target = event.target().expect("event target");
+        let request: web_sys::IdbOpenDbRequest = target.dyn_into().expect("cast to IdbOpenDbRequest");
+        let result = request.result().expect("get result");
+        let db: web_sys::IdbDatabase = result.dyn_into().expect("cast to IdbDatabase");
 
-        let transaction = db.transaction_with_str_and_mode("metadata", web_sys::IdbTransactionMode::Readwrite).unwrap();
-        let store = transaction.object_store("metadata").unwrap();
+        let transaction = db.transaction_with_str_and_mode("metadata", web_sys::IdbTransactionMode::Readwrite)
+            .expect("create transaction");
+        let store = transaction.object_store("metadata").expect("get store");
 
-        // Store commit marker with key "<db_name>_commit_marker" (matches restore format)
-        let key = format!("{}_commit_marker", db_name_string);
+        // Store commit marker with key "<db_name>:commit_marker" (matches restore format)
+        let key = format!("{}:commit_marker", db_name_string);
         let value = js_sys::Number::from(commit_marker as f64);
-        let _request = store.put_with_key(&value, &JsValue::from_str(&key)).unwrap();
+        let _request = store.put_with_key(&value, &JsValue::from_str(&key))
+            .expect("put commit marker");
 
         if let Some(sender) = tx_clone.borrow_mut().take() {
             let _ = sender.send(Ok(()));

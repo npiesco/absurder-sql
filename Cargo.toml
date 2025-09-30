@@ -1,10 +1,10 @@
 [package]
 name = "sqlite-indexeddb-rs"
 version = "0.1.0"
-authors = ["SQLite IndexedDB Team"]
+authors = ["Nicholas G. Piesco"]
 description = "SQLite with IndexedDB persistence for web browsers"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/sqlite-indexeddb/sqlite-indexeddb-rs"
+repository = "https://github.com/npiesco/DataSync"
 edition = "2024"
 rust-version = "1.85.0"
 
