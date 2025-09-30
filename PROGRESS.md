@@ -2,33 +2,32 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-09-30 14:02 -0400
+Last updated: 2025-09-30 14:19 -0400
 
 ## Open (in order)
 
-1. [ ] VFS Write Buffering Performance Optimization
+1. [ ] VFS Write Buffering Performance Optimization - BEAT absurd-sql
    - [x] VFS successfully integrated with IndexedDB backend
    - [x] Database persistence working correctly
    - [x] Read performance competitive (1.5ms vs 1.4ms absurd-sql)
    - [x] Write performance issue identified (32ms vs 5.9ms absurd-sql for inserts)
    - [x] Root cause: synchronous writes to GLOBAL_STORAGE on every x_write call
-   - [x] Researched absurd-sql's approach (analyzed source code and blog post)
-   - [ ] **Key insight from absurd-sql**: Use long-lived IndexedDB transactions
-     - Keep a single `readwrite` transaction open during SQLite write operations
-     - Buffer all writes in the transaction (don't commit on every write)
-     - Only commit when SQLite calls `xSync` (fsync equivalent)
-     - This leverages IndexedDB's transactional semantics for atomic commits
-     - Eliminates need for journal files (can use `journal_mode=MEMORY`)
-   - [ ] Implementation plan:
-     1. Modify `x_write` to buffer writes in memory (don't persist to GLOBAL_STORAGE immediately)
-     2. Open long-lived IndexedDB transaction on first write in a transaction
-     3. Keep transaction alive using `Atomics.wait` pattern (blocks event loop)
-     4. Flush buffered writes to IndexedDB transaction in batch
-     5. Only commit IndexedDB transaction when `x_sync` is called
-     6. Reuse transactions across multiple SQLite operations for massive speedup
-   - [ ] Implement buffered write strategy in VFS layer
-   - [ ] Add transaction lifecycle management (open/keep-alive/commit)
-   - [ ] Benchmark after optimization to match absurd-sql performance
+   - [x] **Analyzed absurd-sql source code** (worker.js, file-ops.js, backend.js)
+   - [x] **Discovered their secret**: Lock-based transaction lifecycle
+     - Transactions created on `xLock` and stored in global Map
+     - Multiple `xWrite` calls reuse SAME IndexedDB transaction
+     - Writes buffered in transaction memory (NOT committed)
+     - Transaction only commits on `xUnlock(NONE)`
+     - All writes persisted atomically in single batch commit
+   - [ ] **Implementation** (simpler than absurd-sql - no SharedArrayBuffer needed):
+     1. Add `write_buffer: Vec<(usize, Vec<u8>)>` to VfsFile struct
+     2. Set `transaction_active = true` on `x_lock(RESERVED/EXCLUSIVE)`
+     3. Buffer writes in `x_write` (skip GLOBAL_STORAGE persistence)
+     4. Batch commit all buffered writes on `x_unlock(NONE)`
+     5. Spawn IndexedDB persistence after batch write
+   - [ ] Implement lock-based write buffering in indexeddb_vfs.rs
+   - [ ] Test with benchmark.html
+   - [ ] **Target: < 5.9ms per INSERT** (beat absurd-sql's performance)
 
 2. [x] Crash Consistency & Atomic Batching (Native + IndexedDB)
    - [x] Native (fs_persist): detailed logging around sync/commit/recovery (implemented with tests)
