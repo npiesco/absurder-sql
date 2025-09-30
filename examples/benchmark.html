@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite IndexedDB Benchmark - Full Comparison</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .benchmark-controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .benchmark-controls button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .benchmark-controls button:hover {
+            background: #45a049;
+        }
+        .benchmark-controls button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .result-row {
+            display: grid;
+            grid-template-columns: 250px 150px 150px 150px 150px;
+            gap: 10px;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            align-items: center;
+        }
+        .result-row.header {
+            font-weight: bold;
+            background: #f9f9f9;
+            border-bottom: 2px solid #ddd;
+        }
+        .result-row.winner {
+            background: #e8f5e9;
+        }
+        .metric {
+            font-family: 'Courier New', monospace;
+        }
+        .winner-badge {
+            background: #4CAF50;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.running {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        .status.complete {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .config {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .config-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .config-item label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        .config-item input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .note {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏁 SQLite IndexedDB Performance Benchmark</h1>
+    
+    <div class="note">
+        <strong>Comparing:</strong> DataSync (persistent SQLite + IndexedDB), absurd-sql (persistent SQLite), and raw IndexedDB
+    </div>
+
+    <div class="benchmark-controls">
+        <h2>Benchmark Configuration</h2>
+        <div class="config">
+            <div class="config-item">
+                <label>Number of Rows:</label>
+                <input type="number" id="numRows" value="1000" min="100" max="100000">
+            </div>
+            <div class="config-item">
+                <label>Batch Size:</label>
+                <input type="number" id="batchSize" value="100" min="1" max="1000">
+            </div>
+            <div class="config-item">
+                <label>Row Size (bytes):</label>
+                <input type="number" id="rowSize" value="100" min="10" max="10000">
+            </div>
+        </div>
+        
+        <button id="runAll">Run All Benchmarks</button>
+        <button id="runDataSync">Run DataSync Only</button>
+        <button id="runAbsurdSQL">Run absurd-sql Only</button>
+        <button id="runIndexedDB">Run Raw IndexedDB Only</button>
+        <button id="clearData">Clear All Data</button>
+    </div>
+
+    <div id="status" class="status" style="display: none;"></div>
+
+    <div class="results">
+        <h2>Results</h2>
+        <div class="result-row header">
+            <div>Implementation</div>
+            <div>Insert (ms)</div>
+            <div>Read (ms)</div>
+            <div>Update (ms)</div>
+            <div>Delete (ms)</div>
+        </div>
+        <div id="resultsContainer"></div>
+    </div>
+
+    <!-- Load sql.js as UMD module -->
+    <script src="../node_modules/@jlongster/sql.js/dist/sql-wasm.js"></script>
+    
+    <script type="module">
+        import { SQLiteFS } from '../node_modules/absurd-sql/dist/index.js';
+        import init, { Database } from '../pkg/sqlite_indexeddb_rs.js';
+
+        let results = {};
+
+        // Utility functions
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function hideStatus() {
+            document.getElementById('status').style.display = 'none';
+        }
+
+        function formatTime(ms) {
+            if (ms < 1) return `${(ms * 1000).toFixed(2)}μs`;
+            if (ms < 1000) return `${ms.toFixed(2)}ms`;
+            return `${(ms / 1000).toFixed(2)}s`;
+        }
+
+        function displayResults() {
+            const container = document.getElementById('resultsContainer');
+            container.innerHTML = '';
+
+            const implementations = Object.keys(results);
+            if (implementations.length === 0) return;
+
+            // Find winners for each metric
+            const metrics = ['insert', 'read', 'update', 'delete'];
+            const winners = {};
+            
+            metrics.forEach(metric => {
+                let minTime = Infinity;
+                let winner = null;
+                implementations.forEach(impl => {
+                    if (results[impl][metric] < minTime) {
+                        minTime = results[impl][metric];
+                        winner = impl;
+                    }
+                });
+                winners[metric] = winner;
+            });
+
+            // Display results
+            implementations.forEach(impl => {
+                const row = document.createElement('div');
+                const isWinner = Object.values(winners).includes(impl);
+                row.className = `result-row ${isWinner ? 'winner' : ''}`;
+                
+                const nameCell = document.createElement('div');
+                nameCell.textContent = impl;
+                if (isWinner) {
+                    const badge = document.createElement('span');
+                    badge.className = 'winner-badge';
+                    badge.textContent = '🏆';
+                    nameCell.appendChild(document.createTextNode(' '));
+                    nameCell.appendChild(badge);
+                }
+                row.appendChild(nameCell);
+
+                metrics.forEach(metric => {
+                    const cell = document.createElement('div');
+                    cell.className = 'metric';
+                    const time = results[impl][metric];
+                    cell.textContent = formatTime(time);
+                    if (winners[metric] === impl) {
+                        cell.style.fontWeight = 'bold';
+                        cell.style.color = '#4CAF50';
+                    }
+                    row.appendChild(cell);
+                });
+
+                container.appendChild(row);
+            });
+        }
+
+        // Benchmark: DataSync (persistent SQLite with IndexedDB)
+        async function benchmarkDataSync(numRows, batchSize, rowSize) {
+            showStatus('Running DataSync benchmark...', 'running');
+            
+            const dbName = 'benchmark_datasync';
+            const db = await Database.newDatabase(dbName);
+            
+            // Create table
+            await db.execute('CREATE TABLE IF NOT EXISTS benchmark (id INTEGER PRIMARY KEY, data TEXT)');
+            
+            // Generate test data
+            const testData = 'x'.repeat(rowSize);
+            
+            // INSERT benchmark
+            const insertStart = performance.now();
+            for (let i = 0; i < numRows; i += batchSize) {
+                const batch = Math.min(batchSize, numRows - i);
+                const values = Array(batch).fill(null).map((_, j) => 
+                    `(${i + j + 1}, '${testData}')`
+                ).join(',');
+                await db.execute(`INSERT INTO benchmark VALUES ${values}`);
+            }
+            const insertTime = performance.now() - insertStart;
+
+            // READ benchmark
+            const readStart = performance.now();
+            await db.execute('SELECT * FROM benchmark');
+            const readTime = performance.now() - readStart;
+
+            // UPDATE benchmark
+            const updateStart = performance.now();
+            await db.execute(`UPDATE benchmark SET data = '${testData}updated' WHERE id <= ${Math.floor(numRows / 2)}`);
+            const updateTime = performance.now() - updateStart;
+
+            // DELETE benchmark
+            const deleteStart = performance.now();
+            await db.execute(`DELETE FROM benchmark WHERE id <= ${Math.floor(numRows / 4)}`);
+            const deleteTime = performance.now() - deleteStart;
+
+            // Cleanup
+            await db.execute('DROP TABLE benchmark');
+            await db.close();
+
+            results['DataSync'] = {
+                insert: insertTime,
+                read: readTime,
+                update: updateTime,
+                delete: deleteTime
+            };
+
+            displayResults();
+        }
+
+        // Benchmark: absurd-sql (runs in worker)
+        async function benchmarkAbsurdSQL(numRows, batchSize, rowSize) {
+            showStatus('Running absurd-sql benchmark...', 'running');
+            
+            try {
+                const worker = new Worker('./absurd-worker.bundle.js');
+                
+                let messageId = 0;
+                const pendingMessages = new Map();
+                
+                // Helper to send message and wait for response
+                const sendMessage = (type, data = {}) => {
+                    return new Promise((resolve, reject) => {
+                        const id = messageId++;
+                        pendingMessages.set(id, { resolve, reject });
+                        worker.postMessage({ type, id, ...data });
+                    });
+                };
+                
+                worker.onmessage = (e) => {
+                    const { id, success, error, duration } = e.data;
+                    const pending = pendingMessages.get(id);
+                    if (pending) {
+                        pendingMessages.delete(id);
+                        if (success) {
+                            pending.resolve(duration);
+                        } else {
+                            pending.reject(new Error(error));
+                        }
+                    }
+                };
+                
+                // Initialize database
+                await sendMessage('init');
+                
+                // Create table
+                await sendMessage('exec', { sql: 'CREATE TABLE benchmark (id INTEGER PRIMARY KEY, data TEXT)' });
+                
+                // Generate test data
+                const testData = 'x'.repeat(rowSize);
+                
+                // INSERT benchmark
+                const insertStart = performance.now();
+                for (let i = 0; i < numRows; i += batchSize) {
+                    const batch = Math.min(batchSize, numRows - i);
+                    const values = Array(batch).fill(null).map((_, j) => 
+                        `(${i + j + 1}, '${testData}')`
+                    ).join(',');
+                    await sendMessage('exec', { sql: `INSERT INTO benchmark VALUES ${values}` });
+                }
+                const insertTime = performance.now() - insertStart;
+
+                // READ benchmark
+                const readStart = performance.now();
+                await sendMessage('exec', { sql: 'SELECT * FROM benchmark' });
+                const readTime = performance.now() - readStart;
+
+                // UPDATE benchmark
+                const updateStart = performance.now();
+                await sendMessage('exec', { sql: `UPDATE benchmark SET data = '${testData}updated' WHERE id <= ${Math.floor(numRows / 2)}` });
+                const updateTime = performance.now() - updateStart;
+
+                // DELETE benchmark
+                const deleteStart = performance.now();
+                await sendMessage('exec', { sql: `DELETE FROM benchmark WHERE id <= ${Math.floor(numRows / 4)}` });
+                const deleteTime = performance.now() - deleteStart;
+
+                // Cleanup
+                await sendMessage('close');
+                worker.terminate();
+
+                results['absurd-sql'] = {
+                    insert: insertTime,
+                    read: readTime,
+                    update: updateTime,
+                    delete: deleteTime
+                };
+
+                displayResults();
+            } catch (error) {
+                console.error('absurd-sql benchmark error:', error);
+                showStatus(`absurd-sql error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // Benchmark: Raw IndexedDB
+        async function benchmarkIndexedDB(numRows, batchSize, rowSize) {
+            showStatus('Running Raw IndexedDB benchmark...', 'running');
+            
+            const dbName = 'benchmark_indexeddb';
+            
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(dbName, 1);
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('benchmark')) {
+                        db.createObjectStore('benchmark', { keyPath: 'id' });
+                    }
+                };
+
+                request.onsuccess = async (event) => {
+                    const db = event.target.result;
+                    const testData = 'x'.repeat(rowSize);
+
+                    try {
+                        // INSERT benchmark
+                        const insertStart = performance.now();
+                        for (let i = 0; i < numRows; i += batchSize) {
+                            const tx = db.transaction(['benchmark'], 'readwrite');
+                            const store = tx.objectStore('benchmark');
+                            const batch = Math.min(batchSize, numRows - i);
+                            
+                            for (let j = 0; j < batch; j++) {
+                                store.add({ id: i + j + 1, data: testData });
+                            }
+                            
+                            await new Promise((res, rej) => {
+                                tx.oncomplete = res;
+                                tx.onerror = rej;
+                            });
+                        }
+                        const insertTime = performance.now() - insertStart;
+
+                        // READ benchmark
+                        const readStart = performance.now();
+                        const tx1 = db.transaction(['benchmark'], 'readonly');
+                        const store1 = tx1.objectStore('benchmark');
+                        const getAllRequest = store1.getAll();
+                        await new Promise((res, rej) => {
+                            getAllRequest.onsuccess = res;
+                            getAllRequest.onerror = rej;
+                        });
+                        const readTime = performance.now() - readStart;
+
+                        // UPDATE benchmark
+                        const updateStart = performance.now();
+                        const tx2 = db.transaction(['benchmark'], 'readwrite');
+                        const store2 = tx2.objectStore('benchmark');
+                        const updateCount = Math.floor(numRows / 2);
+                        for (let i = 1; i <= updateCount; i++) {
+                            store2.put({ id: i, data: testData + 'updated' });
+                        }
+                        await new Promise((res, rej) => {
+                            tx2.oncomplete = res;
+                            tx2.onerror = rej;
+                        });
+                        const updateTime = performance.now() - updateStart;
+
+                        // DELETE benchmark
+                        const deleteStart = performance.now();
+                        const tx3 = db.transaction(['benchmark'], 'readwrite');
+                        const store3 = tx3.objectStore('benchmark');
+                        const deleteCount = Math.floor(numRows / 4);
+                        for (let i = 1; i <= deleteCount; i++) {
+                            store3.delete(i);
+                        }
+                        await new Promise((res, rej) => {
+                            tx3.oncomplete = res;
+                            tx3.onerror = rej;
+                        });
+                        const deleteTime = performance.now() - deleteStart;
+
+                        db.close();
+
+                        results['Raw IndexedDB'] = {
+                            insert: insertTime,
+                            read: readTime,
+                            update: updateTime,
+                            delete: deleteTime
+                        };
+
+                        displayResults();
+                        resolve();
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+
+                request.onerror = reject;
+            });
+        }
+
+        // Clear all benchmark data
+        async function clearAllData() {
+            showStatus('Clearing all benchmark data...', 'running');
+            
+            try {
+                indexedDB.deleteDatabase('benchmark_datasync');
+                indexedDB.deleteDatabase('block_storage');
+                indexedDB.deleteDatabase('benchmark_indexeddb');
+                indexedDB.deleteDatabase('/sql/benchmark.sqlite');
+            } catch (e) {
+                console.error('Error clearing data:', e);
+            }
+
+            results = {};
+            displayResults();
+            showStatus('All data cleared', 'complete');
+            setTimeout(hideStatus, 2000);
+        }
+
+        // Event listeners
+        document.getElementById('runAll').addEventListener('click', async () => {
+            const numRows = parseInt(document.getElementById('numRows').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+            const rowSize = parseInt(document.getElementById('rowSize').value);
+
+            results = {};
+            
+            try {
+                await benchmarkDataSync(numRows, batchSize, rowSize);
+                await benchmarkAbsurdSQL(numRows, batchSize, rowSize);
+                await benchmarkIndexedDB(numRows, batchSize, rowSize);
+                showStatus('All benchmarks complete!', 'complete');
+                setTimeout(hideStatus, 3000);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        });
+
+        document.getElementById('runDataSync').addEventListener('click', async () => {
+            const numRows = parseInt(document.getElementById('numRows').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+            const rowSize = parseInt(document.getElementById('rowSize').value);
+
+            try {
+                await benchmarkDataSync(numRows, batchSize, rowSize);
+                showStatus('DataSync benchmark complete!', 'complete');
+                setTimeout(hideStatus, 2000);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        });
+
+        document.getElementById('runAbsurdSQL').addEventListener('click', async () => {
+            const numRows = parseInt(document.getElementById('numRows').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+            const rowSize = parseInt(document.getElementById('rowSize').value);
+
+            try {
+                await benchmarkAbsurdSQL(numRows, batchSize, rowSize);
+                showStatus('absurd-sql benchmark complete!', 'complete');
+                setTimeout(hideStatus, 2000);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        });
+
+        document.getElementById('runIndexedDB').addEventListener('click', async () => {
+            const numRows = parseInt(document.getElementById('numRows').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+            const rowSize = parseInt(document.getElementById('rowSize').value);
+
+            try {
+                await benchmarkIndexedDB(numRows, batchSize, rowSize);
+                showStatus('Raw IndexedDB benchmark complete!', 'complete');
+                setTimeout(hideStatus, 2000);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        });
+
+        document.getElementById('clearData').addEventListener('click', clearAllData);
+
+        // Initialize WASM
+        showStatus('Initializing modules...', 'running');
+        await init();
+        showStatus('Ready to benchmark!', 'complete');
+        setTimeout(hideStatus, 2000);
+    </script>
+</body>
+</html>
