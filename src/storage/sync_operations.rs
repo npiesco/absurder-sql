@@ -29,6 +29,17 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
         let start = std::time::Instant::now();
         
+        // Record sync start for observability
+        let dirty_count = storage.dirty_blocks.lock().unwrap().len();
+        let dirty_bytes = dirty_count * super::block_storage::BLOCK_SIZE;
+        storage.observability.record_sync_start(dirty_count, dirty_bytes);
+        
+        // Invoke sync start callback if set
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref callback) = storage.observability.sync_start_callback {
+            callback(dirty_count, dirty_bytes);
+        }
+        
         // Call the existing fs_persist implementation for native builds
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         {
@@ -41,33 +52,31 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             let current_dirty = storage.dirty_blocks.lock().unwrap().len();
             log::info!("Syncing {} dirty blocks (native non-fs_persist)", current_dirty);
             
-            // Get dirty blocks to persist
             let to_persist: Vec<(u64, Vec<u8>)> = {
                 let dirty = storage.dirty_blocks.lock().unwrap();
                 dirty.iter().map(|(k,v)| (*k, v.clone())).collect()
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
+            let blocks_synced = ids.len(); // Capture length before moving ids
             
             // Determine next commit version for native test path
             let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 let current = cm.get(&storage.db_name).copied().unwrap_or(0);
-                log::debug!("DEBUG: Current commit marker for {}: {}", storage.db_name, current);
                 current + 1
             });
-            log::debug!("DEBUG: Next commit marker for {}: {}", storage.db_name, next_commit);
             
-            // Persist to native test global storage
+            // Store blocks in global test storage with versioning
             vfs_sync::with_global_storage(|gs| {
                 let mut storage_map = gs.borrow_mut();
                 let db_storage = storage_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
-                for (block_id, data) in &to_persist {
-                    db_storage.insert(*block_id, data.clone());
-                    log::debug!("Persisted block {} to native test global storage", block_id);
+                for (block_id, data) in to_persist {
+                    db_storage.insert(block_id, data);
+                    log::debug!("Persisted block {} to global storage (native test path)", block_id);
                 }
             });
             
-            // Persist corresponding metadata entries for native test path
+            // Store metadata with per-commit versioning
             GLOBAL_METADATA_TEST.with(|meta| {
                 let mut meta_map = meta.borrow_mut();
                 let db_meta = meta_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
@@ -111,6 +120,15 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             let ms = elapsed.as_millis() as u64;
             let ms = if ms == 0 { 1 } else { ms };
             storage.last_sync_duration_ms.store(ms, Ordering::SeqCst);
+            
+            // Record sync success for observability
+            storage.observability.record_sync_success(ms, blocks_synced);
+            
+            // Invoke sync success callback if set
+            if let Some(ref callback) = storage.observability.sync_success_callback {
+                callback(ms, blocks_synced);
+            }
+            
             storage.evict_if_needed();
             return Ok(());
         }
@@ -365,7 +383,16 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                 dirty.clear();
             }
             
-            // Update sync metrics (WASM only)
+            // Record sync success for observability (WASM)
+            // For WASM, we don't have precise timing, so use a default duration
+            storage.observability.record_sync_success(1, current_dirty);
+            
+            // Invoke WASM sync success callback if set
+            #[cfg(target_arch = "wasm32")]
+            if let Some(ref callback) = storage.observability.wasm_sync_success_callback {
+                callback(1, current_dirty);
+            }
+            
             storage.evict_if_needed();
             Ok(())
         }

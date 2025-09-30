@@ -2,7 +2,7 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-09-29 13:54 -0400
+Last updated: 2025-09-29 21:11 -0400
 
 ## Open (in order)
 
@@ -21,9 +21,10 @@ Last updated: 2025-09-29 13:54 -0400
    - [x] Lease expiry & re-election (5 second timeout with heartbeat mechanism)
    - [x] Tests: basic coordination, lease handover, multiple instances (4/4 tests passing)
 
-3. [ ] Observability
-   - [ ] Metrics: dirty_count, dirty_bytes, throughput, error_rate, checksum_failures
-   - [ ] Events/callbacks: on_sync_start/success/failure; backpressure signals
+3. [x] Observability
+   - [x] Metrics: dirty_count, dirty_bytes, throughput, error_rate, checksum_failures
+   - [x] Events/callbacks: on_sync_start/success/failure; backpressure signals
+   - [x] WASM sync_count tracking fix: proper cross-platform observability integration
 
 4. [ ] WASM AutoSync Manager
    - [ ] Worker/SharedWorker timer or requestIdleCallback mirroring native policy
@@ -36,6 +37,7 @@ Last updated: 2025-09-29 13:54 -0400
 
 ## Completed (highlights)
 
+- [x] **Comprehensive Observability Infrastructure**: Successfully implemented production-grade observability features for BlockStorage using strict Test-Driven Development (TDD). Created ObservabilityManager with atomic counters for thread-safe metrics tracking (dirty blocks, sync counts, error counts, checksum failures, throughput, error rate) and comprehensive event callback system (sync lifecycle, error callbacks, backpressure signals). Features cross-platform support with conditional compilation for native vs WASM callback types, real-time throughput calculation, and event-driven architecture. Fixed critical WASM sync_count tracking issue by adding sync_count field to ObservabilityManager and updating get_metrics() to use observability manager instead of conditionally compiled fields. Adapted tests for fs_persist vs non-fs_persist behavioral differences. All observability tests passing: 4/4 metrics tests, 3/3 event callback tests. Full test matrix green: 62 native + 62 WASM tests.
 - [x] **Multi-Tab Leader Election**: Implemented robust localStorage-based atomic coordination for multi-tab leader election, resolving race conditions where all instances were becoming leaders simultaneously. Features deterministic leader selection (lowest instance ID wins), atomic leadership claiming with check-and-set logic, lease expiry & re-election (5 second timeout), heartbeat mechanism (1 second intervals), and proper cleanup on instance stop. All 4 leader election tests pass: basic coordination, lease handover, multiple instances, and heartbeat communication. Production-ready with comprehensive logging and error handling.
 - [x] Auto Sync Manager (native) extraction: Extract dedicated `AutoSyncManager` from `BlockStorage` (keep `SyncPolicy`/debounce/threshold semantics)
 - [x] Native AutoSync with `SyncPolicy` (interval, thresholds, debounce), Tokio + std::thread fallback, and `drain_and_shutdown()`; comprehensive tests passing

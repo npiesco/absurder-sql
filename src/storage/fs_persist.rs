@@ -37,6 +37,16 @@ impl super::BlockStorage {
     /// Native fs_persist sync implementation
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     pub(super) fn fs_persist_sync(&mut self) -> Result<(), DatabaseError> {
+        // Record sync start for observability
+        let dirty_count = self.dirty_blocks.lock().unwrap().len();
+        let dirty_bytes = dirty_count * super::BLOCK_SIZE;
+        self.observability.record_sync_start(dirty_count, dirty_bytes);
+        
+        // Invoke sync start callback if set
+        if let Some(ref callback) = self.observability.sync_start_callback {
+            callback(dirty_count, dirty_bytes);
+        }
+        
         // In fs_persist mode, proactively ensure directory structure and empty metadata.json exists
         // even if there are no dirty blocks, to satisfy filesystem expectations in tests.
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -672,6 +682,14 @@ impl super::BlockStorage {
             let ms = elapsed.as_millis() as u64;
             let ms = if ms == 0 { 1 } else { ms };
             self.last_sync_duration_ms.store(ms, Ordering::SeqCst);
+            
+            // Record sync success for observability
+            self.observability.record_sync_success(ms, dirty_count);
+            
+            // Invoke sync success callback if set
+            if let Some(ref callback) = self.observability.sync_success_callback {
+                callback(ms, dirty_count);
+            }
         }
         // Now that everything is clean, enforce capacity again
         self.evict_if_needed();

@@ -205,6 +205,9 @@ pub struct BlockStorage {
     // Leader election manager (WASM only)
     #[cfg(target_arch = "wasm32")]
     pub(super) leader_election: Option<super::leader_election::LeaderElectionManager>,
+    
+    // Observability manager
+    pub(super) observability: super::observability::ObservabilityManager,
 }
 
 impl BlockStorage {
@@ -259,6 +262,7 @@ impl BlockStorage {
             recovery_report: RecoveryReport::default(),
             #[cfg(target_arch = "wasm32")]
             leader_election: None,
+            observability: super::observability::ObservabilityManager::new(),
         }
     }
 
@@ -486,6 +490,7 @@ impl BlockStorage {
             #[cfg(not(target_arch = "wasm32"))]
             sync_receiver: None,
             recovery_report: RecoveryReport::default(),
+            observability: super::observability::ObservabilityManager::new(),
         })
     }
 
@@ -1309,6 +1314,84 @@ impl BlockStorage {
         } else {
             Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
         }
+    }
+
+    // Observability Methods
+
+    /// Get comprehensive metrics for observability
+    pub fn get_metrics(&self) -> super::observability::StorageMetrics {
+        let dirty_count = self.get_dirty_count();
+        let dirty_bytes = dirty_count * BLOCK_SIZE;
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        let (sync_count, timer_sync_count, debounce_sync_count, last_sync_duration_ms) = {
+            (
+                self.sync_count.load(Ordering::SeqCst),
+                self.timer_sync_count.load(Ordering::SeqCst),
+                self.debounce_sync_count.load(Ordering::SeqCst),
+                self.last_sync_duration_ms.load(Ordering::SeqCst),
+            )
+        };
+        
+        #[cfg(target_arch = "wasm32")]
+        let (sync_count, timer_sync_count, debounce_sync_count, last_sync_duration_ms) = {
+            // For WASM, use observability manager for sync_count tracking
+            (self.observability.get_sync_count(), 0, 0, 1)
+        };
+        
+        let error_count = self.observability.get_error_count();
+        let checksum_failures = self.observability.get_checksum_failures();
+        
+        // Calculate throughput and error rate
+        let total_operations = sync_count + error_count;
+        let (throughput_blocks_per_sec, throughput_bytes_per_sec) = 
+            self.observability.calculate_throughput(last_sync_duration_ms);
+        let error_rate = self.observability.calculate_error_rate(total_operations);
+        
+        super::observability::StorageMetrics {
+            dirty_count,
+            dirty_bytes,
+            sync_count,
+            timer_sync_count,
+            debounce_sync_count,
+            error_count,
+            checksum_failures,
+            last_sync_duration_ms,
+            throughput_blocks_per_sec,
+            throughput_bytes_per_sec,
+            error_rate,
+        }
+    }
+
+    /// Set sync event callbacks
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_sync_callbacks(
+        &mut self,
+        on_sync_start: super::observability::SyncStartCallback,
+        on_sync_success: super::observability::SyncSuccessCallback,
+        on_sync_failure: super::observability::SyncFailureCallback,
+    ) {
+        self.observability.sync_start_callback = Some(on_sync_start);
+        self.observability.sync_success_callback = Some(on_sync_success);
+        self.observability.sync_failure_callback = Some(on_sync_failure);
+    }
+
+    /// Set backpressure callback
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_backpressure_callback(&mut self, callback: super::observability::BackpressureCallback) {
+        self.observability.backpressure_callback = Some(callback);
+    }
+
+    /// Set error callback
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_error_callback(&mut self, callback: super::observability::ErrorCallback) {
+        self.observability.error_callback = Some(callback);
+    }
+
+    /// Set WASM sync success callback
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_sync_success_callback(&mut self, callback: super::observability::WasmSyncSuccessCallback) {
+        self.observability.wasm_sync_success_callback = Some(callback);
     }
 }
 

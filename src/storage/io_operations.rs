@@ -242,6 +242,17 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                 vec![0; BLOCK_SIZE]
             };
 
+            // Check if block is actually allocated before returning zeroed data
+            if !storage.allocated_blocks.contains(&block_id) && !is_visible {
+                let error = DatabaseError::new(
+                    "BLOCK_NOT_FOUND",
+                    &format!("Block {} not found in storage", block_id)
+                );
+                // Record error for observability
+                storage.observability.record_error(&error);
+                return Err(error);
+            }
+            
             storage.cache.insert(block_id, data.clone());
             log::debug!("[test] Block {} cached from global storage (sync)", block_id);
             // Verify checksum only if the block is visible under the commit marker
@@ -251,6 +262,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                         "[test] Checksum verification failed for block {} (test storage): {}",
                         block_id, e.message
                     );
+                    storage.observability.record_error(&e);
                     return Err(e);
                 }
             }
@@ -262,6 +274,17 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
         // For native non-test, return empty block - will implement file-based storage later
         #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
         {
+            // Check if block is actually allocated before returning zeroed data
+            if !storage.allocated_blocks.contains(&block_id) {
+                let error = DatabaseError::new(
+                    "BLOCK_NOT_FOUND",
+                    &format!("Block {} not found in storage", block_id)
+                );
+                // Record error for observability
+                storage.observability.record_error(&error);
+                return Err(error);
+            }
+            
             let data = vec![0; BLOCK_SIZE];
             log::debug!("Block {} not found, returning empty block (sync)", block_id);
 
@@ -274,6 +297,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                     "Checksum verification failed for block {} (native fallback): {}",
                     block_id, e.message
                 );
+                storage.observability.record_error(&e);
                 return Err(e);
             }
             storage.touch_lru(block_id);
@@ -287,6 +311,12 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
 pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
     log::debug!("Writing block (sync): {} ({} bytes)", block_id, data.len());
     storage.maybe_auto_sync();
+    
+    // Check for backpressure conditions
+    let dirty_count = storage.get_dirty_count();
+    if dirty_count > 100 { // Threshold for backpressure
+        storage.observability.record_backpressure("high", "too_many_dirty_blocks");
+    }
             
             if data.len() != BLOCK_SIZE {
                 return Err(DatabaseError::new(

@@ -58,7 +58,8 @@ async fn test_no_checksum_for_unwritten_block() {
         .await
         .expect("create storage");
 
-    // Simply allocate and read an empty block; no metadata should exist until a write
-    let _ = storage.read_block(42).await.expect("read 42");
-    assert!(storage.get_block_checksum(42).is_none(), "no checksum tracked for unread/unwritten block");
+    // Allocate and read an empty block; no metadata should exist until a write
+    let block_id = storage.allocate_block().await.expect("allocate block");
+    let _ = storage.read_block(block_id).await.expect("read block");
+    assert!(storage.get_block_checksum(block_id).is_none(), "no checksum tracked for unread/unwritten block");
 }
