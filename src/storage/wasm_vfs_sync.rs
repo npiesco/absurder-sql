@@ -160,7 +160,7 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
 
 /// Persist commit marker to IndexedDB for cross-instance visibility
 #[cfg(target_arch = "wasm32")]
-async fn persist_commit_marker_to_indexeddb(db_name: &str, commit_marker: u64) -> Result<(), DatabaseError> {
+pub async fn persist_commit_marker_to_indexeddb(db_name: &str, commit_marker: u64) -> Result<(), DatabaseError> {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
     use futures::channel::oneshot;
@@ -176,7 +176,7 @@ async fn persist_commit_marker_to_indexeddb(db_name: &str, commit_marker: u64) -
     let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
 
     let open_request = indexed_db
-        .open_with_u32("block_storage", 1)
+        .open_with_u32("block_storage", 2)
         .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open IndexedDB"))?;
 
     // Handle database upgrade

@@ -306,7 +306,7 @@ impl super::BlockStorage {
             wasm_bindgen_futures::spawn_local(async move {
                 let window = web_sys::window().unwrap();
                 let idb_factory = window.indexed_db().unwrap().unwrap();
-                let open_req = idb_factory.open_with_u32("sqlite_storage", 1).unwrap();
+                let open_req = idb_factory.open_with_u32("block_storage", 2).unwrap();
                 
                 // Set up upgrade handler to create object stores if needed
                 let upgrade_handler = js_sys::Function::new_no_args(&format!(

@@ -57,7 +57,27 @@ pub async fn restore_from_indexeddb(db_name: &str) -> bool {
     let idb_factory = window.indexed_db().unwrap().unwrap();
     
     // Try to open existing database
-    let open_req = idb_factory.open_with_u32("sqlite_storage", 1).unwrap();
+    let open_req = idb_factory.open_with_u32("block_storage", 2).unwrap();
+    
+    // Add upgrade handler to create object stores if needed
+    let upgrade_closure = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+        web_sys::console::log_1(&"DEBUG: Upgrade handler called in restore_from_indexeddb".into());
+        let target = event.target().unwrap();
+        let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
+        let result = request.result().unwrap();
+        let db: web_sys::IdbDatabase = result.unchecked_into();
+        
+        if !db.object_store_names().contains("blocks") {
+            let _ = db.create_object_store("blocks");
+            web_sys::console::log_1(&"DEBUG: Created blocks store in restore upgrade".into());
+        }
+        if !db.object_store_names().contains("metadata") {
+            let _ = db.create_object_store("metadata");
+            web_sys::console::log_1(&"DEBUG: Created metadata store in restore upgrade".into());
+        }
+    }) as Box<dyn FnMut(_)>);
+    open_req.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
+    upgrade_closure.forget();
     
     // Use proper event-based approach instead of Promise conversion
     let (tx, rx) = futures::channel::oneshot::channel();
@@ -212,8 +232,8 @@ pub async fn persist_to_indexeddb_event_based(db_name: &str, blocks: Vec<(u64, V
     let idb_factory = window.indexed_db().unwrap().unwrap();
     web_sys::console::log_1(&"DEBUG: Got IndexedDB factory".into());
     
-    let open_req = idb_factory.open_with_u32("sqlite_storage", 1).unwrap();
-    web_sys::console::log_1(&"DEBUG: Created open request".into());
+    let open_req = idb_factory.open_with_u32("block_storage", 2).unwrap();
+    web_sys::console::log_1(&"DEBUG: Created open request for version 2".into());
     
     // Set up upgrade handler
     let upgrade_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {

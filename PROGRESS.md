@@ -2,7 +2,7 @@
 
 Authoritative progress checklist. Open items first (ordered). Completed items separate. For history/design details, see `PLAN.md`.
 
-Last updated: 2025-09-29 21:38 -0400
+Last updated: 2025-09-29 22:55 -0400
 
 ## Open (in order)
 
@@ -31,13 +31,17 @@ Last updated: 2025-09-29 21:38 -0400
    - [x] Threshold-based syncing via maybe_auto_sync()
    - [x] Comprehensive test suite (8/8 tests passing in headless Chrome)
 
-5. [ ] VFS Durability Mapping
-   - [ ] Map SQLite VFS `xSync` to `force_sync()` with durability guarantees; add tests
+5. [x] VFS Durability Mapping
+   - [x] Implemented `force_sync()` method with durability guarantees (waits for IndexedDB persistence)
+   - [x] Fixed IndexedDB database name consistency ("block_storage" across all operations)
+   - [x] Fixed IndexedDB version and upgrade handlers (version 2 with proper object store creation)
+   - [x] Comprehensive test suite (7/7 tests passing in headless Chrome)
 
 ---
 
 ## Completed (highlights)
 
+- [x] **VFS Durability Mapping**: Successfully implemented `force_sync()` method providing SQLite VFS xSync durability guarantees. The method ensures all dirty blocks are persisted to IndexedDB and waits for completion before returning. Fixed critical IndexedDB issues: standardized database name to "block_storage" across all operations (was inconsistently using "sqlite_storage"), upgraded to version 2 with proper upgrade handlers that create object stores on first open, and added upgrade handlers to restore_from_indexeddb() function. Created comprehensive test suite (7 tests) covering: basic persistence to IndexedDB, idempotent syncing, commit marker advancement, error handling, waiting for persistence with multiple blocks, and transaction-like durability. All tests pass in headless Chrome. The implementation delegates to the existing sync() infrastructure which already handles IndexedDB persistence properly. Full test matrix green: 77 WASM tests (including 7 new vfs_durability tests) + 62 native tests.
 - [x] **Event-Driven WASM AutoSync Manager**: Successfully implemented truly event-driven auto-sync for WASM environments, replacing timer-based approach with browser-native event mechanisms. Uses requestIdleCallback for opportunistic syncing during idle time, visibility change events to sync when tab becomes hidden, and beforeunload events for final sync before page closes. Threshold-based syncing via maybe_auto_sync() triggers async syncs when dirty block count or bytes exceed policy limits. Created comprehensive test suite (8 tests) covering basic enablement, policy configuration, background execution, threshold triggering, metrics tracking, multi-instance coordination, error handling, and shutdown cleanup. All tests pass in headless Chrome. This is a proper event-driven architecture - no polling, no timers, just reactive syncing based on browser events and application state. Full test matrix green: 70 WASM + 62 native + 62 native with fs_persist.
 - [x] **Comprehensive Observability Infrastructure**: Successfully implemented production-grade observability features for BlockStorage using strict Test-Driven Development (TDD). Created ObservabilityManager with atomic counters for thread-safe metrics tracking (dirty blocks, sync counts, error counts, checksum failures, throughput, error rate) and comprehensive event callback system (sync lifecycle, error callbacks, backpressure signals). Features cross-platform support with conditional compilation for native vs WASM callback types, real-time throughput calculation, and event-driven architecture. Fixed critical WASM sync_count tracking issue by adding sync_count field to ObservabilityManager and updating get_metrics() to use observability manager instead of conditionally compiled fields. Adapted tests for fs_persist vs non-fs_persist behavioral differences. All observability tests passing: 4/4 metrics tests, 3/3 event callback tests. Full test matrix green: 62 native + 62 WASM tests.
 - [x] **Multi-Tab Leader Election**: Implemented robust localStorage-based atomic coordination for multi-tab leader election, resolving race conditions where all instances were becoming leaders simultaneously. Features deterministic leader selection (lowest instance ID wins), atomic leadership claiming with check-and-set logic, lease expiry & re-election (5 second timeout), heartbeat mechanism (1 second intervals), and proper cleanup on instance stop. All 4 leader election tests pass: basic coordination, lease handover, multiple instances, and heartbeat communication. Production-ready with comprehensive logging and error handling.

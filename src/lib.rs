@@ -61,6 +61,56 @@ impl Database {
         })
     }
     
+    /// Open a database with a specific VFS
+    pub async fn open_with_vfs(filename: &str, vfs_name: &str) -> Result<Self, DatabaseError> {
+        use std::ffi::CString;
+        
+        log::info!("Opening database {} with VFS {}", filename, vfs_name);
+        
+        let mut db: *mut sqlite_wasm_rs::sqlite3 = std::ptr::null_mut();
+        let db_name = CString::new(filename)
+            .map_err(|_| DatabaseError::new("INVALID_NAME", "Invalid database name"))?;
+        let vfs_cstr = CString::new(vfs_name)
+            .map_err(|_| DatabaseError::new("INVALID_VFS", "Invalid VFS name"))?;
+        
+        let ret = unsafe {
+            sqlite_wasm_rs::sqlite3_open_v2(
+                db_name.as_ptr(),
+                &mut db as *mut _,
+                sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
+                vfs_cstr.as_ptr()
+            )
+        };
+        
+        if ret != sqlite_wasm_rs::SQLITE_OK {
+            let err_msg = if !db.is_null() {
+                unsafe {
+                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
+                    if !msg_ptr.is_null() {
+                        std::ffi::CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+                    } else {
+                        "Unknown error".to_string()
+                    }
+                }
+            } else {
+                "Failed to open database".to_string()
+            };
+            return Err(DatabaseError::new("SQLITE_ERROR", &err_msg));
+        }
+        
+        // Extract database name from filename (strip "file:" prefix if present)
+        let name = filename.strip_prefix("file:").unwrap_or(filename)
+            .strip_suffix(".db").unwrap_or(filename)
+            .to_string();
+        
+        log::info!("Successfully opened database {} with VFS {}", name, vfs_name);
+        
+        Ok(Database {
+            db,
+            name,
+        })
+    }
+    
     pub async fn execute_internal(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
         use std::ffi::CString;
         let start_time = js_sys::Date::now();
@@ -370,7 +420,15 @@ impl Database {
         Ok(())
     }
     
+    /// Query database and return rows (alias for execute that returns rows)
+    pub async fn query(&mut self, sql: &str) -> Result<Vec<Row>, DatabaseError> {
+        let result = self.execute_internal(sql).await?;
+        Ok(result.rows)
+    }
+    
     pub async fn sync_internal(&mut self) -> Result<(), DatabaseError> {
+        // In WASM, sync is handled by VFS xSync callback
+        // This is a no-op for now
         Ok(())
     }
 }

@@ -1403,6 +1403,29 @@ impl BlockStorage {
     pub fn get_sync_policy(&self) -> Option<super::SyncPolicy> {
         self.policy.clone()
     }
+    
+    /// Force synchronization with durability guarantees
+    /// 
+    /// This method ensures that all dirty blocks are persisted to durable storage
+    /// (IndexedDB in WASM, filesystem in native) and waits for the operation to complete.
+    /// This is called by VFS xSync to provide SQLite's durability guarantees.
+    pub async fn force_sync(&mut self) -> Result<(), DatabaseError> {
+        log::info!("force_sync: Starting forced synchronization with durability guarantees");
+        
+        let dirty_count = self.get_dirty_count();
+        if dirty_count == 0 {
+            log::debug!("force_sync: No dirty blocks to sync");
+            return Ok(());
+        }
+        
+        log::info!("force_sync: Syncing {} dirty blocks with durability guarantee", dirty_count);
+        
+        // Just use the regular sync - it already waits for persistence in WASM
+        self.sync().await?;
+        
+        log::info!("force_sync: Successfully completed forced synchronization");
+        Ok(())
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
