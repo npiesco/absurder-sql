@@ -21,6 +21,14 @@ impl super::BlockStorage {
         }
         self.policy = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
         log::info!("Auto-sync enabled: every {} ms", interval_ms);
+        
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Register event-driven WASM auto-sync
+            // Note: interval_ms is ignored in WASM - we use event-driven approach instead
+            super::wasm_auto_sync::register_wasm_auto_sync(&self.db_name);
+        }
+        
         #[cfg(not(target_arch = "wasm32"))]
         {
             // stop previous workers if any
@@ -163,6 +171,14 @@ impl super::BlockStorage {
         }
         self.auto_sync_interval = policy.interval_ms.map(Duration::from_millis);
         log::info!("Auto-sync policy enabled: interval={:?}, max_dirty={:?}, max_bytes={:?}", policy.interval_ms, policy.max_dirty, policy.max_dirty_bytes);
+        
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Register event-driven WASM auto-sync
+            // Interval is ignored - we use event-driven approach (idle callback, visibility change, etc.)
+            super::wasm_auto_sync::register_wasm_auto_sync(&self.db_name);
+        }
+        
         #[cfg(not(target_arch = "wasm32"))]
         {
             // stop previous workers if any
@@ -401,6 +417,13 @@ impl super::BlockStorage {
     pub fn disable_auto_sync(&mut self) {
         self.auto_sync_interval = None;
         log::info!("Auto-sync disabled");
+        
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Unregister WASM auto-sync
+            super::wasm_auto_sync::unregister_wasm_auto_sync(&self.db_name);
+        }
+        
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(stop) = &self.auto_sync_stop {
@@ -443,7 +466,46 @@ impl super::BlockStorage {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub(super) fn maybe_auto_sync(&mut self) { /* no-op on wasm */ }
+    pub(super) fn maybe_auto_sync(&mut self) {
+        // Check if we should trigger threshold-based sync
+        if let Some(policy) = &self.policy {
+            let dirty_count = self.get_dirty_count();
+            let dirty_bytes = dirty_count * super::BLOCK_SIZE;
+            
+            // Check max_dirty threshold
+            if let Some(max_dirty) = policy.max_dirty {
+                if dirty_count >= max_dirty {
+                    log::info!("WASM threshold sync triggered: {} dirty blocks >= {}", dirty_count, max_dirty);
+                    // Spawn async sync
+                    let db_name = self.db_name.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Ok(mut storage) = super::BlockStorage::new(&db_name).await {
+                            if let Err(e) = storage.sync().await {
+                                log::error!("WASM threshold sync failed: {}", e.message);
+                            }
+                        }
+                    });
+                    return;
+                }
+            }
+            
+            // Check max_dirty_bytes threshold
+            if let Some(max_bytes) = policy.max_dirty_bytes {
+                if dirty_bytes >= max_bytes {
+                    log::info!("WASM threshold sync triggered: {} dirty bytes >= {}", dirty_bytes, max_bytes);
+                    // Spawn async sync
+                    let db_name = self.db_name.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Ok(mut storage) = super::BlockStorage::new(&db_name).await {
+                            if let Err(e) = storage.sync().await {
+                                log::error!("WASM threshold sync failed: {}", e.message);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn maybe_auto_sync(&mut self) {

@@ -1393,6 +1393,16 @@ impl BlockStorage {
     pub fn set_sync_success_callback(&mut self, callback: super::observability::WasmSyncSuccessCallback) {
         self.observability.wasm_sync_success_callback = Some(callback);
     }
+    
+    /// Check if auto-sync is currently enabled
+    pub fn is_auto_sync_enabled(&self) -> bool {
+        self.auto_sync_interval.is_some()
+    }
+    
+    /// Get the current sync policy (if any)
+    pub fn get_sync_policy(&self) -> Option<super::SyncPolicy> {
+        self.policy.clone()
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

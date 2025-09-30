@@ -14,6 +14,8 @@ pub mod vfs_sync;
 pub mod wasm_indexeddb;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_vfs_sync;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_auto_sync;
 
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 #[cfg(target_arch = "wasm32")]
