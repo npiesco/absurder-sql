@@ -53,26 +53,27 @@ class SQLiteDemo {
             const dbName = document.getElementById('dbName').value || 'demo.db';
             const cacheSize = parseInt(document.getElementById('cacheSize').value) || 10000;
 
-            // Import the WASM module (this would be the compiled output)
-            // For demo purposes, we'll simulate the connection
+            // Import and initialize the WASM module
             this.logToConsole(`Connecting to database: ${dbName}`, 'info');
             this.logToConsole(`Cache size: ${cacheSize} pages`, 'info');
 
-            // Simulate connection delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // In real implementation, this would be:
-            // const module = await import('./pkg/sqlite_indexeddb_rs.js');
-            // await module.default();
-            // this.db = new module.Database({ name: dbName, cache_size: cacheSize });
-
-            // For now, simulate success
+            this.logToConsole('Loading WASM module...', 'info');
+            const module = await import('/pkg/sqlite_indexeddb_rs.js');
+            
+            this.logToConsole('Initializing WASM...', 'info');
+            await module.default();
+            
+            this.logToConsole('Creating database...', 'info');
+            this.db = await module.Database.newDatabase(dbName);
+            
             this.isConnected = true;
             this.updateConnectionState();
             this.logToConsole('✓ Successfully connected to database!', 'success');
             
         } catch (error) {
+            console.error('Connection error:', error);
             this.logToConsole(`✗ Failed to connect: ${error.message}`, 'error');
+            this.logToConsole(`Error details: ${error.stack}`, 'error');
         } finally {
             this.setLoading('connectBtn', false);
         }
@@ -83,7 +84,7 @@ class SQLiteDemo {
             this.logToConsole('Disconnecting from database...', 'info');
             
             if (this.db) {
-                // await this.db.close();
+                await this.db.close();
                 this.db = null;
             }
             
@@ -114,11 +115,8 @@ class SQLiteDemo {
             this.logToConsole(`Executing: ${query}`, 'info');
             const startTime = performance.now();
 
-            // In real implementation, this would be:
-            // const result = await this.db.execute(query);
-            
-            // Simulate query execution
-            const result = await this.simulateQueryExecution(query);
+            // Execute real query
+            const result = await this.db.execute(query);
             const executionTime = performance.now() - startTime;
 
             this.displayQueryResult(result, executionTime);
@@ -131,68 +129,6 @@ class SQLiteDemo {
         } finally {
             this.setLoading('executeBtn', false);
         }
-    }
-
-    async simulateQueryExecution(query) {
-        // Simulate different types of queries for demo purposes
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 500 + 100));
-
-        const queryLower = query.toLowerCase().trim();
-        
-        if (queryLower.startsWith('create table')) {
-            return {
-                columns: [],
-                rows: [],
-                affected_rows: 0,
-                last_insert_id: null,
-                execution_time_ms: Math.random() * 50 + 10
-            };
-        }
-        
-        if (queryLower.startsWith('insert')) {
-            return {
-                columns: [],
-                rows: [],
-                affected_rows: 1,
-                last_insert_id: Math.floor(Math.random() * 1000) + 1,
-                execution_time_ms: Math.random() * 30 + 5
-            };
-        }
-        
-        if (queryLower.startsWith('select')) {
-            // Generate sample result data
-            const columns = ['id', 'name', 'email', 'created_at'];
-            const rows = [];
-            const numRows = Math.floor(Math.random() * 5) + 1;
-            
-            for (let i = 1; i <= numRows; i++) {
-                rows.push({
-                    values: [
-                        { type: 'Integer', value: i },
-                        { type: 'Text', value: `User ${i}` },
-                        { type: 'Text', value: `user${i}@example.com` },
-                        { type: 'Text', value: new Date().toISOString() }
-                    ]
-                });
-            }
-            
-            return {
-                columns,
-                rows,
-                affected_rows: 0,
-                last_insert_id: null,
-                execution_time_ms: Math.random() * 100 + 20
-            };
-        }
-        
-        // Default response
-        return {
-            columns: [],
-            rows: [],
-            affected_rows: 1,
-            last_insert_id: null,
-            execution_time_ms: Math.random() * 40 + 10
-        };
     }
 
     displayQueryResult(result, executionTime) {
