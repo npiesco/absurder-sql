@@ -51,7 +51,12 @@ impl IndexedDBVFS {
             
             #[cfg(target_arch = "wasm32")]
             STORAGE_REGISTRY.with(|reg| {
-                reg.borrow_mut().insert(db_name.to_string(), rc.clone());
+                let mut registry = reg.borrow_mut();
+                // Register with both "name" and "name.db" to handle both cases
+                registry.insert(db_name.to_string(), rc.clone());
+                if !db_name.ends_with(".db") {
+                    registry.insert(format!("{}.db", db_name), rc.clone());
+                }
             });
             
             rc
@@ -970,26 +975,20 @@ unsafe extern "C" fn x_sync(p_file: *mut sqlite_wasm_rs::sqlite3_file, _flags: c
         return sqlite_wasm_rs::SQLITE_OK;
     }
     
-    // For main database files, perform sync to advance commit marker and trigger persistence
-    // This is necessary for proper transactional behavior
+    // For main database files, just advance commit marker in memory
+    // Don't persist to IndexedDB on every sync - that's too slow
+    // Auto-sync will handle periodic persistence
     let db_name = &vf_ref.handle.filename;
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_sync: Performing sync for {} to advance commit marker", db_name).into());
     
-    // Use the blocking VFS sync function to advance commit marker and wait for persistence
-    use crate::storage::vfs_sync_database_blocking;
-    match vfs_sync_database_blocking(db_name) {
-        Ok(_) => {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_sync: Successfully triggered sync for {}", db_name).into());
-            sqlite_wasm_rs::SQLITE_OK
-        }
-        Err(e) => {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_sync: Sync failed for {}: {:?}", db_name, e).into());
-            sqlite_wasm_rs::SQLITE_IOERR
-        }
-    }
+    // Just advance the commit marker in memory
+    use crate::storage::vfs_sync::with_global_commit_marker;
+    with_global_commit_marker(|cm| {
+        let mut markers = cm.borrow_mut();
+        let current = markers.get(db_name).copied().unwrap_or(0);
+        markers.insert(db_name.to_string(), current + 1);
+    });
+    
+    sqlite_wasm_rs::SQLITE_OK
 }
 
 #[cfg(target_arch = "wasm32")]

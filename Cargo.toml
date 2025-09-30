@@ -48,7 +48,6 @@ crc32fast = "1.4"
 # IndexedDB async API
 indexed_db_futures = "0.5"
 
-# Async runtime and utilities
 futures = "0.3"
 
 # SQL parsing
@@ -59,9 +58,9 @@ sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["preco
 
 # Error handling and logging
 thiserror = "1.0"
+log = "0.4"
 console_error_panic_hook = { version = "0.1", optional = true }
 wee_alloc = { version = "0.4", optional = true }
-log = "0.4"
 console_log = { version = "0.2", optional = true }
 
 # Date handling

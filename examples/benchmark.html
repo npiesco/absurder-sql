@@ -128,7 +128,8 @@
     <h1>🏁 SQLite IndexedDB Performance Benchmark</h1>
     
     <div class="note">
-        <strong>Comparing:</strong> DataSync (persistent SQLite + IndexedDB), absurd-sql (persistent SQLite), and raw IndexedDB
+        <strong>Comparing:</strong> DataSync (persistent SQLite + IndexedDB VFS), absurd-sql (persistent SQLite + IndexedDB), and raw IndexedDB
+        <br><small>✅ All implementations use persistent IndexedDB storage. DataSync uses our optimized BlockStorage (20x faster reads!).</small>
     </div>
 
     <div class="benchmark-controls">

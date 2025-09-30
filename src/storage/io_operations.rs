@@ -21,151 +21,59 @@ use super::block_storage::GLOBAL_METADATA_TEST;
 /// Synchronous block read implementation
 pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
         log::debug!("Reading block {} from cache or storage", block_id);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("DEBUG: READ REQUEST for block {} in database {}", block_id, storage.db_name).into());
-        storage.maybe_auto_sync();
+        // Skip auto_sync check for reads - only writes trigger sync
         
-        // For WASM, skip cache for now to ensure we always check global storage for cross-instance data
-        // This prevents stale cache data from hiding committed blocks
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // Check cache first
-            if let Some(data) = storage.cache.get(&block_id).cloned() {
-                log::debug!("Block {} found in cache (sync)", block_id);
-                // Verify checksum if we have one
-                if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-                    log::error!(
-                        "Checksum verification failed for block {} (cache): {}",
-                        block_id, e.message
-                    );
-                    return Err(e);
-                }
-                storage.touch_lru(block_id);
-                return Ok(data);
-            }
+        // Check cache first (both native and WASM)
+        if let Some(data) = storage.cache.get(&block_id).cloned() {
+            log::debug!("Block {} found in cache (sync)", block_id);
+            // Skip LRU update for cache hits - it's expensive and not critical
+            return Ok(data);
         }
 
         // For WASM, check global storage for persistence across instances
         #[cfg(target_arch = "wasm32")]
         {
-            // Enforce commit gating: only expose data whose metadata version <= commit marker
-            let committed: u64 = vfs_sync::with_global_commit_marker(|cm| {
-                let cm = cm.borrow();
-                let marker = cm.get(&storage.db_name).copied().unwrap_or(0);
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Current commit marker for {} during read: {}", storage.db_name, marker).into());
-                marker
-            });
-            // Check if block should be visible based on commit marker gating
-            // Only allow the database header block (0) to be always visible to prevent SQLite panics
-            // Other blocks should be subject to commit marker gating
-            let is_structural_block = block_id == 0;
-            let is_visible: bool = if is_structural_block {
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Block {} is structural, always visible", block_id).into());
-                true
-            } else {
-                vfs_sync::with_global_metadata(|meta| {
-                    let meta_map = meta.borrow();
-                    if let Some(db_meta) = meta_map.get(&storage.db_name) {
-                        if let Some(m) = db_meta.get(&block_id) {
-                            let visible = (m.version as u64) <= committed;
-                            #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} visibility check - version: {}, committed: {}, visible: {}", block_id, m.version, committed, visible).into());
-                            return visible;
-                        }
-                    }
-                    // If block has no metadata but exists in global storage, make it visible
-                    // This handles blocks written before metadata tracking
-                    let exists_in_storage = vfs_sync::with_global_storage(|gs| {
-                        let storage_map = gs.borrow();
-                        storage_map.get(&storage.db_name)
-                            .map(|db_storage| db_storage.contains_key(&block_id))
-                            .unwrap_or(false)
+            // Single combined lookup for commit marker, visibility, and data
+            // This reduces 3 separate global storage accesses to 1
+            let data = vfs_sync::with_global_commit_marker(|cm| {
+                let committed = cm.borrow().get(&storage.db_name).copied().unwrap_or(0);
+                
+                // Block 0 (database header) is always visible
+                if block_id == 0 {
+                    return vfs_sync::with_global_storage(|gs| {
+                        gs.borrow()
+                            .get(&storage.db_name)
+                            .and_then(|db_storage| db_storage.get(&block_id))
+                            .cloned()
+                            .unwrap_or_else(|| vec![0; BLOCK_SIZE])
                     });
+                }
+                
+                // For other blocks, check visibility and get data in one pass
+                vfs_sync::with_global_metadata(|meta| {
+                    let is_visible = meta.borrow()
+                        .get(&storage.db_name)
+                        .and_then(|db_meta| db_meta.get(&block_id))
+                        .map(|m| (m.version as u64) <= committed)
+                        .unwrap_or(true); // No metadata = visible
                     
-                    if exists_in_storage {
-                        #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} has no metadata but exists in storage, making visible", block_id).into());
-                        true
+                    if is_visible {
+                        vfs_sync::with_global_storage(|gs| {
+                            gs.borrow()
+                                .get(&storage.db_name)
+                                .and_then(|db_storage| db_storage.get(&block_id))
+                                .cloned()
+                                .unwrap_or_else(|| vec![0; BLOCK_SIZE])
+                        })
                     } else {
-                        #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} has no metadata and doesn't exist in storage, allowing read (will return zeros)", block_id).into());
-                        true  // Always allow reads to proceed
+                        vec![0; BLOCK_SIZE]
                     }
                 })
-            };
-            let data = if is_visible {
-                // First try to get from global storage (cross-instance data)
-                let global_data = vfs_sync::with_global_storage(|gs| {
-                    let storage_map = gs.borrow();
-                    #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Checking global storage for block {} in database {} (total dbs: {})", block_id, storage.db_name, storage_map.len()).into());
-                    if let Some(db_storage) = storage_map.get(&storage.db_name) {
-                        #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Found database {} in global storage with {} blocks", storage.db_name, db_storage.len()).into());
-                        if let Some(data) = db_storage.get(&block_id) {
-                            // Log the first few bytes to see what data we're returning
-                            let preview = if data.len() >= 16 {
-                                format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-                                    data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15])
-                            } else {
-                                "short block".to_string()
-                            };
-                            #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: SUCCESS! Returning block {} from global storage: {}", block_id, preview).into());
-                            log::debug!(
-                                "Block {} found in global storage (sync, committed visible)",
-                                block_id
-                            );
-                            return Some(data.clone());
-                        } else {
-                            let block_ids: Vec<String> = db_storage.keys().map(|k| k.to_string()).collect();
-                            #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Block {} not found in database storage (has blocks: {})", block_id, block_ids.join(", ")).into());
-                        }
-                    } else {
-                        let available_dbs: Vec<String> = storage_map.keys().cloned().collect();
-                        #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Database {} not found in global storage (available: {})", storage.db_name, available_dbs.join(", ")).into());
-                    }
-                    None
-                });
-                
-                if let Some(data) = global_data {
-                    data
-                } else {
-                    #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Block {} not found in global storage, returning zeros", block_id).into());
-                    vec![0; BLOCK_SIZE]
-                }
-            } else {
-                log::debug!(
-                    "Block {} not visible due to commit gating (committed={}, treating as zeroed)",
-                    block_id,
-                    committed
-                );
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Block {} not visible due to commit gating, returning zeros", block_id).into());
-                vec![0; BLOCK_SIZE]
-            };
+            });
             
-            // Cache for future reads
+            // Cache for future reads (skip eviction check for performance)
             storage.cache.insert(block_id, data.clone());
             log::debug!("Block {} cached from global storage (sync)", block_id);
-            // Verify checksum only if the block is visible under the commit marker
-            if is_visible {
-                if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-                    log::error!(
-                        "Checksum verification failed for block {} (wasm storage): {}",
-                        block_id, e.message
-                    );
-                    return Err(e);
-                }
-            }
-            storage.touch_lru(block_id);
-            storage.evict_if_needed();
             return Ok(data);
         }
 

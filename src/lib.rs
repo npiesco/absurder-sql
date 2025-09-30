@@ -36,26 +36,51 @@ pub struct Database {
 #[cfg(target_arch = "wasm32")]
 impl Database {
     pub async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
-        use std::ffi::CString;
+        use std::ffi::{CString, CStr};
         
-        // Note: Database uses in-memory SQLite for WASM
-        // For persistence, use BlockStorage which has IndexedDB backend
+        // Use IndexedDB VFS for persistent storage
+        web_sys::console::log_1(&format!("🔧 Creating IndexedDBVFS for: {}", config.name).into());
+        let vfs = crate::vfs::IndexedDBVFS::new(&config.name).await?;
+        web_sys::console::log_1(&"🔧 Registering VFS as 'indexeddb'".into());
+        vfs.register("indexeddb")?;
+        web_sys::console::log_1(&"✅ VFS registered successfully".into());
+        
         let mut db = std::ptr::null_mut();
-        let db_name = CString::new(format!("file:{}?mode=memory&cache=shared", config.name))
-            .map_err(|_| DatabaseError::new("INVALID_NAME", "Invalid database name"))?;
+        let filename = if config.name.ends_with(".db") {
+            config.name.clone()
+        } else {
+            format!("{}.db", config.name)
+        };
         
+        let db_name = CString::new(filename.clone())
+            .map_err(|_| DatabaseError::new("INVALID_NAME", "Invalid database name"))?;
+        let vfs_name = CString::new("indexeddb")
+            .map_err(|_| DatabaseError::new("INVALID_VFS", "Invalid VFS name"))?;
+        
+        web_sys::console::log_1(&format!("🔧 Opening database: {} with VFS: indexeddb", filename).into());
         let ret = unsafe {
             sqlite_wasm_rs::sqlite3_open_v2(
                 db_name.as_ptr(),
                 &mut db as *mut _,
-                sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE | sqlite_wasm_rs::SQLITE_OPEN_URI,
-                std::ptr::null()
+                sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
+                vfs_name.as_ptr()
             )
         };
+        web_sys::console::log_1(&format!("🔧 sqlite3_open_v2 returned: {}", ret).into());
         
         if ret != sqlite_wasm_rs::SQLITE_OK {
-            return Err(DatabaseError::new("SQLITE_ERROR", "Failed to open database"));
+            let err_msg = unsafe {
+                let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
+                if !msg_ptr.is_null() {
+                    CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+                } else {
+                    "Unknown error".to_string()
+                }
+            };
+            return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to open database with IndexedDB VFS: {}", err_msg)));
         }
+        
+        web_sys::console::log_1(&"✅ Database opened successfully with IndexedDB VFS".into());
         
         Ok(Database {
             db,
