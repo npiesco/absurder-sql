@@ -1,12 +1,120 @@
-# SQLite IndexedDB Rust Library
+# SQLite IndexedDB Rust Library (DataSync)
 
-## Overview
+A high-performance Rust library that brings full SQLite functionality to web browsers through WebAssembly. DataSync implements a custom Virtual File System (VFS) that seamlessly persists SQLite databases to IndexedDB, enabling production-ready SQL operations in browser environments with crash consistency and multi-tab coordination.
 
-This project is a Rust library that provides SQLite database functionality in web browsers by implementing a Virtual File System (VFS) that persists data to IndexedDB. The library compiles to WebAssembly (WASM) and offers both Rust and JavaScript APIs for running SQL queries with persistent storage in browser environments. It bridges the gap between traditional SQLite databases and browser-based storage, enabling full SQL capabilities with IndexedDB as the underlying storage mechanism.
+## 📊 Architecture Overview
 
-## User Preferences
+```mermaid
+graph TB
+    subgraph "Browser Environment"
+        JS["JavaScript/TypeScript Application"]
+        WASM["WASM Bridge Layer<br/>(wasm-bindgen)"]
+    end
+    
+    subgraph "DataSync Core (Rust/WASM)"
+        DB["Database API<br/>(lib.rs)"]
+        SQLITE["SQLite Engine<br/>(sqlite-wasm-rs)"]
+        VFS["Custom VFS Layer<br/>(indexeddb_vfs.rs)"]
+        
+        subgraph "Storage Layer"
+            BS["BlockStorage<br/>(block_storage.rs)"]
+            SYNC["Sync Operations<br/>(sync_operations.rs)"]
+            META["Metadata Manager<br/>(metadata.rs)"]
+            CACHE["LRU Cache<br/>(128 blocks default)"]
+        end
+        
+        subgraph "Platform-Specific"
+            FS["fs_persist<br/>(Native filesystem)"]
+            IDB["wasm_indexeddb<br/>(IndexedDB)"]
+        end
+        
+        subgraph "Multi-Tab Coordination"
+            LEADER["Leader Election<br/>(leader_election.rs)"]
+            AUTO["Auto-Sync<br/>(auto_sync.rs)"]
+        end
+    end
+    
+    subgraph "Browser Storage"
+        INDEXEDDB["IndexedDB<br/>(Persistent Storage)"]
+    end
+    
+    JS -->|execute/query| WASM
+    WASM -->|calls| DB
+    DB -->|SQL| SQLITE
+    SQLITE -->|VFS calls| VFS
+    VFS -->|block I/O| BS
+    BS -->|read/write| CACHE
+    BS -->|persist| SYNC
+    SYNC -->|metadata| META
+    BS -->|native| FS
+    BS -->|WASM| IDB
+    IDB -->|async| INDEXEDDB
+    LEADER -->|coordination| INDEXEDDB
+    AUTO -->|triggers| SYNC
+    
+    style SQLITE fill:#f9f,stroke:#333
+    style VFS fill:#9ff,stroke:#333
+    style BS fill:#ff9,stroke:#333
+    style INDEXEDDB fill:#9f9,stroke:#333
+```
 
-Preferred communication style: Simple, everyday language.
+## 🗂️ Project Structure
+
+```
+DataSync/
+├── src/
+│   ├── lib.rs              # WASM entry point, Database API exports
+│   ├── database.rs         # Native Database implementation
+│   ├── types.rs            # Core types (QueryResult, ColumnValue, etc.)
+│   ├── utils.rs            # Utility functions
+│   ├── storage/            # Storage layer implementation
+│   │   ├── mod.rs
+│   │   ├── block_storage.rs      # Core block storage with LRU cache
+│   │   ├── sync_operations.rs   # Cross-platform sync logic
+│   │   ├── io_operations.rs     # Read/write operations
+│   │   ├── allocation.rs        # Block allocation/deallocation
+│   │   ├── metadata.rs          # Block metadata management
+│   │   ├── fs_persist.rs        # Native filesystem persistence
+│   │   ├── wasm_indexeddb.rs    # WASM IndexedDB integration
+│   │   ├── wasm_vfs_sync.rs     # WASM VFS sync coordination
+│   │   ├── recovery.rs          # Crash recovery logic
+│   │   ├── auto_sync.rs         # Native auto-sync
+│   │   ├── wasm_auto_sync.rs    # WASM auto-sync
+│   │   ├── leader_election.rs   # Multi-tab coordination
+│   │   ├── observability.rs     # Metrics and monitoring
+│   │   └── constructors.rs      # BlockStorage constructors
+│   └── vfs/                # SQLite VFS implementation
+│       ├── mod.rs
+│       └── indexeddb_vfs.rs     # Custom VFS for IndexedDB
+│
+├── tests/                  # Comprehensive test suite
+│   ├── integration_tests.rs     # End-to-end tests
+│   ├── wasm_integration_tests.rs
+│   ├── vfs_durability_tests.rs
+│   ├── lru_cache_tests.rs
+│   └── ...                      # 59 test files total
+│
+├── examples/               # Demos and documentation
+│   ├── sql_demo.js         # CLI launcher for SQL demo
+│   ├── sql_demo.html       # Interactive SQL demo page
+│   ├── web_demo.html       # Full-featured web interface
+│   ├── benchmark.html      # Performance comparison tool
+│   ├── DEMO_GUIDE.md       # Demo usage guide
+│   └── BENCHMARK.md        # Benchmark results and analysis
+│
+├── pkg/                    # WASM build output (generated)
+├── Cargo.toml             # Rust dependencies and config
+├── package.json           # Node.js dependencies
+└── README.md              # This file
+```
+
+## 📚 Documentation
+
+- **[TRANSACTION_SUPPORT.md](TRANSACTION_SUPPORT.md)** - Complete guide to transaction handling, commit/rollback behavior, and crash consistency
+- **[PROGRESS.md](PROGRESS.md)** - Development progress tracker with completed features and open work items
+- **[WASM-TEST.md](WASM-TEST.md)** - WASM testing guide and commands
+- **[examples/BENCHMARK.md](examples/BENCHMARK.md)** - Performance benchmarks vs absurd-sql and raw IndexedDB
+- **[examples/DEMO_GUIDE.md](examples/DEMO_GUIDE.md)** - Comprehensive guide to running and using the web demos
 
 ## System Architecture
 
