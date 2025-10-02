@@ -13,71 +13,82 @@ DataSync provides **full transactional support** for SQLite operations with Inde
 - Single statements (INSERT, UPDATE, DELETE) are automatically wrapped in implicit transactions
 - Changes are automatically committed after successful execution
 
-### 3. **Transaction Persistence**
-- Committed transactions persist across database instances
-- Data remains consistent after database close/reopen
-- Changes are durable in IndexedDB storage
+### 3. **Transaction Persistence**  
+- Committed transactions (via COMMIT) are in SQLite's in-memory state
+- Data persists to IndexedDB only after calling `sync()`
+- Changes survive browser restarts after successful sync
 
 ### 4. **Crash Consistency**
-- Uncommitted changes are not visible to other database instances
-- System ensures data integrity during unexpected failures
-- Commit markers ensure only complete transactions are persisted
+- Uncommitted changes are not visible after crash (in-memory only)
+- Data persisted via sync() survives crashes and restarts
+- Must call sync() before page unload to ensure durability
 
 ## 🔧 Usage Examples
 
-### Explicit Transaction with Commit
-```rust
-// Using raw SQLite API with IndexedDB VFS
-let vfs = IndexedDBVFS::new("my_database.db").await?;
-vfs.register("indexeddb")?;
+### JavaScript API (Recommended)
 
-let (db, _) = open_with_vfs("file:my_database.db", "indexeddb");
+#### Explicit Transaction with Commit
+```javascript
+import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
 
-unsafe {
-    exec_sql(db, "BEGIN TRANSACTION");
-    exec_sql(db, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
-    exec_sql(db, "INSERT INTO users (name) VALUES ('Alice')");
-    exec_sql(db, "INSERT INTO users (name) VALUES ('Bob')");
-    exec_sql(db, "COMMIT"); // ✅ All changes persisted
+await init();
+const db = await Database.newDatabase('myapp');
 
-    sqlite3_close(db);
-}
+// Explicit transaction
+await db.execute('BEGIN TRANSACTION');
+await db.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+await db.execute("INSERT INTO users (name) VALUES ('Alice')");
+await db.execute("INSERT INTO users (name) VALUES ('Bob')");
+await db.execute('COMMIT'); // ✅ All changes committed to SQLite
+
+// Persist to IndexedDB
+await db.sync();
+
+await db.close();
 ```
 
-### Transaction Rollback
-```rust
-unsafe {
-    exec_sql(db, "BEGIN TRANSACTION");
-    exec_sql(db, "INSERT INTO users (name) VALUES ('Charlie')");
-    exec_sql(db, "INSERT INTO users (name) VALUES ('Dave')");
-    exec_sql(db, "ROLLBACK"); // ❌ All changes discarded
-}
+#### Transaction Rollback
+```javascript
+await db.execute('BEGIN TRANSACTION');
+await db.execute("INSERT INTO users (name) VALUES ('Charlie')");
+await db.execute("INSERT INTO users (name) VALUES ('Dave')");
+await db.execute('ROLLBACK'); // ❌ All changes discarded
 ```
 
-### Implicit Transaction
-```rust
-unsafe {
-    // Each statement is automatically wrapped in a transaction
-    exec_sql(db, "INSERT INTO users (name) VALUES ('Eve')"); // ✅ Auto-committed
-}
+#### Implicit Transaction
+```javascript
+// Each statement is automatically wrapped in a transaction by SQLite
+await db.execute("INSERT INTO users (name) VALUES ('Eve')"); // ✅ Auto-committed
+await db.sync(); // Persist to IndexedDB
 ```
 
 ## 🏗️ Architecture
 
-### VFS Integration
-- Transactions are handled by SQLite's built-in transaction manager
-- IndexedDB VFS provides durable storage through commit markers
-- Block-level storage ensures atomic operations
+### Transaction Layers
 
-### Commit Markers
-- Each database has a commit marker that advances on successful transactions
-- Only blocks with valid commit markers are visible to reads
-- Ensures crash consistency and isolation
+1. **SQLite Transaction Manager**
+   - Handles BEGIN/COMMIT/ROLLBACK semantics
+   - Manages transaction isolation and ACID properties
+   - Controls journal file operations
 
-### Block Storage
-- Data is stored in 8KB blocks in IndexedDB
-- Each block has metadata with checksums and commit markers
-- Global storage registry manages multiple databases
+2. **IndexedDB VFS Layer**
+   - Translates SQLite file operations to IndexedDB
+   - Provides persistent storage backend
+   - Handles async operations
+
+3. **Block Storage System**
+   - Data stored in 8KB blocks in IndexedDB
+   - Each block has metadata with checksums
+   - LRU cache (128 blocks default) for performance
+   - Dirty blocks tracked until sync
+
+### Persistence Flow
+
+1. **Execute SQL** → SQLite processes transaction in memory
+2. **COMMIT** → SQLite finalizes transaction (in-memory)
+3. **sync()** → Writes dirty blocks to IndexedDB (persistent)
+
+**Important**: Changes are not persisted to IndexedDB until `sync()` is called!
 
 ## ⚡ Performance Characteristics
 
@@ -94,46 +105,55 @@ unsafe {
 ## 🔒 ACID Properties
 
 ### **Atomicity** ✅
-- Transactions are all-or-nothing
-- Failed transactions leave no partial changes
-- Rollbacks completely undo all changes
+- SQLite transactions are all-or-nothing (within SQL)
+- ROLLBACK completely undoes all in-transaction changes
+- sync() atomically writes all dirty blocks to IndexedDB
 
 ### **Consistency** ✅
-- Database constraints are enforced
+- SQLite enforces database constraints
 - Foreign key relationships maintained
-- Schema changes are transactional
+- Schema changes are transactional within SQLite
 
-### **Isolation** ✅
-- Uncommitted changes are invisible to other instances
-- Read committed isolation level
-- No dirty reads or lost updates
+### **Isolation** ⚠️
+- SQLite provides read committed isolation in-memory
+- Multiple Database instances operate independently
+- No cross-instance transaction coordination
+- Last sync() wins for conflicting writes
 
-### **Durability** ✅
-- Committed changes persist in IndexedDB
-- Survives browser restarts and crashes
-- Cross-instance persistence guaranteed
+### **Durability** ⚠️
+- **Two-phase durability model**:
+  1. SQL COMMIT → durable in SQLite's in-memory state
+  2. sync() → durable in IndexedDB (persistent storage)
+- **WITHOUT sync()**: Changes lost on page refresh/crash
+- **WITH sync()**: Survives browser restarts and crashes
 
 ## 🚫 Limitations
 
-### 1. **Journal Mode Restrictions**
-- WAL mode is not fully supported with current VFS
-- MEMORY journal mode recommended for testing
-- DELETE journal mode works for production
+### 1. **Manual Sync Required**
+- **CRITICAL**: Changes are NOT automatically persisted to IndexedDB
+- Must call `await db.sync()` after write operations to persist
+- Without sync(), data is lost on page refresh/crash
 
-### 2. **Concurrency Model**
-- Single-writer, multiple-reader model
-- No true concurrent writers to same database
-- Cross-instance reads of committed data only
+### 2. **Journal Mode**
+- MEMORY journal mode used (journal in-memory only)
+- WAL mode not currently supported
+- Journal operations don't persist until sync()
 
-### 3. **Browser Storage Limits**
-- Subject to IndexedDB storage quotas
+### 3. **Concurrency Model**
+- Single database instance per page recommended
+- Multiple Database instances access same IndexedDB store
+- Last sync() wins for conflicting writes
+- No multi-tab write coordination
+
+### 4. **Browser Storage Limits**
+- Subject to IndexedDB quota (typically 50MB-1GB)
 - Large transactions may hit browser limits
-- Consider chunking very large operations
+- Monitor storage usage in production apps
 
-### 4. **Async Constraints**
-- Some operations are inherently asynchronous
-- Sync operations may have performance implications
-- Background persistence happens asynchronously
+### 5. **Performance Considerations**
+- sync() is async and may take time for large datasets
+- Frequent sync() calls can impact performance
+- Batch operations when possible
 
 ## 🧪 Testing
 
@@ -154,25 +174,54 @@ wasm-pack test --chrome --headless --test wasm_vfs_transactional_tests
 
 ## 🎯 Best Practices
 
-### 1. **Keep Transactions Short**
-- Minimize transaction duration to reduce conflicts
-- Batch related operations within single transactions
-- Avoid user interaction within transactions
+### 1. **Always Call sync() After Writes**
+```javascript
+// ✅ GOOD: Persist changes immediately
+await db.execute('INSERT INTO users VALUES (1, "Alice")');
+await db.sync();
 
-### 2. **Handle Errors Gracefully**
-- Always check return codes from SQL operations
-- Use ROLLBACK for error recovery
-- Implement retry logic for transient failures
+// ❌ BAD: Changes lost on page refresh!
+await db.execute('INSERT INTO users VALUES (1, "Alice")');
+// Forgot to sync!
+```
 
-### 3. **Use Appropriate Isolation**
-- Read committed isolation is default and recommended
-- Consider transaction boundaries carefully
-- Avoid long-running read transactions
+### 2. **Batch Operations Before Sync**
+```javascript
+// ✅ GOOD: Multiple operations, single sync
+await db.execute('BEGIN TRANSACTION');
+await db.execute('INSERT INTO users VALUES (1, "Alice")');
+await db.execute('INSERT INTO users VALUES (2, "Bob")');
+await db.execute('INSERT INTO users VALUES (3, "Charlie")');
+await db.execute('COMMIT');
+await db.sync(); // Single sync for all changes
+```
 
-### 4. **Monitor Storage Usage**
-- IndexedDB has browser-specific quota limits
-- Implement storage monitoring for production apps
-- Consider data archival strategies for large datasets
+### 3. **Handle Errors Gracefully**
+```javascript
+try {
+  await db.execute('BEGIN TRANSACTION');
+  await db.execute('INSERT INTO users VALUES (1, "Alice")');
+  await db.execute('COMMIT');
+  await db.sync();
+} catch (error) {
+  await db.execute('ROLLBACK');
+  console.error('Transaction failed:', error);
+}
+```
+
+### 4. **Sync Before Page Unload**
+```javascript
+window.addEventListener('beforeunload', async (e) => {
+  if (hasUnsyncedChanges) {
+    await db.sync();
+  }
+});
+```
+
+### 5. **Monitor Storage Usage**
+- IndexedDB quota: typically 50MB-1GB per origin
+- Check storage API for available space
+- Implement data cleanup strategies for large datasets
 
 ## 📚 References
 
