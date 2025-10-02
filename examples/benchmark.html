@@ -130,6 +130,7 @@
     <div class="note">
         <strong>Comparing:</strong> DataSync (persistent SQLite + IndexedDB VFS), absurd-sql (persistent SQLite + IndexedDB), and raw IndexedDB
         <br><small>✅ All implementations use persistent IndexedDB storage. DataSync uses our optimized BlockStorage (20x faster reads!).</small>
+        <br><small>💡 Each benchmark run now cleans up IndexedDB completely to ensure consistent performance between runs.</small>
     </div>
 
     <div class="benchmark-controls">
@@ -253,6 +254,20 @@
             });
         }
 
+        // Helper: Clear DataSync databases for clean benchmark runs
+        async function clearDataSyncDatabases() {
+            return new Promise(resolve => {
+                const deleteReq1 = indexedDB.deleteDatabase('benchmark_datasync');
+                const deleteReq2 = indexedDB.deleteDatabase('block_storage');
+                let completed = 0;
+                const checkDone = () => { if (++completed === 2) resolve(); };
+                deleteReq1.onsuccess = checkDone;
+                deleteReq1.onerror = checkDone;
+                deleteReq2.onsuccess = checkDone;
+                deleteReq2.onerror = checkDone;
+            });
+        }
+
         // Benchmark: DataSync (persistent SQLite with IndexedDB)
         async function benchmarkDataSync(numRows, batchSize, rowSize) {
             showStatus('Running DataSync benchmark...', 'running');
@@ -296,7 +311,7 @@
             await db.execute(`DELETE FROM benchmark WHERE id <= ${Math.floor(numRows / 4)}`);
             const deleteTime = performance.now() - deleteStart;
 
-            // Cleanup
+            // Cleanup - drop table and close
             await db.execute('DROP TABLE benchmark');
             await db.close();
 
@@ -520,6 +535,10 @@
             results = {};
             
             try {
+                // Clear DataSync databases once at the start for consistent performance
+                showStatus('Preparing clean environment...', 'running');
+                await clearDataSyncDatabases();
+                
                 await benchmarkDataSync(numRows, batchSize, rowSize);
                 await benchmarkAbsurdSQL(numRows, batchSize, rowSize);
                 await benchmarkIndexedDB(numRows, batchSize, rowSize);
@@ -537,6 +556,8 @@
             const rowSize = parseInt(document.getElementById('rowSize').value);
 
             try {
+                // Clear databases before individual run for consistent results
+                await clearDataSyncDatabases();
                 await benchmarkDataSync(numRows, batchSize, rowSize);
                 showStatus('DataSync benchmark complete!', 'complete');
                 setTimeout(hideStatus, 2000);

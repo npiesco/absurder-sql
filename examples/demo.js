@@ -84,6 +84,10 @@ class SQLiteDemo {
             this.logToConsole('Disconnecting from database...', 'info');
             
             if (this.db) {
+                // Ensure all data is synced before closing
+                this.logToConsole('Final sync to IndexedDB...', 'info');
+                await this.db.sync();
+                
                 await this.db.close();
                 this.db = null;
             }
@@ -118,6 +122,14 @@ class SQLiteDemo {
             // Execute real query
             const result = await this.db.execute(query);
             const executionTime = performance.now() - startTime;
+
+            // CRITICAL: Sync to IndexedDB after write operations to ensure persistence
+            const isWriteOperation = /^\s*(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)/i.test(query);
+            if (isWriteOperation) {
+                this.logToConsole('Syncing to IndexedDB...', 'info');
+                await this.db.sync();
+                this.logToConsole('✓ Data persisted to IndexedDB', 'success');
+            }
 
             this.displayQueryResult(result, executionTime);
             this.updateStats(result, executionTime);

@@ -520,8 +520,11 @@ impl Database {
     }
     
     pub async fn sync_internal(&mut self) -> Result<(), DatabaseError> {
-        // In WASM, sync is handled by VFS xSync callback
-        // This is a no-op for now
+        // Trigger VFS sync to persist all blocks to IndexedDB
+        #[cfg(target_arch = "wasm32")]
+        {
+            crate::storage::vfs_sync_database_blocking(&self.name)?;
+        }
         Ok(())
     }
 }
