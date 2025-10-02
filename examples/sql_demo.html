@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Demo - DataSync</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            margin: 0;
+        }
+        h1 {
+            color: #4ec9b0;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            margin-bottom: 20px;
+            cursor: pointer;
+            background: #0e639c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        #output {
+            white-space: pre-wrap;
+            padding: 20px;
+            background: #2d2d2d;
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: auto;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗄️ SQL Demo - DataSync</h1>
+    <button id="runDemo">Run Demo Again</button>
+    <div id="output">Loading demo...</div>
+
+    <script type="module">
+        import init, { Database } from '../pkg/sqlite_indexeddb_rs.js';
+
+        const output = document.getElementById('output');
+        const btn = document.getElementById('runDemo');
+        
+        function log(msg) {
+            output.textContent += msg + '\n';
+            console.log(msg);
+        }
+
+        async function runDemo() {
+            output.textContent = '';
+            btn.disabled = true;
+            
+            try {
+                log('🗄️  SQL Demo - DataSync\n');
+
+                log('Initializing WASM...');
+                await init();
+                log('✓ WASM initialized\n');
+
+                const db = await Database.newDatabase('sql_demo');
+                log('✓ Connected to database\n');
+
+                log('Creating tables...');
+                await db.execute(`
+                    CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        email TEXT UNIQUE,
+                        age INTEGER
+                    )
+                `);
+                await db.execute(`
+                    CREATE TABLE IF NOT EXISTS orders (
+                        id INTEGER PRIMARY KEY,
+                        user_id INTEGER,
+                        amount REAL,
+                        status TEXT,
+                        FOREIGN KEY(user_id) REFERENCES users(id)
+                    )
+                `);
+                await db.sync();
+                log('✓ Tables created and synced\n');
+
+                log('Inserting data...');
+                await db.execute("INSERT INTO users VALUES (1, 'Alice', 'alice@test.com', 30)");
+                await db.execute("INSERT INTO users VALUES (2, 'Bob', 'bob@test.com', 25)");
+                await db.execute("INSERT INTO users VALUES (3, 'Charlie', 'charlie@test.com', 35)");
+                await db.execute("INSERT INTO orders VALUES (1, 1, 99.99, 'completed')");
+                await db.execute("INSERT INTO orders VALUES (2, 1, 149.50, 'pending')");
+                await db.execute("INSERT INTO orders VALUES (3, 2, 75.00, 'completed')");
+                await db.sync();
+                log('✓ Data inserted and synced\n');
+
+                log('SELECT * FROM users:');
+                const users = await db.execute('SELECT * FROM users');
+                log(JSON.stringify(users, null, 2));
+                log(`\nFound ${users.rows.length} users\n`);
+
+                log('SELECT * FROM orders:');
+                const orders = await db.execute('SELECT * FROM orders');
+                log(JSON.stringify(orders, null, 2));
+                log(`\nFound ${orders.rows.length} orders\n`);
+
+                log('JOIN query - Users with their orders:');
+                const joined = await db.execute(`
+                    SELECT u.name, u.email, o.amount, o.status
+                    FROM users u
+                    JOIN orders o ON u.id = o.user_id
+                    ORDER BY u.name
+                `);
+                log(JSON.stringify(joined, null, 2));
+
+                log('\nAggregate - Total by user:');
+                const agg = await db.execute(`
+                    SELECT u.name, COUNT(o.id) as order_count, SUM(o.amount) as total
+                    FROM users u
+                    LEFT JOIN orders o ON u.id = o.user_id
+                    GROUP BY u.id
+                `);
+                log(JSON.stringify(agg, null, 2));
+
+                log('\nUpdating order status...');
+                const update = await db.execute("UPDATE orders SET status = 'shipped' WHERE id = 2");
+                await db.sync();
+                log(`✓ Updated ${update.affected_rows} row(s) and synced`);
+
+                log('\nDeleting user...');
+                const del = await db.execute('DELETE FROM users WHERE id = 3');
+                await db.sync();
+                log(`✓ Deleted ${del.affected_rows} row(s) and synced`);
+
+                log('\nTesting transaction...');
+                await db.execute('BEGIN TRANSACTION');
+                await db.execute("INSERT INTO users VALUES (4, 'Diana', 'diana@test.com', 28)");
+                await db.execute("INSERT INTO orders VALUES (4, 4, 200.00, 'pending')");
+                await db.execute('COMMIT');
+                await db.sync();
+                log('✓ Transaction committed and synced');
+
+                const count = await db.execute('SELECT COUNT(*) as count FROM users');
+                log(`\n📊 Final user count: ${count.rows[0].values[0].value}`);
+
+                await db.close();
+                log('\n✅ Demo complete!');
+
+            } catch (error) {
+                log(`\n❌ ERROR: ${error.message}`);
+                log(`Stack: ${error.stack}`);
+                console.error(error);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        btn.addEventListener('click', runDemo);
+        
+        // Auto-run on load
+        runDemo();
+    </script>
+</body>
+</html>

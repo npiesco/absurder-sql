@@ -96,3 +96,50 @@ A comprehensive regression test suite (`sqlite_wasm_hang_regression_test.rs`) en
 - **Complex query scenarios** with JOINs and aggregations
 
 All tests pass consistently with no hangs, timeouts, or memory leaks, ensuring production-ready stability.
+
+## Examples & Demos
+
+The `examples/` directory contains ready-to-run demonstrations of DataSync capabilities:
+
+### SQL Demo (`sql_demo.js` / `sql_demo.html`)
+Comprehensive SQL operations demo showcasing:
+- Table creation with foreign keys
+- INSERT operations with transactions
+- Complex SELECT queries with JOINs and aggregations
+- UPDATE and DELETE operations
+- Automatic IndexedDB persistence via `sync()` calls
+
+**Usage:**
+```bash
+node examples/sql_demo.js
+```
+This starts an HTTP server and opens your browser to run the full demo automatically.
+
+### Interactive Web Demo (`web_demo.html`)
+Full-featured interactive SQL interface with:
+- Visual query editor with syntax highlighting
+- Real-time query execution and result display
+- Console output for debugging
+- Quick action buttons for common operations
+- Automatic sync after write operations
+
+**Usage:**
+```bash
+npm run serve
+# Open http://localhost:8080/examples/web_demo.html
+```
+
+### Performance Benchmark (`benchmark.html`)
+Comprehensive comparison of DataSync vs absurd-sql vs raw IndexedDB:
+- INSERT, SELECT, UPDATE, DELETE benchmarks
+- Configurable test parameters (rows, batch size, data size)
+- Real-time performance visualization
+- Automatic database cleanup between runs
+
+**Usage:**
+```bash
+npm run serve
+# Open http://localhost:8080/examples/benchmark.html
+```
+
+All demos require a browser environment (no headless mode) due to IndexedDB requirements. Data persists across page refreshes when using proper `sync()` calls.
