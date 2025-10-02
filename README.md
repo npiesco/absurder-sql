@@ -108,14 +108,6 @@ DataSync/
 └── README.md              # This file
 ```
 
-## 📚 Documentation
-
-- **[TRANSACTION_SUPPORT.md](TRANSACTION_SUPPORT.md)** - Complete guide to transaction handling, commit/rollback behavior, and crash consistency
-- **[PROGRESS.md](PROGRESS.md)** - Development progress tracker with completed features and open work items
-- **[WASM-TEST.md](WASM-TEST.md)** - WASM testing guide and commands
-- **[examples/BENCHMARK.md](examples/BENCHMARK.md)** - Performance benchmarks vs absurd-sql and raw IndexedDB
-- **[examples/DEMO_GUIDE.md](examples/DEMO_GUIDE.md)** - Comprehensive guide to running and using the web demos
-
 ## System Architecture
 
 ### Core Architecture
@@ -141,6 +133,83 @@ The web demo uses vanilla JavaScript with Bootstrap for styling, demonstrating r
 
 ### Configuration System
 The architecture supports configurable database options including cache size, synchronization modes, and VFS-specific settings, allowing optimization for different use cases and performance requirements.
+
+## SQLite WASM Integration
+
+### Architecture Overview
+The library provides a robust SQLite implementation for WebAssembly environments using the `sqlite-wasm-rs` crate with precompiled features. This ensures stable, production-ready SQLite functionality without the hang issues that plagued earlier custom implementations.
+
+### Key Features
+- **Full SQLite C API Support**: Complete implementation of `sqlite3_prepare_v2`, `sqlite3_step`, `sqlite3_finalize`, and parameter binding
+- **Memory Safety**: Proper Rust `Drop` trait implementation for automatic cleanup of SQLite resources
+- **Async Operations**: All database operations are async-compatible for seamless integration with browser event loops
+- **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
+- **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
+
+## Demos & Examples
+
+### Vite Integration (`vite-app/`)
+Modern web app example showing DataSync with Vite:
+- ES modules with hot reload
+- Minimal setup, production-ready build
+- Clean integration pattern
+- Demonstrates INSERT, SELECT, UPDATE with persistence
+
+**[📖 Full setup guide](examples/vite-app/README.md)**
+
+```bash
+cd examples/vite-app
+npm install
+npm run dev
+```
+
+### SQL Demo (`sql_demo.js` / `sql_demo.html`)
+Comprehensive SQL operations demo:
+- Table creation with foreign keys
+- INSERT operations with transactions
+- Complex SELECT queries with JOINs and aggregations
+- UPDATE and DELETE operations
+- Automatic IndexedDB persistence via `sync()` calls
+
+```bash
+node examples/sql_demo.js
+```
+
+### Interactive Web Demo (`web_demo.html`)
+Full-featured interactive SQL interface:
+- Visual query editor
+- Real-time query execution and result display
+- Console output for debugging
+- Quick action buttons for common operations
+- Automatic sync after write operations
+
+**[📖 Detailed walkthrough](examples/DEMO_GUIDE.md)**
+
+```bash
+npm run serve
+# Open http://localhost:8080/examples/web_demo.html
+```
+
+## Performance Benchmarks
+
+DataSync consistently outperforms absurd-sql and raw IndexedDB across all operations.
+
+**[📖 Full benchmark results and analysis](examples/BENCHMARK.md)**
+
+### Latest Results
+
+| Implementation | Insert | Read | Update | Delete |
+|---------------|--------|------|--------|--------|
+| **DataSync** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
+| absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
+| Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
+
+### Run Benchmarks
+
+```bash
+npm run serve
+# Open http://localhost:8080/examples/benchmark.html
+```
 
 ## External Dependencies
 
@@ -168,82 +237,3 @@ The architecture supports configurable database options including cache size, sy
 - **Rust 1.85.0+**: Compiler targeting the 2024 edition for latest language features
 
 The library is designed to work entirely in the browser environment without requiring any server-side components, making it suitable for offline-first applications and client-side data processing scenarios.
-
-## SQLite WASM Integration
-
-### Architecture Overview
-The library provides a robust SQLite implementation for WebAssembly environments using the `sqlite-wasm-rs` crate with precompiled features. This ensures stable, production-ready SQLite functionality without the hang issues that plagued earlier custom implementations.
-
-### Key Features
-- **Full SQLite C API Support**: Complete implementation of `sqlite3_prepare_v2`, `sqlite3_step`, `sqlite3_finalize`, and parameter binding
-- **Memory Safety**: Proper Rust `Drop` trait implementation for automatic cleanup of SQLite resources
-- **Async Operations**: All database operations are async-compatible for seamless integration with browser event loops
-- **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
-- **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
-
-## Examples & Demos
-
-The `examples/` directory contains ready-to-run demonstrations of DataSync capabilities:
-
-### Vite Integration (`vite-app/`)
-Modern web app example showing DataSync with Vite:
-- ES modules with hot reload
-- Minimal setup, production-ready build
-- Clean integration pattern
-- Demonstrates INSERT, SELECT, UPDATE with persistence
-
-**[See examples/vite-app/README.md for full setup guide](examples/vite-app/README.md)**
-
-**Quick Start:**
-```bash
-cd examples/vite-app
-npm install
-npm run dev
-```
-
-### SQL Demo (`sql_demo.js` / `sql_demo.html`)
-Comprehensive SQL operations demo showcasing:
-- Table creation with foreign keys
-- INSERT operations with transactions
-- Complex SELECT queries with JOINs and aggregations
-- UPDATE and DELETE operations
-- Automatic IndexedDB persistence via `sync()` calls
-
-**Usage:**
-```bash
-node examples/sql_demo.js
-```
-This starts an HTTP server and opens your browser to run the full demo automatically.
-
-### Interactive Web Demo (`web_demo.html`)
-Full-featured interactive SQL interface with:
-- Visual query editor
-- Real-time query execution and result display
-- Console output for debugging
-- Quick action buttons for common operations
-- Automatic sync after write operations
-
-**[See examples/DEMO_GUIDE.md for detailed walkthrough](examples/DEMO_GUIDE.md)**
-
-**Usage:**
-```bash
-npm run serve
-# Open http://localhost:8080/examples/web_demo.html
-```
-
-### Performance Benchmark (`benchmark.html`)
-Comprehensive comparison of DataSync vs absurd-sql vs raw IndexedDB:
-- INSERT, SELECT, UPDATE, DELETE benchmarks
-- Configurable test parameters (rows, batch size, data size)
-- Real-time performance visualization
-- Automatic database cleanup between runs
-
-**[See examples/BENCHMARK.md for detailed results and analysis](examples/BENCHMARK.md)**
-
-**Usage:**
-```bash
-npm run serve
-# Open http://localhost:8080/examples/benchmark.html
-```
-
-All demos require a browser environment (no headless mode) due to IndexedDB requirements. Data persists across page refreshes when using proper `sync()` calls.
