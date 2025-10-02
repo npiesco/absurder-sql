@@ -209,6 +209,22 @@ All tests pass consistently with no hangs, timeouts, or memory leaks, ensuring p
 
 The `examples/` directory contains ready-to-run demonstrations of DataSync capabilities:
 
+### Vite Integration (`vite-app/`)
+Modern web app example showing DataSync with Vite:
+- ES modules with hot reload
+- Minimal setup, production-ready build
+- Clean integration pattern
+- Demonstrates INSERT, SELECT, UPDATE with persistence
+
+**[See examples/vite-app/README.md for full setup guide](examples/vite-app/README.md)**
+
+**Quick Start:**
+```bash
+cd examples/vite-app
+npm install
+npm run dev
+```
+
 ### SQL Demo (`sql_demo.js` / `sql_demo.html`)
 Comprehensive SQL operations demo showcasing:
 - Table creation with foreign keys
@@ -225,11 +241,13 @@ This starts an HTTP server and opens your browser to run the full demo automatic
 
 ### Interactive Web Demo (`web_demo.html`)
 Full-featured interactive SQL interface with:
-- Visual query editor with syntax highlighting
+- Visual query editor
 - Real-time query execution and result display
 - Console output for debugging
 - Quick action buttons for common operations
 - Automatic sync after write operations
+
+**[See examples/DEMO_GUIDE.md for detailed walkthrough](examples/DEMO_GUIDE.md)**
 
 **Usage:**
 ```bash
@@ -243,6 +261,8 @@ Comprehensive comparison of DataSync vs absurd-sql vs raw IndexedDB:
 - Configurable test parameters (rows, batch size, data size)
 - Real-time performance visualization
 - Automatic database cleanup between runs
+
+**[See examples/BENCHMARK.md for detailed results and analysis](examples/BENCHMARK.md)**
 
 **Usage:**
 ```bash
