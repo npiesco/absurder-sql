@@ -20,17 +20,19 @@ use super::block_storage::GLOBAL_METADATA_TEST;
 
 /// Synchronous block read implementation
 pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
-        log::debug!("Reading block {} from cache or storage", block_id);
         // Skip auto_sync check for reads - only writes trigger sync
         
         // Check cache first (both native and WASM)
         if let Some(data) = storage.cache.get(&block_id).cloned() {
-            log::debug!("Block {} found in cache (sync)", block_id);
             // Verify checksum even for cached data to catch corruption
             if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
                 return Err(e);
             }
-            storage.touch_lru(block_id);
+            // Only update LRU when close to capacity to avoid O(n) overhead on every read
+            // This maintains correctness for eviction while optimizing hot-path performance
+            if storage.cache.len() > (storage.capacity * 4 / 5) {
+                storage.touch_lru(block_id);
+            }
             return Ok(data);
         }
 
@@ -86,7 +88,6 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             
             // Cache for future reads (skip eviction check for performance)
             storage.cache.insert(block_id, data.clone());
-            log::debug!("Block {} cached from global storage (sync)", block_id);
             return Ok(data);
         }
 
@@ -230,7 +231,6 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
 
 /// Synchronous block write implementation
 pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
-    log::debug!("Writing block (sync): {} ({} bytes)", block_id, data.len());
     storage.maybe_auto_sync();
     
     // Check for backpressure conditions
@@ -539,7 +539,6 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                 }
             }
             
-            log::debug!("Block {} marked as dirty (sync)", block_id);
             storage.touch_lru(block_id);
             storage.evict_if_needed();
             Ok(())

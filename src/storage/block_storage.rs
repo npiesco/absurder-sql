@@ -694,17 +694,10 @@ impl BlockStorage {
             match victim_pos {
                 Some(pos) => {
                     let victim = self.lru_order.remove(pos).expect("valid pos");
-                    if self.cache.remove(&victim).is_some() {
-                        log::debug!("Evicted clean block {} from cache due to capacity", victim);
-                    }
+                    self.cache.remove(&victim);
                 }
                 None => {
                     // All blocks are dirty; cannot evict. Allow temporary overflow.
-                    log::debug!(
-                        "Cache over capacity ({}>{}) but all blocks are dirty; skipping eviction",
-                        self.cache.len(),
-                        self.capacity
-                    );
                     break;
                 }
             }
@@ -948,7 +941,6 @@ impl BlockStorage {
     }
 
     pub fn clear_cache(&mut self) {
-        log::debug!("Clearing cache ({} blocks)", self.cache.len());
         self.cache.clear();
         self.lru_order.clear();
     }
@@ -988,8 +980,6 @@ impl BlockStorage {
                 self.lru_order.push_back(block_id);
             }
         }
-        
-        log::debug!("Reloaded {} blocks from GLOBAL_STORAGE for {}", self.cache.len(), self.db_name);
     }
 
     pub fn get_cache_size(&self) -> usize {

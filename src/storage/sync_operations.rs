@@ -72,7 +72,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                 let db_storage = storage_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in to_persist {
                     db_storage.insert(block_id, data);
-                    log::debug!("Persisted block {} to global storage (native test path)", block_id);
                 }
             });
             
@@ -96,7 +95,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                                 algo: storage.checksum_manager.get_algorithm(block_id),
                             },
                         );
-                        log::debug!("Persisted metadata for block {} in native test path", block_id);
                     }
                 }
             });
@@ -105,7 +103,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             vfs_sync::with_global_commit_marker(|cm| {
                 let mut cm_map = cm.borrow_mut();
                 cm_map.insert(storage.db_name.clone(), next_commit);
-                log::debug!("Advanced commit marker for {} to {}", storage.db_name, next_commit);
             });
             
             // Clear dirty blocks
@@ -187,7 +184,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                     
                     if should_update {
                         db_storage.insert(*block_id, data.clone());
-                        log::debug!("Persisted block {} to global storage", block_id);
                     }
                 }
             });
@@ -208,7 +204,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                                 algo: storage.checksum_manager.get_algorithm(block_id),
                             },
                         );
-                        log::debug!("Persisted metadata for block {}", block_id);
                     }
                 }
             });

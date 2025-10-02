@@ -29,7 +29,6 @@ struct FsDealloc { tombstones: Vec<u64> }
 
 /// Allocate a new block and return its ID
 pub async fn allocate_block_impl(storage: &mut BlockStorage) -> Result<u64, DatabaseError> {
-        log::debug!("Allocating new block");
         
         // Find the next available block ID
         let block_id = storage.next_block_id;
@@ -101,7 +100,6 @@ pub async fn allocate_block_impl(storage: &mut BlockStorage) -> Result<u64, Data
 
 /// Deallocate a block and mark it as available for reuse
 pub async fn deallocate_block_impl(storage: &mut BlockStorage, block_id: u64) -> Result<(), DatabaseError> {
-        log::debug!("Deallocating block: {}", block_id);
         
         // Check if block is actually allocated
         if !storage.allocated_blocks.contains(&block_id) {
