@@ -181,30 +181,6 @@ The library provides a robust SQLite implementation for WebAssembly environments
 - **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
 - **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
 
-### Root Cause Resolution
-The previous SQLite WASM implementation suffered from infinite hangs in `sqlite3_step` calls due to:
-1. **Deprecated WASM module initialization parameters** in older SQLite WASM bindings
-2. **Incompatible parameter passing** between Rust and SQLite C API in WASM context
-3. **Missing timeout mechanisms** for long-running operations
-
-### Solution Implementation
-- **Replaced custom bindings** with stable `sqlite-wasm-rs` crate (v0.4)
-- **Enabled precompiled features** to avoid compilation-time initialization issues
-- **Implemented comprehensive timeout detection** in regression tests
-- **Added proper error handling** for all SQLite operations
-- **Created extensive test coverage** (64 WASM tests + 74 native tests)
-
-### Regression Prevention
-A comprehensive regression test suite (`sqlite_wasm_hang_regression_test.rs`) ensures the hang issue never recurs:
-- **Operation timeout tests** for CREATE, INSERT, SELECT operations (5-second limits)
-- **Large result set handling** (1000+ rows) without hangs
-- **Concurrent operation simulation** to test resource contention
-- **Error condition testing** ensuring invalid SQL fails gracefully
-- **Configuration validation** to detect deprecated initialization patterns
-- **Complex query scenarios** with JOINs and aggregations
-
-All tests pass consistently with no hangs, timeouts, or memory leaks, ensuring production-ready stability.
-
 ## Examples & Demos
 
 The `examples/` directory contains ready-to-run demonstrations of DataSync capabilities:
