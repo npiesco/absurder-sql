@@ -12,3 +12,7 @@ test_sqlite_creation.db/
 test_*/
 .DS_Storenode_modules/
 package-lock.json
+
+# Personal
+# TRANSACTION_SUPPORT.md
+WASM-TEST.med
