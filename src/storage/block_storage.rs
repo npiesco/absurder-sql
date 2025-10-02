@@ -217,12 +217,28 @@ impl BlockStorage {
     pub fn new_sync(db_name: &str) -> Self {
         log::info!("Creating BlockStorage synchronously for database: {}", db_name);
         
+        // Load existing data from GLOBAL_STORAGE to support multi-connection scenarios
+        use crate::storage::vfs_sync::with_global_storage;
+        let (cache, allocated_blocks, max_block_id) = with_global_storage(|gs| {
+            let storage_map = gs.borrow();
+            if let Some(db_storage) = storage_map.get(db_name) {
+                let cache = db_storage.clone();
+                let allocated = db_storage.keys().copied().collect::<HashSet<_>>();
+                let max_id = db_storage.keys().max().copied().unwrap_or(0);
+                (cache, allocated, max_id)
+            } else {
+                (HashMap::new(), HashSet::new(), 0)
+            }
+        });
+        
+        log::info!("Loaded {} blocks from GLOBAL_STORAGE for {} (max_block_id={})", cache.len(), db_name, max_block_id);
+        
         Self {
-            cache: HashMap::new(),
+            cache,
             dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
-            allocated_blocks: HashSet::new(),
+            allocated_blocks,
             deallocated_blocks: HashSet::new(),
-            next_block_id: 1,
+            next_block_id: max_block_id + 1,
             capacity: 128,
             lru_order: VecDeque::new(),
             checksum_manager: ChecksumManager::new(ChecksumAlgorithm::FastHash),
@@ -935,6 +951,45 @@ impl BlockStorage {
         log::debug!("Clearing cache ({} blocks)", self.cache.len());
         self.cache.clear();
         self.lru_order.clear();
+    }
+    
+    /// Reload cache from GLOBAL_STORAGE (WASM only, for multi-connection support)
+    #[cfg(target_arch = "wasm32")]
+    pub fn reload_cache_from_global_storage(&mut self) {
+        use crate::storage::vfs_sync::with_global_storage;
+        let fresh_cache = with_global_storage(|gs| {
+            let storage_map = gs.borrow();
+            if let Some(db_storage) = storage_map.get(&self.db_name) {
+                db_storage.clone()
+            } else {
+                std::collections::HashMap::new()
+            }
+        });
+        
+        // Replace cache contents while preserving LRU order for blocks that still exist
+        let old_lru = std::mem::replace(&mut self.lru_order, std::collections::VecDeque::new());
+        self.cache.clear();
+        
+        // Insert new cache data
+        for (block_id, block_data) in fresh_cache {
+            self.cache.insert(block_id, block_data);
+        }
+        
+        // Restore LRU order for blocks that still exist, then add new blocks
+        for block_id in old_lru {
+            if self.cache.contains_key(&block_id) {
+                self.lru_order.push_back(block_id);
+            }
+        }
+        
+        // Add any new blocks not in the old LRU order
+        for &block_id in self.cache.keys() {
+            if !self.lru_order.contains(&block_id) {
+                self.lru_order.push_back(block_id);
+            }
+        }
+        
+        log::debug!("Reloaded {} blocks from GLOBAL_STORAGE for {}", self.cache.len(), self.db_name);
     }
 
     pub fn get_cache_size(&self) -> usize {

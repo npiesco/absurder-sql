@@ -1,8 +1,10 @@
 // Filesystem Persistence Demo
 // Compile with: cargo run --example persist_demo --features fs_persist
 
+#[cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::storage::BlockStorage;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📁 Filesystem Persistence Demo\n");
@@ -49,4 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n💡 Check ./datasync_storage/my_database/ to see the .bin files");
 
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // This example is not supported on WASM
+    panic!("persist_demo is only supported on native targets with fs_persist feature");
 }

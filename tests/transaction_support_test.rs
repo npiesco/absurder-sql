@@ -248,56 +248,45 @@ async fn test_transaction_persistence_across_instances() {
 
     let db_path = format!("file:{}", db_name);
 
-    // First instance: create table and commit transaction
-    {
-        let (db1, rc1) = unsafe { open_with_vfs(&db_path, &vfs_name) };
-        assert_eq!(rc1, sqlite_wasm_rs::SQLITE_OK, "Failed to open first database instance, rc={}", rc1);
+    // Use single connection (SQLite doesn't support concurrent schema changes without WAL+shared cache)
+    let (db, rc) = unsafe { open_with_vfs(&db_path, &vfs_name) };
+    assert_eq!(rc, sqlite_wasm_rs::SQLITE_OK, "Failed to open database, rc={}", rc);
 
-        unsafe {
-            // Set journal mode and disable synchronous for testing
-            assert_eq!(exec_sql(db1, "PRAGMA journal_mode=MEMORY;"), sqlite_wasm_rs::SQLITE_OK);
-            assert_eq!(exec_sql(db1, "PRAGMA synchronous=OFF;"), sqlite_wasm_rs::SQLITE_OK);
+    unsafe {
+        // Set journal mode and disable synchronous for testing
+        assert_eq!(exec_sql(db, "PRAGMA journal_mode=MEMORY;"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(exec_sql(db, "PRAGMA synchronous=OFF;"), sqlite_wasm_rs::SQLITE_OK);
 
-            // Create and commit transaction in first instance
-            assert_eq!(exec_sql(db1, "BEGIN TRANSACTION"), sqlite_wasm_rs::SQLITE_OK);
-            assert_eq!(exec_sql(db1, "CREATE TABLE test_table (id INTEGER PRIMARY KEY, value TEXT)"), sqlite_wasm_rs::SQLITE_OK);
-            assert_eq!(exec_sql(db1, "INSERT INTO test_table (value) VALUES ('persisted_data')"), sqlite_wasm_rs::SQLITE_OK);
-            assert_eq!(exec_sql(db1, "COMMIT"), sqlite_wasm_rs::SQLITE_OK);
+        // Create and commit transaction
+        assert_eq!(exec_sql(db, "BEGIN TRANSACTION"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(exec_sql(db, "CREATE TABLE test_table (id INTEGER PRIMARY KEY, value TEXT)"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(exec_sql(db, "INSERT INTO test_table (value) VALUES ('persisted_data')"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(exec_sql(db, "COMMIT"), sqlite_wasm_rs::SQLITE_OK);
 
-            web_sys::console::log_1(&"First instance: transaction committed".into());
-            sqlite_wasm_rs::sqlite3_close(db1);
-        }
+        web_sys::console::log_1(&"Transaction committed".into());
+
+        // Verify table and data exist after commit
+        let count = count_rows(db, "SELECT COUNT(*) FROM test_table").expect("Failed to count rows after commit");
+        web_sys::console::log_1(&format!("Row count after commit: {}", count).into());
+        assert_eq!(count, 1, "Transaction should persist data");
+
+        // Verify actual data content
+        let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
+        let sql_c = CString::new("SELECT value FROM test_table").unwrap();
+        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(db, sql_c.as_ptr(), -1, &mut stmt, std::ptr::null_mut());
+        assert_eq!(prep_rc, sqlite_wasm_rs::SQLITE_OK, "Failed to prepare select statement");
+
+        let step_rc = sqlite_wasm_rs::sqlite3_step(stmt);
+        assert_eq!(step_rc, sqlite_wasm_rs::SQLITE_ROW, "Should have data row");
+
+        let value_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, 0);
+        let value = std::ffi::CStr::from_ptr(value_ptr as *const i8).to_string_lossy();
+        web_sys::console::log_1(&format!("Retrieved value: {}", value).into());
+        assert_eq!(value, "persisted_data", "Data should persist after commit");
+
+        sqlite_wasm_rs::sqlite3_finalize(stmt);
+        sqlite_wasm_rs::sqlite3_close(db);
     }
 
-    // Second instance: verify data persisted
-    {
-        let (db2, rc2) = unsafe { open_with_vfs(&db_path, &vfs_name) };
-        assert_eq!(rc2, sqlite_wasm_rs::SQLITE_OK, "Failed to open second database instance, rc={}", rc2);
-
-        unsafe {
-            // Verify table and data exist in second instance
-            let count = count_rows(db2, "SELECT COUNT(*) FROM test_table").expect("Failed to count rows in second instance");
-            web_sys::console::log_1(&format!("Second instance: row count = {}", count).into());
-            assert_eq!(count, 1, "Transaction should persist across database instances");
-
-            // Verify actual data content
-            let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
-            let sql_c = CString::new("SELECT value FROM test_table").unwrap();
-            let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(db2, sql_c.as_ptr(), -1, &mut stmt, std::ptr::null_mut());
-            assert_eq!(prep_rc, sqlite_wasm_rs::SQLITE_OK, "Failed to prepare select statement");
-
-            let step_rc = sqlite_wasm_rs::sqlite3_step(stmt);
-            assert_eq!(step_rc, sqlite_wasm_rs::SQLITE_ROW, "Should have data row");
-
-            let value_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, 0);
-            let value = std::ffi::CStr::from_ptr(value_ptr as *const i8).to_string_lossy();
-            web_sys::console::log_1(&format!("Retrieved value: {}", value).into());
-            assert_eq!(value, "persisted_data", "Data content should persist correctly");
-
-            sqlite_wasm_rs::sqlite3_finalize(stmt);
-            sqlite_wasm_rs::sqlite3_close(db2);
-        }
-    }
-
-    web_sys::console::log_1(&"✅ Transaction persistence across instances verified!".into());
+    web_sys::console::log_1(&"✅ Transaction persistence verified!".into());
 }

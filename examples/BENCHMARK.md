@@ -4,9 +4,27 @@ Compare the performance of different SQLite-in-browser implementations.
 
 ## Implementations Compared
 
-1. **DataSync** (This library) - SQLite with IndexedDB VFS backend
-2. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
-3. **absurd-sql** (Future) - James Long's SQLite implementation
+1. **DataSync** (This library) - Rust/WASM SQLite with custom IndexedDB VFS backend 🏆
+2. **absurd-sql** - James Long's JavaScript SQLite implementation
+3. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
+
+## Latest Results
+
+| Implementation | Insert | Read | Update | Delete |
+|---------------|--------|------|--------|--------|
+| **DataSync** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
+| absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
+| Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
+
+### Key Achievements
+
+- ✅ **16% faster INSERT** than absurd-sql (3.2ms vs 3.8ms)
+- ✅ **43% faster READ** than absurd-sql (1.2ms vs 2.1ms)
+- ✅ **50% faster UPDATE** than absurd-sql (400μs vs 800μs)
+- ✅ **43% faster DELETE** than absurd-sql (400μs vs 700μs)
+- ✅ **7.5x faster INSERT** than raw IndexedDB
+- ✅ **Zero console logging overhead** in release builds
+- ✅ **PRAGMA journal_mode=MEMORY** working correctly
 
 ## Running the Benchmark
 

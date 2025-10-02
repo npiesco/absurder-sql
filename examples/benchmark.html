@@ -260,21 +260,25 @@
             const dbName = 'benchmark_datasync';
             const db = await Database.newDatabase(dbName);
             
+            // CRITICAL: Use same journal mode as absurd-sql for fair comparison
+            const journalResult = await db.execute('PRAGMA journal_mode=MEMORY');
+            console.log('Journal mode result:', journalResult);
+            const pageSizeResult = await db.execute('PRAGMA page_size=8192');
+            console.log('Page size result:', pageSizeResult);
+            
             // Create table
             await db.execute('CREATE TABLE IF NOT EXISTS benchmark (id INTEGER PRIMARY KEY, data TEXT)');
             
             // Generate test data
             const testData = 'x'.repeat(rowSize);
             
-            // INSERT benchmark
+            // INSERT benchmark - build single batched INSERT statement
             const insertStart = performance.now();
-            for (let i = 0; i < numRows; i += batchSize) {
-                const batch = Math.min(batchSize, numRows - i);
-                const values = Array(batch).fill(null).map((_, j) => 
-                    `(${i + j + 1}, '${testData}')`
-                ).join(',');
-                await db.execute(`INSERT INTO benchmark VALUES ${values}`);
+            const allValues = [];
+            for (let i = 0; i < numRows; i++) {
+                allValues.push(`(${i + 1}, '${testData}')`);
             }
+            await db.execute(`INSERT INTO benchmark VALUES ${allValues.join(',')}`);
             const insertTime = performance.now() - insertStart;
 
             // READ benchmark
@@ -347,15 +351,13 @@
                 // Generate test data
                 const testData = 'x'.repeat(rowSize);
                 
-                // INSERT benchmark
+                // INSERT benchmark - build single batched INSERT statement
                 const insertStart = performance.now();
-                for (let i = 0; i < numRows; i += batchSize) {
-                    const batch = Math.min(batchSize, numRows - i);
-                    const values = Array(batch).fill(null).map((_, j) => 
-                        `(${i + j + 1}, '${testData}')`
-                    ).join(',');
-                    await sendMessage('exec', { sql: `INSERT INTO benchmark VALUES ${values}` });
+                const allValues = [];
+                for (let i = 0; i < numRows; i++) {
+                    allValues.push(`(${i + 1}, '${testData}')`);
                 }
+                await sendMessage('exec', { sql: `INSERT INTO benchmark VALUES ${allValues.join(',')}` });
                 const insertTime = performance.now() - insertStart;
 
                 // READ benchmark

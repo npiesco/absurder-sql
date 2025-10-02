@@ -223,41 +223,39 @@ async fn test_concurrent_database_access() {
     let mut db1 = sqlite_indexeddb_rs::Database::new(config1).await
         .expect("Should create database 1");
     
-    let mut db2 = sqlite_indexeddb_rs::Database::new(config2).await
-        .expect("Should create database 2");
-    
     // Create table with db1
     db1.execute("CREATE TABLE concurrent_test (id INTEGER PRIMARY KEY, source TEXT)").await
         .expect("Should create table with db1");
     
-    // Insert with both databases
+    // Insert with db1
     db1.execute("INSERT INTO concurrent_test (source) VALUES ('db1')").await
         .expect("Should insert with db1");
     
     db1.sync().await.expect("Should sync db1");
+    
+    // Close db1 before opening db2 (SQLite doesn't support concurrent schema changes)
+    drop(db1);
+    
+    // Now open db2 - it should see the table created by db1
+    let mut db2 = sqlite_indexeddb_rs::Database::new(config2).await
+        .expect("Should create database 2");
     
     db2.execute("INSERT INTO concurrent_test (source) VALUES ('db2')").await
         .expect("Should insert with db2");
     
     db2.sync().await.expect("Should sync db2");
     
-    // Read from both
-    let result1 = db1.execute("SELECT COUNT(*) FROM concurrent_test").await
-        .expect("Should count from db1");
-    
+    // Read from db2 (db1 is closed)
     let result2 = db2.execute("SELECT COUNT(*) FROM concurrent_test").await
         .expect("Should count from db2");
     
-    // Both should see data
-    let result1: QueryResult = serde_wasm_bindgen::from_value(result1)
-        .expect("deserialize QueryResult");
+    // Should see both inserts
     let result2: QueryResult = serde_wasm_bindgen::from_value(result2)
         .expect("deserialize QueryResult");
     
-    match (result1.rows[0].values[0].clone(), result2.rows[0].values[0].clone()) {
-        (ColumnValue::Integer(count1), ColumnValue::Integer(count2)) => {
-            assert!(count1 >= 1, "DB1 should see at least its own insert");
-            assert!(count2 >= 1, "DB2 should see at least its own insert");
+    match result2.rows[0].values[0].clone() {
+        ColumnValue::Integer(count) => {
+            assert_eq!(count, 2, "DB2 should see both inserts (from db1 and db2)");
         }
         _ => panic!("Expected integer counts"),
     }

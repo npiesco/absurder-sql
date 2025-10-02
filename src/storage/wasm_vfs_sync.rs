@@ -18,6 +18,9 @@ pub fn register_storage_for_vfs_sync(db_name: &str, storage: std::rc::Weak<std::
 /// Trigger a sync for a specific database from VFS
 #[cfg(target_arch = "wasm32")]
 pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
+    // DEBUG: Log where this is being called from
+    web_sys::console::log_1(&"⚠️  vfs_sync_database() CALLED - THIS SHOULD BE RARE!".into());
+    
     // Advance the commit marker to make writes visible
     let _next_commit = vfs_sync::with_global_commit_marker(|cm| {
         let mut cm = cm.borrow_mut();
@@ -30,55 +33,57 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
 
     // Trigger immediate IndexedDB persistence for the committed data
     let db_name_clone = db_name.to_string();
-    wasm_bindgen_futures::spawn_local(async move {
-        // Collect all data from global storage for this database
-        let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
-            let storage_map = storage.borrow();
-            let blocks = if let Some(db_storage) = storage_map.get(&db_name_clone) {
-                db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
+    
+    // CRITICAL: Collect blocks BEFORE spawning async task to avoid timing issues
+    let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
+        let storage_map = storage.borrow();
+        
+        // DEBUG: Log all keys in GLOBAL_STORAGE
+        web_sys::console::log_1(&format!("VFS sync: GLOBAL_STORAGE keys: {:?}", storage_map.keys().collect::<Vec<_>>()).into());
+        web_sys::console::log_1(&format!("VFS sync: Looking for key: {}", db_name_clone).into());
+        
+        let blocks = if let Some(db_storage) = storage_map.get(&db_name_clone) {
+            web_sys::console::log_1(&format!("VFS sync: Found {} blocks for {}", db_storage.len(), db_name_clone).into());
+            db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
+        } else {
+            web_sys::console::log_1(&format!("VFS sync: No storage found for key: {}", db_name_clone).into());
+            Vec::new()
+        };
+
+        // Also collect metadata
+        let metadata = vfs_sync::with_global_metadata(|meta| {
+            let meta_map = meta.borrow();
+            if let Some(db_meta) = meta_map.get(&db_name_clone) {
+                db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
             } else {
                 Vec::new()
-            };
-
-            // Also collect metadata
-            let metadata = vfs_sync::with_global_metadata(|meta| {
-                let meta_map = meta.borrow();
-                if let Some(db_meta) = meta_map.get(&db_name_clone) {
-                    db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                }
-            });
-
-            (blocks, metadata)
+            }
         });
 
-        if !blocks_to_persist.is_empty() {
-            // Create a temporary storage instance just for persistence
-            match BlockStorage::new(&db_name_clone).await {
-                Ok(_storage) => {
-                    let next_commit = vfs_sync::with_global_commit_marker(|cm| {
-                        let cm = cm.borrow();
-                        cm.get(&db_name_clone).copied().unwrap_or(0)
-                    });
+        (blocks, metadata)
+    });
 
-                    match super::wasm_indexeddb::persist_to_indexeddb_event_based(&db_name_clone, blocks_to_persist, metadata_to_persist, next_commit).await {
-                        Ok(_) => {
-                            web_sys::console::log_1(&format!("VFS sync: Successfully persisted {} to IndexedDB", db_name_clone).into());
-                        }
-                        Err(e) => {
-                            web_sys::console::log_1(&format!("VFS sync: Failed to persist {} to IndexedDB: {:?}", db_name_clone, e).into());
-                        }
-                    }
+    if !blocks_to_persist.is_empty() {
+        wasm_bindgen_futures::spawn_local(async move {
+            let next_commit = vfs_sync::with_global_commit_marker(|cm| {
+                let cm = cm.borrow();
+                cm.get(&db_name_clone).copied().unwrap_or(0)
+            });
+
+            web_sys::console::log_1(&format!("VFS sync: Persisting {} blocks to IndexedDB with commit marker {}", blocks_to_persist.len(), next_commit).into());
+
+            match super::wasm_indexeddb::persist_to_indexeddb_event_based(&db_name_clone, blocks_to_persist, metadata_to_persist, next_commit).await {
+                Ok(_) => {
+                    web_sys::console::log_1(&format!("VFS sync: Successfully persisted {} to IndexedDB", db_name_clone).into());
                 }
                 Err(e) => {
-                    web_sys::console::log_1(&format!("VFS sync: Failed to create storage instance for {}: {:?}", db_name_clone, e).into());
+                    web_sys::console::log_1(&format!("VFS sync: Failed to persist {} to IndexedDB: {:?}", db_name_clone, e).into());
                 }
             }
-        } else {
-            web_sys::console::log_1(&format!("VFS sync: No blocks to persist for {}", db_name_clone).into());
-        }
-    });
+        });
+    } else {
+        web_sys::console::log_1(&format!("VFS sync: No blocks to persist for {}", db_name_clone).into());
+    }
 
     Ok(())
 }

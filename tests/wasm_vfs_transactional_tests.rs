@@ -40,7 +40,6 @@ async fn test_vfs_registration_allows_sqlite_open() {
     let vfs = IndexedDBVFS::new("txn_vfs.db").await.expect("create VFS");
     vfs.register("indexeddb").expect("register VFS");
 
-    // Act: open a SQLite connection specifying our VFS
     let (db, rc) = unsafe { open_with_vfs("file:txn_vfs.db", "indexeddb") };
 
     // Assert: desired behavior — open succeeds with registered VFS
@@ -76,7 +75,6 @@ async fn test_transaction_commit_persists_across_instances() {
     let (db1, rc1) = unsafe { open_with_vfs(&db_path, &vfs_name) };
     assert_eq!(rc1, sqlite_wasm_rs::SQLITE_OK, "open db1");
     unsafe {
-        // Set journal mode to MEMORY and disable synchronous mode
         assert_eq!(exec_sql(db1, "PRAGMA journal_mode=MEMORY;"), sqlite_wasm_rs::SQLITE_OK);
         assert_eq!(exec_sql(db1, "PRAGMA synchronous=OFF;"), sqlite_wasm_rs::SQLITE_OK);
         assert_eq!(exec_sql(db1, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);"), sqlite_wasm_rs::SQLITE_OK);

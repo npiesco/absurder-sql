@@ -1,18 +1,34 @@
-use crate::storage::BlockStorage;
 use crate::storage::SyncPolicy;
+use crate::DatabaseError;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::BLOCK_SIZE;
-use crate::types::DatabaseError;
+use crate::storage::BlockStorage;
 use std::cell::RefCell;
-#[cfg(target_arch = "wasm32")]
-use std::ffi::{CStr, CString};
-#[cfg(target_arch = "wasm32")]
-use std::mem::size_of;
-#[cfg(target_arch = "wasm32")]
-use std::os::raw::{c_char, c_int, c_void};
 use std::rc::Rc;
+
+#[cfg(target_arch = "wasm32")]
+use std::collections::HashMap;
 #[cfg(target_arch = "wasm32")]
 use std::sync::OnceLock;
+
+#[cfg(target_arch = "wasm32")]
+use std::os::raw::{c_char, c_int, c_void};
+#[cfg(target_arch = "wasm32")]
+use std::ffi::{CString, CStr};
+// Macro to conditionally log only in debug builds
+#[cfg(all(target_arch = "wasm32", debug_assertions))]
+#[allow(unused_macros)]
+macro_rules! vfs_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(all(target_arch = "wasm32", debug_assertions)))]
+#[allow(unused_macros)]
+macro_rules! vfs_log {
+    ($($arg:tt)*) => {};
+}
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -160,21 +176,21 @@ impl IndexedDBVFS {
     /// Synchronize all dirty blocks to IndexedDB
     pub async fn sync(&self) -> Result<(), DatabaseError> {
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"=== DEBUG: VFS SYNC METHOD CALLED ===".into());
+        vfs_log!("{}","=== DEBUG: VFS SYNC METHOD CALLED ===");
         log::info!("Syncing VFS storage");
         // Use async sync for WASM to properly await IndexedDB persistence
         #[cfg(target_arch = "wasm32")]
         {
-            web_sys::console::log_1(&"DEBUG: VFS using WASM async sync path".into());
+            vfs_log!("{}","DEBUG: VFS using WASM async sync path");
             let mut storage = self.storage.borrow_mut();
             let result = storage.sync_async().await;
-            web_sys::console::log_1(&"DEBUG: VFS async sync completed".into());
+            vfs_log!("{}","DEBUG: VFS async sync completed");
             result
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&"DEBUG: VFS using native sync path".into());
+            vfs_log!("{}","DEBUG: VFS using native sync path");
             let mut storage = self.storage.borrow_mut();
             storage.sync_now()
         }
@@ -276,6 +292,10 @@ struct IndexedDBFile {
     // Ephemeral files cover SQLite aux files like "-journal", "-wal", "-shm"
     ephemeral: bool,
     ephemeral_buf: Vec<u8>,
+    // Write buffering for transaction performance (absurd-sql inspired)
+    write_buffer: HashMap<u64, Vec<u8>>,  // block_id -> data (O(1) lookup)
+    transaction_active: bool,
+    current_lock_level: i32,  // Track SQLite lock level
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -288,6 +308,9 @@ impl IndexedDBFile {
             current_position: 0,
             ephemeral,
             ephemeral_buf: Vec::new(),
+            write_buffer: HashMap::new(),
+            transaction_active: false,
+            current_lock_level: 0,  // SQLITE_LOCK_NONE
         }
     }
 
@@ -312,12 +335,21 @@ impl IndexedDBFile {
         let mut bytes_read = 0;
         let mut buffer_offset = 0;
         for block_id in start_block..=end_block {
-            let block_data = storage_rc.borrow_mut().read_block_sync(block_id)?;
             let block_start = if block_id == start_block { (offset % BLOCK_SIZE as u64) as usize } else { 0 };
             let block_end = if block_id == end_block { let remaining = buffer.len() - buffer_offset; std::cmp::min(BLOCK_SIZE, block_start + remaining) } else { BLOCK_SIZE };
             let copy_len = block_end - block_start;
             let dest_end = buffer_offset + copy_len;
+            
             if dest_end <= buffer.len() {
+                // Check write buffer first (absurd-sql pattern)
+                if let Some(buffered_data) = self.write_buffer.get(&block_id) {
+                    buffer[buffer_offset..dest_end].copy_from_slice(&buffered_data[block_start..block_end]);
+                    bytes_read += copy_len;
+                    buffer_offset += copy_len;
+                    continue;
+                }
+                // Not in buffer, read from storage
+                let block_data = storage_rc.borrow_mut().read_block_sync(block_id)?;
                 buffer[buffer_offset..dest_end].copy_from_slice(&block_data[block_start..block_end]);
                 bytes_read += copy_len;
                 buffer_offset += copy_len;
@@ -340,6 +372,62 @@ impl IndexedDBFile {
             self.file_size = std::cmp::max(self.file_size, self.current_position);
             return Ok(data.len());
         }
+        
+        // KEY OPTIMIZATION: Buffer writes during transactions (absurd-sql strategy)
+        // Only persist to GLOBAL_STORAGE when transaction commits (on unlock)
+        if self.transaction_active {
+            #[cfg(target_arch = "wasm32")]
+            vfs_log!("BUFFERED WRITE: offset={} len={} (transaction active)", offset, data.len());
+            
+            let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&self.filename).cloned());
+            let Some(storage_rc) = storage_rc else {
+                return Err(DatabaseError::new("OPEN_ERROR", &format!("No storage found for {}", self.filename)));
+            };
+            
+            let start_block = offset / BLOCK_SIZE as u64;
+            let end_block = (offset + data.len() as u64 - 1) / BLOCK_SIZE as u64;
+            let mut bytes_written = 0;
+            let mut data_offset = 0;
+            
+            // Buffer the write for later
+            for block_id in start_block..=end_block {
+                let block_start = if block_id == start_block { (offset % BLOCK_SIZE as u64) as usize } else { 0 };
+                let remaining_data = data.len() - data_offset;
+                let available_space = BLOCK_SIZE - block_start;
+                let copy_len = std::cmp::min(remaining_data, available_space);
+                let block_end = block_start + copy_len;
+                let src_end = data_offset + copy_len;
+                
+                if src_end <= data.len() && block_end <= BLOCK_SIZE {
+                    // Check if this is a full block write (no need to read existing data)
+                    let is_full_block_write = block_start == 0 && copy_len == BLOCK_SIZE;
+                    
+                    let block_data = if is_full_block_write {
+                        // Full block write - just use new data directly
+                        data[data_offset..src_end].to_vec()
+                    } else {
+                        // Partial block write - need to read existing data first
+                        let existing = {
+                            let mut storage_mut = storage_rc.borrow_mut();
+                            storage_mut.read_block_sync(block_id)?
+                        };
+                        let mut block_data = existing;
+                        block_data[block_start..block_end].copy_from_slice(&data[data_offset..src_end]);
+                        block_data
+                    };
+                    
+                    self.write_buffer.insert(block_id, block_data);
+                    bytes_written += copy_len;
+                    data_offset += copy_len;
+                }
+            }
+            
+            self.current_position = offset + bytes_written as u64;
+            self.file_size = std::cmp::max(self.file_size, self.current_position);
+            return Ok(bytes_written);
+        }
+        
+        // Non-transactional write: persist immediately (old behavior)
         let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&self.filename).cloned());
         let Some(storage_rc) = storage_rc else {
             return Err(DatabaseError::new("OPEN_ERROR", &format!("No storage found for {}", self.filename)));
@@ -349,7 +437,10 @@ impl IndexedDBFile {
         let mut bytes_written = 0;
         let mut data_offset = 0;
         for block_id in start_block..=end_block {
-            let mut block_data = storage_rc.borrow_mut().read_block_sync(block_id)?;
+            // Scope the borrow to avoid "already borrowed" panic
+            let mut block_data = {
+                storage_rc.borrow_mut().read_block_sync(block_id)?
+            };
             let block_start = if block_id == start_block { (offset % BLOCK_SIZE as u64) as usize } else { 0 };
             let remaining_data = data.len() - data_offset;
             let available_space = BLOCK_SIZE - block_start;
@@ -376,15 +467,7 @@ impl IndexedDBFile {
                 
                 block_data[block_start..block_end].copy_from_slice(&data[data_offset..src_end]);
                 
-                // Debug: Log the final block data after modification
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let final_preview = if block_data.len() >= 8 {
-                        format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                            block_data[0], block_data[1], block_data[2], block_data[3], block_data[4], block_data[5], block_data[6], block_data[7])
-                    } else { "short".to_string() };
-                    web_sys::console::log_1(&format!("DEBUG: VFS writing final block {} data: {}", block_id, final_preview).into());
-                }
+                // Debug: Log the final block data after modification (removed for performance)
                 
                 storage_rc.borrow_mut().write_block_sync(block_id, block_data)?;
                 bytes_written += copy_len;
@@ -421,7 +504,7 @@ unsafe extern "C" fn x_open_simple(
     _p_vfs: *mut sqlite_wasm_rs::sqlite3_vfs,
     z_name: *const c_char,
     p_file: *mut sqlite_wasm_rs::sqlite3_file,
-    flags: c_int,
+    _flags: c_int,
     _p_out_flags: *mut c_int,
 ) -> c_int {
     // Extract database name from path
@@ -443,9 +526,6 @@ unsafe extern "C" fn x_open_simple(
     
     // Determine if this is an ephemeral file (journal, WAL, etc.)
     let ephemeral = db_name.contains("-journal") || db_name.contains("-wal") || db_name.contains("-shm");
-    
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_open_simple: db_name='{}' flags={} ephemeral={}", db_name, flags, ephemeral).into());
     
     // Simple VFS open - just initialize the file structure with our methods
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
@@ -476,12 +556,12 @@ unsafe extern "C" fn x_open_simple(
             (*vf).handle.file_size = calculated_size;
             
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_open_simple: Set file_size to {} for database {}", calculated_size, db_name).into());
+            vfs_log!("VFS x_open_simple: Set file_size to {} for database {}", calculated_size, db_name);
         }
     }
     
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&"VFS x_open_simple: SUCCESS".into());
+    vfs_log!("{}","VFS x_open_simple: SUCCESS");
     
     sqlite_wasm_rs::SQLITE_OK
 }
@@ -502,7 +582,7 @@ unsafe extern "C" fn x_open(
     let mut norm = name_str.strip_prefix("file:").unwrap_or(&name_str).to_string();
     
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS xOpen: Attempting to open file: '{}' (flags: {})", name_str, _flags).into());
+    vfs_log!("VFS xOpen: Attempting to open file: '{}' (flags: {})", name_str, _flags);
     // Detect auxiliary files and map to base db
     let mut ephemeral = false;
     for suf in ["-journal", "-wal", "-shm"].iter() {
@@ -517,7 +597,7 @@ unsafe extern "C" fn x_open(
     // Ensure storage exists for base db - create if needed for existing databases
     let has_storage = STORAGE_REGISTRY.with(|reg| reg.borrow().contains_key(&db_name));
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS xOpen: Checking storage for {} (ephemeral={}), has_storage={}", db_name, ephemeral, has_storage).into());
+    vfs_log!("VFS xOpen: Checking storage for {} (ephemeral={}), has_storage={}", db_name, ephemeral, has_storage);
     
     if !has_storage {
         // Check if this database has existing data in global storage
@@ -528,7 +608,7 @@ unsafe extern "C" fn x_open(
         if has_existing_data {
             // Auto-register storage for existing database
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS xOpen: Auto-registering storage for existing database: {}", db_name).into());
+            vfs_log!("VFS xOpen: Auto-registering storage for existing database: {}", db_name);
             
             // Create BlockStorage synchronously for existing database
             let storage = BlockStorage::new_sync(&db_name);
@@ -542,43 +622,7 @@ unsafe extern "C" fn x_open(
         }
     }
     
-    // Debug: log current commit marker state when opening a file
-    if !ephemeral {
-        STORAGE_REGISTRY.with(|reg| {
-            if let Some(storage_rc) = reg.borrow().get(&db_name) {
-                let current_marker = storage_rc.borrow().get_commit_marker();
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("VFS xOpen: Opening {} with current commit marker: {}", db_name, current_marker).into());
-                
-                // Also log how many blocks are in global storage for this database
-                // Use the same GLOBAL_STORAGE as BlockStorage
-                use crate::storage::vfs_sync::with_global_storage;
-                with_global_storage(|storage| {
-                    let storage_map = storage.borrow();
-                    if let Some(db_storage) = storage_map.get(&db_name) {
-                        #[cfg(target_arch = "wasm32")]
-                        web_sys::console::log_1(&format!("VFS xOpen: Database {} has {} blocks in global storage", db_name, db_storage.len()).into());
-                        for (block_id, data) in db_storage.iter() {
-                            let preview = if data.len() >= 16 {
-                                format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7])
-                            } else {
-                                "short".to_string()
-                            };
-                            #[cfg(target_arch = "wasm32")]
-                            web_sys::console::log_1(&format!("VFS xOpen: Block {} preview: {}", block_id, preview).into());
-                        }
-                    } else {
-                        #[cfg(target_arch = "wasm32")]
-                        web_sys::console::log_1(&format!("VFS xOpen: Database {} has no blocks in global storage", db_name).into());
-                    }
-                });
-            }
-        });
-    } else {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("VFS xOpen: Opening {} (ephemeral={})", db_name, ephemeral).into());
-    }
+    // Debug logging removed for performance
 
     // Initialize our VfsFile in the buffer provided by SQLite
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
@@ -612,13 +656,13 @@ unsafe extern "C" fn x_open(
                 (*vf).handle.file_size = calculated_size;
                 
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("VFS xOpen: Set file_size to {} for existing database {} (max_block_id={})", calculated_size, db_name, max_block_id).into());
+                vfs_log!("VFS xOpen: Set file_size to {} for existing database {} (max_block_id={})", calculated_size, db_name, max_block_id);
             } else {
                 // New database starts with file_size = 0
                 (*vf).handle.file_size = 0;
                 
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("VFS xOpen: Set file_size to 0 for new database {}", db_name).into());
+                vfs_log!("VFS xOpen: Set file_size to 0 for new database {}", db_name);
             }
         }
     }
@@ -630,7 +674,7 @@ unsafe extern "C" fn x_open(
 #[allow(dead_code)]
 unsafe extern "C" fn x_close_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_int {
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&"VFS x_close_stub: called".into());
+    vfs_log!("{}","VFS x_close_stub: called");
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -642,8 +686,7 @@ unsafe extern "C" fn x_read_stub(
     amt: c_int,
     offset: i64,
 ) -> c_int {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_read_stub: amt={} offset={}", amt, offset).into());
+    // vfs_log!("VFS x_read_stub: amt={} offset={}", amt, offset);
     
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
     let slice = unsafe { std::slice::from_raw_parts_mut(buf as *mut u8, amt as usize) };
@@ -668,8 +711,8 @@ unsafe extern "C" fn x_write_stub(
     amt: c_int,
     offset: i64,
 ) -> c_int {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_write_stub: amt={} offset={}", amt, offset).into());
+    // Logging disabled for performance
+    // vfs_log!("VFS x_write_stub: amt={} offset={}", amt, offset);
     
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
     let vf_ref = unsafe { &*vf };
@@ -685,8 +728,7 @@ unsafe extern "C" fn x_write_stub(
             (&mut (*vf).handle.ephemeral_buf)[offset as usize..file_end].copy_from_slice(data);
         }
         
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("VFS x_write_stub: SUCCESS wrote {} bytes to ephemeral file", amt).into());
+        // vfs_log!("VFS x_write_stub: SUCCESS wrote {} bytes to ephemeral file", amt);
         return sqlite_wasm_rs::SQLITE_OK;
     }
 
@@ -733,13 +775,11 @@ unsafe extern "C" fn x_write_stub(
     unsafe {
         if new_end > (*vf).handle.file_size {
             (*vf).handle.file_size = new_end;
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_write_stub: Updated file_size to {}", new_end).into());
+            // vfs_log!("VFS x_write_stub: Updated file_size to {}", new_end);
         }
     }
     
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_write_stub: SUCCESS wrote {} bytes", amt).into());
+    // vfs_log!("VFS x_write_stub: SUCCESS wrote {} bytes", amt);
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -750,7 +790,7 @@ unsafe extern "C" fn x_truncate_stub(p_file: *mut sqlite_wasm_rs::sqlite3_file, 
     let vf_ref = unsafe { &*vf };
     
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_truncate_stub: truncating {} to size {}", vf_ref.handle.filename, size).into());
+    vfs_log!("VFS x_truncate_stub: truncating {} to size {}", vf_ref.handle.filename, size);
     
     // Handle ephemeral files
     if vf_ref.handle.ephemeral {
@@ -780,7 +820,7 @@ unsafe extern "C" fn x_truncate_stub(p_file: *mut sqlite_wasm_rs::sqlite3_file, 
     });
     
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_truncate_stub: SUCCESS truncated to size {}", size).into());
+    vfs_log!("VFS x_truncate_stub: SUCCESS truncated to size {}", size);
     
     sqlite_wasm_rs::SQLITE_OK
 }
@@ -794,19 +834,12 @@ unsafe extern "C" fn x_sync_stub(p_file: *mut sqlite_wasm_rs::sqlite3_file, _fla
     // Skip sync for ephemeral auxiliary files (WAL, journal, etc.)
     if vf_ref.handle.ephemeral {
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"VFS x_sync_stub: skipping ephemeral file".into());
+        vfs_log!("{}","VFS x_sync_stub: skipping ephemeral file");
         return sqlite_wasm_rs::SQLITE_OK;
     }
     
     // For main database files, perform sync to advance commit marker and trigger persistence
-    let db_name = &vf_ref.handle.filename;
-    
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_sync_stub: Performing sync for {}", db_name).into());
-    
-    // For now, just return success - sync will be handled by commit markers
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_sync_stub: Successfully triggered sync for {}", db_name).into());
+    // Sync logging removed for performance
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -821,8 +854,7 @@ unsafe extern "C" fn x_file_size_stub(p_file: *mut sqlite_wasm_rs::sqlite3_file,
             (*vf).handle.file_size as i64
         };
         
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("VFS x_file_size_stub: returning size={} ephemeral={}", sz, (*vf).handle.ephemeral).into());
+        // vfs_log!("VFS x_file_size_stub: returning size={} ephemeral={}", sz, (*vf).handle.ephemeral);
         
         *p_size = sz;
     }
@@ -832,16 +864,14 @@ unsafe extern "C" fn x_file_size_stub(p_file: *mut sqlite_wasm_rs::sqlite3_file,
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 unsafe extern "C" fn x_lock_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file, _lock_type: c_int) -> c_int {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_lock_stub: lock_type={}", _lock_type).into());
+    // vfs_log!("VFS x_lock_stub: lock_type={}", _lock_type);
     sqlite_wasm_rs::SQLITE_OK
 }
 
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 unsafe extern "C" fn x_unlock_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file, _lock_type: c_int) -> c_int {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_unlock_stub: lock_type={}", _lock_type).into());
+    // vfs_log!("VFS x_unlock_stub: lock_type={}", _lock_type);
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -849,7 +879,7 @@ unsafe extern "C" fn x_unlock_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file, _
 #[allow(dead_code)]
 unsafe extern "C" fn x_check_reserved_lock_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file, p_res_out: *mut c_int) -> c_int {
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&"VFS x_check_reserved_lock_stub: called".into());
+    vfs_log!("{}","VFS x_check_reserved_lock_stub: called");
     unsafe {
         *p_res_out = 0;
     }
@@ -858,9 +888,9 @@ unsafe extern "C" fn x_check_reserved_lock_stub(_p_file: *mut sqlite_wasm_rs::sq
 
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
-unsafe extern "C" fn x_file_control_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file, op: c_int, _p_arg: *mut c_void) -> c_int {
+unsafe extern "C" fn x_file_control_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file, _op: c_int, _p_arg: *mut c_void) -> c_int {
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_file_control_stub: op={}", op).into());
+    vfs_log!("VFS x_file_control_stub: op={}", _op);
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -868,7 +898,7 @@ unsafe extern "C" fn x_file_control_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_f
 #[allow(dead_code)]
 unsafe extern "C" fn x_sector_size_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_int {
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&"VFS x_sector_size_stub: called".into());
+    vfs_log!("{}","VFS x_sector_size_stub: called");
     4096
 }
 
@@ -876,15 +906,29 @@ unsafe extern "C" fn x_sector_size_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_fi
 #[allow(dead_code)]
 unsafe extern "C" fn x_device_characteristics_stub(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_int {
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&"VFS x_device_characteristics_stub: called".into());
+    vfs_log!("{}","VFS x_device_characteristics_stub: called");
     0
 }
 
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 unsafe extern "C" fn x_close(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_int {
+    let vf: *mut VfsFile = unsafe { file_from_ptr(_p_file) };
+    
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&"VFS x_close: called".into());
+    vfs_log!("{}","VFS x_close: called");
+    
+    // Reload the cache from GLOBAL_STORAGE so next connection sees fresh data
+    unsafe {
+        let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&(*vf).handle.filename).cloned());
+        if let Some(storage_rc) = storage_rc {
+            storage_rc.borrow_mut().reload_cache_from_global_storage();
+            
+            #[cfg(target_arch = "wasm32")]
+            vfs_log!("VFS x_close: reloaded cache from GLOBAL_STORAGE for {}", (*vf).handle.filename);
+        }
+    }
+    
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -924,18 +968,16 @@ unsafe extern "C" fn x_write(
     let slice = unsafe { std::slice::from_raw_parts(buf as *const u8, amt as usize) };
     
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_write: offset={} amt={} ephemeral={}", offset, amt, unsafe { (*vf).handle.ephemeral }).into());
+    vfs_log!("VFS x_write: offset={} amt={} ephemeral={}", offset, amt, unsafe { (*vf).handle.ephemeral });
     
     let res = unsafe { (*vf).handle.write(slice, offset as u64) };
     match res {
-        Ok(n) => {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_write: SUCCESS wrote {} bytes", n).into());
+        Ok(_n) => {
+            vfs_log!("VFS x_write: SUCCESS wrote {} bytes", _n);
             sqlite_wasm_rs::SQLITE_OK
         },
-        Err(e) => {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_write: ERROR {:?}", e).into());
+        Err(_e) => {
+            vfs_log!("VFS x_write: ERROR {:?}", _e);
             sqlite_wasm_rs::SQLITE_IOERR_WRITE
         },
     }
@@ -947,7 +989,7 @@ unsafe extern "C" fn x_truncate(p_file: *mut sqlite_wasm_rs::sqlite3_file, size:
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
     unsafe {
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("VFS x_truncate: size={} ephemeral={}", size, (*vf).handle.ephemeral).into());
+        vfs_log!("VFS x_truncate: size={} ephemeral={}", size, (*vf).handle.ephemeral);
         
         if (*vf).handle.ephemeral {
             let new_len = size as usize;
@@ -1002,8 +1044,7 @@ unsafe extern "C" fn x_file_size(p_file: *mut sqlite_wasm_rs::sqlite3_file, p_si
             (*vf).handle.file_size as i64
         };
         
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("VFS x_file_size: returning size={} ephemeral={}", sz, (*vf).handle.ephemeral).into());
+        // vfs_log!("VFS x_file_size: returning size={} ephemeral={}", sz, (*vf).handle.ephemeral);
         
         *p_size = sz;
     }
@@ -1014,11 +1055,12 @@ unsafe extern "C" fn x_file_size(p_file: *mut sqlite_wasm_rs::sqlite3_file, p_si
 #[cfg(target_arch = "wasm32")]
 unsafe extern "C" fn x_delete(
     _p_vfs: *mut sqlite_wasm_rs::sqlite3_vfs,
-    z_name: *const c_char,
+    _z_name: *const c_char,
     _sync_dir: c_int,
 ) -> c_int {
-    let name_str = if !z_name.is_null() {
-        match unsafe { std::ffi::CStr::from_ptr(z_name) }.to_str() { 
+    #[cfg(debug_assertions)]
+    let name_str = if !_z_name.is_null() {
+        match unsafe { std::ffi::CStr::from_ptr(_z_name) }.to_str() { 
             Ok(s) => s.to_string(), 
             Err(_) => String::from("") 
         }
@@ -1026,8 +1068,7 @@ unsafe extern "C" fn x_delete(
         String::from("") 
     };
     
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_delete: file='{}'", name_str).into());
+    vfs_log!("VFS x_delete: file='{}'", name_str);
     
     // Nothing to delete in our model; journals/WAL are ephemeral.
     sqlite_wasm_rs::SQLITE_OK
@@ -1071,7 +1112,7 @@ unsafe extern "C" fn x_access(
     };
     
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_access: file='{}' db_name='{}' exists={}", name_str, db_name, exists).into());
+    vfs_log!("VFS x_access: file='{}' db_name='{}' exists={}", name_str, db_name, exists);
     
     unsafe {
         *p_res_out = if exists { 1 } else { 0 };
@@ -1099,18 +1140,68 @@ unsafe extern "C" fn x_full_pathname(
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 unsafe extern "C" fn x_lock(_p_file: *mut sqlite_wasm_rs::sqlite3_file, e_lock: c_int) -> c_int {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_lock: lock_type={}", e_lock).into());
+    let vf: *mut VfsFile = unsafe { file_from_ptr(_p_file) };
     
-    // No-op locking in single-threaded WASM
+    #[cfg(target_arch = "wasm32")]
+    vfs_log!("VFS x_lock: lock_type={}", e_lock);
+    
+    // SQLite lock levels: 0=NONE, 1=SHARED, 2=RESERVED, 3=PENDING, 4=EXCLUSIVE
+    // Activate write buffering when acquiring RESERVED (2) or EXCLUSIVE (4) lock
+    unsafe {
+        (*vf).handle.current_lock_level = e_lock;
+        
+        if e_lock >= 2 && !(*vf).handle.transaction_active {
+            // Starting a write transaction - activate buffering
+            (*vf).handle.transaction_active = true;
+            (*vf).handle.write_buffer.clear();
+            
+            #[cfg(target_arch = "wasm32")]
+            vfs_log!("{}","🔒 TRANSACTION STARTED: Write buffering activated");
+        }
+    }
+    
     sqlite_wasm_rs::SQLITE_OK
 }
 
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 unsafe extern "C" fn x_unlock(_p_file: *mut sqlite_wasm_rs::sqlite3_file, e_lock: c_int) -> c_int {
+    let vf: *mut VfsFile = unsafe { file_from_ptr(_p_file) };
+    
     #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_unlock: lock_type={}", e_lock).into());
+    vfs_log!("VFS x_unlock: lock_type={}", e_lock);
+    
+    unsafe {
+        // absurd-sql pattern: if we had a write lock (RESERVED=2 or higher), flush on unlock
+        if (*vf).handle.current_lock_level >= 2 && (*vf).handle.transaction_active {
+            #[cfg(target_arch = "wasm32")]
+            vfs_log!("🔓 TRANSACTION COMMIT: Flushing {} buffered writes to memory", (*vf).handle.write_buffer.len());
+            
+            // Flush all buffered writes to GLOBAL_STORAGE (in-memory)
+            let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&(*vf).handle.filename).cloned());
+            if let Some(storage_rc) = storage_rc {
+                for (block_id, block_data) in (*vf).handle.write_buffer.drain() {
+                    // Write buffered block to GLOBAL_STORAGE (memory only)
+                    if let Err(_e) = storage_rc.borrow_mut().write_block_sync(block_id, block_data) {
+                        vfs_log!("ERROR flushing block {}: {:?}", block_id, _e);
+                    }
+                }
+                
+                // Clear the cache so subsequent reads see the fresh data
+                storage_rc.borrow_mut().clear_cache();
+                
+                // NOTE: We do NOT sync to IndexedDB here!
+                // IndexedDB sync only happens on explicit x_sync() calls.
+                // This is the key optimization that makes absurd-sql fast.
+            }
+            
+            // Deactivate buffering
+            (*vf).handle.transaction_active = false;
+            (*vf).handle.write_buffer.clear();
+        }
+        
+        (*vf).handle.current_lock_level = e_lock;
+    }
     
     sqlite_wasm_rs::SQLITE_OK
 }
@@ -1125,8 +1216,7 @@ unsafe extern "C" fn x_check_reserved_lock(_p_file: *mut sqlite_wasm_rs::sqlite3
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 unsafe extern "C" fn x_file_control(_p_file: *mut sqlite_wasm_rs::sqlite3_file, op: c_int, _p_arg: *mut c_void) -> c_int {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("VFS x_file_control: op={}", op).into());
+    vfs_log!("VFS x_file_control: op={}", op);
     
     // Handle specific file control operations that SQLite expects
     match op {
@@ -1158,11 +1248,12 @@ unsafe extern "C" fn x_file_control(_p_file: *mut sqlite_wasm_rs::sqlite3_file, 
             }
             sqlite_wasm_rs::SQLITE_OK
         }
-        // For other operations, return SQLITE_OK to avoid blocking SQLite
+        // For other operations, return SQLITE_NOTFOUND to indicate we don't support them
+        // This allows SQLite to use fallback behavior instead of assuming we handle it
         _ => {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("VFS x_file_control: Unknown op={}, returning SQLITE_OK", op).into());
-            sqlite_wasm_rs::SQLITE_OK
+            vfs_log!("VFS x_file_control: Unknown op={}, returning SQLITE_NOTFOUND", op);
+            sqlite_wasm_rs::SQLITE_NOTFOUND
         }
     }
 }
@@ -1177,9 +1268,11 @@ unsafe extern "C" fn x_sector_size(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -
 #[allow(dead_code)]
 unsafe extern "C" fn x_device_characteristics(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_int {
     // IndexedDB provides atomic writes and safe append semantics
-    // SQLITE_IOCAP_ATOMIC: All writes are atomic
-    // SQLITE_IOCAP_SAFE_APPEND: Data is appended before file size is extended
-    // SQLITE_IOCAP_SEQUENTIAL: Writes happen in order
-    // SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN: Files cannot be deleted when open
-    0x00000001 | 0x00000200 | 0x00000400 | 0x00000800
+    // SQLITE_IOCAP_ATOMIC (0x00000001): All writes are atomic
+    // SQLITE_IOCAP_SAFE_APPEND (0x00000200): Data is appended before file size is extended
+    // SQLITE_IOCAP_SEQUENTIAL (0x00000400): Writes happen in order
+    // SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN (0x00000800): Files cannot be deleted when open
+    // SQLITE_IOCAP_POWERSAFE_OVERWRITE (0x00001000): CRITICAL - Overwrites are atomic and power-safe
+    //   This flag tells SQLite it can skip the rollback journal when journal_mode=MEMORY is set!
+    0x00000001 | 0x00000200 | 0x00000400 | 0x00000800 | 0x00001000
 }

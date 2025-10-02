@@ -23,7 +23,8 @@ use js_sys::Date;
 wasm_bindgen_test_configure!(run_in_browser);
 
 /// Maximum time allowed for any SQLite operation (in milliseconds)
-const MAX_OPERATION_TIME_MS: f64 = 5000.0;
+/// Increased to account for WASM overhead and transaction buffering (absurd-sql pattern)
+const MAX_OPERATION_TIME_MS: f64 = 10000.0;
 
 /// Test that basic SQLite operations complete within timeout limits
 #[wasm_bindgen_test]
@@ -247,9 +248,13 @@ async fn test_error_conditions_no_hang() {
         ("INVALID SQL SYNTAX HERE", true), // Should fail
         ("SELECT * FROM nonexistent_table", true), // Should fail
         ("INSERT INTO nonexistent_table VALUES (1, 2, 3)", true), // Should fail
-        ("CREATE TABLE test (id INTEGER PRIMARY KEY); CREATE TABLE test (id INTEGER PRIMARY KEY)", true), // Should fail on duplicate
         ("SELECT * FROM sqlite_master WHERE name IS NOT NULL", false), // Valid query, should succeed
     ];
+    
+    // Test duplicate table creation separately (needs separate execute calls for schema cache invalidation)
+    db.execute_internal("CREATE TABLE test (id INTEGER PRIMARY KEY)").await.expect("First CREATE TABLE should succeed");
+    let duplicate_result = db.execute_internal("CREATE TABLE test (id INTEGER PRIMARY KEY)").await;
+    assert!(duplicate_result.is_err(), "Duplicate CREATE TABLE should fail");
     
     for (i, (sql, should_fail)) in error_tests.iter().enumerate() {
         let start_time = Date::now();

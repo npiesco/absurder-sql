@@ -239,20 +239,86 @@ impl Database {
                 execution_time_ms: js_sys::Date::now() - start_time,
             })
         } else {
-            // Non-SELECT statements
+            // Non-SELECT statements - Use prepare/step to properly handle PRAGMA results
+            let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
             let ret = unsafe {
-                sqlite_wasm_rs::sqlite3_exec(
+                sqlite_wasm_rs::sqlite3_prepare_v2(
                     self.db,
                     sql_cstr.as_ptr(),
-                    None,
-                    std::ptr::null_mut(),
+                    -1,
+                    &mut stmt,
                     std::ptr::null_mut()
                 )
             };
             
             if ret != sqlite_wasm_rs::SQLITE_OK {
-                return Err(DatabaseError::new("SQLITE_ERROR", "Failed to execute statement").with_sql(sql));
+                return Err(DatabaseError::new("SQLITE_ERROR", "Failed to prepare statement").with_sql(sql));
             }
+            
+            // Get column info for PRAGMA statements that return results
+            let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
+            let mut columns = Vec::new();
+            let mut rows = Vec::new();
+            
+            if column_count > 0 {
+                // This is a PRAGMA or other statement that returns rows
+                for i in 0..column_count {
+                    let col_name = unsafe {
+                        let name_ptr = sqlite_wasm_rs::sqlite3_column_name(stmt, i);
+                        if name_ptr.is_null() {
+                            format!("column_{}", i)
+                        } else {
+                            std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
+                        }
+                    };
+                    columns.push(col_name);
+                }
+                
+                // Fetch all rows
+                loop {
+                    let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
+                    if step_ret == sqlite_wasm_rs::SQLITE_ROW {
+                        let mut values = Vec::new();
+                        for i in 0..column_count {
+                            let value = unsafe {
+                                let col_type = sqlite_wasm_rs::sqlite3_column_type(stmt, i);
+                                match col_type {
+                                    sqlite_wasm_rs::SQLITE_TEXT => {
+                                        let text_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, i);
+                                        if text_ptr.is_null() {
+                                            ColumnValue::Null
+                                        } else {
+                                            let text = std::ffi::CStr::from_ptr(text_ptr as *const i8).to_string_lossy().into_owned();
+                                            ColumnValue::Text(text)
+                                        }
+                                    },
+                                    sqlite_wasm_rs::SQLITE_INTEGER => {
+                                        ColumnValue::Integer(sqlite_wasm_rs::sqlite3_column_int64(stmt, i))
+                                    },
+                                    _ => ColumnValue::Null,
+                                }
+                            };
+                            values.push(value);
+                        }
+                        rows.push(Row { values });
+                    } else if step_ret == sqlite_wasm_rs::SQLITE_DONE {
+                        break;
+                    } else {
+                        unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
+                        return Err(DatabaseError::new("SQLITE_ERROR", "Failed to execute statement").with_sql(sql));
+                    }
+                }
+            } else {
+                // Regular non-SELECT statement
+                let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
+                if step_ret != sqlite_wasm_rs::SQLITE_DONE {
+                    unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
+                    return Err(DatabaseError::new("SQLITE_ERROR", "Failed to execute statement").with_sql(sql));
+                }
+            }
+            
+            // Finalize to complete the statement
+            unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
             
             let affected_rows = unsafe { sqlite_wasm_rs::sqlite3_changes(self.db) } as u32;
             let last_insert_id = if sql.trim().to_uppercase().starts_with("INSERT") {
@@ -262,8 +328,8 @@ impl Database {
             };
             
             Ok(QueryResult {
-                columns: vec![],
-                rows: vec![],
+                columns,
+                rows,
                 affected_rows,
                 last_insert_id,
                 execution_time_ms: js_sys::Date::now() - start_time,

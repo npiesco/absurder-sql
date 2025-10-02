@@ -26,7 +26,11 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
         // Check cache first (both native and WASM)
         if let Some(data) = storage.cache.get(&block_id).cloned() {
             log::debug!("Block {} found in cache (sync)", block_id);
-            // Skip LRU update for cache hits - it's expensive and not critical
+            // Verify checksum even for cached data to catch corruption
+            if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
+                return Err(e);
+            }
+            storage.touch_lru(block_id);
             return Ok(data);
         }
 
@@ -35,18 +39,19 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
         {
             // Single combined lookup for commit marker, visibility, and data
             // This reduces 3 separate global storage accesses to 1
-            let data = vfs_sync::with_global_commit_marker(|cm| {
+            let (data, is_visible) = vfs_sync::with_global_commit_marker(|cm| {
                 let committed = cm.borrow().get(&storage.db_name).copied().unwrap_or(0);
                 
                 // Block 0 (database header) is always visible
                 if block_id == 0 {
-                    return vfs_sync::with_global_storage(|gs| {
+                    let data = vfs_sync::with_global_storage(|gs| {
                         gs.borrow()
                             .get(&storage.db_name)
                             .and_then(|db_storage| db_storage.get(&block_id))
                             .cloned()
                             .unwrap_or_else(|| vec![0; BLOCK_SIZE])
                     });
+                    return (data, true);
                 }
                 
                 // For other blocks, check visibility and get data in one pass
@@ -58,18 +63,26 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                         .unwrap_or(true); // No metadata = visible
                     
                     if is_visible {
-                        vfs_sync::with_global_storage(|gs| {
+                        let data = vfs_sync::with_global_storage(|gs| {
                             gs.borrow()
                                 .get(&storage.db_name)
                                 .and_then(|db_storage| db_storage.get(&block_id))
                                 .cloned()
                                 .unwrap_or_else(|| vec![0; BLOCK_SIZE])
-                        })
+                        });
+                        (data, true)
                     } else {
-                        vec![0; BLOCK_SIZE]
+                        (vec![0; BLOCK_SIZE], false)
                     }
                 })
             });
+            
+            // Verify checksum ONLY for visible blocks in WASM
+            if is_visible && block_id != 0 {
+                if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
+                    return Err(e);
+                }
+            }
             
             // Cache for future reads (skip eviction check for performance)
             storage.cache.insert(block_id, data.clone());
@@ -345,26 +358,20 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                 let should_write = if let Some(existing) = existing_data {
                     if has_committed_metadata {
                         // CRITICAL FIX: Always allow writes during transactions to ensure schema changes persist
-                        // The previous logic was incorrectly skipping writes when data appeared the same
-                        #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} has committed metadata, allowing write to ensure schema persistence", block_id).into());
                         true  // Always allow writes when there's committed metadata
+                    } else if existing.iter().zip(data.iter()).all(|(a, b)| a == b) {
+                        // If the data is identical, skip the write
+                        false
                     } else {
                         // Check if the new data is richer (has more non-zero bytes) than existing
                         let existing_non_zero = existing.iter().filter(|&&b| b != 0).count();
                         let new_non_zero = data.iter().filter(|&&b| b != 0).count();
                         
                         if new_non_zero > existing_non_zero {
-                            #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} exists but new data is richer ({} vs {} non-zero bytes), allowing overwrite", block_id, new_non_zero, existing_non_zero).into());
                             true
                         } else if new_non_zero < existing_non_zero {
-                            #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} exists and existing data is richer ({} vs {} non-zero bytes), SKIPPING to preserve richer data", block_id, existing_non_zero, new_non_zero).into());
                             false
                         } else {
-                            #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} exists but has no committed metadata, allowing overwrite", block_id).into());
                             true
                         }
                     }
@@ -384,8 +391,6 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                     });
                     
                     if has_global_committed_data {
-                        #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block {} has committed metadata in global storage, allowing transactional write", block_id).into());
                         true  // Allow transactional writes even when committed data exists
                     } else {
                         // No existing data and no committed metadata, safe to write
@@ -399,26 +404,9 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                         let db_storage = storage_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
                         
                         // Log what we're about to write vs what exists
-                        if let Some(existing) = db_storage.get(&block_id) {
-                            let existing_preview = if existing.len() >= 16 {
-                                format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                                    existing[0], existing[1], existing[2], existing[3], existing[4], existing[5], existing[6], existing[7])
-                            } else {
-                                "short".to_string()
-                            };
-                            let new_preview = if data.len() >= 16 {
-                                format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7])
-                            } else {
-                                "short".to_string()
-                            };
-                            #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Overwriting block {} - existing: {}, new: {}", block_id, existing_preview, new_preview).into());
-                        }
+                        // Block overwrite (debug logging removed for performance)
                         
                         db_storage.insert(block_id, data.clone());
-                        #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Persisted block {} to global storage (new/updated)", block_id).into());
                     });
                 }
                 
@@ -457,8 +445,6 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                             last_modified_ms: 0, // Will be updated during sync
                             algo: ChecksumAlgorithm::CRC32,
                         });
-                        #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Created metadata for block {} with checksum {}", block_id, checksum).into());
                     }
                 });
                 

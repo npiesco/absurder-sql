@@ -149,12 +149,8 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
                 let cm = cm.borrow();
                 let current = cm.get(&storage.db_name).copied().unwrap_or(0);
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Current commit marker for {}: {}", storage.db_name, current).into());
                 current + 1
             });
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("DEBUG: Next commit marker for {}: {}", storage.db_name, next_commit).into());
             vfs_sync::with_global_storage(|gs| {
                 let mut storage_map = gs.borrow_mut();
                 let db_storage = storage_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
@@ -176,24 +172,10 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                                 }
                             });
                             
-                            let existing_preview = if existing.len() >= 8 {
-                                format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                                    existing[0], existing[1], existing[2], existing[3], existing[4], existing[5], existing[6], existing[7])
-                            } else { "short".to_string() };
-                            let new_preview = if data.len() >= 8 {
-                                format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", 
-                                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7])
-                            } else { "short".to_string() };
-                            
                             if has_committed_metadata {
                                 // CRITICAL FIX: Never overwrite committed data to prevent corruption
-                                // Once data is committed, it should be immutable to maintain data integrity
-                                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: SYNC preserving committed block {} - existing: {}, cache: {} - NEVER OVERWRITE COMMITTED DATA", block_id, existing_preview, new_preview).into());
                                 false // Never overwrite committed data
                             } else {
-                                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: SYNC updating uncommitted block {} - existing: {}, new: {}", block_id, existing_preview, new_preview).into());
                                 true // Update uncommitted data
                             }
                         } else {
@@ -237,8 +219,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             });
             
             // Spawn async IndexedDB persistence (fire and forget for sync compatibility)
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("DEBUG: Spawning IndexedDB persistence for {} blocks", to_persist.len()).into());
             let db_name = storage.db_name.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let window = web_sys::window().unwrap();
@@ -291,8 +271,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                 
                 match db_result {
                     Ok(Ok(db_value)) => {
-                        #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Successfully opened IndexedDB for persistence").into());
                         if let Ok(db) = db_value.dyn_into::<web_sys::IdbDatabase>() {
                             // Start transaction for both blocks and metadata
                             let store_names = js_sys::Array::new();
@@ -312,16 +290,12 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                                 let key = wasm_bindgen::JsValue::from_str(&format!("{}_{}", db_name, block_id));
                                 let value = js_sys::Uint8Array::from(&data[..]);
                                 blocks_store.put_with_key(&value, &key).unwrap();
-                                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Persisted block {} to IndexedDB", block_id).into());
                             }
                             
                             // Persist commit marker
                             let commit_key = wasm_bindgen::JsValue::from_str(&format!("{}_commit_marker", db_name));
                             let commit_value = wasm_bindgen::JsValue::from_f64(next_commit as f64);
                             metadata_store.put_with_key(&commit_value, &commit_key).unwrap();
-                            #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Persisted commit marker {} to IndexedDB", next_commit).into());
                             
                             // Use event-based approach for transaction completion
                             let (tx_tx, tx_rx) = futures::channel::oneshot::channel();
@@ -344,37 +318,15 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                             transaction.set_oncomplete(Some(tx_complete_callback.as_ref().unchecked_ref()));
                             transaction.set_onerror(Some(tx_error_callback.as_ref().unchecked_ref()));
                             
-                            match tx_rx.await {
-                                Ok(Ok(_)) => {
-                                    #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: IndexedDB transaction completed successfully").into());
-                                }
-                                Ok(Err(e)) => {
-                                    #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: IndexedDB transaction failed: {}", e).into());
-                                }
-                                Err(_) => {
-                                    #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: IndexedDB transaction channel failed").into());
-                                }
-                            }
+                            let _ = tx_rx.await;
                             
                             // Keep closures alive
                             tx_complete_callback.forget();
                             tx_error_callback.forget();
-                        } else {
-                            #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Failed to cast to IdbDatabase for persistence").into());
                         }
                     }
-                    Ok(Err(e)) => {
-                        #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Failed to open IndexedDB for persistence: {}", e).into());
-                    }
-                    Err(_) => {
-                        #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: IndexedDB open channel failed").into());
-                    }
+                    _ => {}
+                    // Silently ignore errors in background persistence
                 }
             });
             // Clear dirty blocks after successful persistence
