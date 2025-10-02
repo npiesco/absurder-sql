@@ -134,6 +134,51 @@ The web demo uses vanilla JavaScript with Bootstrap for styling, demonstrating r
 ### Configuration System
 The architecture supports configurable database options including cache size, synchronization modes, and VFS-specific settings, allowing optimization for different use cases and performance requirements.
 
+## Getting Started
+
+### Prerequisites
+- **Rust 1.85.0+** with the 2024 edition
+- **wasm-pack** for building WASM packages
+- **Node.js 18+** for running examples
+
+### Build the WASM Package
+
+```bash
+# Install wasm-pack if needed
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Build for web
+wasm-pack build --target web --out-dir pkg
+```
+
+This generates the `pkg/` directory containing:
+- `sqlite_indexeddb_rs.js` - JavaScript module
+- `sqlite_indexeddb_rs_bg.wasm` - WebAssembly binary
+- TypeScript definitions and package files
+
+### Quick Usage Example
+
+```javascript
+import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+
+// Initialize WASM
+await init();
+
+// Create database
+const db = await Database.newDatabase('myapp');
+
+// Execute SQL
+await db.execute('CREATE TABLE users (id INT, name TEXT)');
+await db.execute("INSERT INTO users VALUES (1, 'Alice')");
+const result = await db.execute('SELECT * FROM users');
+
+// Persist to IndexedDB
+await db.sync();
+
+// Close
+await db.close();
+```
+
 ## SQLite WASM Integration
 
 ### Architecture Overview
@@ -214,7 +259,7 @@ npm run serve
 ## External Dependencies
 
 ### Rust Dependencies
-- **sqlite-wasm-rs**: Production-ready SQLite WASM bindings with precompiled features, replacing problematic custom implementations
+- **sqlite-wasm-rs**: Production-ready SQLite WASM bindings with precompiled features
 - **rusqlite**: Primary SQLite interface for native Rust builds, providing safe bindings to SQLite C library
 - **wasm-bindgen**: Facilitates communication between Rust and JavaScript in WASM context
 - **js-sys**: Provides bindings to JavaScript's built-in objects and functions
