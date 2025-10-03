@@ -33,6 +33,8 @@ pub struct Database {
     name: String,
     #[wasm_bindgen(skip)]
     on_data_change_callback: Option<js_sys::Function>,
+    #[wasm_bindgen(skip)]
+    allow_non_leader_writes: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -46,10 +48,16 @@ impl Database {
             || upper.starts_with("REPLACE")
     }
     
-    /// Check write permission - only leader can write
+    /// Check write permission - only leader can write (unless override enabled)
     async fn check_write_permission(&mut self, sql: &str) -> Result<(), DatabaseError> {
         if !Self::is_write_operation(sql) {
             // Not a write operation, allow it
+            return Ok(());
+        }
+        
+        // Check if non-leader writes are allowed
+        if self.allow_non_leader_writes {
+            web_sys::console::log_1(&format!("WRITE_ALLOWED: Non-leader writes enabled for {}", self.name).into());
             return Ok(());
         }
         
@@ -78,7 +86,7 @@ impl Database {
                 web_sys::console::log_1(&format!("WRITE_DENIED: Instance is not leader for {}", db_name).into());
                 return Err(DatabaseError::new(
                     "WRITE_PERMISSION_DENIED",
-                    "Only the leader tab can write to this database. Use db.isLeader() to check status."
+                    "Only the leader tab can write to this database. Use db.isLeader() to check status or call db.allowNonLeaderWrites(true) for single-tab mode."
                 ));
             }
             
@@ -142,6 +150,7 @@ impl Database {
             db,
             name: config.name,
             on_data_change_callback: None,
+            allow_non_leader_writes: false,
         })
     }
     
@@ -193,6 +202,7 @@ impl Database {
             db,
             name,
             on_data_change_callback: None,
+            allow_non_leader_writes: false,
         })
     }
     
@@ -674,6 +684,14 @@ impl Database {
         self.sync_internal()
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to sync database: {}", e)))
+    }
+
+    /// Allow non-leader writes (for single-tab apps or testing)
+    #[wasm_bindgen(js_name = "allowNonLeaderWrites")]
+    pub async fn allow_non_leader_writes(&mut self, allow: bool) -> Result<(), JsValue> {
+        web_sys::console::log_1(&format!("Setting allowNonLeaderWrites = {} for {}", allow, self.name).into());
+        self.allow_non_leader_writes = allow;
+        Ok(())
     }
 
     #[wasm_bindgen(js_name = "isLeader")]

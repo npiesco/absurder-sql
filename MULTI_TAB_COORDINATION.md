@@ -144,13 +144,13 @@ fn is_write_operation(sql: &str) -> bool {
 
 ---
 
-### 2.3 Add Manual Write Lock Override
+### 2.3 Add Manual Write Lock Override ✓ COMPLETE
 **File**: `src/lib.rs`
 
--  Add `allowNonLeaderWrites(allow: bool)` method
--  Store flag in Database struct
--  Check flag in write guard
--  Document use case (single-tab apps, testing)
+- ✓ Add `allowNonLeaderWrites(allow: bool)` method
+- ✓ Store `allow_non_leader_writes` flag in Database struct
+- ✓ Check flag in write guard before leader check
+- ✓ Document use case (single-tab apps, testing)
 
 **Expected API**:
 ```javascript

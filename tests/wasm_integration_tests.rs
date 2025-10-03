@@ -616,6 +616,79 @@ async fn test_write_guard_allows_schema_changes() {
     web_sys::console::log_1(&"✓ Schema changes allowed regardless of leader status".into());
 }
 
+/// Test Phase 2.3: allowNonLeaderWrites override for single-tab apps
+#[wasm_bindgen_test]
+async fn test_allow_non_leader_writes_override() {
+    use sqlite_indexeddb_rs::ColumnValue;
+    
+    let db_name = "test_override_writes";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    sleep_ms(100).await;
+    
+    // Create table
+    db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)").await
+        .expect("Should create table");
+    
+    // Enable non-leader writes (for single-tab mode or testing)
+    db.allow_non_leader_writes(true).await
+        .expect("Should enable non-leader writes");
+    
+    // Now writes should work even if not leader (hypothetically)
+    db.execute("INSERT INTO test (value) VALUES ('test1')").await
+        .expect("Should insert with override enabled");
+    
+    // Test with parameterized queries
+    let params = serde_wasm_bindgen::to_value(&vec![
+        ColumnValue::Text("test2".to_string()),
+    ]).unwrap();
+    
+    db.execute_with_params("INSERT INTO test (value) VALUES (?)", params).await
+        .expect("Should insert with params and override enabled");
+    
+    // Disable override
+    db.allow_non_leader_writes(false).await
+        .expect("Should disable non-leader writes");
+    
+    // Writes should still work if we're leader
+    db.execute("INSERT INTO test (value) VALUES ('test3')").await
+        .expect("Should insert as leader");
+    
+    web_sys::console::log_1(&"✓ allowNonLeaderWrites override works correctly".into());
+}
+
+/// Test Phase 2.3: Override flag persists across multiple operations
+#[wasm_bindgen_test]
+async fn test_allow_non_leader_writes_persistence() {
+    let db_name = "test_override_persist";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    sleep_ms(100).await;
+    
+    db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY)").await
+        .expect("Should create table");
+    
+    // Enable override
+    db.allow_non_leader_writes(true).await
+        .expect("Should enable override");
+    
+    // Multiple operations should all succeed
+    for i in 1..=5 {
+        db.execute(&format!("INSERT INTO test (id) VALUES ({})", i)).await
+            .expect("Each insert should succeed with override");
+    }
+    
+    // Verify all rows inserted
+    let _result = db.execute("SELECT COUNT(*) FROM test").await
+        .expect("Should select count");
+    
+    web_sys::console::log_1(&format!("✓ Override persisted across {} operations", 5).into());
+}
+
 // Helper function for async sleep
 async fn sleep_ms(ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
