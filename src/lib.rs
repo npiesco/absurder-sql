@@ -592,6 +592,48 @@ impl Database {
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to sync database: {}", e)))
     }
+
+    #[wasm_bindgen(js_name = "isLeader")]
+    pub async fn is_leader_wasm(&self) -> Result<JsValue, JsValue> {
+        // Get the storage from STORAGE_REGISTRY
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        
+        let db_name = &self.name;
+        web_sys::console::log_1(&format!("DEBUG: isLeader() called for database: {} (self.name)", db_name).into());
+        
+        // Show what's in the registry
+        STORAGE_REGISTRY.with(|reg| {
+            let registry = reg.borrow();
+            web_sys::console::log_1(&format!("DEBUG: STORAGE_REGISTRY keys: {:?}", registry.keys().collect::<Vec<_>>()).into());
+        });
+        
+        let storage_rc = STORAGE_REGISTRY.with(|reg| {
+            let registry = reg.borrow();
+            // Try both with and without .db extension
+            registry.get(db_name).cloned()
+                .or_else(|| registry.get(&format!("{}.db", db_name)).cloned())
+                .or_else(|| {
+                    if db_name.ends_with(".db") {
+                        registry.get(&db_name[..db_name.len()-3]).cloned()
+                    } else {
+                        None
+                    }
+                })
+        });
+        
+        if let Some(storage) = storage_rc {
+            web_sys::console::log_1(&format!("DEBUG: Found storage for {}, calling is_leader()", db_name).into());
+            let mut storage_mut = storage.borrow_mut();
+            let is_leader = storage_mut.is_leader().await;
+            web_sys::console::log_1(&format!("DEBUG: is_leader() = {} for {}", is_leader, db_name).into());
+            
+            // Return as JsValue boolean
+            Ok(JsValue::from_bool(is_leader))
+        } else {
+            web_sys::console::log_1(&format!("ERROR: No storage found for database: {}", db_name).into());
+            Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+        }
+    }
 }
 
 // Export WasmColumnValue for WASM

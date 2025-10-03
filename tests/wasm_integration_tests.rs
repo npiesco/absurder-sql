@@ -7,6 +7,7 @@
 use wasm_bindgen_test::*;
 use sqlite_indexeddb_rs::*;
 use sqlite_indexeddb_rs::WasmColumnValue;
+use wasm_bindgen::JsValue;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -293,4 +294,84 @@ async fn test_wasm_persistence() {
     }
     
     web_sys::console::log_1(&"✓ WASM persistence test passed".into());
+}
+
+/// Test Phase 1.1: Database.isLeader() API
+/// First instance should become leader
+#[wasm_bindgen_test]
+async fn test_database_is_leader_api() {
+    // Create database instance using Rust API (exports as newDatabase to JS)
+    let db = Database::new_wasm("test_leader_api".to_string()).await
+        .expect("Should create database");
+    
+    // Call is_leader_wasm() - should return JsValue boolean
+    let is_leader_result = db.is_leader_wasm().await;
+    
+    // First instance should become leader
+    assert!(is_leader_result.is_ok(), "isLeader() should not error");
+    let is_leader_js = is_leader_result.unwrap();
+    
+    // Convert JsValue to bool
+    let is_leader = is_leader_js.as_bool().expect("should be boolean");
+    
+    assert!(is_leader, "First instance should be leader");
+    
+    web_sys::console::log_1(&"✓ Database.isLeader() API test passed".into());
+}
+
+/// Test Phase 1.1: Multiple database instances - leader election
+/// Simulates 2 separate JavaScript contexts (tabs) by clearing registry
+#[wasm_bindgen_test]
+async fn test_database_multi_instance_leader() {
+    use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+    
+    let db_name = "test_multi_leader_ctx";
+    
+    // Create first database instance (simulates Tab 1)
+    let db1 = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create first database");
+    
+    // Small delay to ensure first instance claims leadership
+    sleep_ms(100).await;
+    
+    let is_leader1_js = db1.is_leader_wasm().await
+        .expect("isLeader should work");
+    let is_leader1 = is_leader1_js.as_bool().expect("should be boolean");
+    
+    assert!(is_leader1, "First instance should be leader");
+    web_sys::console::log_1(&"✓ First instance is leader".into());
+    
+    // Simulate separate JS context by clearing registry and creating new instance
+    // This simulates what would happen in a separate browser tab
+    STORAGE_REGISTRY.with(|reg| {
+        reg.borrow_mut().clear();
+        web_sys::console::log_1(&"DEBUG: Cleared STORAGE_REGISTRY to simulate new tab".into());
+    });
+    
+    // Create second instance (simulates Tab 2)
+    let db2 = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create second database");
+    
+    sleep_ms(100).await;
+    
+    let is_leader2_js = db2.is_leader_wasm().await
+        .expect("isLeader should work");
+    let is_leader2 = is_leader2_js.as_bool().expect("should be boolean");
+    
+    // Second instance should be FOLLOWER (first instance already claimed leadership in localStorage)
+    assert!(!is_leader2, "Second instance should be follower since first already claimed leadership");
+    
+    web_sys::console::log_1(&"✓ Multi-instance leader election API test passed".into());
+}
+
+// Helper function for async sleep
+async fn sleep_ms(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        let window = web_sys::window().expect("should have window");
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            &resolve,
+            ms
+        );
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }

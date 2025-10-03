@@ -27,13 +27,13 @@
 
 **Goal**: Expose leader election and change notifications to JavaScript
 
-### 1.1 Expose Leader Election to Database API
+### 1.1 Expose Leader Election to Database API ✓ COMPLETE
 **File**: `src/lib.rs`
 
--  Add `is_leader()` method to Database struct (internal)
--  Add `#[wasm_bindgen]` export for `isLeader()` JavaScript method
--  Connect to underlying VFS storage's leader election
--  Add tests in `wasm_integration_tests.rs`
+- ✓ Add `is_leader()` method to Database struct (internal)
+- ✓ Add `#[wasm_bindgen]` export for `isLeader()` JavaScript method
+- ✓ Connect to underlying VFS storage's leader election
+- ✓ Add tests in `wasm_integration_tests.rs`
 
 **Expected API**:
 ```javascript
