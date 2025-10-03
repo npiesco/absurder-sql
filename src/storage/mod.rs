@@ -2,6 +2,8 @@ pub mod allocation;
 pub mod async_bridge;
 pub mod auto_sync;
 pub mod block_storage;
+#[cfg(target_arch = "wasm32")]
+pub mod broadcast_notifications;
 pub mod constructors;
 pub mod fs_persist;
 pub mod io_operations;
