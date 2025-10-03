@@ -8,6 +8,8 @@ use wasm_bindgen_test::*;
 use sqlite_indexeddb_rs::*;
 use sqlite_indexeddb_rs::WasmColumnValue;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -362,6 +364,96 @@ async fn test_database_multi_instance_leader() {
     assert!(!is_leader2, "Second instance should be follower since first already claimed leadership");
     
     web_sys::console::log_1(&"✓ Multi-instance leader election API test passed".into());
+}
+
+/// Test Phase 1.3: Database onDataChange callback registration
+#[wasm_bindgen_test]
+async fn test_database_on_data_change_callback() {
+    use std::rc::Rc;
+    use std::cell::RefCell;
+    
+    let mut db = Database::new_wasm("test_onchange".to_string()).await
+        .expect("Should create database");
+    
+    // Track if callback was called
+    let callback_called = Rc::new(RefCell::new(false));
+    let callback_called_clone = callback_called.clone();
+    
+    // Create callback
+    let callback = Closure::wrap(Box::new(move |event: JsValue| {
+        web_sys::console::log_1(&"DEBUG: onDataChange callback invoked".into());
+        web_sys::console::log_1(&format!("Event: {:?}", event).into());
+        *callback_called_clone.borrow_mut() = true;
+    }) as Box<dyn FnMut(JsValue)>);
+    
+    // Register callback
+    db.on_data_change_wasm(callback.as_ref().unchecked_ref())
+        .expect("Should register callback");
+    
+    // Create table and insert data
+    db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)").await
+        .expect("Should create table");
+    db.execute("INSERT INTO test (value) VALUES ('test_data')").await
+        .expect("Should insert data");
+    
+    // Sync - should trigger notification
+    db.sync().await
+        .expect("Should sync");
+    
+    // Wait for notification to propagate
+    sleep_ms(100).await;
+    
+    // Verify callback was called
+    assert!(*callback_called.borrow(), "onDataChange callback should be invoked after sync");
+    
+    callback.forget();
+    
+    web_sys::console::log_1(&"✓ Database onDataChange callback test passed".into());
+}
+
+/// Test Phase 1.3: Multiple sync operations trigger multiple callbacks
+#[wasm_bindgen_test]
+async fn test_multiple_sync_notifications() {
+    use std::rc::Rc;
+    use std::cell::RefCell;
+    
+    let mut db = Database::new_wasm("test_multi_sync".to_string()).await
+        .expect("Should create database");
+    
+    let call_count = Rc::new(RefCell::new(0));
+    let call_count_clone = call_count.clone();
+    
+    let callback = Closure::wrap(Box::new(move |_event: JsValue| {
+        *call_count_clone.borrow_mut() += 1;
+        web_sys::console::log_1(&format!("Callback called {} times", *call_count_clone.borrow()).into());
+    }) as Box<dyn FnMut(JsValue)>);
+    
+    db.on_data_change_wasm(callback.as_ref().unchecked_ref())
+        .expect("Should register callback");
+    
+    db.execute("CREATE TABLE multi (id INTEGER PRIMARY KEY)").await
+        .expect("Should create table");
+    
+    // First sync
+    db.sync().await.expect("Should sync");
+    sleep_ms(50).await;
+    
+    // Second sync
+    db.execute("INSERT INTO multi VALUES (1)").await.expect("Should insert");
+    db.sync().await.expect("Should sync");
+    sleep_ms(50).await;
+    
+    // Third sync
+    db.execute("INSERT INTO multi VALUES (2)").await.expect("Should insert");
+    db.sync().await.expect("Should sync");
+    sleep_ms(50).await;
+    
+    // Should have received 3 notifications
+    assert_eq!(*call_count.borrow(), 3, "Should receive 3 notifications for 3 syncs");
+    
+    callback.forget();
+    
+    web_sys::console::log_1(&"✓ Multiple sync notifications test passed".into());
 }
 
 // Helper function for async sleep

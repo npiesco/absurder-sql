@@ -31,6 +31,8 @@ pub struct Database {
     db: *mut sqlite_wasm_rs::sqlite3,
     #[allow(dead_code)]
     name: String,
+    #[wasm_bindgen(skip)]
+    on_data_change_callback: Option<js_sys::Function>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -85,6 +87,7 @@ impl Database {
         Ok(Database {
             db,
             name: config.name,
+            on_data_change_callback: None,
         })
     }
     
@@ -135,6 +138,7 @@ impl Database {
         Ok(Database {
             db,
             name,
+            on_data_change_callback: None,
         })
     }
     
@@ -524,6 +528,21 @@ impl Database {
         #[cfg(target_arch = "wasm32")]
         {
             crate::storage::vfs_sync_database_blocking(&self.name)?;
+            
+            // Send notification after successful sync
+            use crate::storage::broadcast_notifications::{BroadcastNotification, send_change_notification};
+            
+            let notification = BroadcastNotification::DataChanged {
+                db_name: self.name.clone(),
+                timestamp: js_sys::Date::now() as u64,
+            };
+            
+            web_sys::console::log_1(&format!("DEBUG: Sending DataChanged notification for {}", self.name).into());
+            
+            if let Err(e) = send_change_notification(&notification) {
+                web_sys::console::log_1(&format!("WARNING: Failed to send change notification: {}", e).into());
+                // Don't fail the sync if notification fails
+            }
         }
         Ok(())
     }
@@ -633,6 +652,24 @@ impl Database {
             web_sys::console::log_1(&format!("ERROR: No storage found for database: {}", db_name).into());
             Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
         }
+    }
+
+    #[wasm_bindgen(js_name = "onDataChange")]
+    pub fn on_data_change_wasm(&mut self, callback: &js_sys::Function) -> Result<(), JsValue> {
+        web_sys::console::log_1(&format!("DEBUG: Registering onDataChange callback for {}", self.name).into());
+        
+        // Store the callback
+        self.on_data_change_callback = Some(callback.clone());
+        
+        // Register listener for BroadcastChannel notifications from other tabs
+        use crate::storage::broadcast_notifications::register_change_listener;
+        
+        let db_name = &self.name;
+        register_change_listener(db_name, callback)
+            .map_err(|e| JsValue::from_str(&format!("Failed to register change listener: {}", e)))?;
+        
+        web_sys::console::log_1(&format!("DEBUG: onDataChange callback registered for {}", self.name).into());
+        Ok(())
     }
 }
 

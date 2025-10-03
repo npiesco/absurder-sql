@@ -73,13 +73,13 @@ pub enum BroadcastNotification {
 
 ---
 
-### 1.3 Integrate Change Notifications with Database
+### 1.3 Integrate Change Notifications with Database ✓ COMPLETE
 **File**: `src/lib.rs`
 
--  Add `change_broadcast_channel` field to Database struct
--  Initialize BroadcastChannel in `Database::new()`
--  Send notification after successful `sync_internal()`
--  Add `#[wasm_bindgen]` method `onDataChange(callback)` for JavaScript
+- ✓ Add `on_data_change_callback` field to Database struct
+- ✓ Initialize field in `Database::new()` and `Database::open_with_vfs()`
+- ✓ Send notification after successful `sync_internal()`
+- ✓ Add `#[wasm_bindgen]` method `onDataChange(callback)` for JavaScript
 
 **Expected API**:
 ```javascript
