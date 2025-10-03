@@ -24,6 +24,7 @@ npm run dev
 - ✅ IndexedDB persistence
 - ✅ **Multi-tab leader election**
 - ✅ **Automatic write coordination**
+- ✅ **Write queuing from any tab** ✨ NEW
 - ✅ **Real-time sync across tabs**
 - ✅ Leader/follower badge display
 - ✅ Automatic UI updates on tab status change
@@ -62,6 +63,10 @@ await db.init();
 
 // Only leader can write
 await db.write("INSERT INTO items VALUES (1, 'Item', 9.99)");
+
+// OR use queueWrite from any tab ✨ NEW
+await db.queueWrite("INSERT INTO items VALUES (1, 'Item', 9.99)");
+// Leaders execute immediately, followers forward to leader
 
 // Any tab can read
 const result = await db.query("SELECT * FROM items");

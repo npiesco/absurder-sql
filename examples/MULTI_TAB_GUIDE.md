@@ -130,7 +130,7 @@ SELECT, CREATE TABLE, ALTER TABLE, CREATE INDEX
 // DDL operations are not considered writes
 ```
 
-**Error Handling**:
+**Option 1: Manual Error Handling**:
 ```javascript
 try {
   await db.execute("INSERT INTO users (name) VALUES ('Bob')");
@@ -142,6 +142,21 @@ try {
   }
 }
 ```
+
+**Option 2: Queue Write (Recommended for Non-Leaders)** ✨ NEW:
+```javascript
+// Non-leader can queue writes that forward to leader
+await db.queueWrite("INSERT INTO users (name) VALUES ('Bob')");
+
+// With custom timeout (default 5s)
+await db.queueWriteWithTimeout("UPDATE users SET active = 1", 10000);
+```
+
+**How queueWrite Works**:
+- **Leader**: Executes immediately (no queuing overhead)
+- **Follower**: Forwards request to leader via BroadcastChannel
+- **Returns**: When leader acknowledges completion or timeout
+- **Error**: Throws if timeout or leader execution fails
 
 ### Change Notifications
 
@@ -197,6 +212,17 @@ Register change notification callback.
 
 #### `db.allowNonLeaderWrites(allow: boolean): Promise<void>`
 Override write guard for single-tab mode.
+
+#### `db.queueWrite(sql: string): Promise<void>` ✨ NEW
+Queue a write operation. Leaders execute immediately, followers forward to leader.
+- **Timeout**: 5 seconds default
+- **Returns**: When leader acknowledges or times out
+- **Throws**: On timeout or execution error
+
+#### `db.queueWriteWithTimeout(sql: string, timeoutMs: number): Promise<void>` ✨ NEW
+Queue write with custom timeout.
+- **timeoutMs**: Timeout in milliseconds
+- **Use case**: Long-running operations or slow networks
 
 #### `db.close(): Promise<void>`
 Close database and cleanup.
@@ -267,7 +293,37 @@ await db.init();
 await db.write("INSERT INTO data (value) VALUES (42)");
 ```
 
-### Pattern 3: Real-time Sync Across Tabs
+### Pattern 3: Queue Writes from Any Tab ✨ NEW
+
+```javascript
+// Non-leaders forward writes to leader automatically
+
+const db = await Database.new('myapp.db');
+
+// Works from any tab - leader or follower
+try {
+  await db.queueWrite("INSERT INTO events (type, data) VALUES ('click', 'button')");
+  console.log('Write completed successfully');
+} catch (err) {
+  if (err.message.includes('timeout')) {
+    console.error('Leader not responding');
+  } else {
+    console.error('Write failed:', err.message);
+  }
+}
+
+// With custom timeout for long operations
+await db.queueWriteWithTimeout("UPDATE large_table SET processed = 1", 30000);
+```
+
+**When to use queueWrite**:
+- ✅ Multi-tab apps where any tab may need to write
+- ✅ Background tasks that don't need immediate leader status
+- ✅ Form submissions from follower tabs
+- ❌ High-frequency writes (use leader check instead)
+- ❌ Operations requiring immediate response (check isLeader first)
+
+### Pattern 4: Real-time Sync Across Tabs
 
 ```javascript
 // Keep UI in sync across all tabs
@@ -288,7 +344,7 @@ async function sendMessage(text) {
 }
 ```
 
-### Pattern 4: Single-Tab Override
+### Pattern 5: Single-Tab Override
 
 ```javascript
 // Disable multi-tab coordination for single-tab apps
@@ -300,7 +356,7 @@ await db.allowNonLeaderWrites(true);
 await db.execute("INSERT INTO data VALUES (1)");
 ```
 
-### Pattern 5: Graceful Leader Handoff
+### Pattern 6: Graceful Leader Handoff
 
 ```javascript
 // Handle leader changes gracefully

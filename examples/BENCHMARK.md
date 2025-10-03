@@ -77,7 +77,7 @@ http://localhost:8080/examples/benchmark.html
 - ✅ Full SQL support (joins, indexes, transactions)
 - ✅ ACID compliance
 - ✅ Persistent across page reloads
-- ✅ Multi-tab coordination
+- ✅ Multi-tab coordination with write queuing ✨ NEW
 - ✅ Block-level storage with checksums
 
 ### Raw IndexedDB Advantages

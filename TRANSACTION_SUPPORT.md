@@ -139,11 +139,16 @@ await db.sync(); // Persist to IndexedDB
 - WAL mode not currently supported
 - Journal operations don't persist until sync()
 
-### 3. **Concurrency Model**
-- Single database instance per page recommended
-- Multiple Database instances access same IndexedDB store
-- Last sync() wins for conflicting writes
-- No multi-tab write coordination
+### 3. **Multi-Tab Concurrency Model** ✨ UPDATED
+- **Leader Election**: Only leader tab can execute write operations
+- **Write Guard**: Non-leaders are blocked from direct writes via `execute()`
+- **Write Queue**: Non-leaders can use `queueWrite()` to forward writes to leader
+- **Limitations of queueWrite**:
+  - Each queued write is a **separate transaction** (not atomic with other queued writes)
+  - Cannot use queueWrite for multi-statement transactions (BEGIN...COMMIT blocks)
+  - 5-second default timeout (leader must respond within timeout)
+  - Requires active leader tab (fails if no leader present)
+- **For atomic transactions**: Tab must be leader or call `waitForLeadership()` first
 
 ### 4. **Browser Storage Limits**
 - Subject to IndexedDB quota (typically 50MB-1GB)
@@ -154,6 +159,11 @@ await db.sync(); // Persist to IndexedDB
 - sync() is async and may take time for large datasets
 - Frequent sync() calls can impact performance
 - Batch operations when possible
+- **queueWrite() overhead** ✨ NEW:
+  - Additional latency from BroadcastChannel communication
+  - Leader must process and acknowledge each request
+  - Not suitable for high-frequency writes (prefer direct leader execution)
+  - Best for occasional writes from follower tabs
 
 ## 🧪 Testing
 
@@ -223,8 +233,50 @@ window.addEventListener('beforeunload', async (e) => {
 - Check storage API for available space
 - Implement data cleanup strategies for large datasets
 
+## 🔄 Multi-Tab Transactions ✨ NEW
+
+### Write Coordination
+In multi-tab environments, only the leader tab can execute write operations (including transactions).
+
+#### Option 1: Leader-Only Transactions
+```javascript
+const db = await Database.newDatabase('myapp');
+
+// Check if leader before starting transaction
+if (await db.isLeader()) {
+  await db.execute('BEGIN TRANSACTION');
+  await db.execute('INSERT INTO users VALUES (1, "Alice")');
+  await db.execute('INSERT INTO orders VALUES (1, 1, 99.99)');
+  await db.execute('COMMIT');
+  await db.sync();
+}
+```
+
+#### Option 2: Queue Transactional Writes ✨ NEW
+```javascript
+// Queue individual writes from any tab
+// Note: Each queued write is a separate transaction
+await db.queueWrite('INSERT INTO users VALUES (1, "Alice")');
+await db.queueWrite('INSERT INTO orders VALUES (1, 1, 99.99)');
+
+// For multi-statement transactions, wait for leadership:
+await db.waitForLeadership();
+await db.execute('BEGIN TRANSACTION');
+await db.execute('INSERT INTO users VALUES (1, "Alice")');
+await db.execute('INSERT INTO orders VALUES (1, 1, 99.99)');
+await db.execute('COMMIT');
+await db.sync();
+```
+
+### Important Notes
+- **queueWrite** executes each SQL statement as a separate transaction
+- For atomic multi-statement transactions, the tab must be the leader
+- Followers can wait for leadership with `waitForLeadership()` before starting transactions
+- All tabs see committed changes after sync via BroadcastChannel notifications
+
 ## 📚 References
 
 - [SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html)
 - [IndexedDB API Specification](https://www.w3.org/TR/IndexedDB/)
 - [DataSync Architecture Overview](./README.md)
+- [Multi-Tab Coordination Guide](./examples/MULTI_TAB_GUIDE.md)

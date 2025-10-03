@@ -198,6 +198,7 @@ DataSync includes built-in multi-tab coordination for browser applications, ensu
 ### Key Features
 - **Automatic Leader Election**: First tab becomes leader using localStorage coordination
 - **Write Guard**: Only the leader tab can execute write operations (INSERT, UPDATE, DELETE)
+- **Write Queuing** ✨ NEW: Non-leaders can queue writes that forward to leader automatically
 - **BroadcastChannel Sync**: Automatic change notifications to all tabs
 - **Failover Support**: Automatic re-election when leader tab closes
 - **Zero Configuration**: Works out of the box, no setup required
@@ -239,6 +240,12 @@ await db.waitForLeadership();
 
 // Request leadership
 await db.requestLeadership();
+
+// Queue write from any tab ✨ NEW
+await db.queueWrite("INSERT INTO logs VALUES (1, 'event')");
+
+// Queue write with custom timeout
+await db.queueWriteWithTimeout("UPDATE data SET processed = 1", 10000);
 
 // Get leader info
 const info = await db.getLeaderInfo();
