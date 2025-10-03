@@ -105,14 +105,14 @@
                 log('✓ Data inserted and synced\n');
 
                 log('SELECT * FROM users:');
-                const users = await db.execute('SELECT * FROM users');
-                log(JSON.stringify(users, null, 2));
-                log(`\nFound ${users.rows.length} users\n`);
+                const usersResult = await db.execute('SELECT * FROM users');
+                log(JSON.stringify(usersResult, null, 2));
+                log(`\nFound ${usersResult.rows.length} users\n`);
 
                 log('SELECT * FROM orders:');
-                const orders = await db.execute('SELECT * FROM orders');
-                log(JSON.stringify(orders, null, 2));
-                log(`\nFound ${orders.rows.length} orders\n`);
+                const ordersResult = await db.execute('SELECT * FROM orders');
+                log(JSON.stringify(ordersResult, null, 2));
+                log(`\nFound ${ordersResult.rows.length} orders\n`);
 
                 log('JOIN query - Users with their orders:');
                 const joined = await db.execute(`
@@ -133,14 +133,14 @@
                 log(JSON.stringify(agg, null, 2));
 
                 log('\nUpdating order status...');
-                const update = await db.execute("UPDATE orders SET status = 'shipped' WHERE id = 2");
+                const updateResult = await db.execute("UPDATE orders SET status = 'shipped' WHERE id = 2");
                 await db.sync();
-                log(`✓ Updated ${update.affected_rows} row(s) and synced`);
+                log(`✓ Updated ${updateResult.affected_rows} row(s) and synced`);
 
                 log('\nDeleting user...');
-                const del = await db.execute('DELETE FROM users WHERE id = 3');
+                const deleteResult = await db.execute('DELETE FROM users WHERE id = 3');
                 await db.sync();
-                log(`✓ Deleted ${del.affected_rows} row(s) and synced`);
+                log(`✓ Deleted ${deleteResult.affected_rows} row(s) and synced`);
 
                 log('\nTesting transaction...');
                 await db.execute('BEGIN TRANSACTION');
@@ -150,8 +150,8 @@
                 await db.sync();
                 log('✓ Transaction committed and synced');
 
-                const count = await db.execute('SELECT COUNT(*) as count FROM users');
-                log(`\n📊 Final user count: ${count.rows[0].values[0].value}`);
+                const countResult = await db.execute('SELECT COUNT(*) as count FROM users');
+                log(`\n📊 Final user count: ${countResult.rows[0].values[0].value}`);
 
                 await db.close();
                 log('\n✅ Demo complete!');

@@ -18,6 +18,8 @@ pub mod wasm_indexeddb;
 pub mod wasm_vfs_sync;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_auto_sync;
+#[cfg(target_arch = "wasm32")]
+pub mod write_queue;
 
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 #[cfg(target_arch = "wasm32")]

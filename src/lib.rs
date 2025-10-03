@@ -650,7 +650,7 @@ impl Database {
     #[wasm_bindgen(js_name = "newDatabase")]
     pub async fn new_wasm(name: String) -> Result<Database, JsValue> {
         let config = DatabaseConfig {
-            name,
+            name: name.clone(),
             version: Some(1),
             cache_size: Some(10_000),
             page_size: Some(4096),
@@ -658,9 +658,107 @@ impl Database {
             journal_mode: Some("WAL".to_string()),
         };
         
-        Database::new(config)
+        let db = Database::new(config)
             .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))
+            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
+        
+        // Start listening for write queue requests (leader will process them)
+        Self::start_write_queue_listener(&name)?;
+        
+        Ok(db)
+    }
+    
+    /// Start listening for write queue requests (leader processes these)
+    fn start_write_queue_listener(db_name: &str) -> Result<(), JsValue> {
+        use crate::storage::write_queue::{register_write_queue_listener, WriteQueueMessage, WriteResponse};
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        
+        let db_name_clone = db_name.to_string();
+        
+        let callback = Closure::wrap(Box::new(move |msg: JsValue| {
+            let db_name_inner = db_name_clone.clone();
+            
+            // Parse the message
+            if let Ok(json_str) = js_sys::JSON::stringify(&msg) {
+                if let Some(json_str) = json_str.as_string() {
+                    if let Ok(message) = serde_json::from_str::<WriteQueueMessage>(&json_str) {
+                        if let WriteQueueMessage::WriteRequest(request) = message {
+                            web_sys::console::log_1(&format!("Leader received write request: {}", request.request_id).into());
+                            
+                            // Check if we're the leader
+                            let storage_rc = STORAGE_REGISTRY.with(|reg| {
+                                let registry = reg.borrow();
+                                registry.get(&db_name_inner).cloned()
+                                    .or_else(|| registry.get(&format!("{}.db", &db_name_inner)).cloned())
+                            });
+                            
+                            if let Some(storage) = storage_rc {
+                                // Spawn async task to process the write
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let is_leader = {
+                                        let mut storage_mut = storage.borrow_mut();
+                                        storage_mut.is_leader().await
+                                    };
+                                    
+                                    if !is_leader {
+                                        web_sys::console::log_1(&"Not leader, ignoring write request".into());
+                                        return;
+                                    }
+                                    
+                                    web_sys::console::log_1(&"Processing write request as leader".into());
+                                    
+                                    // Create a temporary database instance to execute the SQL
+                                    match Database::new_wasm(db_name_inner.clone()).await {
+                                        Ok(mut db) => {
+                                            // Execute the SQL
+                                            match db.execute_internal(&request.sql).await {
+                                                Ok(result) => {
+                                                    // Send success response
+                                                    let response = WriteResponse::Success {
+                                                        request_id: request.request_id.clone(),
+                                                        affected_rows: result.affected_rows as usize,
+                                                    };
+                                                    
+                                                    use crate::storage::write_queue::send_write_response;
+                                                    if let Err(e) = send_write_response(&db_name_inner, response) {
+                                                        web_sys::console::log_1(&format!("Failed to send response: {}", e).into());
+                                                    } else {
+                                                        web_sys::console::log_1(&"Write response sent successfully".into());
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    // Send error response
+                                                    let response = WriteResponse::Error {
+                                                        request_id: request.request_id.clone(),
+                                                        error_message: e.to_string(),
+                                                    };
+                                                    
+                                                    use crate::storage::write_queue::send_write_response;
+                                                    if let Err(e) = send_write_response(&db_name_inner, response) {
+                                                        web_sys::console::log_1(&format!("Failed to send error response: {}", e).into());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            web_sys::console::log_1(&format!("Failed to create db for write processing: {:?}", e).into());
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(JsValue)>);
+        
+        let callback_fn = callback.as_ref().unchecked_ref();
+        register_write_queue_listener(db_name, callback_fn)
+            .map_err(|e| JsValue::from_str(&format!("Failed to register write queue listener: {}", e)))?;
+        
+        callback.forget();
+        
+        Ok(())
     }
 
     #[wasm_bindgen]
@@ -840,6 +938,139 @@ impl Database {
             Ok(obj.into())
         } else {
             Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+        }
+    }
+
+    /// Queue a write operation to be executed by the leader
+    /// 
+    /// Non-leader tabs can use this to request writes from the leader.
+    /// The write is forwarded via BroadcastChannel and executed by the leader.
+    /// 
+    /// # Arguments
+    /// * `sql` - SQL statement to execute (must be a write operation)
+    /// 
+    /// # Returns
+    /// Result indicating success or failure
+    #[wasm_bindgen(js_name = "queueWrite")]
+    pub async fn queue_write(&mut self, sql: String) -> Result<(), JsValue> {
+        self.queue_write_with_timeout(sql, 5000).await
+    }
+    
+    /// Queue a write operation with a specific timeout
+    /// 
+    /// # Arguments
+    /// * `sql` - SQL statement to execute
+    /// * `timeout_ms` - Timeout in milliseconds
+    #[wasm_bindgen(js_name = "queueWriteWithTimeout")]
+    pub async fn queue_write_with_timeout(&mut self, sql: String, timeout_ms: u32) -> Result<(), JsValue> {
+        use crate::storage::write_queue::{send_write_request, WriteResponse, WriteQueueMessage};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        
+        web_sys::console::log_1(&format!("Queuing write: {}", sql).into());
+        
+        // Check if we're the leader - if so, just execute directly
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        let is_leader = {
+            let storage_rc = STORAGE_REGISTRY.with(|reg| {
+                let registry = reg.borrow();
+                registry.get(&self.name).cloned()
+                    .or_else(|| registry.get(&format!("{}.db", &self.name)).cloned())
+            });
+            
+            if let Some(storage) = storage_rc {
+                let mut storage_mut = storage.borrow_mut();
+                storage_mut.is_leader().await
+            } else {
+                false
+            }
+        };
+        
+        if is_leader {
+            web_sys::console::log_1(&"We are leader, executing directly".into());
+            return self.execute_internal(&sql).await
+                .map(|_| ())
+                .map_err(|e| JsValue::from_str(&format!("Execute failed: {}", e)));
+        }
+        
+        // Send write request to leader
+        let request_id = send_write_request(&self.name, &sql)
+            .map_err(|e| JsValue::from_str(&format!("Failed to send write request: {}", e)))?;
+        
+        web_sys::console::log_1(&format!("Write request sent with ID: {}", request_id).into());
+        
+        // Wait for response with timeout
+        let response_received = Rc::new(RefCell::new(false));
+        let response_error = Rc::new(RefCell::new(None::<String>));
+        
+        let response_received_clone = response_received.clone();
+        let response_error_clone = response_error.clone();
+        let request_id_clone = request_id.clone();
+        
+        // Set up listener for response
+        let callback = Closure::wrap(Box::new(move |msg: JsValue| {
+            // Parse the message
+            if let Ok(json_str) = js_sys::JSON::stringify(&msg) {
+                if let Some(json_str) = json_str.as_string() {
+                    if let Ok(message) = serde_json::from_str::<WriteQueueMessage>(&json_str) {
+                        if let WriteQueueMessage::WriteResponse(response) = message {
+                            match response {
+                                WriteResponse::Success { request_id, .. } => {
+                                    if request_id == request_id_clone {
+                                        *response_received_clone.borrow_mut() = true;
+                                        web_sys::console::log_1(&"Write response received: Success".into());
+                                    }
+                                }
+                                WriteResponse::Error { request_id, error_message } => {
+                                    if request_id == request_id_clone {
+                                        *response_received_clone.borrow_mut() = true;
+                                        *response_error_clone.borrow_mut() = Some(error_message);
+                                        web_sys::console::log_1(&"Write response received: Error".into());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(JsValue)>);
+        
+        // Register listener
+        use crate::storage::write_queue::register_write_queue_listener;
+        let callback_fn = callback.as_ref().unchecked_ref();
+        register_write_queue_listener(&self.name, callback_fn)
+            .map_err(|e| JsValue::from_str(&format!("Failed to register listener: {}", e)))?;
+        
+        // Keep callback alive
+        callback.forget();
+        
+        // Wait for response with polling (timeout_ms)
+        let start_time = js_sys::Date::now();
+        let timeout_f64 = timeout_ms as f64;
+        
+        loop {
+            // Check if response received
+            if *response_received.borrow() {
+                if let Some(error_msg) = response_error.borrow().as_ref() {
+                    return Err(JsValue::from_str(&format!("Write failed: {}", error_msg)));
+                }
+                web_sys::console::log_1(&"Write completed successfully".into());
+                return Ok(());
+            }
+            
+            // Check timeout
+            let elapsed = js_sys::Date::now() - start_time;
+            if elapsed > timeout_f64 {
+                return Err(JsValue::from_str("Write request timed out"));
+            }
+            
+            // Wait a bit before checking again
+            wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
+                web_sys::window()
+                    .unwrap()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
+                    .unwrap();
+            })).await.ok();
         }
     }
 
