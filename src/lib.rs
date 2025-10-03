@@ -37,6 +37,60 @@ pub struct Database {
 
 #[cfg(target_arch = "wasm32")]
 impl Database {
+    /// Check if a SQL statement is a write operation
+    fn is_write_operation(sql: &str) -> bool {
+        let upper = sql.trim().to_uppercase();
+        upper.starts_with("INSERT") 
+            || upper.starts_with("UPDATE")
+            || upper.starts_with("DELETE")
+            || upper.starts_with("REPLACE")
+    }
+    
+    /// Check write permission - only leader can write
+    async fn check_write_permission(&mut self, sql: &str) -> Result<(), DatabaseError> {
+        if !Self::is_write_operation(sql) {
+            // Not a write operation, allow it
+            return Ok(());
+        }
+        
+        // Check if this instance is the leader
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        
+        let db_name = &self.name;
+        let storage_rc = STORAGE_REGISTRY.with(|reg| {
+            let registry = reg.borrow();
+            registry.get(db_name).cloned()
+                .or_else(|| registry.get(&format!("{}.db", db_name)).cloned())
+                .or_else(|| {
+                    if db_name.ends_with(".db") {
+                        registry.get(&db_name[..db_name.len()-3]).cloned()
+                    } else {
+                        None
+                    }
+                })
+        });
+        
+        if let Some(storage) = storage_rc {
+            let mut storage_mut = storage.borrow_mut();
+            let is_leader = storage_mut.is_leader().await;
+            
+            if !is_leader {
+                web_sys::console::log_1(&format!("WRITE_DENIED: Instance is not leader for {}", db_name).into());
+                return Err(DatabaseError::new(
+                    "WRITE_PERMISSION_DENIED",
+                    "Only the leader tab can write to this database. Use db.isLeader() to check status."
+                ));
+            }
+            
+            web_sys::console::log_1(&format!("WRITE_ALLOWED: Instance is leader for {}", db_name).into());
+            Ok(())
+        } else {
+            // No storage found - allow by default (single-instance mode)
+            web_sys::console::log_1(&format!("WRITE_ALLOWED: No storage found for {} (single-instance mode)", db_name).into());
+            Ok(())
+        }
+    }
+    
     pub async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
         use std::ffi::{CString, CStr};
         
@@ -145,6 +199,9 @@ impl Database {
     pub async fn execute_internal(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
         use std::ffi::CString;
         let start_time = js_sys::Date::now();
+        
+        // Check write permission before executing
+        self.check_write_permission(sql).await?;
         
         let sql_cstr = CString::new(sql)
             .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL string"))?;

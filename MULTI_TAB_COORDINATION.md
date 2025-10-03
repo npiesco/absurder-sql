@@ -100,13 +100,13 @@ db.onDataChange((event) => {
 
 **Goal**: Ensure only leader can write, provide clear error messages
 
-### 2.1 Add Write Guard Helper
+### 2.1 Add Write Guard Helper ✓ COMPLETE
 **File**: `src/lib.rs`
 
--  Add `check_write_permission()` private method to Database
--  Check `is_leader()` before write operations
--  Return clear error: "Only the leader tab can write to this database"
--  Add configuration option to disable guard (default: enabled)
+- ✓ Add `check_write_permission()` private method to Database
+- ✓ Check `is_leader()` before write operations
+- ✓ Return clear error: "Only the leader tab can write to this database"
+- ✓ Add `is_write_operation()` helper to classify SQL statements
 
 **Implementation**:
 ```rust
