@@ -191,14 +191,81 @@ The library provides a robust SQLite implementation for WebAssembly environments
 - **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
 - **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
 
+## 🔄 Multi-Tab Coordination
+
+DataSync includes built-in multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
+
+### Key Features
+- **Automatic Leader Election**: First tab becomes leader using localStorage coordination
+- **Write Guard**: Only the leader tab can execute write operations (INSERT, UPDATE, DELETE)
+- **BroadcastChannel Sync**: Automatic change notifications to all tabs
+- **Failover Support**: Automatic re-election when leader tab closes
+- **Zero Configuration**: Works out of the box, no setup required
+
+### Quick Example
+
+```javascript
+import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+import { MultiTabDatabase } from './examples/multi-tab-wrapper.js';
+
+await init();
+
+// Create multi-tab database
+const db = new MultiTabDatabase(Database, 'myapp.db', {
+  autoSync: true  // Auto-sync after writes
+});
+await db.init();
+
+// Check leader status
+if (await db.isLeader()) {
+  // Only leader can write
+  await db.write("INSERT INTO users VALUES (1, 'Alice')");
+}
+
+// All tabs can read
+const result = await db.query("SELECT * FROM users");
+
+// Listen for changes from other tabs
+db.onRefresh(() => {
+  console.log('Data changed in another tab!');
+  // Refresh UI
+});
+```
+
+### Helper Methods
+```javascript
+// Wait to become leader
+await db.waitForLeadership();
+
+// Request leadership
+await db.requestLeadership();
+
+// Get leader info
+const info = await db.getLeaderInfo();
+// { isLeader: true, leaderId: "...", leaseExpiry: 123456 }
+
+// Override for single-tab apps
+await db.allowNonLeaderWrites(true);
+```
+
+### Live Demos
+- **[Multi-Tab Demo](examples/multi-tab-demo.html)** - Interactive task list with multi-tab sync
+- **[Vite App](examples/vite-app/)** - Production-ready multi-tab example
+- **[Complete Guide](examples/MULTI_TAB_GUIDE.md)** - Full documentation and patterns
+
+**Open the demo in multiple browser tabs to see coordination in action!**
+
+---
+
 ## Demos & Examples
 
 ### Vite Integration (`vite-app/`)
-Modern web app example showing DataSync with Vite:
+Modern web app example with **multi-tab coordination**:
 - ES modules with hot reload
-- Minimal setup, production-ready build
-- Clean integration pattern
-- Demonstrates INSERT, SELECT, UPDATE with persistence
+- Multi-tab leader election
+- Real-time sync across tabs
+- Leader/follower UI indicators
+- Production-ready build
 
 **[📖 Full setup guide](examples/vite-app/README.md)**
 
@@ -206,6 +273,7 @@ Modern web app example showing DataSync with Vite:
 cd examples/vite-app
 npm install
 npm run dev
+# Open in multiple tabs!
 ```
 
 ### SQL Demo (`sql_demo.js` / `sql_demo.html`)
