@@ -35,6 +35,8 @@ pub struct Database {
     on_data_change_callback: Option<js_sys::Function>,
     #[wasm_bindgen(skip)]
     allow_non_leader_writes: bool,
+    #[wasm_bindgen(skip)]
+    optimistic_updates_manager: std::cell::RefCell<crate::storage::optimistic_updates::OptimisticUpdatesManager>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -151,6 +153,7 @@ impl Database {
             name: config.name,
             on_data_change_callback: None,
             allow_non_leader_writes: false,
+            optimistic_updates_manager: std::cell::RefCell::new(crate::storage::optimistic_updates::OptimisticUpdatesManager::new()),
         })
     }
     
@@ -203,6 +206,7 @@ impl Database {
             name,
             on_data_change_callback: None,
             allow_non_leader_writes: false,
+            optimistic_updates_manager: std::cell::RefCell::new(crate::storage::optimistic_updates::OptimisticUpdatesManager::new()),
         })
     }
     
@@ -1131,6 +1135,40 @@ impl Database {
             .map_err(|e| JsValue::from_str(&format!("Failed to register change listener: {}", e)))?;
         
         web_sys::console::log_1(&format!("DEBUG: onDataChange callback registered for {}", self.name).into());
+        Ok(())
+    }
+
+    /// Enable or disable optimistic updates mode
+    #[wasm_bindgen(js_name = "enableOptimisticUpdates")]
+    pub async fn enable_optimistic_updates(&mut self, enabled: bool) -> Result<(), JsValue> {
+        self.optimistic_updates_manager.borrow_mut().set_enabled(enabled);
+        web_sys::console::log_1(&format!("Optimistic updates {}", if enabled { "enabled" } else { "disabled" }).into());
+        Ok(())
+    }
+
+    /// Check if optimistic mode is enabled
+    #[wasm_bindgen(js_name = "isOptimisticMode")]
+    pub async fn is_optimistic_mode(&self) -> bool {
+        self.optimistic_updates_manager.borrow().is_enabled()
+    }
+
+    /// Track an optimistic write
+    #[wasm_bindgen(js_name = "trackOptimisticWrite")]
+    pub async fn track_optimistic_write(&mut self, sql: String) -> Result<String, JsValue> {
+        let id = self.optimistic_updates_manager.borrow_mut().track_write(sql);
+        Ok(id)
+    }
+
+    /// Get count of pending writes
+    #[wasm_bindgen(js_name = "getPendingWritesCount")]
+    pub async fn get_pending_writes_count(&self) -> usize {
+        self.optimistic_updates_manager.borrow().get_pending_count()
+    }
+
+    /// Clear all optimistic writes
+    #[wasm_bindgen(js_name = "clearOptimisticWrites")]
+    pub async fn clear_optimistic_writes(&mut self) -> Result<(), JsValue> {
+        self.optimistic_updates_manager.borrow_mut().clear_all();
         Ok(())
     }
 }

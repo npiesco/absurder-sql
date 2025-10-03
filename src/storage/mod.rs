@@ -20,6 +20,7 @@ pub mod wasm_vfs_sync;
 pub mod wasm_auto_sync;
 #[cfg(target_arch = "wasm32")]
 pub mod write_queue;
+pub mod optimistic_updates;
 
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 #[cfg(target_arch = "wasm32")]
