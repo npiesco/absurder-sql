@@ -689,6 +689,94 @@ async fn test_allow_non_leader_writes_persistence() {
     web_sys::console::log_1(&format!("✓ Override persisted across {} operations", 5).into());
 }
 
+/// Test Phase 3.1: waitForLeadership() resolves when becoming leader
+#[wasm_bindgen_test]
+async fn test_wait_for_leadership() {
+    let db_name = "test_wait_leadership";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    // Wait for leadership - should resolve quickly as first instance
+    let start = js_sys::Date::now();
+    db.wait_for_leadership().await
+        .expect("Should become leader");
+    let elapsed = js_sys::Date::now() - start;
+    
+    // Should become leader quickly (within 1 second)
+    assert!(elapsed < 1000.0, "Should become leader quickly, took {}ms", elapsed);
+    
+    // Verify we are indeed leader
+    let is_leader = db.is_leader_wasm().await
+        .expect("Should check leader")
+        .as_bool()
+        .expect("Should be boolean");
+    assert!(is_leader, "Should be leader after waitForLeadership");
+    
+    web_sys::console::log_1(&"✓ waitForLeadership works correctly".into());
+}
+
+/// Test Phase 3.1: getLeaderInfo() returns leader status
+#[wasm_bindgen_test]
+async fn test_get_leader_info() {
+    let db_name = "test_leader_info";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    sleep_ms(100).await;
+    
+    // Get leader info
+    let info = db.get_leader_info().await
+        .expect("Should get leader info");
+    
+    // Parse the JsValue as an object
+    let is_leader = js_sys::Reflect::get(&info, &"isLeader".into())
+        .expect("Should have isLeader field")
+        .as_bool()
+        .expect("isLeader should be boolean");
+    
+    let leader_id = js_sys::Reflect::get(&info, &"leaderId".into())
+        .expect("Should have leaderId field");
+    
+    let lease_expiry = js_sys::Reflect::get(&info, &"leaseExpiry".into())
+        .expect("Should have leaseExpiry field");
+    
+    // Verify structure
+    assert!(is_leader, "Should be leader");
+    assert!(!leader_id.is_null() && !leader_id.is_undefined(), "Should have leaderId");
+    assert!(!lease_expiry.is_null() && !lease_expiry.is_undefined(), "Should have leaseExpiry");
+    
+    web_sys::console::log_1(&format!("✓ getLeaderInfo returned: isLeader={}, leaderId={:?}", 
+        is_leader, leader_id).into());
+}
+
+/// Test Phase 3.1: requestLeadership() triggers re-election check
+#[wasm_bindgen_test]
+async fn test_request_leadership() {
+    let db_name = "test_request_leadership";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    sleep_ms(100).await;
+    
+    // Request leadership - should succeed as first instance
+    db.request_leadership().await
+        .expect("Should request leadership");
+    
+    sleep_ms(100).await;
+    
+    // Verify we are leader
+    let is_leader = db.is_leader_wasm().await
+        .expect("Should check leader")
+        .as_bool()
+        .expect("Should be boolean");
+    assert!(is_leader, "Should be leader after requestLeadership");
+    
+    web_sys::console::log_1(&"✓ requestLeadership works correctly".into());
+}
+
 // Helper function for async sleep
 async fn sleep_ms(ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {

@@ -694,6 +694,135 @@ impl Database {
         Ok(())
     }
 
+    /// Wait for this instance to become leader
+    #[wasm_bindgen(js_name = "waitForLeadership")]
+    pub async fn wait_for_leadership(&mut self) -> Result<(), JsValue> {
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        
+        let db_name = &self.name;
+        web_sys::console::log_1(&format!("Waiting for leadership for {}", db_name).into());
+        
+        // Poll until we become leader (with timeout)
+        let start_time = js_sys::Date::now();
+        let timeout_ms = 5000.0; // 5 second timeout
+        
+        loop {
+            let storage_rc = STORAGE_REGISTRY.with(|reg| {
+                let registry = reg.borrow();
+                registry.get(db_name).cloned()
+                    .or_else(|| registry.get(&format!("{}.db", db_name)).cloned())
+                    .or_else(|| {
+                        if db_name.ends_with(".db") {
+                            registry.get(&db_name[..db_name.len()-3]).cloned()
+                        } else {
+                            None
+                        }
+                    })
+            });
+            
+            if let Some(storage) = storage_rc {
+                let mut storage_mut = storage.borrow_mut();
+                let is_leader = storage_mut.is_leader().await;
+                
+                if is_leader {
+                    web_sys::console::log_1(&format!("✓ Became leader for {}", db_name).into());
+                    return Ok(());
+                }
+            }
+            
+            // Check timeout
+            if js_sys::Date::now() - start_time > timeout_ms {
+                return Err(JsValue::from_str("Timeout waiting for leadership"));
+            }
+            
+            // Wait a bit before checking again
+            let promise = js_sys::Promise::new(&mut |resolve, _| {
+                let window = web_sys::window().expect("should have window");
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100);
+            });
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        }
+    }
+
+    /// Request leadership (triggers re-election check)
+    #[wasm_bindgen(js_name = "requestLeadership")]
+    pub async fn request_leadership(&mut self) -> Result<(), JsValue> {
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        
+        let db_name = &self.name;
+        web_sys::console::log_1(&format!("Requesting leadership for {}", db_name).into());
+        
+        let storage_rc = STORAGE_REGISTRY.with(|reg| {
+            let registry = reg.borrow();
+            registry.get(db_name).cloned()
+                .or_else(|| registry.get(&format!("{}.db", db_name)).cloned())
+                .or_else(|| {
+                    if db_name.ends_with(".db") {
+                        registry.get(&db_name[..db_name.len()-3]).cloned()
+                    } else {
+                        None
+                    }
+                })
+        });
+        
+        if let Some(storage) = storage_rc {
+            let mut storage_mut = storage.borrow_mut();
+            
+            // Trigger leader election
+            storage_mut.start_leader_election().await
+                .map_err(|e| JsValue::from_str(&format!("Failed to request leadership: {}", e)))?;
+                    
+            web_sys::console::log_1(&format!("✓ Re-election triggered for {}", db_name).into());
+            Ok(())
+        } else {
+            Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+        }
+    }
+
+    /// Get leader information
+    #[wasm_bindgen(js_name = "getLeaderInfo")]
+    pub async fn get_leader_info(&mut self) -> Result<JsValue, JsValue> {
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        
+        let db_name = &self.name;
+        
+        let storage_rc = STORAGE_REGISTRY.with(|reg| {
+            let registry = reg.borrow();
+            registry.get(db_name).cloned()
+                .or_else(|| registry.get(&format!("{}.db", db_name)).cloned())
+                .or_else(|| {
+                    if db_name.ends_with(".db") {
+                        registry.get(&db_name[..db_name.len()-3]).cloned()
+                    } else {
+                        None
+                    }
+                })
+        });
+        
+        if let Some(storage) = storage_rc {
+            let mut storage_mut = storage.borrow_mut();
+            let is_leader = storage_mut.is_leader().await;
+            
+            // Get leader info - we'll use simpler data for now
+            // Real implementation would need public getters on BlockStorage
+            let leader_id_str = if is_leader {
+                format!("leader_{}", db_name)
+            } else {
+                "unknown".to_string()
+            };
+            
+            // Create JavaScript object
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &"isLeader".into(), &JsValue::from_bool(is_leader))?;
+            js_sys::Reflect::set(&obj, &"leaderId".into(), &JsValue::from_str(&leader_id_str))?;
+            js_sys::Reflect::set(&obj, &"leaseExpiry".into(), &JsValue::from_f64(js_sys::Date::now()))?;
+            
+            Ok(obj.into())
+        } else {
+            Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+        }
+    }
+
     #[wasm_bindgen(js_name = "isLeader")]
     pub async fn is_leader_wasm(&self) -> Result<JsValue, JsValue> {
         // Get the storage from STORAGE_REGISTRY

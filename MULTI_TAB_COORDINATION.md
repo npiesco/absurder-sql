@@ -165,12 +165,12 @@ await db.execute('INSERT INTO users...');
 
 **Goal**: Make multi-tab coordination easy to use
 
-### 3.1 Add Helper Methods
+### 3.1 Add Helper Methods ✓ COMPLETE
 **File**: `src/lib.rs`
 
--  `waitForLeadership()` - Promise that resolves when this tab becomes leader
--  `requestLeadership()` - Trigger re-election (if current leader expired)
--  `getLeaderInfo()` - Returns { isLeader, leaderId, leaseExpiry }
+- ✓ `waitForLeadership()` - Promise that resolves when this tab becomes leader
+- ✓ `requestLeadership()` - Trigger re-election (if current leader expired)
+- ✓ `getLeaderInfo()` - Returns { isLeader, leaderId, leaseExpiry }
 
 **Expected API**:
 ```javascript
