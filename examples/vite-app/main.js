@@ -68,6 +68,9 @@ async function initDB() {
         waitForLeadership: false
     });
     
+    // Expose db on window for testing
+    window.db = db;
+    
     await db.init();
     
     // Create table (DDL operations allowed from any tab)

@@ -57,32 +57,38 @@ export class MultiTabDatabase {
    */
   async init() {
     // Create database instance
-    this.db = await this.Database.new(this.dbName);
+    this.db = await this.Database.newDatabase(this.dbName);
 
-    // Set up data change listener
     this.db.onDataChange((changeType) => {
       console.log(`[MultiTabDatabase] Data change received: ${changeType}`);
       this._triggerRefreshCallbacks();
     });
+
+    // Set up beforeunload handler to clean up leader election
+    this.beforeUnloadHandler = async () => {
+      console.log('[MultiTabDatabase] Page unloading, cleaning up leader election');
+      try {
+        await this.db.close();
+      } catch (error) {
+        console.error('[MultiTabDatabase] Error during cleanup:', error);
+      }
+    };
+    window.addEventListener('beforeunload', this.beforeUnloadHandler);
 
     // Start auto-sync if configured
     if (this.syncIntervalMs > 0) {
       this.syncIntervalId = setInterval(async () => {
         try {
           await this.db.sync();
-        } catch (err) {
-          console.error('[MultiTabDatabase] Auto-sync failed:', err);
+        } catch (error) {
+          console.error('[MultiTabDatabase] Auto-sync error:', error);
         }
       }, this.syncIntervalMs);
     }
-
+    
     console.log(`[MultiTabDatabase] Initialized database: ${this.dbName}`);
   }
 
-  /**
-   * Check if this tab is the leader
-   * @returns {Promise<boolean>}
-   */
   async isLeader() {
     return await this.db.isLeader();
   }

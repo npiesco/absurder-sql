@@ -572,6 +572,26 @@ impl Database {
     }
     
     pub async fn close_internal(&mut self) -> Result<(), DatabaseError> {
+        // Stop leader election before closing
+        #[cfg(target_arch = "wasm32")]
+        {
+            use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+            
+            let db_name = &self.name;
+            let storage_rc = STORAGE_REGISTRY.with(|reg| {
+                let registry = reg.borrow();
+                registry.get(db_name).cloned()
+                    .or_else(|| registry.get(&format!("{}.db", db_name)).cloned())
+            });
+            
+            if let Some(storage_rc) = storage_rc {
+                if let Ok(mut storage) = storage_rc.try_borrow_mut() {
+                    web_sys::console::log_1(&format!("Stopping leader election for {}", db_name).into());
+                    let _ = storage.stop_leader_election().await;
+                }
+            }
+        }
+        
         if !self.db.is_null() {
             unsafe {
                 sqlite_wasm_rs::sqlite3_close(self.db);
