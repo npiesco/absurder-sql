@@ -200,9 +200,6 @@ impl Database {
         use std::ffi::CString;
         let start_time = js_sys::Date::now();
         
-        // Check write permission before executing
-        self.check_write_permission(sql).await?;
-        
         let sql_cstr = CString::new(sql)
             .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL string"))?;
         
@@ -638,6 +635,11 @@ impl Database {
 
     #[wasm_bindgen]
     pub async fn execute(&mut self, sql: &str) -> Result<JsValue, JsValue> {
+        // Check write permission before executing
+        self.check_write_permission(sql)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Write permission denied: {}", e)))?;
+        
         let result = self.execute_internal(sql)
             .await
             .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
@@ -648,6 +650,11 @@ impl Database {
     pub async fn execute_with_params(&mut self, sql: &str, params: JsValue) -> Result<JsValue, JsValue> {
         let params: Vec<ColumnValue> = serde_wasm_bindgen::from_value(params)
             .map_err(|e| JsValue::from_str(&format!("Invalid parameters: {}", e)))?;
+        
+        // Check write permission before executing
+        self.check_write_permission(sql)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Write permission denied: {}", e)))?;
         
         let result = self.execute_with_params_internal(sql, &params)
             .await

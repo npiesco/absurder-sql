@@ -546,6 +546,76 @@ async fn test_write_guard_allows_read_operations() {
     web_sys::console::log_1(&"✓ Write guard allows read operations".into());
 }
 
+/// Test Phase 2.2: Write guard in executeWithParams for parameterized queries
+#[wasm_bindgen_test]
+async fn test_write_guard_in_parameterized_queries() {
+    use sqlite_indexeddb_rs::ColumnValue;
+    
+    let db_name = "test_params_guard";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    sleep_ms(100).await;
+    
+    // Create table
+    db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)").await
+        .expect("Should create table");
+    
+    // Leader should be able to use parameterized INSERT
+    let params = serde_wasm_bindgen::to_value(&vec![
+        ColumnValue::Text("Alice".to_string()),
+        ColumnValue::Integer(30),
+    ]).unwrap();
+    
+    db.execute_with_params("INSERT INTO users (name, age) VALUES (?, ?)", params).await
+        .expect("Leader should execute parameterized INSERT");
+    
+    // Leader should be able to use parameterized UPDATE
+    let update_params = serde_wasm_bindgen::to_value(&vec![
+        ColumnValue::Text("Bob".to_string()),
+        ColumnValue::Integer(1),
+    ]).unwrap();
+    
+    db.execute_with_params("UPDATE users SET name = ? WHERE id = ?", update_params).await
+        .expect("Leader should execute parameterized UPDATE");
+    
+    // Leader should be able to use parameterized DELETE
+    let delete_params = serde_wasm_bindgen::to_value(&vec![
+        ColumnValue::Integer(1),
+    ]).unwrap();
+    
+    db.execute_with_params("DELETE FROM users WHERE id = ?", delete_params).await
+        .expect("Leader should execute parameterized DELETE");
+    
+    web_sys::console::log_1(&"✓ Write guard works with parameterized queries".into());
+}
+
+/// Test Phase 2.2: CREATE and ALTER statements are allowed (schema changes)
+#[wasm_bindgen_test]
+async fn test_write_guard_allows_schema_changes() {
+    let db_name = "test_schema_changes";
+    
+    let mut db = Database::new_wasm(db_name.to_string()).await
+        .expect("Should create database");
+    
+    sleep_ms(100).await;
+    
+    // CREATE TABLE should be allowed
+    db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY)").await
+        .expect("CREATE TABLE should be allowed");
+    
+    // ALTER TABLE should be allowed  
+    db.execute("ALTER TABLE test ADD COLUMN name TEXT").await
+        .expect("ALTER TABLE should be allowed");
+    
+    // CREATE INDEX should be allowed
+    db.execute("CREATE INDEX idx_name ON test(name)").await
+        .expect("CREATE INDEX should be allowed");
+    
+    web_sys::console::log_1(&"✓ Schema changes allowed regardless of leader status".into());
+}
+
 // Helper function for async sleep
 async fn sleep_ms(ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
