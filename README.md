@@ -89,19 +89,25 @@ graph TB
     QUEUE -->|forward| BCAST
     RECOVERY -->|restore| BS
     
+    subgraph Legend
+        L1["SQLite Engine"]
+        L2["VFS Layer"]
+        L3["BlockStorage"]
+        L4["Persistence"]
+        L5["Multi-Tab"]
+    end
+    
     style SQLITE fill:#f9f,stroke:#333,color:#000
     style VFS fill:#9ff,stroke:#333,color:#000
     style BS fill:#ff9,stroke:#333,color:#000
     style INDEXEDDB fill:#9f9,stroke:#333,color:#000
     style QUEUE fill:#e7f,stroke:#333,color:#000
+    style L1 fill:#f9f,stroke:#333,color:#000
+    style L2 fill:#9ff,stroke:#333,color:#000
+    style L3 fill:#ff9,stroke:#333,color:#000
+    style L4 fill:#9f9,stroke:#333,color:#000
+    style L5 fill:#e7f,stroke:#333,color:#000
 ```
-
-**Legend:**
-- **Pink**: SQLite Engine (core database)
-- **Cyan**: VFS Layer (abstraction)
-- **Yellow**: BlockStorage (primary storage coordinator)
-- **Green**: Persistence backends (IndexedDB/Filesystem)
-- **Purple**: Multi-tab coordination components
 
 ## Project Structure
 
