@@ -24,8 +24,6 @@ DataSync runs in **two modes** - Browser (WASM) and Native (Rust CLI/Server):
 
 ```mermaid
 graph TB
-    L1["Legend: SQLite Engine"] -.- L2["VFS Layer"] -.- L3["BlockStorage"] -.- L4["Persistence"] -.- L5["Multi-Tab"]
-    
     subgraph "Browser Environment (WASM)"
         JS["JavaScript/TypeScript<br/>Web Application"]
         WASM["WASM Bridge<br/>(wasm-bindgen)"]
@@ -89,19 +87,15 @@ graph TB
     LEADER -->|atomic ops| LOCALSTORAGE
     LEADER -->|notify| BCAST
     QUEUE -->|forward| BCAST
-    RECOVERY -->|restore| BS
     
     style SQLITE fill:#f9f,stroke:#333,color:#000
     style VFS fill:#9ff,stroke:#333,color:#000
     style BS fill:#ff9,stroke:#333,color:#000
     style INDEXEDDB fill:#9f9,stroke:#333,color:#000
-    style QUEUE fill:#e7f,stroke:#333,color:#000
-    style L1 fill:#f9f,stroke:#333,color:#000
-    style L2 fill:#9ff,stroke:#333,color:#000
-    style L3 fill:#ff9,stroke:#333,color:#000
-    style L4 fill:#9f9,stroke:#333,color:#000
-    style L5 fill:#e7f,stroke:#333,color:#000
+    style QUEUE fill:#faa,stroke:#333,color:#000
 ```
+
+**Color Key:** 🟪 SQLite Engine | 🟦 VFS Layer | 🟨 BlockStorage | 🟩 Persistence | 🟥 Multi-Tab Coordination
 
 ## Project Structure
 
