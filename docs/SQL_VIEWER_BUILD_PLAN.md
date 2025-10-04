@@ -2,7 +2,25 @@
 
 **Project**: Unified SQL Editor/Viewer for DataSync  
 **Technology**: Tauri 2.0 + React + TypeScript + CodeMirror  
-**Purpose**: Query both Native (fs_persist) and WASM (IndexedDB) modes side-by-side
+**Purpose**: Query both Native (fs_persist) and WASM (IndexedDB) modes side-by-side  
+**Repository**: Separate repo with git dependency on DataSync library
+
+---
+
+## Repository Setup
+
+This viewer will be created as a **separate repository** that depends on the DataSync library:
+
+```
+~/Downloads/
+├── DataSync/              # Core library (github.com/npiesco/DataSync)
+└── datasync-viewer/       # Tauri app (new repo)
+```
+
+**Dependency Strategy:**
+- Use **path dependency** during local development for fast iteration
+- Use **git dependency** in CI/production for portability
+- Pin to specific tags for stable releases
 
 ---
 
@@ -90,7 +108,14 @@
   serde = { version = "1.0", features = ["derive"] }
   serde_json = "1.0"
   tokio = { version = "1.0", features = ["full"] }
-  sqlite-indexeddb-rs = { path = "../../", features = ["fs_persist"] }
+  
+  # Local development (faster rebuilds)
+  sqlite-indexeddb-rs = { path = "../../DataSync", features = ["fs_persist"] }
+  
+  # Production/CI (uncomment when deploying)
+  # sqlite-indexeddb-rs = { git = "https://github.com/npiesco/DataSync", features = ["fs_persist"] }
+  # Or pin to specific version:
+  # sqlite-indexeddb-rs = { git = "https://github.com/npiesco/DataSync", tag = "v0.1.0", features = ["fs_persist"] }
   ```
 - [ ] Run `cargo check` in `src-tauri/` to verify dependencies resolve
 - [ ] Configure Tauri permissions in `src-tauri/capabilities/default.json`
