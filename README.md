@@ -95,7 +95,7 @@ graph TB
     style QUEUE fill:#faa,stroke:#333,color:#000
 ```
 
-**Color Key:** `#f9f` SQLite Engine | `#9ff` VFS Layer | `#ff9` BlockStorage | `#9f9` Persistence | `#faa` Multi-Tab Coordination
+**Legend:** <span style="background:#f9f;padding:2px 8px">SQLite Engine</span> <span style="background:#9ff;padding:2px 8px">VFS Layer</span> <span style="background:#ff9;padding:2px 8px">BlockStorage</span> <span style="background:#9f9;padding:2px 8px">Persistence</span> <span style="background:#faa;padding:2px 8px">Multi-Tab</span>
 
 ## Project Structure
 
