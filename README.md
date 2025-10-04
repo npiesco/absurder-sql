@@ -95,7 +95,15 @@ graph TB
     style QUEUE fill:#faa,stroke:#333,color:#000
 ```
 
-**Legend:** <span style="background:#f9f;padding:2px 8px">SQLite Engine</span> <span style="background:#9ff;padding:2px 8px">VFS Layer</span> <span style="background:#ff9;padding:2px 8px">BlockStorage</span> <span style="background:#9f9;padding:2px 8px">Persistence</span> <span style="background:#faa;padding:2px 8px">Multi-Tab</span>
+```mermaid
+graph LR
+    L1["SQLite Engine"] -.-> L2["VFS Layer"] -.-> L3["BlockStorage"] -.-> L4["Persistence"] -.-> L5["Multi-Tab"]
+    style L1 fill:#f9f,stroke:#333,color:#000
+    style L2 fill:#9ff,stroke:#333,color:#000
+    style L3 fill:#ff9,stroke:#333,color:#000
+    style L4 fill:#9f9,stroke:#333,color:#000
+    style L5 fill:#faa,stroke:#333,color:#000
+```
 
 ## Project Structure
 
@@ -453,14 +461,11 @@ Both projects share core concepts:
 
 | Feature | **absurd-sql** | **DataSync** |
 |---------|----------------|--------------|
-| **Coordination** | SharedArrayBuffer + Atomics | localStorage leader election |
-| **Multi-Tab Writes** | Throws errors | Coordinated with write queuing |
+| **Coordination** | Throws errors | Coordinated with write queuing |
 | **Leadership** | No concept | Automatic election with failover |
 | **Follower Writes** | Not supported | Supported via `queueWrite()` |
 
 ### Technical Implementation Highlights
-
-**absurd-sql:**
 - sql.js VFS interception for file operations
 - SharedArrayBuffer enables synchronous cross-thread ops
 - Worker-based architecture (mandatory)
