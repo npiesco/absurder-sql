@@ -1,82 +1,91 @@
 # SQLite IndexedDB Rust Library (DataSync)
 
-[![Tests](https://img.shields.io/badge/tests-166%20passing-brightgreen)](docs/MULTI_TAB_GUIDE.md#test-coverage)
+[![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
+[![Tests](https://img.shields.io/badge/tests-169%20passing-brightgreen)](docs/MULTI_TAB_GUIDE.md#test-coverage)
 [![WASM](https://img.shields.io/badge/wasm-75%20tests-blue)](tests/)
-[![Native](https://img.shields.io/badge/native-69%20tests-blue)](tests/)
-[![E2E](https://img.shields.io/badge/e2e-22%20tests-blue)](tests/e2e/)
+[![Native](https://img.shields.io/badge/native-72%20tests-blue)](tests/)
+[![E2E](https://img.shields.io/badge/e2e-24%20tests-blue)](tests/e2e/)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 
-A high-performance Rust library that brings full SQLite functionality to web browsers through WebAssembly. DataSync implements a custom Virtual File System (VFS) that seamlessly persists SQLite databases to IndexedDB, enabling production-ready SQL operations in browser environments with crash consistency and multi-tab coordination.
+A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**. DataSync implements a custom Virtual File System (VFS) with two persistence backends:
 
-## 📊 Architecture Overview
+- 🌐 **Browser (WASM)**: SQLite → IndexedDB with multi-tab coordination
+- 💻 **Native/CLI**: SQLite → Real filesystem with traditional `.db` files
+
+**Unique Advantage:** Build web apps that store data in IndexedDB, then query the same database structure from CLI/server using standard SQLite tools. Perfect for offline-first applications with optional server synchronization.
+
+Enabling production-ready SQL operations with crash consistency, multi-tab coordination, and the flexibility to run anywhere from web apps to server applications.
+
+## 📊 Dual-Mode Architecture
+
+DataSync runs in **two modes** - Browser (WASM) and Native (Rust CLI/Server):
 
 ```mermaid
 graph TB
-    subgraph "Browser Environment"
-        JS["JavaScript/TypeScript Application"]
-        WASM["WASM Bridge Layer<br/>(wasm-bindgen)"]
+    subgraph "Browser Environment (WASM)"
+        JS["JavaScript/TypeScript<br/>Web Application"]
+        WASM["WASM Bridge<br/>(wasm-bindgen)"]
     end
     
-    subgraph "DataSync Core (Rust/WASM)"
+    subgraph "Native Environment (Rust)"
+        CLI["CLI/Server<br/>Application"]
+        NATIVE_DB["Native Database API<br/>(database.rs)"]
+    end
+    
+    subgraph "DataSync Core (Rust)"
         DB["Database API<br/>(lib.rs)"]
-        SQLITE["SQLite Engine<br/>(sqlite-wasm-rs)"]
+        SQLITE["SQLite Engine<br/>(sqlite-wasm-rs / rusqlite)"]
         VFS["Custom VFS Layer<br/>(indexeddb_vfs.rs)"]
         
         subgraph "Storage Layer"
             BS["BlockStorage<br/>(block_storage.rs)"]
             SYNC["Sync Operations<br/>(sync_operations.rs)"]
             META["Metadata Manager<br/>(metadata.rs)"]
-            CACHE["LRU Cache<br/>(128 blocks default)"]
+            CACHE["LRU Cache<br/>(128 blocks)"]
             ALLOC["Allocation<br/>(allocation.rs)"]
         end
         
-        subgraph "Multi-Tab Coordination"
+        subgraph "Multi-Tab Coordination (Browser Only)"
             LEADER["Leader Election<br/>(leader_election.rs)"]
             BCAST["BroadcastChannel<br/>(broadcast_notifications.rs)"]
             QUEUE["Write Queue<br/>(write_queue.rs)"]
-            OPT["Optimistic Updates<br/>(optimistic_updates.rs)"]
-            METRICS["Coordination Metrics<br/>(coordination_metrics.rs)"]
         end
         
         subgraph "Monitoring & Recovery"
             OBS["Observability<br/>(observability.rs)"]
             RECOVERY["Recovery<br/>(recovery.rs)"]
         end
-        
-        subgraph "Platform-Specific"
-            FS["fs_persist<br/>(Native filesystem)"]
-            IDB["wasm_indexeddb<br/>(IndexedDB)"]
-            AUTO["Auto-Sync<br/>(auto_sync.rs)"]
-        end
     end
     
-    subgraph "Browser Storage"
-        INDEXEDDB["IndexedDB<br/>(Persistent Storage)"]
-        LOCALSTORAGE["localStorage<br/>(Leader coordination)"]
+    subgraph "Browser Persistence"
+        INDEXEDDB["IndexedDB<br/>(Browser Storage)"]
+        LOCALSTORAGE["localStorage<br/>(Coordination)"]
+    end
+    
+    subgraph "Native Persistence 🚀"
+        FILESYSTEM["Filesystem<br/>(Traditional .db files)"]
+        BLOCKS["./datasync_storage/<br/>database.sqlite + blocks/"]
     end
     
     JS -->|execute/query| WASM
     WASM -->|calls| DB
+    CLI -->|execute/query| NATIVE_DB
+    NATIVE_DB -->|SQL| SQLITE
     DB -->|SQL| SQLITE
-    DB -->|track| OPT
-    DB -->|monitor| METRICS
     SQLITE -->|VFS calls| VFS
     VFS -->|block I/O| BS
     BS -->|read/write| CACHE
     BS -->|allocate| ALLOC
     BS -->|persist| SYNC
     SYNC -->|metadata| META
-    BS -->|native| FS
-    BS -->|WASM| IDB
-    BS -->|metrics| OBS
-    IDB -->|async| INDEXEDDB
+    BS -->|"WASM mode"| INDEXEDDB
+    BS -->|"Native mode"| FILESYSTEM
+    NATIVE_DB -->|"fs_persist"| BLOCKS
     LEADER -->|atomic ops| LOCALSTORAGE
     LEADER -->|notify| BCAST
     QUEUE -->|forward| BCAST
-    BCAST -->|cross-tab| INDEXEDDB
-    AUTO -->|triggers| SYNC
     RECOVERY -->|restore| BS
     
     style SQLITE fill:#f9f,stroke:#333,color:#000
@@ -391,6 +400,7 @@ Both projects share core concepts:
 |---------|----------------|--------------|
 | **Engine** | sql.js (Emscripten) | sqlite-wasm-rs (Rust C API) |
 | **Language** | JavaScript | Rust/WASM |
+| **Platform** | **Browser only** | **Browser + Native/CLI** 🚀 |
 | **Storage** | Variable SQLite pages (8KB suggested) | Fixed 4KB blocks |
 | **Worker** | **Required** (must run in Worker) | Optional (works on main thread) |
 | **SharedArrayBuffer** | Required (with fallback) | Not required |
@@ -424,6 +434,13 @@ Both projects share core concepts:
 ### Which Should You Choose?
 
 **Choose DataSync if you:**
+
+✅ **Need dual-mode persistence (Browser + Native)**
+- Build web apps with IndexedDB storage
+- Query the same data from CLI/server using traditional `.db` files
+- Offline-first apps with optional server sync
+- Debug production data locally using standard SQLite tools
+- *Why this matters:* absurd-sql is **browser-only** - no CLI/server access to your data
 
 ✅ **Want zero deployment friction**
 - Deploy to GitHub Pages, Netlify, Vercel, or any CDN instantly
@@ -488,6 +505,7 @@ Both projects share core concepts:
 
 ## 📚 Documentation
 
+- **[Dual-Mode Persistence Guide](docs/DUAL_MODE.md)** ⭐ - Browser + Native filesystem support
 - **[Multi-Tab Coordination Guide](docs/MULTI_TAB_GUIDE.md)** - Complete guide for multi-tab coordination
 - **[Transaction Support](docs/TRANSACTION_SUPPORT.md)** - Transaction handling and multi-tab transactions
 - **[Benchmark Results](docs/BENCHMARK.md)** - Performance comparisons and metrics
