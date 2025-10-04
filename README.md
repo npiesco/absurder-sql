@@ -33,6 +33,8 @@ graph TB
         L5["Multi-Tab"]
     end
     
+    Legend ~~~ JS
+    
     subgraph "Browser Environment (WASM)"
         JS["JavaScript/TypeScript<br/>Web Application"]
         WASM["WASM Bridge<br/>(wasm-bindgen)"]
