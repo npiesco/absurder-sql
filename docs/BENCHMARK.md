@@ -97,16 +97,69 @@ http://localhost:8080/examples/benchmark.html
 
 ## Comparison with absurd-sql
 
-absurd-sql uses a different approach:
-- Backend: IndexedDB with custom VFS
-- Storage: Page-level (similar to DataSync)
-- Sync: Async with batching
+absurd-sql is an excellent project by James Long that pioneered SQLite-in-IndexedDB. Here's a detailed comparison:
 
-Key differences:
-1. **DataSync**: Block-level storage with MVCC
-2. **absurd-sql**: Page-level with custom caching
-3. **DataSync**: Leader election for multi-tab
-4. **absurd-sql**: Single-tab focused
+### Similarities
+
+Both projects share these core concepts:
+- ✅ **IndexedDB Backend**: Use IndexedDB as persistent storage
+- ✅ **Block/Page Storage**: Store data in chunks, not as a single file
+- ✅ **SQLite in Browser**: Full SQLite functionality in the browser
+- ✅ **Persistence**: Data survives page refreshes
+- ✅ **Better than Raw IndexedDB**: Significant performance improvements over direct IndexedDB usage
+
+### Architecture Differences
+
+| Feature | **absurd-sql** | **DataSync** |
+|---------|----------------|--------------|
+| **SQLite Engine** | sql.js (Emscripten-compiled) | sqlite-wasm-rs (Direct C API) |
+| **Language** | JavaScript | Rust/WASM |
+| **Storage Unit** | SQLite pages (configurable, suggested 8KB) | Fixed 4KB blocks |
+| **Worker Requirement** | **MUST** run in Web Worker | Can run on main thread |
+| **SharedArrayBuffer** | Required (with fallback mode) | Not required |
+| **CORS Headers** | Required (`COEP`, `COOP`) | Not required |
+
+### Multi-Tab Coordination
+
+| Feature | **absurd-sql** | **DataSync** |
+|---------|----------------|--------------|
+| **Primary Mode** | SharedArrayBuffer + Atomics | localStorage-based leader election |
+| **Fallback Mode** | FileOpsFallback (Safari) | Same coordination mechanism |
+| **Multi-Tab Writes** | Throws error if multiple tabs write | Coordinated with write queuing |
+| **Leadership** | No concept of leader | Automatic leader election |
+| **Write from Follower** | Not supported (errors) | Supported via `queueWrite()` |
+| **Cross-Tab Sync** | Limited in fallback mode | Full BroadcastChannel coordination |
+
+### Technical Implementation
+
+**absurd-sql:**
+- Uses sql.js VFS API to intercept file operations
+- SharedArrayBuffer provides synchronous cross-thread communication
+- Worker-based architecture (mandatory)
+- Reads SQLite page size from database header
+- Fallback mode has "one writer at a time" limitation
+
+**DataSync:**
+- Custom IndexedDB VFS implementation in Rust
+- localStorage provides atomic coordination primitives
+- Can run on main thread (though worker recommended)
+- Fixed block size with checksums and versioning
+- MVCC-style block metadata with commit markers
+- Full multi-tab write coordination with leader election
+
+### Performance Characteristics
+
+**absurd-sql Strengths:**
+- SharedArrayBuffer enables synchronous operations
+- Optimized for worker-based architecture
+- Page-level granularity matches SQLite internals
+
+**DataSync Strengths:**
+- No worker/headers requirement (easier deployment)
+- Block-level checksums for data integrity
+- LRU cache (128 blocks default)
+- Coordinated multi-tab writes (no errors)
+- Production-ready multi-tab coordination
 
 ## Performance Tips
 

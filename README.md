@@ -1,5 +1,13 @@
 # SQLite IndexedDB Rust Library (DataSync)
 
+[![Tests](https://img.shields.io/badge/tests-166%20passing-brightgreen)](docs/MULTI_TAB_GUIDE.md#test-coverage)
+[![WASM](https://img.shields.io/badge/wasm-75%20tests-blue)](tests/)
+[![Native](https://img.shields.io/badge/native-69%20tests-blue)](tests/)
+[![E2E](https://img.shields.io/badge/e2e-22%20tests-blue)](tests/e2e/)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
+
 A high-performance Rust library that brings full SQLite functionality to web browsers through WebAssembly. DataSync implements a custom Virtual File System (VFS) that seamlessly persists SQLite databases to IndexedDB, enabling production-ready SQL operations in browser environments with crash consistency and multi-tab coordination.
 
 ## 📊 Architecture Overview
@@ -191,7 +199,7 @@ The library provides a robust SQLite implementation for WebAssembly environments
 - **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
 - **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
 
-## 🔄 Multi-Tab Coordination ✅ PRODUCTION READY
+## Multi-Tab Coordination
 
 DataSync includes comprehensive multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
 
@@ -203,9 +211,9 @@ DataSync includes comprehensive multi-tab coordination for browser applications,
 - **Zero Configuration**: Works out of the box, no setup required
 
 ### Advanced Features ✨
-- **Write Queuing** (Phase 5.1): Non-leaders can queue writes that forward to leader automatically
-- **Optimistic Updates** (Phase 5.2): Track pending writes for immediate UI feedback
-- **Coordination Metrics** (Phase 5.3): Monitor performance and coordination events
+- **Write Queuing**: Non-leaders can queue writes that forward to leader automatically
+- **Optimistic Updates**: Track pending writes for immediate UI feedback
+- **Coordination Metrics**: Monitor performance and coordination events
 
 ### Quick Example
 
@@ -240,16 +248,16 @@ db.onRefresh(() => {
 ### Advanced Features
 
 ```javascript
-// Write Queuing (Phase 5.1) - Queue from any tab
+// Write Queuing - Queue from any tab
 await db.queueWrite("INSERT INTO logs VALUES (1, 'event')");
 await db.queueWriteWithTimeout("UPDATE data SET processed = 1", 10000);
 
-// Optimistic Updates (Phase 5.2) - Track pending writes
+// Optimistic Updates - Track pending writes
 await db.enableOptimisticUpdates(true);
 const writeId = await db.trackOptimisticWrite("INSERT INTO users...");
 const pendingCount = await db.getPendingWritesCount();
 
-// Coordination Metrics (Phase 5.3) - Monitor performance
+// Coordination Metrics - Monitor performance
 await db.enableCoordinationMetrics(true);
 await db.recordLeadershipChange(true);
 await db.recordNotificationLatency(15.5);
@@ -337,6 +345,120 @@ DataSync consistently outperforms absurd-sql and raw IndexedDB across all operat
 npm run serve
 # Open http://localhost:8080/examples/benchmark.html
 ```
+
+---
+
+## 🔍 Comparison with absurd-sql
+
+DataSync is inspired by and builds upon the excellent work of [absurd-sql](https://github.com/jlongster/absurd-sql) by James Long, which pioneered SQLite-in-IndexedDB. Here's how they compare:
+
+### Similarities
+Both projects share core concepts:
+- ✅ IndexedDB as persistent storage backend
+- ✅ Block/page-based storage (not single-file)
+- ✅ Full SQLite functionality in browser
+- ✅ Significantly better performance than raw IndexedDB
+
+### Key Architectural Differences
+
+| Feature | **absurd-sql** | **DataSync** |
+|---------|----------------|--------------|
+| **Engine** | sql.js (Emscripten) | sqlite-wasm-rs (Rust C API) |
+| **Language** | JavaScript | Rust/WASM |
+| **Storage** | Variable SQLite pages (8KB suggested) | Fixed 4KB blocks |
+| **Worker** | **Required** (must run in Worker) | Optional (works on main thread) |
+| **SharedArrayBuffer** | Required (with fallback) | Not required |
+| **CORS Headers** | Required (`COEP`, `COOP`) | Not required |
+
+### Multi-Tab Coordination
+
+| Feature | **absurd-sql** | **DataSync** |
+|---------|----------------|--------------|
+| **Coordination** | SharedArrayBuffer + Atomics | localStorage leader election |
+| **Multi-Tab Writes** | Throws errors | Coordinated with write queuing |
+| **Leadership** | No concept | Automatic election with failover |
+| **Follower Writes** | Not supported | Supported via `queueWrite()` |
+
+### Technical Implementation Highlights
+
+**absurd-sql:**
+- sql.js VFS interception for file operations
+- SharedArrayBuffer enables synchronous cross-thread ops
+- Worker-based architecture (mandatory)
+- Fallback mode: "one writer at a time" with errors
+
+**DataSync:**
+- Custom Rust IndexedDB VFS implementation
+- localStorage atomic coordination primitives
+- Block-level checksums and versioning (MVCC-style)
+- LRU cache (128 blocks default)
+- Full multi-tab write coordination (no errors)
+- Works everywhere (no SharedArrayBuffer required)
+
+### Which Should You Choose?
+
+**Choose DataSync if you:**
+
+✅ **Want zero deployment friction**
+- Deploy to GitHub Pages, Netlify, Vercel, or any CDN instantly
+- No server configuration or CORS header setup required
+- Works in iframes and embedded contexts
+- *Why this matters:* absurd-sql requires special HTTP headers that many static hosts don't support
+
+✅ **Want flexible architecture**
+- Can run on main thread OR in Web Worker (your choice)
+- Simpler integration - no mandatory worker setup
+- Easy to add to existing apps without refactoring
+- *Why this matters:* absurd-sql MUST run in a Web Worker, requiring extra boilerplate and complexity
+
+✅ **Need multi-tab applications**
+- Multiple tabs can write data without coordination errors
+- Automatic conflict resolution with leader election
+- User can have multiple tabs open without issues (e.g., documentation in one tab, app in another)
+- *Why this matters:* absurd-sql throws errors if multiple tabs try to write simultaneously
+
+✅ **Value data integrity**
+- Built-in checksums detect corruption
+- Crash consistency guarantees (committed data survives browser crashes)
+- MVCC-style versioning prevents race conditions
+- *Why this matters:* Protects against data loss from browser crashes, bugs, or unexpected shutdowns
+
+✅ **Want better performance**
+- 16-50% faster than absurd-sql across all operations
+- LRU caching optimizes hot data access
+- Efficient 4KB block size balances memory and I/O
+- *Why this matters:* Faster queries = better user experience, especially on mobile devices
+
+✅ **Need production-ready tooling**
+- Comprehensive test suite (75 WASM + 69 native + 22 E2E tests)
+- Full TypeScript definitions
+- Active development and maintenance
+- *Why this matters:* Confidence in reliability, easier debugging, better IDE support
+
+**Choose absurd-sql if you:**
+
+⚠️ **Already invested in sql.js**
+- Have existing sql.js code you want to keep
+- Need to support very old browsers without WASM support (pre-2017)
+- Trade-off: Miss out on Rust's memory safety and performance
+
+⚠️ **Prefer pure JavaScript stack**
+- Don't want to deal with Rust/WASM compilation (though wasm-pack makes this trivial)
+- Want to read/modify source code in JavaScript
+- Trade-off: Slower performance, more deployment complexity
+
+⚠️ **Don't need multi-tab**
+- Single-tab application only
+- Users never have multiple tabs open
+- Trade-off: Limited scalability if requirements change later
+
+**Bottom Line:**
+- **DataSync** = Modern, fast, works everywhere, multi-tab ready
+- **absurd-sql** = Proven, JavaScript-only, requires CORS headers, single-tab focus
+
+**[📖 Detailed technical comparison in BENCHMARK.md](docs/BENCHMARK.md#comparison-with-absurd-sql)**
+
+---
 
 ## 📚 Documentation
 
