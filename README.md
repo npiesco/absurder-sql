@@ -79,13 +79,13 @@ graph TB
     AUTO -->|triggers| SYNC
     RECOVERY -->|restore| BS
     
-    style SQLITE fill:#f9f,stroke:#333
-    style VFS fill:#9ff,stroke:#333
-    style BS fill:#ff9,stroke:#333
-    style INDEXEDDB fill:#9f9,stroke:#333
-    style OPT fill:#e7f,stroke:#333
-    style METRICS fill:#e7f,stroke:#333
-    style QUEUE fill:#e7f,stroke:#333
+    style SQLITE fill:#f9f,stroke:#333,color:#000
+    style VFS fill:#9ff,stroke:#333,color:#000
+    style BS fill:#ff9,stroke:#333,color:#000
+    style INDEXEDDB fill:#9f9,stroke:#333,color:#000
+    style OPT fill:#e7f,stroke:#333,color:#000
+    style METRICS fill:#e7f,stroke:#333,color:#000
+    style QUEUE fill:#e7f,stroke:#333,color:#000
 ```
 
 ## 🗂️ Project Structure
