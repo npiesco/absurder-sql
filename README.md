@@ -24,16 +24,7 @@ DataSync runs in **two modes** - Browser (WASM) and Native (Rust CLI/Server):
 
 ```mermaid
 graph TB
-    subgraph Legend
-        direction LR
-        L1["SQLite Engine"]
-        L2["VFS Layer"]
-        L3["BlockStorage"]
-        L4["Persistence"]
-        L5["Multi-Tab"]
-    end
-    
-    Legend ~~~ JS
+    L1["SQLite Engine"] --- L2["VFS Layer"] --- L3["BlockStorage"] --- L4["Persistence"] --- L5["Multi-Tab"]
     
     subgraph "Browser Environment (WASM)"
         JS["JavaScript/TypeScript<br/>Web Application"]
