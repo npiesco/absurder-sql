@@ -88,23 +88,14 @@ graph TB
     LEADER -->|notify| BCAST
     QUEUE -->|forward| BCAST
     
-    style SQLITE fill:#f9f,stroke:#333,color:#000
-    style VFS fill:#9ff,stroke:#333,color:#000
-    style BS fill:#ff9,stroke:#333,color:#000
-    style INDEXEDDB fill:#9f9,stroke:#333,color:#000
-    style QUEUE fill:#faa,stroke:#333,color:#000
+    style SQLITE fill:#a855f7,stroke:#333,color:#fff
+    style VFS fill:#3b82f6,stroke:#333,color:#fff
+    style BS fill:#fbbf24,stroke:#333,color:#000
+    style INDEXEDDB fill:#22c55e,stroke:#333,color:#000
+    style QUEUE fill:#ef4444,stroke:#333,color:#fff
 ```
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': {'fontSize':'12px'}}}%%
-graph LR
-    L1[SQLite] -.-> L2[VFS] -.-> L3[Storage] -.-> L4[Persist] -.-> L5[Multi-Tab]
-    style L1 fill:#f9f,stroke:#333,color:#000
-    style L2 fill:#9ff,stroke:#333,color:#000
-    style L3 fill:#ff9,stroke:#333,color:#000
-    style L4 fill:#9f9,stroke:#333,color:#000
-    style L5 fill:#faa,stroke:#333,color:#000
-```
+**Legend:** 🟪 SQLite Engine • 🟦 VFS Layer • 🟨 BlockStorage • 🟩 Persistence • 🟥 Multi-Tab
 
 ## Project Structure
 
