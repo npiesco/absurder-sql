@@ -96,6 +96,13 @@ graph TB
     style QUEUE fill:#e7f,stroke:#333,color:#000
 ```
 
+**Legend:**
+- **Pink**: SQLite Engine (core database)
+- **Cyan**: VFS Layer (abstraction)
+- **Yellow**: BlockStorage (primary storage coordinator)
+- **Green**: Persistence backends (IndexedDB/Filesystem)
+- **Purple**: Multi-tab coordination components
+
 ## Project Structure
 
 ```
