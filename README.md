@@ -29,41 +29,63 @@ graph TB
             SYNC["Sync Operations<br/>(sync_operations.rs)"]
             META["Metadata Manager<br/>(metadata.rs)"]
             CACHE["LRU Cache<br/>(128 blocks default)"]
+            ALLOC["Allocation<br/>(allocation.rs)"]
+        end
+        
+        subgraph "Multi-Tab Coordination"
+            LEADER["Leader Election<br/>(leader_election.rs)"]
+            BCAST["BroadcastChannel<br/>(broadcast_notifications.rs)"]
+            QUEUE["Write Queue<br/>(write_queue.rs)"]
+            OPT["Optimistic Updates<br/>(optimistic_updates.rs)"]
+            METRICS["Coordination Metrics<br/>(coordination_metrics.rs)"]
+        end
+        
+        subgraph "Monitoring & Recovery"
+            OBS["Observability<br/>(observability.rs)"]
+            RECOVERY["Recovery<br/>(recovery.rs)"]
         end
         
         subgraph "Platform-Specific"
             FS["fs_persist<br/>(Native filesystem)"]
             IDB["wasm_indexeddb<br/>(IndexedDB)"]
-        end
-        
-        subgraph "Multi-Tab Coordination"
-            LEADER["Leader Election<br/>(leader_election.rs)"]
             AUTO["Auto-Sync<br/>(auto_sync.rs)"]
         end
     end
     
     subgraph "Browser Storage"
         INDEXEDDB["IndexedDB<br/>(Persistent Storage)"]
+        LOCALSTORAGE["localStorage<br/>(Leader coordination)"]
     end
     
     JS -->|execute/query| WASM
     WASM -->|calls| DB
     DB -->|SQL| SQLITE
+    DB -->|track| OPT
+    DB -->|monitor| METRICS
     SQLITE -->|VFS calls| VFS
     VFS -->|block I/O| BS
     BS -->|read/write| CACHE
+    BS -->|allocate| ALLOC
     BS -->|persist| SYNC
     SYNC -->|metadata| META
     BS -->|native| FS
     BS -->|WASM| IDB
+    BS -->|metrics| OBS
     IDB -->|async| INDEXEDDB
-    LEADER -->|coordination| INDEXEDDB
+    LEADER -->|atomic ops| LOCALSTORAGE
+    LEADER -->|notify| BCAST
+    QUEUE -->|forward| BCAST
+    BCAST -->|cross-tab| INDEXEDDB
     AUTO -->|triggers| SYNC
+    RECOVERY -->|restore| BS
     
     style SQLITE fill:#f9f,stroke:#333
     style VFS fill:#9ff,stroke:#333
     style BS fill:#ff9,stroke:#333
     style INDEXEDDB fill:#9f9,stroke:#333
+    style OPT fill:#e7f,stroke:#333
+    style METRICS fill:#e7f,stroke:#333
+    style QUEUE fill:#e7f,stroke:#333
 ```
 
 ## 🗂️ Project Structure
@@ -77,20 +99,24 @@ DataSync/
 │   ├── utils.rs            # Utility functions
 │   ├── storage/            # Storage layer implementation
 │   │   ├── mod.rs
-│   │   ├── block_storage.rs      # Core block storage with LRU cache
-│   │   ├── sync_operations.rs   # Cross-platform sync logic
-│   │   ├── io_operations.rs     # Read/write operations
-│   │   ├── allocation.rs        # Block allocation/deallocation
-│   │   ├── metadata.rs          # Block metadata management
-│   │   ├── fs_persist.rs        # Native filesystem persistence
-│   │   ├── wasm_indexeddb.rs    # WASM IndexedDB integration
-│   │   ├── wasm_vfs_sync.rs     # WASM VFS sync coordination
-│   │   ├── recovery.rs          # Crash recovery logic
-│   │   ├── auto_sync.rs         # Native auto-sync
-│   │   ├── wasm_auto_sync.rs    # WASM auto-sync
-│   │   ├── leader_election.rs   # Multi-tab coordination
-│   │   ├── observability.rs     # Metrics and monitoring
-│   │   └── constructors.rs      # BlockStorage constructors
+│   │   ├── block_storage.rs           # Core block storage with LRU cache
+│   │   ├── sync_operations.rs        # Cross-platform sync logic
+│   │   ├── io_operations.rs          # Read/write operations
+│   │   ├── allocation.rs             # Block allocation/deallocation
+│   │   ├── metadata.rs               # Block metadata management
+│   │   ├── fs_persist.rs             # Native filesystem persistence
+│   │   ├── wasm_indexeddb.rs         # WASM IndexedDB integration
+│   │   ├── wasm_vfs_sync.rs          # WASM VFS sync coordination
+│   │   ├── recovery.rs               # Crash recovery logic
+│   │   ├── auto_sync.rs              # Native auto-sync
+│   │   ├── wasm_auto_sync.rs         # WASM auto-sync
+│   │   ├── leader_election.rs        # Multi-tab leader election
+│   │   ├── broadcast_notifications.rs # BroadcastChannel messaging
+│   │   ├── write_queue.rs            # Write queuing for non-leaders
+│   │   ├── optimistic_updates.rs     # Optimistic UI updates
+│   │   ├── coordination_metrics.rs   # Performance metrics tracking
+│   │   ├── observability.rs          # Metrics and monitoring
+│   │   └── constructors.rs           # BlockStorage constructors
 │   └── vfs/                # SQLite VFS implementation
 │       ├── mod.rs
 │       └── indexeddb_vfs.rs     # Custom VFS for IndexedDB
