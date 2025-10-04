@@ -103,7 +103,7 @@ test.describe('Dual-Mode Persistence (Browser + CLI)', () => {
     const env = { ...process.env, DATASYNC_FS_BASE: CLI_STORAGE_BASE };
 
     // Create table via CLI
-    const createTableCmd = `cargo run --example cli_query --features fs_persist -- "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"`;
+    const createTableCmd = `cargo run --bin cli_query --features fs_persist -- "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"`;
     console.log('⚙️  Creating table via CLI...');
     execSync(createTableCmd, { 
       cwd: process.cwd(), 
@@ -120,13 +120,13 @@ test.describe('Dual-Mode Persistence (Browser + CLI)', () => {
     ];
 
     for (const sql of insertCommands) {
-      const insertCmd = `cargo run --example cli_query --features fs_persist -- "${sql}"`;
+      const insertCmd = `cargo run --bin cli_query --features fs_persist -- "${sql}"`;
       execSync(insertCmd, { cwd: process.cwd(), env, stdio: 'pipe' });
     }
     console.log('✓ CLI: Inserted 3 users');
 
     // Query data via CLI
-    const queryCmd = `cargo run --example cli_query --features fs_persist -- "SELECT * FROM users ORDER BY id"`;
+    const queryCmd = `cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users ORDER BY id"`;
     const queryOutput = execSync(queryCmd, { 
       cwd: process.cwd(), 
       env,
@@ -159,7 +159,7 @@ test.describe('Dual-Mode Persistence (Browser + CLI)', () => {
     console.log('─────────────────────────────────────────────────');
 
     // Query CLI again (simulates process restart)
-    const reQueryCmd = `cargo run --example cli_query --features fs_persist -- "SELECT COUNT(*) as count FROM users"`;
+    const reQueryCmd = `cargo run --bin cli_query --features fs_persist -- "SELECT COUNT(*) as count FROM users"`;
     const reQueryOutput = execSync(reQueryCmd, { 
       cwd: process.cwd(), 
       env,
@@ -199,20 +199,20 @@ test.describe('Dual-Mode Persistence (Browser + CLI)', () => {
     ];
 
     for (const sql of setup) {
-      const cmd = `cargo run --example cli_query --features fs_persist -- "${sql}"`;
+      const cmd = `cargo run --bin cli_query --features fs_persist -- "${sql}"`;
       execSync(cmd, { cwd: process.cwd(), env, stdio: 'pipe' });
     }
     console.log('✓ Created and populated inventory table');
 
     // Query with aggregation
-    const queryCmd = `cargo run --example cli_query --features fs_persist -- "SELECT SUM(quantity) as total FROM inventory"`;
+    const queryCmd = `cargo run --bin cli_query --features fs_persist -- "SELECT SUM(quantity) as total FROM inventory"`;
     const output = execSync(queryCmd, { cwd: process.cwd(), env, encoding: 'utf-8' });
     
     expect(output).toContain('225'); // 100 + 50 + 75
     console.log('✓ Aggregate query returned correct result');
 
     // Query with filtering
-    const filterCmd = `cargo run --example cli_query --features fs_persist -- "SELECT item FROM inventory WHERE quantity > 60"`;
+    const filterCmd = `cargo run --bin cli_query --features fs_persist -- "SELECT item FROM inventory WHERE quantity > 60"`;
     const filterOutput = execSync(filterCmd, { cwd: process.cwd(), env, encoding: 'utf-8' });
     
     expect(filterOutput).toContain('Widgets');

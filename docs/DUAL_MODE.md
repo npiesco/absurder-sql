@@ -115,7 +115,7 @@ let result = db.execute("SELECT * FROM todos WHERE synced = 0").await?;
 ```bash
 # Export from browser DevTools → Application → IndexedDB
 # Import to local CLI
-cargo run --example cli_query --features fs_persist -- "SELECT * FROM users WHERE issue = 'bug'"
+cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users WHERE issue = 'bug'"
 ```
 
 ### 3. Desktop Apps with Web Preview
@@ -135,8 +135,8 @@ cargo run --example cli_query --features fs_persist -- "SELECT * FROM users WHER
 ```bash
 # While web app is running in browser...
 # Query the data from CLI
-cargo run --example cli_query --features fs_persist -- ".tables"
-cargo run --example cli_query --features fs_persist -- "SELECT COUNT(*) FROM users"
+cargo run --bin cli_query --features fs_persist -- ".tables"
+cargo run --bin cli_query --features fs_persist -- "SELECT COUNT(*) FROM users"
 ```
 
 ---
@@ -147,26 +147,26 @@ DataSync includes a production-ready CLI tool for querying filesystem databases:
 
 **Installation:**
 ```bash
-cargo build --example cli_query --features fs_persist --release
+cargo build --bin cli_query --features fs_persist --release
 ```
 
 **Usage:**
 ```bash
 # Create table
-cargo run --example cli_query --features fs_persist -- \
+cargo run --bin cli_query --features fs_persist -- \
   "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"
 
 # Insert data
-cargo run --example cli_query --features fs_persist -- \
+cargo run --bin cli_query --features fs_persist -- \
   "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')"
 
 # Query data
-cargo run --example cli_query --features fs_persist -- \
+cargo run --bin cli_query --features fs_persist -- \
   "SELECT * FROM users"
 
 # Special commands
-cargo run --example cli_query --features fs_persist -- ".tables"
-cargo run --example cli_query --features fs_persist -- ".schema"
+cargo run --bin cli_query --features fs_persist -- ".tables"
+cargo run --bin cli_query --features fs_persist -- ".schema"
 ```
 
 **Output:**
@@ -227,7 +227,7 @@ npx playwright test dual_mode_persistence
 ```bash
 # Browser: Open web app, create data in IndexedDB
 # CLI: Query filesystem database
-cargo run --example cli_query --features fs_persist -- "SELECT * FROM my_table"
+cargo run --bin cli_query --features fs_persist -- "SELECT * FROM my_table"
 ```
 
 ---

@@ -1,5 +1,5 @@
 // CLI SQL Query Tool
-// Compile and run: cargo run --example cli_query --features fs_persist -- "SELECT * FROM users"
+// Compile and run: cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users"
 
 #[cfg(not(target_arch = "wasm32"))]
 use sqlite_indexeddb_rs::{database::SqliteIndexedDB, types::ColumnValue};
@@ -12,11 +12,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     
     if args.len() < 2 {
-        eprintln!("Usage: cargo run --example cli_query --features fs_persist -- \"SQL QUERY\"");
+        eprintln!("Usage: cargo run --bin cli_query --features fs_persist -- \"SQL QUERY\"");
         eprintln!("\nExamples:");
-        eprintln!("  cargo run --example cli_query --features fs_persist -- \"SELECT * FROM users\"");
-        eprintln!("  cargo run --example cli_query --features fs_persist -- \"INSERT INTO users (name) VALUES ('Alice')\"");
-        eprintln!("  cargo run --example cli_query --features fs_persist -- \".tables\"");
+        eprintln!("  cargo run --bin cli_query --features fs_persist -- \"SELECT * FROM users\"");
+        eprintln!("  cargo run --bin cli_query --features fs_persist -- \"INSERT INTO users (name) VALUES ('Alice')\"");
+        eprintln!("  cargo run --bin cli_query --features fs_persist -- \".tables\"");
         std::process::exit(1);
     }
     

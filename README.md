@@ -106,6 +106,10 @@ DataSync/
 │   ├── database.rs         # Native Database implementation
 │   ├── types.rs            # Core types (QueryResult, ColumnValue, etc.)
 │   ├── utils.rs            # Utility functions
+│   │
+│   ├── bin/                # Binary executables
+│   │   └── cli_query.rs    # CLI query tool for filesystem databases
+│   │
 │   ├── storage/            # Storage layer implementation
 │   │   ├── mod.rs
 │   │   ├── block_storage.rs           # Core block storage with LRU cache
@@ -126,24 +130,36 @@ DataSync/
 │   │   ├── coordination_metrics.rs   # Performance metrics tracking
 │   │   ├── observability.rs          # Metrics and monitoring
 │   │   └── constructors.rs           # BlockStorage constructors
+│   │
 │   └── vfs/                # SQLite VFS implementation
 │       ├── mod.rs
 │       └── indexeddb_vfs.rs     # Custom VFS for IndexedDB
 │
-├── tests/                  # Comprehensive test suite
-│   ├── integration_tests.rs     # End-to-end tests
-│   ├── wasm_integration_tests.rs
-│   ├── vfs_durability_tests.rs
-│   ├── lru_cache_tests.rs
-│   └── ...                      # 59 test files total
+├── tests/                  # Comprehensive test suite (169 tests)
+│   ├── integration_tests.rs          # End-to-end tests
+│   ├── native_database_persistence_tests.rs  # Native filesystem tests
+│   ├── wasm_integration_tests.rs     # WASM-specific tests
+│   ├── vfs_durability_tests.rs       # VFS durability tests
+│   ├── lru_cache_tests.rs            # Cache tests
+│   ├── e2e/                          # Playwright E2E tests
+│   │   ├── dual_mode_persistence.spec.js  # Browser + CLI validation
+│   │   ├── advanced-features.spec.js
+│   │   └── multi-tab-vite.spec.js
+│   └── ...                           # 60+ test files total
 │
-├── examples/               # Demos and documentation
-│   ├── sql_demo.js         # CLI launcher for SQL demo
+├── examples/               # Browser demos and documentation
+│   ├── vite-app/           # Production Vite application
 │   ├── sql_demo.html       # Interactive SQL demo page
 │   ├── web_demo.html       # Full-featured web interface
 │   ├── benchmark.html      # Performance comparison tool
-│   ├── DEMO_GUIDE.md       # Demo usage guide
-│   └── BENCHMARK.md        # Benchmark results and analysis
+│   ├── multi-tab-demo.html # Multi-tab coordination demo
+│   └── DEMO_GUIDE.md       # Demo usage guide
+│
+├── docs/                   # Comprehensive documentation
+│   ├── DUAL_MODE.md        # Dual-mode persistence guide
+│   ├── MULTI_TAB_GUIDE.md  # Multi-tab coordination
+│   ├── TRANSACTION_SUPPORT.md
+│   └── BENCHMARK.md        # Performance benchmarks
 │
 ├── pkg/                    # WASM build output (generated)
 ├── Cargo.toml             # Rust dependencies and config
@@ -199,7 +215,7 @@ This generates the `pkg/` directory containing:
 - `sqlite_indexeddb_rs_bg.wasm` - WebAssembly binary
 - TypeScript definitions and package files
 
-### Quick Usage Example
+### Browser Usage (WASM)
 
 ```javascript
 import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
@@ -207,7 +223,7 @@ import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
 // Initialize WASM
 await init();
 
-// Create database
+// Create database - persists to IndexedDB
 const db = await Database.newDatabase('myapp');
 
 // Execute SQL
@@ -221,6 +237,33 @@ await db.sync();
 // Close
 await db.close();
 ```
+
+### Native/CLI Usage (Filesystem)
+
+```bash
+# Build the CLI tool
+cargo build --bin cli_query --features fs_persist --release
+
+# Create table
+cargo run --bin cli_query --features fs_persist -- \
+  "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"
+
+# Insert data
+cargo run --bin cli_query --features fs_persist -- \
+  "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')"
+
+# Query data
+cargo run --bin cli_query --features fs_persist -- \
+  "SELECT * FROM users"
+
+# Special commands
+cargo run --bin cli_query --features fs_persist -- ".tables"
+cargo run --bin cli_query --features fs_persist -- ".schema"
+```
+
+**Data Location:** `./datasync_storage/<db_name>/database.sqlite`
+
+See [**docs/DUAL_MODE.md**](docs/DUAL_MODE.md) for complete dual-mode guide.
 
 ## SQLite WASM Integration
 
