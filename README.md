@@ -95,7 +95,7 @@ graph TB
     style QUEUE fill:#faa,stroke:#333,color:#000
 ```
 
-**Color Key:** 🟪 SQLite Engine | 🟦 VFS Layer | 🟨 BlockStorage | 🟩 Persistence | 🟥 Multi-Tab Coordination
+**Color Key:** `#f9f` SQLite Engine | `#9ff` VFS Layer | `#ff9` BlockStorage | `#9f9` Persistence | `#faa` Multi-Tab Coordination
 
 ## Project Structure
 
