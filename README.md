@@ -96,8 +96,9 @@ graph TB
 ```
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'fontSize':'12px'}}}%%
 graph LR
-    L1["SQLite Engine"] -.-> L2["VFS Layer"] -.-> L3["BlockStorage"] -.-> L4["Persistence"] -.-> L5["Multi-Tab"]
+    L1[SQLite] -.-> L2[VFS] -.-> L3[Storage] -.-> L4[Persist] -.-> L5[Multi-Tab]
     style L1 fill:#f9f,stroke:#333,color:#000
     style L2 fill:#9ff,stroke:#333,color:#000
     style L3 fill:#ff9,stroke:#333,color:#000
