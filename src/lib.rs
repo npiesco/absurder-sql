@@ -37,6 +37,8 @@ pub struct Database {
     allow_non_leader_writes: bool,
     #[wasm_bindgen(skip)]
     optimistic_updates_manager: std::cell::RefCell<crate::storage::optimistic_updates::OptimisticUpdatesManager>,
+    #[wasm_bindgen(skip)]
+    coordination_metrics_manager: std::cell::RefCell<crate::storage::coordination_metrics::CoordinationMetricsManager>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -154,6 +156,7 @@ impl Database {
             on_data_change_callback: None,
             allow_non_leader_writes: false,
             optimistic_updates_manager: std::cell::RefCell::new(crate::storage::optimistic_updates::OptimisticUpdatesManager::new()),
+            coordination_metrics_manager: std::cell::RefCell::new(crate::storage::coordination_metrics::CoordinationMetricsManager::new()),
         })
     }
     
@@ -207,6 +210,7 @@ impl Database {
             on_data_change_callback: None,
             allow_non_leader_writes: false,
             optimistic_updates_manager: std::cell::RefCell::new(crate::storage::optimistic_updates::OptimisticUpdatesManager::new()),
+            coordination_metrics_manager: std::cell::RefCell::new(crate::storage::coordination_metrics::CoordinationMetricsManager::new()),
         })
     }
     
@@ -1169,6 +1173,61 @@ impl Database {
     #[wasm_bindgen(js_name = "clearOptimisticWrites")]
     pub async fn clear_optimistic_writes(&mut self) -> Result<(), JsValue> {
         self.optimistic_updates_manager.borrow_mut().clear_all();
+        Ok(())
+    }
+
+    /// Enable or disable coordination metrics tracking
+    #[wasm_bindgen(js_name = "enableCoordinationMetrics")]
+    pub async fn enable_coordination_metrics(&mut self, enabled: bool) -> Result<(), JsValue> {
+        self.coordination_metrics_manager.borrow_mut().set_enabled(enabled);
+        Ok(())
+    }
+
+    /// Check if coordination metrics tracking is enabled
+    #[wasm_bindgen(js_name = "isCoordinationMetricsEnabled")]
+    pub async fn is_coordination_metrics_enabled(&self) -> bool {
+        self.coordination_metrics_manager.borrow().is_enabled()
+    }
+
+    /// Record a leadership change
+    #[wasm_bindgen(js_name = "recordLeadershipChange")]
+    pub async fn record_leadership_change(&mut self, became_leader: bool) -> Result<(), JsValue> {
+        self.coordination_metrics_manager.borrow_mut().record_leadership_change(became_leader);
+        Ok(())
+    }
+
+    /// Record a notification latency in milliseconds
+    #[wasm_bindgen(js_name = "recordNotificationLatency")]
+    pub async fn record_notification_latency(&mut self, latency_ms: f64) -> Result<(), JsValue> {
+        self.coordination_metrics_manager.borrow_mut().record_notification_latency(latency_ms);
+        Ok(())
+    }
+
+    /// Record a write conflict (non-leader write attempt)
+    #[wasm_bindgen(js_name = "recordWriteConflict")]
+    pub async fn record_write_conflict(&mut self) -> Result<(), JsValue> {
+        self.coordination_metrics_manager.borrow_mut().record_write_conflict();
+        Ok(())
+    }
+
+    /// Record a follower refresh
+    #[wasm_bindgen(js_name = "recordFollowerRefresh")]
+    pub async fn record_follower_refresh(&mut self) -> Result<(), JsValue> {
+        self.coordination_metrics_manager.borrow_mut().record_follower_refresh();
+        Ok(())
+    }
+
+    /// Get coordination metrics as JSON string
+    #[wasm_bindgen(js_name = "getCoordinationMetrics")]
+    pub async fn get_coordination_metrics(&self) -> Result<String, JsValue> {
+        self.coordination_metrics_manager.borrow().get_metrics_json()
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Reset all coordination metrics
+    #[wasm_bindgen(js_name = "resetCoordinationMetrics")]
+    pub async fn reset_coordination_metrics(&mut self) -> Result<(), JsValue> {
+        self.coordination_metrics_manager.borrow_mut().reset();
         Ok(())
     }
 }

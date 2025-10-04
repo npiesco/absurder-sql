@@ -1,5 +1,7 @@
 # Transaction Support in DataSync
 
+**Status**: ✅ PRODUCTION READY
+
 DataSync provides **full transactional support** for SQLite operations with IndexedDB persistence in WASM environments. This document outlines the transactional capabilities, limitations, and usage patterns.
 
 ## ✅ Supported Features
@@ -139,10 +141,10 @@ await db.sync(); // Persist to IndexedDB
 - WAL mode not currently supported
 - Journal operations don't persist until sync()
 
-### 3. **Multi-Tab Concurrency Model** ✨ UPDATED
+### 3. **Multi-Tab Concurrency Model** ✅
 - **Leader Election**: Only leader tab can execute write operations
 - **Write Guard**: Non-leaders are blocked from direct writes via `execute()`
-- **Write Queue**: Non-leaders can use `queueWrite()` to forward writes to leader
+- **Write Queue** (Phase 5.1): Non-leaders can use `queueWrite()` to forward writes to leader
 - **Limitations of queueWrite**:
   - Each queued write is a **separate transaction** (not atomic with other queued writes)
   - Cannot use queueWrite for multi-statement transactions (BEGIN...COMMIT blocks)
@@ -159,7 +161,7 @@ await db.sync(); // Persist to IndexedDB
 - sync() is async and may take time for large datasets
 - Frequent sync() calls can impact performance
 - Batch operations when possible
-- **queueWrite() overhead** ✨ NEW:
+- **queueWrite() overhead** (Phase 5.1):
   - Additional latency from BroadcastChannel communication
   - Leader must process and acknowledge each request
   - Not suitable for high-frequency writes (prefer direct leader execution)
@@ -175,11 +177,24 @@ The transaction support is thoroughly tested with:
 - ✅ **Cross-instance persistence verification**
 - ✅ **Crash consistency guarantees**
 - ✅ **Multiple database isolation**
+- ✅ **Multi-tab transaction coordination**
+
+**Test Coverage**:
+- 75 WASM unit tests passing
+- 69 Native tests passing (default + fs_persist)
+- 22 E2E tests passing (Playwright)
 
 Tests can be run with:
 ```bash
-wasm-pack test --chrome --headless --test transaction_support_test
-wasm-pack test --chrome --headless --test wasm_vfs_transactional_tests
+# WASM tests
+wasm-pack test --chrome --headless
+
+# Native tests
+cargo test
+cargo test --features fs_persist
+
+# E2E tests
+npm run test:e2e
 ```
 
 ## 🎯 Best Practices
@@ -233,7 +248,7 @@ window.addEventListener('beforeunload', async (e) => {
 - Check storage API for available space
 - Implement data cleanup strategies for large datasets
 
-## 🔄 Multi-Tab Transactions ✨ NEW
+## 🔄 Multi-Tab Transactions
 
 ### Write Coordination
 In multi-tab environments, only the leader tab can execute write operations (including transactions).
@@ -252,7 +267,7 @@ if (await db.isLeader()) {
 }
 ```
 
-#### Option 2: Queue Transactional Writes ✨ NEW
+#### Option 2: Queue Transactional Writes (Phase 5.1)
 ```javascript
 // Queue individual writes from any tab
 // Note: Each queued write is a separate transaction
@@ -274,9 +289,11 @@ await db.sync();
 - Followers can wait for leadership with `waitForLeadership()` before starting transactions
 - All tabs see committed changes after sync via BroadcastChannel notifications
 
-## 📚 References
+## 📚 Related Resources
 
 - [SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html)
 - [IndexedDB API Specification](https://www.w3.org/TR/IndexedDB/)
-- [DataSync Architecture Overview](./README.md)
-- [Multi-Tab Coordination Guide](./examples/MULTI_TAB_GUIDE.md)
+- [DataSync Main README](../README.md) - Project overview
+- [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Complete multi-tab guide with Phase 5 advanced features
+- [Benchmark Results](BENCHMARK.md) - Performance comparisons
+- [Demo Guide](../examples/DEMO_GUIDE.md) - Interactive demos

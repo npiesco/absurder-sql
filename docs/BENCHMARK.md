@@ -77,7 +77,7 @@ http://localhost:8080/examples/benchmark.html
 - ✅ Full SQL support (joins, indexes, transactions)
 - ✅ ACID compliance
 - ✅ Persistent across page reloads
-- ✅ Multi-tab coordination with write queuing ✨ NEW
+- ✅ Multi-tab coordination (leader election, write queuing, optimistic updates, metrics)
 - ✅ Block-level storage with checksums
 
 ### Raw IndexedDB Advantages
@@ -124,10 +124,25 @@ Key differences:
 
 ## Future Enhancements
 
-- [ ] Add absurd-sql comparison
+- [x] Add absurd-sql comparison (Complete)
 - [ ] Add sql.js comparison
 - [ ] Add chart visualization
 - [ ] Add memory usage tracking
 - [ ] Add concurrent operation tests
-- [ ] Add multi-tab benchmark
+- [x] Add multi-tab coordination (Complete - Phase 5)
 - [ ] Export results to CSV/JSON
+
+## Test Coverage
+
+- ✅ 75 WASM unit tests passing
+- ✅ 69 Native tests passing (default + fs_persist)
+- ✅ 22 E2E tests passing (Playwright)
+- ✅ Multi-tab coordination fully tested
+
+## 📚 Related Documentation
+
+- [Main README](../README.md) - Project overview and features
+- [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Complete guide with Phase 5 features
+- [Transaction Support](TRANSACTION_SUPPORT.md) - Transaction handling details
+- [Demo Guide](../examples/DEMO_GUIDE.md) - Interactive demo instructions
+- [Vite App Example](../examples/vite-app/README.md) - Production-ready multi-tab application

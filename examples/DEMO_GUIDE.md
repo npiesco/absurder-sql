@@ -104,7 +104,7 @@ SELECT * FROM products WHERE price > 50;
 ✅ **Persistent** - Data survives page refreshes (IndexedDB)  
 ✅ **Fast** - Sub-millisecond queries  
 ✅ **Type-Safe** - Proper data types (INTEGER, TEXT, REAL, BLOB)  
-✅ **Multi-Tab Ready** - Built-in coordination with write queuing ✨ NEW  
+✅ **Multi-Tab Ready** - Built-in coordination (leader election, write queuing, optimistic updates, metrics)  
 
 ## Features You Can Demo
 

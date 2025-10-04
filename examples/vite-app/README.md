@@ -1,6 +1,8 @@
 # Vite + DataSync Example with Multi-Tab Support
 
-This example demonstrates using `sqlite-indexeddb-rs` in a Vite development environment with **multi-tab coordination**.
+**Status**: ✅ PRODUCTION READY
+
+This example demonstrates using `sqlite-indexeddb-rs` in a Vite development environment with **comprehensive multi-tab coordination**.
 
 ## Setup
 
@@ -19,15 +21,20 @@ npm run dev
 
 ## Features
 
+### Core Features
 - ✅ Hot module replacement with Vite
 - ✅ SQLite database in the browser
 - ✅ IndexedDB persistence
 - ✅ **Multi-tab leader election**
 - ✅ **Automatic write coordination**
-- ✅ **Write queuing from any tab** ✨ NEW
 - ✅ **Real-time sync across tabs**
 - ✅ Leader/follower badge display
 - ✅ Automatic UI updates on tab status change
+
+### Advanced Features ✨
+- ✅ **Write Queuing** (Phase 5.1): Queue writes from any tab
+- ✅ **Optimistic Updates** (Phase 5.2): Track pending writes
+- ✅ **Coordination Metrics** (Phase 5.3): Monitor performance
 
 ## Multi-Tab Testing
 
@@ -64,7 +71,7 @@ await db.init();
 // Only leader can write
 await db.write("INSERT INTO items VALUES (1, 'Item', 9.99)");
 
-// OR use queueWrite from any tab ✨ NEW
+// OR use queueWrite from any tab (Phase 5.1)
 await db.queueWrite("INSERT INTO items VALUES (1, 'Item', 9.99)");
 // Leaders execute immediately, followers forward to leader
 
@@ -75,6 +82,18 @@ const result = await db.query("SELECT * FROM items");
 db.onRefresh(() => {
   console.log('Data changed in another tab!');
 });
+
+// Advanced Features:
+
+// Optimistic Updates (Phase 5.2)
+await db.enableOptimisticUpdates(true);
+const writeId = await db.trackOptimisticWrite("INSERT ...");
+const pending = await db.getPendingWritesCount();
+
+// Coordination Metrics (Phase 5.3)
+await db.enableCoordinationMetrics(true);
+await db.recordLeadershipChange(true);
+const metrics = JSON.parse(await db.getCoordinationMetrics());
 ```
 
 ## Production build
@@ -86,4 +105,18 @@ npm run preview
 
 The build output in `dist/` is ready to deploy to any static host.
 
-See [MULTI_TAB_GUIDE.md](../MULTI_TAB_GUIDE.md) for complete multi-tab documentation.
+## Documentation
+
+- [Multi-Tab Coordination Guide](../../docs/MULTI_TAB_GUIDE.md) - Complete guide with all features
+- [Demo Guide](../DEMO_GUIDE.md) - How to run interactive demos
+- [Main README](../../README.md) - Project overview
+
+## E2E Testing
+
+This app is tested with Playwright. Run tests from repo root:
+
+```bash
+npm run test:e2e
+```
+
+All 22 E2E tests passing including multi-tab coordination and advanced features.

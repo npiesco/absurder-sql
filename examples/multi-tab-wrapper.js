@@ -249,6 +249,119 @@ export class MultiTabDatabase {
     console.log(`[MultiTabDatabase] Closed database: ${this.dbName}`);
   }
 
+  // ========== Phase 5.2: Optimistic Updates ==========
+
+  /**
+   * Enable or disable optimistic updates mode
+   * @param {boolean} enabled - Whether to enable optimistic updates
+   * @returns {Promise<void>}
+   */
+  async enableOptimisticUpdates(enabled) {
+    return await this.db.enableOptimisticUpdates(enabled);
+  }
+
+  /**
+   * Check if optimistic mode is enabled
+   * @returns {Promise<boolean>}
+   */
+  async isOptimisticMode() {
+    return await this.db.isOptimisticMode();
+  }
+
+  /**
+   * Track an optimistic write
+   * @param {string} sql - SQL statement
+   * @returns {Promise<string>} Write ID
+   */
+  async trackOptimisticWrite(sql) {
+    return await this.db.trackOptimisticWrite(sql);
+  }
+
+  /**
+   * Get count of pending writes
+   * @returns {Promise<number>}
+   */
+  async getPendingWritesCount() {
+    return await this.db.getPendingWritesCount();
+  }
+
+  /**
+   * Clear all optimistic writes
+   * @returns {Promise<void>}
+   */
+  async clearOptimisticWrites() {
+    return await this.db.clearOptimisticWrites();
+  }
+
+  // ========== Phase 5.3: Coordination Metrics ==========
+
+  /**
+   * Enable or disable coordination metrics tracking
+   * @param {boolean} enabled - Whether to enable metrics tracking
+   * @returns {Promise<void>}
+   */
+  async enableCoordinationMetrics(enabled) {
+    return await this.db.enableCoordinationMetrics(enabled);
+  }
+
+  /**
+   * Check if coordination metrics tracking is enabled
+   * @returns {Promise<boolean>}
+   */
+  async isCoordinationMetricsEnabled() {
+    return await this.db.isCoordinationMetricsEnabled();
+  }
+
+  /**
+   * Record a leadership change
+   * @param {boolean} becameLeader - Whether this tab became leader
+   * @returns {Promise<void>}
+   */
+  async recordLeadershipChange(becameLeader) {
+    return await this.db.recordLeadershipChange(becameLeader);
+  }
+
+  /**
+   * Record notification latency in milliseconds
+   * @param {number} latencyMs - Latency in milliseconds
+   * @returns {Promise<void>}
+   */
+  async recordNotificationLatency(latencyMs) {
+    return await this.db.recordNotificationLatency(latencyMs);
+  }
+
+  /**
+   * Record a write conflict (non-leader write attempt)
+   * @returns {Promise<void>}
+   */
+  async recordWriteConflict() {
+    return await this.db.recordWriteConflict();
+  }
+
+  /**
+   * Record a follower refresh
+   * @returns {Promise<void>}
+   */
+  async recordFollowerRefresh() {
+    return await this.db.recordFollowerRefresh();
+  }
+
+  /**
+   * Get coordination metrics as JSON string
+   * @returns {Promise<string>} JSON string of metrics
+   */
+  async getCoordinationMetrics() {
+    return await this.db.getCoordinationMetrics();
+  }
+
+  /**
+   * Reset all coordination metrics
+   * @returns {Promise<void>}
+   */
+  async resetCoordinationMetrics() {
+    return await this.db.resetCoordinationMetrics();
+  }
+
   /**
    * Check if SQL statement is a write operation
    * @private

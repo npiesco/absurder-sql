@@ -191,17 +191,21 @@ The library provides a robust SQLite implementation for WebAssembly environments
 - **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
 - **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
 
-## 🔄 Multi-Tab Coordination
+## 🔄 Multi-Tab Coordination ✅ PRODUCTION READY
 
-DataSync includes built-in multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
+DataSync includes comprehensive multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
 
-### Key Features
+### Core Features
 - **Automatic Leader Election**: First tab becomes leader using localStorage coordination
 - **Write Guard**: Only the leader tab can execute write operations (INSERT, UPDATE, DELETE)
-- **Write Queuing** ✨ NEW: Non-leaders can queue writes that forward to leader automatically
 - **BroadcastChannel Sync**: Automatic change notifications to all tabs
 - **Failover Support**: Automatic re-election when leader tab closes
 - **Zero Configuration**: Works out of the box, no setup required
+
+### Advanced Features ✨
+- **Write Queuing** (Phase 5.1): Non-leaders can queue writes that forward to leader automatically
+- **Optimistic Updates** (Phase 5.2): Track pending writes for immediate UI feedback
+- **Coordination Metrics** (Phase 5.3): Monitor performance and coordination events
 
 ### Quick Example
 
@@ -233,32 +237,35 @@ db.onRefresh(() => {
 });
 ```
 
-### Helper Methods
+### Advanced Features
+
 ```javascript
-// Wait to become leader
-await db.waitForLeadership();
-
-// Request leadership
-await db.requestLeadership();
-
-// Queue write from any tab ✨ NEW
+// Write Queuing (Phase 5.1) - Queue from any tab
 await db.queueWrite("INSERT INTO logs VALUES (1, 'event')");
-
-// Queue write with custom timeout
 await db.queueWriteWithTimeout("UPDATE data SET processed = 1", 10000);
 
-// Get leader info
-const info = await db.getLeaderInfo();
-// { isLeader: true, leaderId: "...", leaseExpiry: 123456 }
+// Optimistic Updates (Phase 5.2) - Track pending writes
+await db.enableOptimisticUpdates(true);
+const writeId = await db.trackOptimisticWrite("INSERT INTO users...");
+const pendingCount = await db.getPendingWritesCount();
 
-// Override for single-tab apps
-await db.allowNonLeaderWrites(true);
+// Coordination Metrics (Phase 5.3) - Monitor performance
+await db.enableCoordinationMetrics(true);
+await db.recordLeadershipChange(true);
+await db.recordNotificationLatency(15.5);
+const metrics = JSON.parse(await db.getCoordinationMetrics());
+
+// Helper Methods
+await db.waitForLeadership();  // Wait to become leader
+await db.requestLeadership();   // Request leadership
+const info = await db.getLeaderInfo();  // Get leader info
+await db.allowNonLeaderWrites(true);  // Override for single-tab apps
 ```
 
 ### Live Demos
 - **[Multi-Tab Demo](examples/multi-tab-demo.html)** - Interactive task list with multi-tab sync
 - **[Vite App](examples/vite-app/)** - Production-ready multi-tab example
-- **[Complete Guide](examples/MULTI_TAB_GUIDE.md)** - Full documentation and patterns
+- **[Complete Guide](docs/MULTI_TAB_GUIDE.md)** - Full documentation and patterns
 
 **Open the demo in multiple browser tabs to see coordination in action!**
 
@@ -330,6 +337,14 @@ DataSync consistently outperforms absurd-sql and raw IndexedDB across all operat
 npm run serve
 # Open http://localhost:8080/examples/benchmark.html
 ```
+
+## 📚 Documentation
+
+- **[Multi-Tab Coordination Guide](docs/MULTI_TAB_GUIDE.md)** - Complete guide for multi-tab coordination
+- **[Transaction Support](docs/TRANSACTION_SUPPORT.md)** - Transaction handling and multi-tab transactions
+- **[Benchmark Results](docs/BENCHMARK.md)** - Performance comparisons and metrics
+- **[Demo Guide](examples/DEMO_GUIDE.md)** - How to run the interactive demos
+- **[Vite App Example](examples/vite-app/README.md)** - Production-ready multi-tab application
 
 ## External Dependencies
 

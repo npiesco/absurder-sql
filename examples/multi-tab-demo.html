@@ -249,6 +249,10 @@
                     waitForLeadership: false
                 });
                 
+                // Expose db on window for testing
+                window.db = db;
+                
+                log('Initializing database...', 'info');
                 await db.init();
                 log('Database initialized successfully!', 'success');
                 

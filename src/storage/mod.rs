@@ -21,6 +21,7 @@ pub mod wasm_auto_sync;
 #[cfg(target_arch = "wasm32")]
 pub mod write_queue;
 pub mod optimistic_updates;
+pub mod coordination_metrics;
 
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 #[cfg(target_arch = "wasm32")]
