@@ -403,7 +403,7 @@ npm run serve
 
 DataSync consistently outperforms absurd-sql and raw IndexedDB across all operations.
 
-**[📖 Full benchmark results and analysis](examples/BENCHMARK.md)**
+**[📖 Full benchmark results and analysis](docs/BENCHMARK.md)**
 
 ### Latest Results
 
