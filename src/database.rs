@@ -256,7 +256,13 @@ impl SqliteIndexedDB {
         Ok(())
     }
 
-    pub fn get_config(&self) -> &DatabaseConfig {
-        &self.config
+    pub fn get_connection(&self) -> &Connection {
+        &self.connection
+    }
+    
+    /// Get access to the underlying BlockStorage for inspection
+    #[cfg(feature = "fs_persist")]
+    pub fn get_storage(&self) -> &BlockStorage {
+        &self.storage
     }
 }
