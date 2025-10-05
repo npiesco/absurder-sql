@@ -175,23 +175,6 @@ Both projects share these core concepts:
 - IndexedDB quota limits apply
 - Network conditions don't affect local benchmarks
 
-## Future Enhancements
-
-- [x] Add absurd-sql comparison (Complete)
-- [ ] Add sql.js comparison
-- [ ] Add chart visualization
-- [ ] Add memory usage tracking
-- [ ] Add concurrent operation tests
-- [x] Add multi-tab coordination (Complete - Phase 5)
-- [ ] Export results to CSV/JSON
-
-## Test Coverage
-
-- ✅ 75 WASM unit tests passing
-- ✅ 69 Native tests passing (default + fs_persist)
-- ✅ 22 E2E tests passing (Playwright)
-- ✅ Multi-tab coordination fully tested
-
 ## 📚 Related Documentation
 
 - [Main README](../README.md) - Project overview and features
