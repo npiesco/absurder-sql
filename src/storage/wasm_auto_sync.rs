@@ -3,7 +3,7 @@
 //! Provides automatic background syncing for WASM environments using
 //! event-driven mechanisms: requestIdleCallback, visibility changes, and beforeunload.
 //!
-//! This is a truly event-driven approach - no polling, no timers.
+//! This is an event-driven approach - no polling, no timers.
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -28,19 +28,14 @@ use crate::storage::BlockStorage;
 pub struct WasmAutoSyncManager {
     /// Database name for this auto-sync manager
     db_name: String,
-    
     /// Flag to indicate if auto-sync is active
     is_active: bool,
-    
     /// Idle callback handle (for cleanup)
     idle_callback_handle: Option<u32>,
-    
     /// Visibility change event listener
     visibility_listener: Option<Closure<dyn FnMut()>>,
-    
     /// BeforeUnload event listener
     beforeunload_listener: Option<Closure<dyn FnMut()>>,
-    
     /// Idle callback closure (needs to be kept alive)
     idle_closure: Option<Closure<dyn FnMut()>>,
 }

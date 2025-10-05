@@ -40,7 +40,6 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
         #[cfg(target_arch = "wasm32")]
         {
             // Single combined lookup for commit marker, visibility, and data
-            // This reduces 3 separate global storage accesses to 1
             let (data, is_visible) = vfs_sync::with_global_commit_marker(|cm| {
                 let committed = cm.borrow().get(&storage.db_name).copied().unwrap_or(0);
                 
@@ -58,26 +57,60 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                 
                 // For other blocks, check visibility and get data in one pass
                 vfs_sync::with_global_metadata(|meta| {
-                    let is_visible = meta.borrow()
+                    let has_metadata = meta.borrow()
                         .get(&storage.db_name)
                         .and_then(|db_meta| db_meta.get(&block_id))
-                        .map(|m| (m.version as u64) <= committed)
-                        .unwrap_or(true); // No metadata = visible
+                        .is_some();
                     
-                    if is_visible {
+                    if has_metadata {
+                        // Has metadata - check if visible based on commit marker
+                        let is_visible = meta.borrow()
+                            .get(&storage.db_name)
+                            .and_then(|db_meta| db_meta.get(&block_id))
+                            .map(|m| (m.version as u64) <= committed)
+                            .unwrap_or(false);
+                        
+                        if is_visible {
+                            // Visible - return actual data
+                            let data = vfs_sync::with_global_storage(|gs| {
+                                gs.borrow()
+                                    .get(&storage.db_name)
+                                    .and_then(|db_storage| db_storage.get(&block_id))
+                                    .cloned()
+                                    .unwrap_or_else(|| vec![0; BLOCK_SIZE])
+                            });
+                            (data, true)
+                        } else {
+                            // Not visible (version > commit marker) - return zeroed data for SQLite
+                            (vec![0; BLOCK_SIZE], false)
+                        }
+                    } else {
+                        // No metadata - check if data exists in global storage
                         let data = vfs_sync::with_global_storage(|gs| {
                             gs.borrow()
                                 .get(&storage.db_name)
                                 .and_then(|db_storage| db_storage.get(&block_id))
                                 .cloned()
-                                .unwrap_or_else(|| vec![0; BLOCK_SIZE])
                         });
-                        (data, true)
-                    } else {
-                        (vec![0; BLOCK_SIZE], false)
+                        
+                        match data {
+                            Some(data) => (data, true), // Old data before metadata tracking
+                            None => (vec![], false) // Truly unallocated - will error below
+                        }
                     }
                 })
             });
+            
+            // Check if block is truly unallocated (no metadata AND no data)
+            // Invisible blocks (has metadata but version > commit marker) return zeroed data
+            if data.is_empty() {
+                let err = DatabaseError::new(
+                    "UNALLOCATED_BLOCK",
+                    &format!("Attempt to read unallocated block {}", block_id)
+                );
+                storage.observability.record_error(&err);
+                return Err(err);
+            }
             
             // Verify checksum ONLY for visible blocks in WASM
             if is_visible && block_id != 0 {

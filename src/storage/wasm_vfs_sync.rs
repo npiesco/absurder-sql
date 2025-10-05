@@ -19,7 +19,7 @@ pub fn register_storage_for_vfs_sync(db_name: &str, storage: std::rc::Weak<std::
 #[cfg(target_arch = "wasm32")]
 pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     // DEBUG: Log where this is being called from
-    web_sys::console::log_1(&"⚠️  vfs_sync_database() CALLED - THIS SHOULD BE RARE!".into());
+    // web_sys::console::log_1(&"⚠️  vfs_sync_database() CALLED - THIS SHOULD BE RARE!".into());
     
     // Advance the commit marker to make writes visible
     let _next_commit = vfs_sync::with_global_commit_marker(|cm| {
@@ -39,11 +39,11 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
         let storage_map = storage.borrow();
         
         // DEBUG: Log all keys in GLOBAL_STORAGE
-        web_sys::console::log_1(&format!("VFS sync: GLOBAL_STORAGE keys: {:?}", storage_map.keys().collect::<Vec<_>>()).into());
-        web_sys::console::log_1(&format!("VFS sync: Looking for key: {}", db_name_clone).into());
+        //web_sys::console::log_1(&format!("VFS sync: GLOBAL_STORAGE keys: {:?}", storage_map.keys().collect::<Vec<_>>()).into());
+        //web_sys::console::log_1(&format!("VFS sync: Looking for key: {}", db_name_clone).into());
         
         let blocks = if let Some(db_storage) = storage_map.get(&db_name_clone) {
-            web_sys::console::log_1(&format!("VFS sync: Found {} blocks for {}", db_storage.len(), db_name_clone).into());
+            //web_sys::console::log_1(&format!("VFS sync: Found {} blocks for {}", db_storage.len(), db_name_clone).into());
             db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
         } else {
             web_sys::console::log_1(&format!("VFS sync: No storage found for key: {}", db_name_clone).into());
@@ -238,13 +238,13 @@ pub async fn persist_commit_marker_to_indexeddb(db_name: &str, commit_marker: u6
 /// Used by VFS x_sync callback to persist blocks but maintain commit marker lag
 #[cfg(target_arch = "wasm32")]
 pub fn sync_blocks_only(storage: &BlockStorage) -> Result<(), DatabaseError> {
-    let db_name = &storage.db_name;
-    web_sys::console::log_1(&format!("DEBUG: sync_blocks_only called for {}", db_name).into());
+    let _db_name = &storage.db_name;
+    // web_sys::console::log_1(&format!("DEBUG: sync_blocks_only called for {}", _db_name).into());
     
     // Simply persist blocks to cache without advancing commit marker
     // The blocks are already in the local cache and will be visible to other instances
     // through the global storage registry, but the commit marker won't advance
-    web_sys::console::log_1(&format!("DEBUG: sync_blocks_only completed for {} (commit marker unchanged)", db_name).into());
+    // web_sys::console::log_1(&format!("DEBUG: sync_blocks_only completed for {} (commit marker unchanged)", db_name).into());
     
     Ok(())
 }

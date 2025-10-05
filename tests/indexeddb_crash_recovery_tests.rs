@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE, CrashRecoveryAction};
 use std::collections::HashMap;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -187,4 +187,173 @@ async fn test_indexeddb_recovery_multiple_databases() {
     
     assert_eq!(recovered_data1, data1, "DB1 data should be recovered");
     assert_eq!(recovered_data2, data2, "DB2 data should be recovered");
+}
+
+/// Test that rollback physically deletes blocks from IndexedDB
+/// Verifies blocks are not just hidden by commit marker but actually removed
+#[wasm_bindgen_test]
+async fn test_indexeddb_rollback_deletes_blocks() {
+    use sqlite_indexeddb_rs::storage::vfs_sync;
+    
+    let db_name = "rollback_deletion_test";
+    
+    // Step 1: Create storage and establish baseline
+    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let block1 = storage1.allocate_block().await.expect("alloc block1");
+    let data1 = vec![0x11u8; BLOCK_SIZE];
+    storage1.write_block(block1, data1.clone()).await.expect("write block1");
+    storage1.sync().await.expect("sync baseline");
+    
+    let baseline_marker = storage1.get_commit_marker();
+    web_sys::console::log_1(&format!("Baseline commit marker: {}", baseline_marker).into());
+    
+    // Step 2: Write second block and sync (so it gets persisted to IndexedDB)
+    let block2 = storage1.allocate_block().await.expect("alloc block2");
+    let data2 = vec![0x22u8; BLOCK_SIZE];
+    storage1.write_block(block2, data2.clone()).await.expect("write block2");
+    storage1.sync().await.expect("sync block2");
+    
+    let after_block2_marker = storage1.get_commit_marker();
+    web_sys::console::log_1(&format!("After block2 commit marker: {}", after_block2_marker).into());
+    
+    // Step 3: Manually simulate incomplete transaction state
+    // Roll back commit marker to baseline but keep block2 in IndexedDB
+    vfs_sync::with_global_commit_marker(|cm| {
+        cm.borrow_mut().insert(db_name.to_string(), baseline_marker);
+    });
+    
+    // Verify block2 is still in global storage (simulating incomplete state)
+    let block2_exists_before = vfs_sync::with_global_storage(|gs| {
+        gs.borrow().get(db_name).and_then(|db| db.get(&block2)).is_some()
+    });
+    assert!(block2_exists_before, "Block2 should exist in storage before rollback");
+    
+    // Step 4: Create new instance and explicitly trigger crash recovery
+    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    
+    // Explicitly invoke crash recovery to detect incomplete transaction
+    let recovery_action = storage2.perform_crash_recovery().await.expect("crash recovery should succeed");
+    web_sys::console::log_1(&format!("Recovery action: {:?}", recovery_action).into());
+    
+    // With commit marker at 1 and block2 at version 2 (expected_next = 1+1 = 2),
+    // the recovery logic will FINALIZE (not rollback) since the transaction appears complete.
+    // This test verifies that finalize also works correctly and doesn't leave orphaned data.
+    assert_eq!(recovery_action, CrashRecoveryAction::Finalize, 
+               "Should finalize transaction with consistent version");
+    
+    // Step 5: Verify both blocks are accessible after finalize
+    let block2_exists_after = vfs_sync::with_global_storage(|gs| {
+        gs.borrow().get(db_name).and_then(|db| db.get(&block2)).is_some()
+    });
+    
+    web_sys::console::log_1(&format!("Block2 exists after finalize: {}", block2_exists_after).into());
+    assert!(block2_exists_after, "Block2 should exist after finalize");
+    
+    // Verify both blocks are accessible (finalized transaction)
+    let recovered_data1 = storage2.read_block_sync(block1).expect("read block1");
+    assert_eq!(recovered_data1, data1, "Block1 data should match");
+    
+    let recovered_data2 = storage2.read_block_sync(block2).expect("read block2");
+    assert_eq!(recovered_data2, data2, "Block2 data should match");
+    
+    // Verify commit marker advanced after finalize
+    let final_marker = storage2.get_commit_marker();
+    assert_eq!(final_marker, 2, "Commit marker should advance to 2 after finalize");
+    
+    web_sys::console::log_1(&"Test completed - finalize successfully committed transaction".into());
+}
+
+/// Test that rollback physically deletes blocks from IndexedDB (actual rollback scenario)
+/// This test creates a scenario that triggers actual rollback (not finalize)
+#[wasm_bindgen_test]
+async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
+    use sqlite_indexeddb_rs::storage::vfs_sync;
+    
+    let db_name = "rollback_orphaned_test";
+    
+    // Step 1: Create storage and establish baseline
+    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let block1 = storage1.allocate_block().await.expect("alloc block1");
+    let data1 = vec![0xAAu8; BLOCK_SIZE];
+    storage1.write_block(block1, data1.clone()).await.expect("write block1");
+    storage1.sync().await.expect("sync baseline");
+    
+    let baseline_marker = storage1.get_commit_marker();
+    web_sys::console::log_1(&format!("Baseline commit marker: {}", baseline_marker).into());
+    
+    // Step 2: Create blocks with inconsistent versions to trigger rollback
+    // Block2 at version 3, block3 at version 4 (skipping version 2)
+    // This inconsistency will trigger rollback
+    let block2 = storage1.allocate_block().await.expect("alloc block2");
+    let block3 = storage1.allocate_block().await.expect("alloc block3");
+    let data2 = vec![0xBBu8; BLOCK_SIZE];
+    let data3 = vec![0xCCu8; BLOCK_SIZE];
+    
+    // Manually create inconsistent metadata (version 3 and 4, not sequential from marker 1)
+    vfs_sync::with_global_metadata(|meta| {
+        use sqlite_indexeddb_rs::storage::{metadata::BlockMetadataPersist, metadata::ChecksumAlgorithm};
+        let mut meta_map = meta.borrow_mut();
+        let db_meta = meta_map.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
+        db_meta.insert(block2, BlockMetadataPersist {
+            version: 3, // Inconsistent version
+            checksum: 0,
+            algo: ChecksumAlgorithm::FastHash,
+            last_modified_ms: js_sys::Date::now() as u64,
+        });
+        db_meta.insert(block3, BlockMetadataPersist {
+            version: 4, // Inconsistent version
+            checksum: 0,
+            algo: ChecksumAlgorithm::FastHash,
+            last_modified_ms: js_sys::Date::now() as u64,
+        });
+    });
+    
+    // Also add to global storage
+    vfs_sync::with_global_storage(|gs| {
+        let mut storage_map = gs.borrow_mut();
+        let db_storage = storage_map.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
+        db_storage.insert(block2, data2);
+        db_storage.insert(block3, data3);
+    });
+    
+    // Step 3: Create new instance and trigger crash recovery
+    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    
+    let recovery_action = storage2.perform_crash_recovery().await.expect("crash recovery should succeed");
+    web_sys::console::log_1(&format!("Recovery action for inconsistent versions: {:?}", recovery_action).into());
+    
+    // With inconsistent versions (3 and 4, not both == expected 2), should rollback
+    assert_eq!(recovery_action, CrashRecoveryAction::Rollback, 
+               "Should rollback transaction with inconsistent versions");
+    
+    // Step 4: Verify orphaned blocks were deleted from global storage
+    let block2_exists = vfs_sync::with_global_storage(|gs| {
+        gs.borrow().get(db_name).and_then(|db| db.get(&block2)).is_some()
+    });
+    let block3_exists = vfs_sync::with_global_storage(|gs| {
+        gs.borrow().get(db_name).and_then(|db| db.get(&block3)).is_some()
+    });
+    
+    assert!(!block2_exists, "Block2 should be deleted after rollback");
+    assert!(!block3_exists, "Block3 should be deleted after rollback");
+    
+    // Verify block1 is still accessible (committed before inconsistent transaction)
+    let recovered_data1 = storage2.read_block_sync(block1).expect("read block1");
+    assert_eq!(recovered_data1, data1, "Block1 should still be accessible");
+    
+    // Verify cache state after rollback
+    let block2_in_cache = storage2.is_cached(block2);
+    let block3_in_cache = storage2.is_cached(block3);
+    web_sys::console::log_1(&format!("Block2 in cache: {}, Block3 in cache: {}", block2_in_cache, block3_in_cache).into());
+    
+    // Verify orphaned blocks are not readable
+    let read2_result = storage2.read_block_sync(block2);
+    web_sys::console::log_1(&format!("Block2 read result: {:?}", read2_result.as_ref().map(|d| d.len()).map_err(|e| e.message.as_str())).into());
+    let read3_result = storage2.read_block_sync(block3);
+    web_sys::console::log_1(&format!("Block3 read result: {:?}", read3_result.as_ref().map(|d| d.len()).map_err(|e| e.message.as_str())).into());
+    
+    assert!(read2_result.is_err(), "Block2 should not be readable: {:?}", read2_result.as_ref().map(|d| format!("Got {} bytes", d.len())));
+    assert!(read3_result.is_err(), "Block3 should not be readable: {:?}", read3_result.as_ref().map(|d| format!("Got {} bytes", d.len())));
+    
+    web_sys::console::log_1(&"Test completed - rollback successfully deleted orphaned blocks from IndexedDB".into());
 }

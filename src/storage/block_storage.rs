@@ -98,8 +98,6 @@ struct FsAlloc { allocated: Vec<u64> }
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct FsDealloc { tombstones: Vec<u64> }
 
-// Global metadata and commit marker management moved to vfs_sync module
-
 // Test-only metadata mirror for native builds
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
 thread_local! {
@@ -720,9 +718,6 @@ impl BlockStorage {
         now.as_millis() as u64
     }
 
-    // compute_checksum_with moved to ChecksumManager
-
-
     pub(super) fn verify_against_stored_checksum(
         &self,
         block_id: u64,
@@ -1232,6 +1227,17 @@ impl BlockStorage {
             }
         });
         
+        // Remove inconsistent blocks from global storage
+        vfs_sync::with_global_storage(|gs| {
+            let mut storage_map = gs.borrow_mut();
+            if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
+                for (block_id, _) in inconsistent_blocks {
+                    log::info!("CRASH RECOVERY: Removing inconsistent block {} from global storage", block_id);
+                    db_storage.remove(block_id);
+                }
+            }
+        });
+        
         // Clear any cached data for these blocks
         for (block_id, _) in inconsistent_blocks {
             self.cache.remove(block_id);
@@ -1239,8 +1245,13 @@ impl BlockStorage {
             self.lru_order.retain(|&id| id != *block_id);
         }
         
-        // TODO: In a complete implementation, we'd also remove the blocks from IndexedDB
-        // For now, the commit marker gating will make them invisible
+        // Remove inconsistent blocks from IndexedDB to avoid accumulating orphaned data
+        let block_ids_to_delete: Vec<u64> = inconsistent_blocks.iter().map(|(id, _)| *id).collect();
+        if !block_ids_to_delete.is_empty() {
+            log::info!("CRASH RECOVERY: Deleting {} blocks from IndexedDB", block_ids_to_delete.len());
+            super::wasm_indexeddb::delete_blocks_from_indexeddb(&self.db_name, &block_ids_to_delete).await?;
+            log::info!("CRASH RECOVERY: Successfully deleted blocks from IndexedDB");
+        }
         
         log::info!("CRASH RECOVERY: Rollback completed");
         Ok(())

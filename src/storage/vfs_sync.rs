@@ -8,7 +8,6 @@ use crate::types::DatabaseError;
 #[allow(unused_imports)]
 use super::metadata::BlockMetadataPersist;
 
-// MOVED from block_storage.rs lines 22-27
 // Global storage for WASM to maintain data across instances
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -16,7 +15,6 @@ thread_local! {
     static GLOBAL_ALLOCATION_MAP: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
 }
 
-// MOVED from block_storage.rs lines 29-34
 // Test-only global storage mirrors for native builds so tests can run with `cargo test`
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
 thread_local! {
@@ -24,27 +22,21 @@ thread_local! {
     static GLOBAL_ALLOCATION_MAP_TEST: RefCell<HashMap<String, HashSet<u64>>> = RefCell::new(HashMap::new());
 }
 
-// MOVED from block_storage.rs lines 91-94
 #[cfg(target_arch = "wasm32")]
 thread_local! {
     static GLOBAL_METADATA: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
 }
-
-// MOVED from block_storage.rs lines 96-100
 // Per-DB commit marker for WASM builds to simulate atomic commit semantics
 #[cfg(target_arch = "wasm32")]
 thread_local! {
     pub static GLOBAL_COMMIT_MARKER: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
 }
 
-// MOVED from block_storage.rs lines 102-106
 // Global registry of active BlockStorage instances for VFS sync
 #[cfg(target_arch = "wasm32")]
 thread_local! {
     static STORAGE_REGISTRY: RefCell<HashMap<String, std::rc::Weak<std::cell::RefCell<super::BlockStorage>>>> = RefCell::new(HashMap::new());
 }
-
-
 
 /// Access to global storage for BlockStorage (internal use)
 #[cfg(target_arch = "wasm32")]

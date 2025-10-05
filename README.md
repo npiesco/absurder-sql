@@ -1,10 +1,10 @@
 # SQLite IndexedDB Rust Library (DataSync)
 
 [![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
-[![Tests](https://img.shields.io/badge/tests-169%20passing-brightgreen)](docs/MULTI_TAB_GUIDE.md#test-coverage)
-[![WASM](https://img.shields.io/badge/wasm-75%20tests-blue)](tests/)
-[![Native](https://img.shields.io/badge/native-72%20tests-blue)](tests/)
-[![E2E](https://img.shields.io/badge/e2e-24%20tests-blue)](tests/e2e/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](docs/MULTI_TAB_GUIDE.md#test-coverage)
+[![WASM](https://img.shields.io/badge/wasm-tested-blue)](tests/)
+[![Native](https://img.shields.io/badge/native-tested-blue)](tests/)
+[![E2E](https://img.shields.io/badge/e2e-tested-blue)](tests/e2e/)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
@@ -135,7 +135,7 @@ DataSync/
 │       ├── mod.rs
 │       └── indexeddb_vfs.rs     # Custom VFS for IndexedDB
 │
-├── tests/                  # Comprehensive test suite (169 tests)
+├── tests/                  # Comprehensive test suite
 │   ├── integration_tests.rs          # End-to-end tests
 │   ├── native_database_persistence_tests.rs  # Native filesystem tests
 │   ├── wasm_integration_tests.rs     # WASM-specific tests
@@ -513,7 +513,7 @@ Both projects share core concepts:
 - *Why this matters:* Faster queries = better user experience, especially on mobile devices
 
 **[✓] Need production-ready tooling**
-- Comprehensive test suite (75 WASM + 69 native + 22 E2E tests)
+- Comprehensive test suite (WASM + Native + E2E tests)
 - Full TypeScript definitions
 - Active development and maintenance
 - *Why this matters:* Confidence in reliability, easier debugging, better IDE support

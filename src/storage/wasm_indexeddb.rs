@@ -10,15 +10,18 @@ use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
 #[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
 
-/// Perform IndexedDB recovery scan to detect and handle incomplete transactions
+/// Check if IndexedDB recovery is needed for a database
+/// 
+/// This performs a lightweight check to determine if the database has existing state
+/// that may need recovery. It does NOT perform actual crash recovery.
+/// 
+/// For actual crash recovery (rollback/finalize), call `BlockStorage::perform_crash_recovery()`.
 #[cfg(target_arch = "wasm32")]
 pub async fn perform_indexeddb_recovery_scan(db_name: &str) -> Result<bool, DatabaseError> {
     web_sys::console::log_1(&format!("DEBUG: Starting IndexedDB recovery scan for {}", db_name).into());
     
-    // For now, implement a simple recovery check
-    // TODO: Add more sophisticated recovery logic later
-    
     // Check if we have any existing commit marker in global state
+    // This indicates the database has been used before and may have persisted state
     let has_existing_marker = vfs_sync::with_global_commit_marker(|cm| {
         cm.borrow().contains_key(db_name)
     });
@@ -714,4 +717,231 @@ pub async fn persist_to_indexeddb(
     web_sys::console::log_1(&format!("DEBUG: persist_to_indexeddb_event_based completed with result: {:?}", result.is_ok()).into());
     
     result
+}
+
+/// Delete blocks from IndexedDB (used during crash recovery rollback)
+/// Physically removes blocks to avoid accumulating orphaned data
+#[cfg(target_arch = "wasm32")]
+pub async fn delete_blocks_from_indexeddb(
+    db_name: &str,
+    block_ids: &[u64],
+) -> Result<(), DatabaseError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
+    use futures::channel::oneshot;
+    
+    if block_ids.is_empty() {
+        return Ok(());
+    }
+    
+    web_sys::console::log_1(&format!("DEBUG: delete_blocks_from_indexeddb - deleting {} blocks for {}", block_ids.len(), db_name).into());
+    
+    let window = web_sys::window().unwrap();
+    let idb_factory = window.indexed_db().unwrap().unwrap();
+    
+    let open_req = idb_factory.open_with_u32("block_storage", 2).unwrap();
+    
+    // Set up upgrade handler (should not be needed, but included for safety)
+    let upgrade_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+        web_sys::console::log_1(&"DEBUG: IndexedDB upgrade handler called during delete".into());
+        
+        match (|| -> Result<(), Box<dyn std::error::Error>> {
+            let target = event.target().ok_or("No event target")?;
+            let request: web_sys::IdbOpenDbRequest = target.dyn_into().map_err(|_| "Failed to cast to IdbOpenDbRequest")?;
+            let result = request.result().map_err(|_| "Failed to get result from request")?;
+            let db: web_sys::IdbDatabase = result.dyn_into().map_err(|_| "Failed to cast result to IdbDatabase")?;
+            
+            if !db.object_store_names().contains("blocks") {
+                db.create_object_store("blocks").map_err(|_| "Failed to create blocks store")?;
+            }
+            if !db.object_store_names().contains("metadata") {
+                db.create_object_store("metadata").map_err(|_| "Failed to create metadata store")?;
+            }
+            
+            Ok(())
+        })() {
+            Ok(_) => {},
+            Err(e) => {
+                web_sys::console::log_1(&format!("DEBUG: Upgrade handler error: {}", e).into());
+            }
+        }
+    }) as Box<dyn FnMut(_)>);
+    open_req.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
+    upgrade_closure.forget();
+    
+    // Wait for database to open
+    let (open_tx, open_rx) = oneshot::channel();
+    let open_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(open_tx)));
+    
+    let success_closure = {
+        let open_tx = open_tx.clone();
+        Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(sender) = open_tx.borrow_mut().take() {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbOpenDbRequest = target.dyn_into().unwrap();
+                let result = request.result().unwrap();
+                let db: web_sys::IdbDatabase = result.dyn_into().unwrap();
+                let _ = sender.send(Ok(db));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+    
+    let error_closure = {
+        let open_tx = open_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = open_tx.borrow_mut().take() {
+                let _ = sender.send(Err("Failed to open IndexedDB".to_string()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+    
+    open_req.set_onsuccess(Some(success_closure.as_ref().unchecked_ref()));
+    open_req.set_onerror(Some(error_closure.as_ref().unchecked_ref()));
+    success_closure.forget();
+    error_closure.forget();
+    
+    let db = match open_rx.await {
+        Ok(Ok(db)) => db,
+        Ok(Err(e)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
+        Err(_) => return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error")),
+    };
+    
+    // Start transaction
+    let store_names = js_sys::Array::new();
+    store_names.push(&"blocks".into());
+    store_names.push(&"metadata".into());
+    let transaction = db.transaction_with_str_sequence_and_mode(&store_names, web_sys::IdbTransactionMode::Readwrite)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create delete transaction"))?;
+    
+    let blocks_store = transaction.object_store("blocks")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get blocks store"))?;
+    let metadata_store = transaction.object_store("metadata")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
+    
+    // Delete all blocks and their metadata
+    // We need to delete all versions of each block (keys are "db_name:block_id:version")
+    for block_id in block_ids {
+        // Delete blocks with this block_id (all versions)
+        // Use key range to delete all entries matching "db_name:block_id:*"
+        let key_prefix_start = format!("{}:{}:", db_name, block_id);
+        let key_prefix_end = format!("{}:{}:\u{FFFF}", db_name, block_id);
+        
+        let key_range = web_sys::IdbKeyRange::bound(
+            &key_prefix_start.into(),
+            &key_prefix_end.into()
+        ).map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create key range for deletion"))?;
+        
+        // Open cursor to delete all matching entries
+        let blocks_cursor_req = blocks_store.open_cursor_with_range(&key_range)
+            .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open cursor for deletion"))?;
+        
+        // Use event-based approach to iterate and delete
+        let (delete_tx, delete_rx) = oneshot::channel::<Result<(), String>>();
+        let delete_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(delete_tx)));
+        
+        let delete_closure = {
+            let delete_tx = delete_tx.clone();
+            Closure::wrap(Box::new(move |event: web_sys::Event| {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbRequest = target.unchecked_into();
+                let result = request.result().unwrap();
+                
+                if !result.is_null() {
+                    let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+                    
+                    // Delete this entry
+                    let _ = cursor.delete();
+                    
+                    // Continue to next
+                    let _ = cursor.continue_();
+                } else {
+                    // Done iterating
+                    if let Some(sender) = delete_tx.borrow_mut().take() {
+                        let _ = sender.send(Ok(()));
+                    }
+                }
+            }) as Box<dyn FnMut(_)>)
+        };
+        
+        blocks_cursor_req.set_onsuccess(Some(delete_closure.as_ref().unchecked_ref()));
+        delete_closure.forget();
+        
+        // Wait for deletion to complete
+        let _ = delete_rx.await;
+        
+        // Also delete metadata entries
+        let metadata_cursor_req = metadata_store.open_cursor_with_range(&key_range)
+            .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open metadata cursor for deletion"))?;
+        
+        let (meta_delete_tx, meta_delete_rx) = oneshot::channel::<Result<(), String>>();
+        let meta_delete_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(meta_delete_tx)));
+        
+        let meta_delete_closure = {
+            let meta_delete_tx = meta_delete_tx.clone();
+            Closure::wrap(Box::new(move |event: web_sys::Event| {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbRequest = target.unchecked_into();
+                let result = request.result().unwrap();
+                
+                if !result.is_null() {
+                    let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+                    
+                    // Delete this entry
+                    let _ = cursor.delete();
+                    
+                    // Continue to next
+                    let _ = cursor.continue_();
+                } else {
+                    // Done iterating
+                    if let Some(sender) = meta_delete_tx.borrow_mut().take() {
+                        let _ = sender.send(Ok(()));
+                    }
+                }
+            }) as Box<dyn FnMut(_)>)
+        };
+        
+        metadata_cursor_req.set_onsuccess(Some(meta_delete_closure.as_ref().unchecked_ref()));
+        meta_delete_closure.forget();
+        
+        // Wait for metadata deletion to complete
+        let _ = meta_delete_rx.await;
+        
+        web_sys::console::log_1(&format!("DEBUG: Deleted block {} (all versions) from IndexedDB", block_id).into());
+    }
+    
+    // Wait for transaction to complete
+    let (tx_tx, tx_rx) = oneshot::channel();
+    let tx_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx_tx)));
+    
+    let complete_closure = {
+        let tx_tx = tx_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = tx_tx.borrow_mut().take() {
+                let _ = sender.send(Ok(()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+    
+    let tx_error_closure = {
+        let tx_tx = tx_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = tx_tx.borrow_mut().take() {
+                let _ = sender.send(Err("Delete transaction failed".to_string()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+    
+    transaction.set_oncomplete(Some(complete_closure.as_ref().unchecked_ref()));
+    transaction.set_onerror(Some(tx_error_closure.as_ref().unchecked_ref()));
+    complete_closure.forget();
+    tx_error_closure.forget();
+    
+    match tx_rx.await {
+        Ok(Ok(())) => {
+            web_sys::console::log_1(&format!("DEBUG: Successfully deleted {} blocks from IndexedDB", block_ids.len()).into());
+            Ok(())
+        },
+        Ok(Err(e)) => Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
+        Err(_) => Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error during deletion")),
+    }
 }
