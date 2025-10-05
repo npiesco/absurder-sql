@@ -5,10 +5,17 @@
 #[tokio::test]
 async fn test_sqlite_indexeddb_is_send() {
     use sqlite_indexeddb_rs::{SqliteIndexedDB, DatabaseConfig};
+    use tempfile::TempDir;
     
     // This test will fail to compile if SqliteIndexedDB is not Send
     fn assert_send<T: Send>() {}
     assert_send::<SqliteIndexedDB>();
+    
+    // Setup isolated filesystem for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    unsafe {
+        std::env::set_var("DATASYNC_FS_BASE", temp_dir.path());
+    }
     
     // Also test that we can actually send it across threads
     let config = DatabaseConfig {
@@ -36,6 +43,13 @@ async fn test_sqlite_indexeddb_is_send() {
 #[tokio::test]
 async fn test_database_operations_across_threads() {
     use sqlite_indexeddb_rs::{SqliteIndexedDB, DatabaseConfig};
+    use tempfile::TempDir;
+    
+    // Setup isolated filesystem for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    unsafe {
+        std::env::set_var("DATASYNC_FS_BASE", temp_dir.path());
+    }
     
     // Test that we can create a database in one task and use it in another
     let config = DatabaseConfig {

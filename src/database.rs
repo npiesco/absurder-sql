@@ -241,8 +241,9 @@ impl SqliteIndexedDB {
         
         #[cfg(not(feature = "fs_persist"))]
         {
-            log::debug!("Syncing database to IndexedDB");
-            self.vfs.sync().await?;
+            // Native mode without fs_persist uses in-memory SQLite only
+            // No persistence layer to sync to
+            log::debug!("Native mode without fs_persist - no sync needed");
         }
         
         Ok(())
