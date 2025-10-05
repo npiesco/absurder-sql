@@ -1,10 +1,7 @@
 # SQLite IndexedDB Rust Library (DataSync)
 
 [![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](docs/MULTI_TAB_GUIDE.md#test-coverage)
-[![WASM](https://img.shields.io/badge/wasm-tested-blue)](tests/)
-[![Native](https://img.shields.io/badge/native-tested-blue)](tests/)
-[![E2E](https://img.shields.io/badge/e2e-tested-blue)](tests/e2e/)
+[![WASM](https://img.shields.io/badge/wasm-supported-blue)](https://webassembly.org/)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
