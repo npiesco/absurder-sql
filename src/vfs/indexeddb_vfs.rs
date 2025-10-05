@@ -41,7 +41,6 @@ pub struct IndexedDBVFS {
     storage: Rc<RefCell<BlockStorage>>,
     #[allow(dead_code)]
     name: String,
-    // file_handles: Arc<Mutex<HashMap<String, IndexedDBFile>>>, // Will be implemented later
 }
 
 impl IndexedDBVFS {
