@@ -1,10 +1,17 @@
+#[cfg(target_arch = "wasm32")]
 use crate::storage::SyncPolicy;
 use crate::DatabaseError;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::BLOCK_SIZE;
 use crate::storage::BlockStorage;
+
+#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
@@ -38,7 +45,10 @@ thread_local! {
 
 /// Custom SQLite VFS implementation that uses IndexedDB for storage
 pub struct IndexedDBVFS {
+    #[cfg(target_arch = "wasm32")]
     storage: Rc<RefCell<BlockStorage>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    _storage: Arc<Mutex<BlockStorage>>, // Not used in native mode (direct file I/O instead)
     #[allow(dead_code)]
     name: String,
 }
@@ -47,37 +57,46 @@ impl IndexedDBVFS {
     pub async fn new(db_name: &str) -> Result<Self, DatabaseError> {
         log::info!("Creating IndexedDBVFS for database: {}", db_name);
         
-        // First check if there's already a BlockStorage instance for this database
         #[cfg(target_arch = "wasm32")]
-        let existing_storage = STORAGE_REGISTRY.with(|reg| {
-            reg.borrow().get(db_name).cloned()
-        });
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        let existing_storage: Option<Rc<RefCell<BlockStorage>>> = None;
-        
-        let rc = if let Some(existing) = existing_storage {
-            log::info!("Reusing existing BlockStorage for database: {}", db_name);
-            existing
-        } else {
-            log::info!("Creating new BlockStorage for database: {}", db_name);
-            let storage = BlockStorage::new(db_name).await?;
-            let rc = Rc::new(RefCell::new(storage));
-            
-            #[cfg(target_arch = "wasm32")]
-            STORAGE_REGISTRY.with(|reg| {
-                let mut registry = reg.borrow_mut();
-                // Register with both "name" and "name.db" to handle both cases
-                registry.insert(db_name.to_string(), rc.clone());
-                if !db_name.ends_with(".db") {
-                    registry.insert(format!("{}.db", db_name), rc.clone());
-                }
+        {
+            // WASM: Use Rc<RefCell<>> for single-threaded environment
+            let existing_storage = STORAGE_REGISTRY.with(|reg| {
+                reg.borrow().get(db_name).cloned()
             });
             
-            rc
-        };
+            let rc = if let Some(existing) = existing_storage {
+                log::info!("Reusing existing BlockStorage for database: {}", db_name);
+                existing
+            } else {
+                log::info!("Creating new BlockStorage for database: {}", db_name);
+                let storage = BlockStorage::new(db_name).await?;
+                let rc = Rc::new(RefCell::new(storage));
+                
+                STORAGE_REGISTRY.with(|reg| {
+                    let mut registry = reg.borrow_mut();
+                    // Register with both "name" and "name.db" to handle both cases
+                    registry.insert(db_name.to_string(), rc.clone());
+                    if !db_name.ends_with(".db") {
+                        registry.insert(format!("{}.db", db_name), rc.clone());
+                    }
+                });
+                
+                rc
+            };
 
-        Ok(Self { storage: rc, name: db_name.to_string() })
+            Ok(Self { storage: rc, name: db_name.to_string() })
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Native: Use Arc<Mutex<>> for thread-safe Send implementation
+            // Note: Storage not actually used in native mode (direct file I/O instead)
+            log::info!("Creating new BlockStorage for database: {}", db_name);
+            let storage = BlockStorage::new(db_name).await?;
+            let arc = Arc::new(Mutex::new(storage));
+            
+            Ok(Self { _storage: arc, name: db_name.to_string() })
+        }
     }
 
     pub fn register(&self, vfs_name: &str) -> Result<(), DatabaseError> {
@@ -156,7 +175,8 @@ impl IndexedDBVFS {
         Ok(())
     }
 
-    /// Read a block from storage synchronously (called by SQLite)
+    /// Read a block from storage synchronously (called by SQLite) - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn read_block_sync(&self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
         log::debug!("Sync read request for block: {}", block_id);
         
@@ -164,7 +184,8 @@ impl IndexedDBVFS {
         storage.read_block_sync(block_id)
     }
 
-    /// Write a block to storage synchronously (called by SQLite)
+    /// Write a block to storage synchronously (called by SQLite) - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn write_block_sync(&self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         log::debug!("Sync write request for block: {}", block_id);
         
@@ -172,72 +193,69 @@ impl IndexedDBVFS {
         storage.write_block_sync(block_id, data)
     }
 
-    /// Synchronize all dirty blocks to IndexedDB
+    /// Synchronize all dirty blocks to IndexedDB - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub async fn sync(&self) -> Result<(), DatabaseError> {
-        #[cfg(target_arch = "wasm32")]
         vfs_log!("{}","=== DEBUG: VFS SYNC METHOD CALLED ===");
         log::info!("Syncing VFS storage");
-        // Use async sync for WASM to properly await IndexedDB persistence
-        #[cfg(target_arch = "wasm32")]
-        {
-            vfs_log!("{}","DEBUG: VFS using WASM async sync path");
-            let mut storage = self.storage.borrow_mut();
-            let result = storage.sync_async().await;
-            vfs_log!("{}","DEBUG: VFS async sync completed");
-            result
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            #[cfg(target_arch = "wasm32")]
-            vfs_log!("{}","DEBUG: VFS using native sync path");
-            let mut storage = self.storage.borrow_mut();
-            storage.sync_now()
-        }
+        vfs_log!("{}","DEBUG: VFS using WASM async sync path");
+        let mut storage = self.storage.borrow_mut();
+        let result = storage.sync_async().await;
+        vfs_log!("{}","DEBUG: VFS async sync completed");
+        result
     }
 
-    /// Enable periodic auto-sync with a simple interval (ms)
+    /// Enable periodic auto-sync with a simple interval (ms) - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn enable_auto_sync(&self, interval_ms: u64) {
         let mut storage = self.storage.borrow_mut();
         storage.enable_auto_sync(interval_ms);
     }
 
-    /// Enable auto-sync with a detailed policy
+    /// Enable auto-sync with a detailed policy - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn enable_auto_sync_with_policy(&self, policy: SyncPolicy) {
         let mut storage = self.storage.borrow_mut();
         storage.enable_auto_sync_with_policy(policy);
     }
 
-    /// Disable any active auto-sync
+    /// Disable any active auto-sync - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn disable_auto_sync(&self) {
         let mut storage = self.storage.borrow_mut();
         storage.disable_auto_sync();
     }
 
-    /// Drain pending dirty blocks and stop background workers
+    /// Drain pending dirty blocks and stop background workers - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn drain_and_shutdown(&self) {
         let mut storage = self.storage.borrow_mut();
         storage.drain_and_shutdown();
     }
 
-    /// Batch read helper
+    /// Batch read helper - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn read_blocks_sync(&self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
         let mut storage = self.storage.borrow_mut();
         storage.read_blocks_sync(block_ids)
     }
 
-    /// Batch write helper
+    /// Batch write helper - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn write_blocks_sync(&self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
         let mut storage = self.storage.borrow_mut();
         storage.write_blocks_sync(items)
     }
 
-    /// Inspect current dirty block count
+    /// Inspect current dirty block count - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn get_dirty_count(&self) -> usize {
         let storage = self.storage.borrow();
         storage.get_dirty_count()
     }
 
-    /// Inspect current cache size
+    /// Inspect current cache size - WASM only
+    #[cfg(target_arch = "wasm32")]
     pub fn get_cache_size(&self) -> usize {
         let storage = self.storage.borrow();
         storage.get_cache_size()
@@ -246,37 +264,48 @@ impl IndexedDBVFS {
     /// Metrics: total syncs (native only)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn get_sync_count(&self) -> u64 {
-        let storage = self.storage.borrow();
+        let storage = self._storage.lock().expect("Failed to lock storage");
         storage.get_sync_count()
     }
 
     /// Metrics: timer-based syncs (native only)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn get_timer_sync_count(&self) -> u64 {
-        let storage = self.storage.borrow();
+        let storage = self._storage.lock().expect("Failed to lock storage");
         storage.get_timer_sync_count()
     }
 
     /// Metrics: debounce-based syncs (native only)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn get_debounce_sync_count(&self) -> u64 {
-        let storage = self.storage.borrow();
+        let storage = self._storage.lock().expect("Failed to lock storage");
         storage.get_debounce_sync_count()
     }
 
     /// Metrics: last sync duration in ms (native only)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn get_last_sync_duration_ms(&self) -> u64 {
-        let storage = self.storage.borrow();
+        let storage = self._storage.lock().expect("Failed to lock storage");
         storage.get_last_sync_duration_ms()
     }
 }
 
 impl Drop for IndexedDBVFS {
     fn drop(&mut self) {
-        // Avoid panicking in Drop if there's an outstanding borrow
-        if let Ok(mut storage) = self.storage.try_borrow_mut() {
-            storage.drain_and_shutdown();
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Avoid panicking in Drop if there's an outstanding borrow
+            if let Ok(mut storage) = self.storage.try_borrow_mut() {
+                storage.drain_and_shutdown();
+            }
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // For native, shutdown via mutex lock
+            if let Ok(mut storage) = self._storage.lock() {
+                storage.drain_and_shutdown();
+            }
         }
     }
 }
