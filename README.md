@@ -4,7 +4,6 @@
 [![WASM](https://img.shields.io/badge/wasm-supported-blue)](https://webassembly.org/)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 
 A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**. DataSync implements a custom Virtual File System (VFS) with two persistence backends:
 
