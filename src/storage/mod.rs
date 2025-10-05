@@ -1,6 +1,7 @@
 pub mod allocation;
 pub mod auto_sync;
 pub mod block_storage;
+pub mod block_info;
 #[cfg(target_arch = "wasm32")]
 pub mod broadcast_notifications;
 pub mod constructors;
@@ -26,3 +27,4 @@ pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy, CrashRecoveryActio
 #[cfg(target_arch = "wasm32")]
 pub use wasm_vfs_sync::{vfs_sync_database, vfs_sync_database_blocking, register_storage_for_vfs_sync};
 pub use metadata::{ChecksumManager, ChecksumAlgorithm, BlockMetadataPersist};
+pub use block_info::{BlockInfo, BlockStorageInfo};
