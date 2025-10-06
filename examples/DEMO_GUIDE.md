@@ -70,7 +70,7 @@ SELECT * FROM demo_users ORDER BY id DESC;
 SELECT name FROM sqlite_master WHERE type='table';
 ```
 
-### 4. **Write Your Own SQL**
+### 6. **Write Your Own SQL**
 Type any SQL query in the textarea:
 ```sql
 CREATE TABLE products (

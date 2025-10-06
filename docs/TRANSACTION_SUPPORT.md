@@ -1,7 +1,5 @@
 # Transaction Support in DataSync
 
-**Status**: ✅ PRODUCTION READY
-
 DataSync provides **full transactional support** for SQLite operations with IndexedDB persistence in WASM environments. This document outlines the transactional capabilities, limitations, and usage patterns.
 
 ## ✅ Supported Features
@@ -79,7 +77,7 @@ await db.sync(); // Persist to IndexedDB
    - Handles async operations
 
 3. **Block Storage System**
-   - Data stored in 8KB blocks in IndexedDB
+   - Data stored in 4KB blocks in IndexedDB
    - Each block has metadata with checksums
    - LRU cache (128 blocks default) for performance
    - Dirty blocks tracked until sync
@@ -178,11 +176,6 @@ The transaction support is thoroughly tested with:
 - ✅ **Crash consistency guarantees**
 - ✅ **Multiple database isolation**
 - ✅ **Multi-tab transaction coordination**
-
-**Test Coverage**:
-- 75 WASM unit tests passing
-- 69 Native tests passing (default + fs_persist)
-- 22 E2E tests passing (Playwright)
 
 Tests can be run with:
 ```bash

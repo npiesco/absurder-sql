@@ -1,7 +1,5 @@
 # Vite + DataSync Example with Multi-Tab Support
 
-**Status**: ✅ PRODUCTION READY
-
 This example demonstrates using `sqlite-indexeddb-rs` in a Vite development environment with **comprehensive multi-tab coordination**.
 
 ## Setup
@@ -118,5 +116,3 @@ This app is tested with Playwright. Run tests from repo root:
 ```bash
 npm run test:e2e
 ```
-
-All 22 E2E tests passing including multi-tab coordination and advanced features.

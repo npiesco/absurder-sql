@@ -47,7 +47,7 @@ import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
 await init();
 
 // Create database
-const db = await Database.new('myapp.db');
+const db = await Database.newDatabase('myapp.db');
 
 // Check if leader
 const isLeader = await db.isLeader();
@@ -181,7 +181,7 @@ db.onDataChange((changeType) => {
 
 ### Database Class (Raw API)
 
-#### `Database.new(dbName: string): Promise<Database>`
+#### `Database.newDatabase(dbName: string): Promise<Database>`
 Create a new database instance.
 
 #### `db.isLeader(): Promise<boolean>`
@@ -322,7 +322,7 @@ await db.write("INSERT INTO data (value) VALUES (42)");
 ```javascript
 // Non-leaders forward writes to leader automatically
 
-const db = await Database.new('myapp.db');
+const db = await Database.newDatabase('myapp.db');
 
 // Works from any tab - leader or follower
 try {
@@ -373,7 +373,7 @@ async function sendMessage(text) {
 ```javascript
 // Disable multi-tab coordination for single-tab apps
 
-const db = await Database.new('single-tab.db');
+const db = await Database.newDatabase('single-tab.db');
 await db.allowNonLeaderWrites(true);
 
 // Now any tab can write without leader check

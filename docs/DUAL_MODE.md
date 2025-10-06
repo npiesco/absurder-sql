@@ -20,7 +20,7 @@ DataSync is a **dual-mode** library that supports both **Browser (IndexedDB)** a
 import init, { Database } from '/pkg/sqlite_indexeddb_rs.js';
 
 await init();
-const db = await Database.new('my_app');
+const db = await Database.newDatabase('my_app');
 await db.execute('CREATE TABLE users (id INTEGER, name TEXT)');
 await db.execute("INSERT INTO users VALUES (1, 'Alice')");
 const result = await db.execute('SELECT * FROM users');
