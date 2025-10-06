@@ -3,7 +3,7 @@
 [![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
 [![WASM](https://img.shields.io/badge/wasm-supported-blue)](https://webassembly.org/)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE.md)
 
 A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**. DataSync implements a custom Virtual File System (VFS) with two persistence backends:
 
@@ -574,3 +574,17 @@ Both projects share core concepts:
 - **Rust 1.85.0+**: Compiler targeting the 2024 edition for latest language features
 
 The library is designed to work entirely in the browser environment without requiring any server-side components, making it suitable for offline-first applications and client-side data processing scenarios.
+
+## License
+
+DataSync is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+This is a strong copyleft license that requires:
+- **Source code disclosure**: Any modifications must be shared under AGPL-3.0
+- **Network copyleft**: If you run modified code as a web service, you must provide source to users accessing it over the network
+- **Patent protection**: Includes patent grant provisions
+- **Freedom to share**: Users can redistribute and modify the software
+
+See [LICENSE.md](LICENSE.md) for the full license text.
+
+**Why AGPL-3.0?** This license ensures that improvements to DataSync remain open source and benefit the entire community, even when used in cloud/SaaS environments.
