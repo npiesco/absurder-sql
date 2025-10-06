@@ -37,7 +37,7 @@ impl BlockStorage {
         #[cfg(any(test, debug_assertions))]
         let metadata = self.get_block_metadata_for_testing();
         #[cfg(not(any(test, debug_assertions)))]
-        let metadata = std::collections::HashMap::new(); // In production, we'd need a proper accessor
+        let metadata: std::collections::HashMap<u64, (u64, u32, u64)> = std::collections::HashMap::new(); // In production, we'd need a proper accessor
         
         for &block_id in &self.allocated_blocks {
             let is_cached = self.cache.contains_key(&block_id);
