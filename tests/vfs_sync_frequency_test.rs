@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::Database;
+use absurder_sql::Database;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -12,7 +12,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 async fn test_sync_frequency_is_excessive() {
     web_sys::console::log_1(&"=== SYNC FREQUENCY TEST (PROVING THE BUG) ===".into());
     
-    let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config = absurder_sql::DatabaseConfig::default();
     config.name = "sync_frequency_test".to_string();
     let mut db = Database::new(config).await.unwrap();
     
@@ -39,7 +39,7 @@ async fn test_sync_frequency_is_excessive() {
 async fn test_sync_overhead_performance_impact() {
     web_sys::console::log_1(&"=== PERFORMANCE IMPACT TEST ===".into());
     
-    let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config = absurder_sql::DatabaseConfig::default();
     config.name = "perf_impact_test".to_string();
     let mut db = Database::new(config).await.unwrap();
     
@@ -72,7 +72,7 @@ async fn test_sync_overhead_performance_impact() {
 async fn test_batched_inserts_should_sync_once() {
     web_sys::console::log_1(&"=== BATCHED INSERT SYNC TEST ===".into());
     
-    let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config = absurder_sql::DatabaseConfig::default();
     config.name = "batch_sync_test".to_string();
     let mut db = Database::new(config).await.unwrap();
     
@@ -98,7 +98,7 @@ async fn test_batched_inserts_should_sync_once() {
 async fn test_deferred_sync_behavior_after_fix() {
     web_sys::console::log_1(&"=== DEFERRED SYNC TEST (AFTER FIX) ===".into());
     
-    let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config = absurder_sql::DatabaseConfig::default();
     config.name = "deferred_sync_test".to_string();
     let mut db = Database::new(config).await.unwrap();
     
@@ -135,7 +135,7 @@ async fn test_data_persistence_with_deferred_sync() {
     
     // Write data
     {
-        let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+        let mut config = absurder_sql::DatabaseConfig::default();
         config.name = db_name.to_string();
         let mut db = Database::new(config).await.unwrap();
         
@@ -157,7 +157,7 @@ async fn test_data_persistence_with_deferred_sync() {
     
     // Read data back
     {
-        let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+        let mut config = absurder_sql::DatabaseConfig::default();
         config.name = db_name.to_string();
         let mut db = Database::new(config).await.unwrap();
         

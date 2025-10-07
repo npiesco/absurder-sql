@@ -2,7 +2,7 @@
 
 #![cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
 use serial_test::serial;
 #[path = "common/mod.rs"]
 mod common;

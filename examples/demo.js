@@ -58,7 +58,7 @@ class SQLiteDemo {
             this.logToConsole(`Cache size: ${cacheSize} pages`, 'info');
 
             this.logToConsole('Loading WASM module...', 'info');
-            const module = await import('/pkg/sqlite_indexeddb_rs.js');
+            const module = await import('/pkg/absurder_sql.js');
             
             this.logToConsole('Initializing WASM...', 'info');
             await module.default();

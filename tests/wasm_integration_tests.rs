@@ -5,8 +5,8 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::*;
-use sqlite_indexeddb_rs::WasmColumnValue;
+use absurder_sql::*;
+use absurder_sql::WasmColumnValue;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
@@ -20,7 +20,7 @@ async fn test_wasm_database_creation() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database in WASM");
     
     // Create a simple table
@@ -49,7 +49,7 @@ async fn test_wasm_column_value_types() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table with various column types
@@ -138,7 +138,7 @@ async fn test_wasm_bigint_handling() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table for BigInt testing
@@ -183,7 +183,7 @@ async fn test_wasm_date_handling() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table for date testing
@@ -236,7 +236,7 @@ async fn test_wasm_error_handling() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Test syntax error
@@ -260,7 +260,7 @@ async fn test_wasm_persistence() {
         ..Default::default()
     };
     
-    let mut db1 = sqlite_indexeddb_rs::Database::new(config1).await
+    let mut db1 = absurder_sql::Database::new(config1).await
         .expect("Should create first database");
     
     // Create table and insert data
@@ -279,7 +279,7 @@ async fn test_wasm_persistence() {
         ..Default::default()
     };
     
-    let mut db2 = sqlite_indexeddb_rs::Database::new(config2).await
+    let mut db2 = absurder_sql::Database::new(config2).await
         .expect("Should create second database");
     
     // Try to read the persisted data
@@ -325,7 +325,7 @@ async fn test_database_is_leader_api() {
 /// Simulates 2 separate JavaScript contexts (tabs) by clearing registry
 #[wasm_bindgen_test]
 async fn test_database_multi_instance_leader() {
-    use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+    use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
     
     let db_name = "test_multi_leader_ctx";
     
@@ -549,7 +549,7 @@ async fn test_write_guard_allows_read_operations() {
 /// Test Phase 2.2: Write guard in executeWithParams for parameterized queries
 #[wasm_bindgen_test]
 async fn test_write_guard_in_parameterized_queries() {
-    use sqlite_indexeddb_rs::ColumnValue;
+    use absurder_sql::ColumnValue;
     
     let db_name = "test_params_guard";
     
@@ -619,7 +619,7 @@ async fn test_write_guard_allows_schema_changes() {
 /// Test Phase 2.3: allowNonLeaderWrites override for single-tab apps
 #[wasm_bindgen_test]
 async fn test_allow_non_leader_writes_override() {
-    use sqlite_indexeddb_rs::ColumnValue;
+    use absurder_sql::ColumnValue;
     
     let db_name = "test_override_writes";
     

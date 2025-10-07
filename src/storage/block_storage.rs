@@ -356,6 +356,7 @@ impl BlockStorage {
             #[cfg(not(feature = "fs_persist"))]
             {
                 // Native test mode: restore checksums from global test storage
+                #[allow(unused_mut)]
                 let mut map = HashMap::new();
                 #[cfg(any(test, debug_assertions))]
                 GLOBAL_METADATA_TEST.with(|meta| {
@@ -405,6 +406,7 @@ impl BlockStorage {
             #[cfg(not(feature = "fs_persist"))]
             {
                 // Native test mode: restore algorithms from global test storage
+                #[allow(unused_mut)]
                 let mut map = HashMap::new();
                 #[cfg(any(test, debug_assertions))]
                 GLOBAL_METADATA_TEST.with(|meta| {

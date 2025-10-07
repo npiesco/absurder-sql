@@ -4,7 +4,7 @@
 // metadata commit marker and verify startup recovery finalizes or rolls back.
 
 #[cfg(feature = "fs_persist")]
-use sqlite_indexeddb_rs::storage::block_storage::{
+use absurder_sql::storage::block_storage::{
     BlockStorage, BLOCK_SIZE, RecoveryOptions, RecoveryMode, CorruptionAction,
 };
 #[cfg(feature = "fs_persist")]

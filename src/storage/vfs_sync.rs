@@ -1,10 +1,13 @@
 //! VFS Sync module extracted from block_storage.rs
 //! This module contains the ACTUAL VFS sync and global storage management logic
 
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 use std::collections::{HashMap, HashSet};
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 use std::cell::RefCell;
 #[allow(unused_imports)]
 use crate::types::DatabaseError;
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions)), feature = "fs_persist"))]
 #[allow(unused_imports)]
 use super::metadata::BlockMetadataPersist;
 

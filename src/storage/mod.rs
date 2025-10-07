@@ -26,5 +26,7 @@ pub mod coordination_metrics;
 pub use block_storage::{BlockStorage, BLOCK_SIZE, SyncPolicy, CrashRecoveryAction};
 #[cfg(target_arch = "wasm32")]
 pub use wasm_vfs_sync::{vfs_sync_database, vfs_sync_database_blocking, register_storage_for_vfs_sync};
-pub use metadata::{ChecksumManager, ChecksumAlgorithm, BlockMetadataPersist};
+pub use metadata::{ChecksumManager, ChecksumAlgorithm};
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions)), feature = "fs_persist"))]
+pub use metadata::BlockMetadataPersist;
 pub use block_info::{BlockInfo, BlockStorageInfo};

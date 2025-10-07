@@ -1,5 +1,5 @@
 // E2E test: Verify both browser (IndexedDB) and CLI (filesystem) persistence work independently
-// This test validates DataSync's dual-mode architecture
+// This test validates AbsurderSQL's dual-mode architecture
 
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';

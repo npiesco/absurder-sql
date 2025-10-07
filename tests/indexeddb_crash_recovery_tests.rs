@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE, CrashRecoveryAction};
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE, CrashRecoveryAction};
 use std::collections::HashMap;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -193,7 +193,7 @@ async fn test_indexeddb_recovery_multiple_databases() {
 /// Verifies blocks are not just hidden by commit marker but actually removed
 #[wasm_bindgen_test]
 async fn test_indexeddb_rollback_deletes_blocks() {
-    use sqlite_indexeddb_rs::storage::vfs_sync;
+    use absurder_sql::storage::vfs_sync;
     
     let db_name = "rollback_deletion_test";
     
@@ -267,7 +267,7 @@ async fn test_indexeddb_rollback_deletes_blocks() {
 /// This test creates a scenario that triggers actual rollback (not finalize)
 #[wasm_bindgen_test]
 async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
-    use sqlite_indexeddb_rs::storage::vfs_sync;
+    use absurder_sql::storage::vfs_sync;
     
     let db_name = "rollback_orphaned_test";
     
@@ -291,7 +291,7 @@ async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
     
     // Manually create inconsistent metadata (version 3 and 4, not sequential from marker 1)
     vfs_sync::with_global_metadata(|meta| {
-        use sqlite_indexeddb_rs::storage::{metadata::BlockMetadataPersist, metadata::ChecksumAlgorithm};
+        use absurder_sql::storage::{metadata::BlockMetadataPersist, metadata::ChecksumAlgorithm};
         let mut meta_map = meta.borrow_mut();
         let db_meta = meta_map.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
         db_meta.insert(block2, BlockMetadataPersist {

@@ -1,6 +1,6 @@
 # Dual-Mode Persistence Guide
 
-DataSync is a **dual-mode** library that supports both **Browser (IndexedDB)** and **Native (filesystem)** persistence. This unique capability allows you to build offline-first web applications while maintaining full CLI/server access to the same data.
+AbsurderSQL is a **dual-mode** library that supports both **Browser (IndexedDB)** and **Native (filesystem)** persistence. This unique capability allows you to build offline-first web applications while maintaining full CLI/server access to the same data.
 
 ## 🌐 Browser Mode (WASM)
 
@@ -17,7 +17,7 @@ DataSync is a **dual-mode** library that supports both **Browser (IndexedDB)** a
 
 **Usage:**
 ```javascript
-import init, { Database } from '/pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from '/pkg/absurder_sql.js';
 
 await init();
 const db = await Database.newDatabase('my_app');
@@ -45,8 +45,8 @@ const result = await db.execute('SELECT * FROM users');
 
 **Usage:**
 ```rust
-use sqlite_indexeddb_rs::database::SqliteIndexedDB;
-use sqlite_indexeddb_rs::types::{DatabaseConfig, ColumnValue};
+use absurder_sql::database::SqliteIndexedDB;
+use absurder_sql::types::{DatabaseConfig, ColumnValue};
 
 let config = DatabaseConfig {
     name: "my_app.db".to_string(),
@@ -107,7 +107,7 @@ let result = db.execute("SELECT * FROM todos WHERE synced = 0").await?;
 
 **Workflow:**
 1. User exports IndexedDB from browser (built-in browser tools)
-2. Developer loads data into local DataSync CLI
+2. Developer loads data into local AbsurderSQL CLI
 3. Query and analyze using standard SQLite tools
 4. Reproduce issue with actual user data
 
@@ -123,8 +123,8 @@ cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users WHERE is
 **Scenario:** Build desktop apps (Tauri, Electron) with web preview functionality.
 
 **Architecture:**
-- **Desktop:** Native DataSync with filesystem persistence
-- **Web Preview:** WASM DataSync with IndexedDB
+- **Desktop:** Native AbsurderSQL with filesystem persistence
+- **Web Preview:** WASM AbsurderSQL with IndexedDB
 - **Benefit:** Same codebase, different persistence backends
 
 ### 4. Development Tools
@@ -143,7 +143,7 @@ cargo run --bin cli_query --features fs_persist -- "SELECT COUNT(*) FROM users"
 
 ## 🔧 CLI Query Tool
 
-DataSync includes a production-ready CLI tool for querying filesystem databases:
+AbsurderSQL includes a production-ready CLI tool for querying filesystem databases:
 
 **Installation:**
 ```bash
@@ -171,7 +171,7 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 
 **Output:**
 ```
-🗄️  DataSync CLI Query Tool
+🗄️  AbsurderSQL CLI Query Tool
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📂 Database: cli_demo.db
@@ -196,7 +196,7 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 
 ## 🆚 Comparison with absurd-sql
 
-| Feature | absurd-sql | DataSync |
+| Feature | absurd-sql | AbsurderSQL |
 |---------|------------|----------|
 | **Browser Support** | ✅ Yes | ✅ Yes |
 | **Native/CLI Support** | ❌ No | ✅ Yes |
@@ -205,13 +205,13 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 | **Debug production data locally** | ❌ No | ✅ Yes |
 | **Server-side processing** | ❌ No | ✅ Yes |
 
-**Key Advantage:** DataSync supports both modes, absurd-sql is **browser-only**.
+**Key Advantage:** AbsurderSQL supports both modes, absurd-sql is **browser-only**.
 
 ---
 
 ## 🧪 Testing
 
-DataSync includes comprehensive tests for dual-mode functionality:
+AbsurderSQL includes comprehensive tests for dual-mode functionality:
 
 **Unit Tests (Native):**
 ```bash
@@ -247,7 +247,7 @@ cargo run --bin cli_query --features fs_persist -- "SELECT * FROM my_table"
 - Single-threaded (no multi-process coordination needed)
 
 ### Shared Components
-- Same Rust core (`DataSync Core`)
+- Same Rust core (`AbsurderSQL Core`)
 - Same BlockStorage architecture
 - Same metadata format
 - Same integrity checks (checksums, MVCC)
@@ -272,14 +272,14 @@ cargo build --features fs_persist
 ### Browser Setup
 ```bash
 wasm-pack build --target web
-# Use pkg/sqlite_indexeddb_rs.js in your web app
+# Use pkg/absurder_sql.js in your web app
 ```
 
 ### Native Setup
 ```bash
-cargo add sqlite-indexeddb-rs
+cargo add absurder-sql
 # Enable fs_persist feature in Cargo.toml:
-# sqlite-indexeddb-rs = { version = "0.1", features = ["fs_persist"] }
+# absurder-sql = { version = "0.1", features = ["fs_persist"] }
 ```
 
 ### Example Projects
@@ -310,7 +310,7 @@ cargo add sqlite-indexeddb-rs
 
 ## 📝 Summary
 
-DataSync's **dual-mode persistence** is a unique capability that allows you to:
+AbsurderSQL's **dual-mode persistence** is a unique capability that allows you to:
 
 ✅ Build offline-first web apps with IndexedDB  
 ✅ Query the same data from CLI/server with filesystem access  
@@ -318,4 +318,4 @@ DataSync's **dual-mode persistence** is a unique capability that allows you to:
 ✅ Run the same Rust codebase in browser AND on server  
 ✅ Maintain data integrity with checksums in both modes  
 
-**No other library** (including absurd-sql) provides this flexibility. DataSync is truly **universal SQLite**.
+**No other library** (including absurd-sql) provides this flexibility. AbsurderSQL is truly **universal SQLite**.

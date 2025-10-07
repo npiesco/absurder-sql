@@ -1,7 +1,7 @@
 /**
  * MultiTabDatabase Wrapper
  * 
- * A high-level wrapper around sqlite-indexeddb-rs Database that handles
+ * A high-level wrapper around absurder-sql Database that handles
  * multi-tab coordination automatically.
  * 
  * Features:
@@ -12,7 +12,7 @@
  * - Error handling with clear messages
  * 
  * @example
- * import init from './pkg/sqlite_indexeddb_rs.js';
+ * import init from './pkg/absurder_sql.js';
  * import { MultiTabDatabase } from './multi-tab-wrapper.js';
  * 
  * await init();

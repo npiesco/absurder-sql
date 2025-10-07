@@ -9,6 +9,6 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    exclude: ['../../pkg/sqlite_indexeddb_rs.js']
+    exclude: ['../../pkg/absurder_sql.js']
   }
 });

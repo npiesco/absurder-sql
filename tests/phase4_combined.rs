@@ -5,8 +5,8 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::*;
-use sqlite_indexeddb_rs::WasmColumnValue;
+use absurder_sql::*;
+use absurder_sql::WasmColumnValue;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -18,7 +18,7 @@ async fn test_database_integration() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create test table
@@ -44,7 +44,7 @@ async fn test_combined_operations() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table with various types
@@ -94,7 +94,7 @@ async fn test_large_dataset_persistence() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table for large dataset
@@ -133,7 +133,7 @@ async fn test_transaction_consistency() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Setup accounts table
@@ -173,7 +173,7 @@ async fn test_schema_changes_persistence() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create initial table
@@ -220,7 +220,7 @@ async fn test_concurrent_database_access() {
         ..Default::default()
     };
     
-    let mut db1 = sqlite_indexeddb_rs::Database::new(config1).await
+    let mut db1 = absurder_sql::Database::new(config1).await
         .expect("Should create database 1");
     
     // Create table with db1
@@ -237,7 +237,7 @@ async fn test_concurrent_database_access() {
     drop(db1);
     
     // Now open db2 - it should see the table created by db1
-    let mut db2 = sqlite_indexeddb_rs::Database::new(config2).await
+    let mut db2 = absurder_sql::Database::new(config2).await
         .expect("Should create database 2");
     
     db2.execute("INSERT INTO concurrent_test (source) VALUES ('db2')").await
@@ -279,10 +279,10 @@ async fn test_database_configuration_effects() {
         ..Default::default()
     };
     
-    let mut db_small = sqlite_indexeddb_rs::Database::new(config_small).await
+    let mut db_small = absurder_sql::Database::new(config_small).await
         .expect("Should create small config database");
     
-    let mut db_large = sqlite_indexeddb_rs::Database::new(config_large).await
+    let mut db_large = absurder_sql::Database::new(config_large).await
         .expect("Should create large config database");
     
     // Create similar tables in both
@@ -323,7 +323,7 @@ async fn test_comprehensive_crud_operations() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // CREATE: Set up table and initial data
@@ -390,7 +390,7 @@ async fn test_bigint_handling() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table for BigInt testing
@@ -436,7 +436,7 @@ async fn test_date_handling() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create table for Date testing
@@ -492,7 +492,7 @@ async fn test_mixed_data_types() {
         ..Default::default()
     };
     
-    let mut db = sqlite_indexeddb_rs::Database::new(config).await
+    let mut db = absurder_sql::Database::new(config).await
         .expect("Should create database");
     
     // Create comprehensive table

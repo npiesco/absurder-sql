@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::Database;
+use absurder_sql::Database;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -12,7 +12,7 @@ async fn profile_insert_performance() {
     web_sys::console::log_1(&"=== PERFORMANCE PROFILING TEST ===".into());
     
     let db_name = "profile_test";
-    let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config = absurder_sql::DatabaseConfig::default();
     config.name = db_name.to_string();
     let mut db = Database::new(config).await.unwrap();
     
@@ -85,7 +85,7 @@ async fn count_sync_calls_during_batch() {
     web_sys::console::log_1(&"=== SYNC CALL COUNTING TEST ===".into());
     
     let db_name = "sync_count_test";
-    let mut config = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config = absurder_sql::DatabaseConfig::default();
     config.name = db_name.to_string();
     let mut db = Database::new(config).await.unwrap();
     
@@ -113,7 +113,7 @@ async fn test_journal_mode_impact() {
     web_sys::console::log_1(&"=== JOURNAL MODE COMPARISON ===".into());
     
     // Test 1: Default journal mode
-    let mut config1 = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config1 = absurder_sql::DatabaseConfig::default();
     config1.name = "journal_default".to_string();
     let mut db1 = Database::new(config1).await.unwrap();
     db1.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, data TEXT)").await.unwrap();
@@ -127,7 +127,7 @@ async fn test_journal_mode_impact() {
     db1.close().await.unwrap();
     
     // Test 2: MEMORY journal mode (absurd-sql's approach)
-    let mut config2 = sqlite_indexeddb_rs::DatabaseConfig::default();
+    let mut config2 = absurder_sql::DatabaseConfig::default();
     config2.name = "journal_memory".to_string();
     config2.journal_mode = Some("MEMORY".to_string());
     let mut db2 = Database::new(config2).await.unwrap();

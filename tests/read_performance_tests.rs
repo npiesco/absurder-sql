@@ -4,7 +4,7 @@
 use wasm_bindgen_test::*;
 
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::storage::BlockStorage;
+use absurder_sql::storage::BlockStorage;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test_configure!(run_in_browser);

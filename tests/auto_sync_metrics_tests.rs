@@ -1,7 +1,7 @@
 // Metrics tests: sync counter increments on timer and debounce-driven flushes
 
 #![cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
 use tempfile::TempDir;
 use serial_test::serial;
 #[path = "common/mod.rs"]

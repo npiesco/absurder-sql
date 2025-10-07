@@ -128,8 +128,8 @@
     <h1>🏁 SQLite IndexedDB Performance Benchmark</h1>
     
     <div class="note">
-        <strong>Comparing:</strong> DataSync (persistent SQLite + IndexedDB VFS), absurd-sql (persistent SQLite + IndexedDB), and raw IndexedDB
-        <br><small>✅ All implementations use persistent IndexedDB storage. DataSync uses our optimized BlockStorage (20x faster reads!).</small>
+        <strong>Comparing:</strong> AbsurderSQL (persistent SQLite + IndexedDB VFS), absurd-sql (persistent SQLite + IndexedDB), and raw IndexedDB
+        <br><small>✅ All implementations use persistent IndexedDB storage. AbsurderSQL uses our optimized BlockStorage (20x faster reads!).</small>
         <br><small>💡 Each benchmark run now cleans up IndexedDB completely to ensure consistent performance between runs.</small>
     </div>
 
@@ -151,7 +151,7 @@
         </div>
         
         <button id="runAll">Run All Benchmarks</button>
-        <button id="runDataSync">Run DataSync Only</button>
+        <button id="runDataSync">Run AbsurderSQL Only</button>
         <button id="runAbsurdSQL">Run absurd-sql Only</button>
         <button id="runIndexedDB">Run Raw IndexedDB Only</button>
         <button id="clearData">Clear All Data</button>
@@ -176,7 +176,7 @@
     
     <script type="module">
         import { SQLiteFS } from '../node_modules/absurd-sql/dist/index.js';
-        import init, { Database } from '../pkg/sqlite_indexeddb_rs.js';
+        import init, { Database } from '../pkg/absurder_sql.js';
 
         let results = {};
 
@@ -254,8 +254,8 @@
             });
         }
 
-        // Helper: Clear DataSync databases for clean benchmark runs
-        async function clearDataSyncDatabases() {
+        // Helper: Clear AbsurderSQL databases for clean benchmark runs
+        async function clearAbsurderSQLDatabases() {
             return new Promise(resolve => {
                 const deleteReq1 = indexedDB.deleteDatabase('benchmark_datasync');
                 const deleteReq2 = indexedDB.deleteDatabase('block_storage');
@@ -268,9 +268,9 @@
             });
         }
 
-        // Benchmark: DataSync (persistent SQLite with IndexedDB)
-        async function benchmarkDataSync(numRows, batchSize, rowSize) {
-            showStatus('Running DataSync benchmark...', 'running');
+        // Benchmark: AbsurderSQL (persistent SQLite with IndexedDB)
+        async function benchmarkAbsurderSQL(numRows, batchSize, rowSize) {
+            showStatus('Running AbsurderSQL benchmark...', 'running');
             
             const dbName = 'benchmark_datasync';
             const db = await Database.newDatabase(dbName);
@@ -315,7 +315,7 @@
             await db.execute('DROP TABLE benchmark');
             await db.close();
 
-            results['DataSync'] = {
+            results['AbsurderSQL'] = {
                 insert: insertTime,
                 read: readTime,
                 update: updateTime,
@@ -535,11 +535,11 @@
             results = {};
             
             try {
-                // Clear DataSync databases once at the start for consistent performance
+                // Clear AbsurderSQL databases once at the start for consistent performance
                 showStatus('Preparing clean environment...', 'running');
-                await clearDataSyncDatabases();
+                await clearAbsurderSQLDatabases();
                 
-                await benchmarkDataSync(numRows, batchSize, rowSize);
+                await benchmarkAbsurderSQL(numRows, batchSize, rowSize);
                 await benchmarkAbsurdSQL(numRows, batchSize, rowSize);
                 await benchmarkIndexedDB(numRows, batchSize, rowSize);
                 showStatus('All benchmarks complete!', 'complete');
@@ -557,9 +557,9 @@
 
             try {
                 // Clear databases before individual run for consistent results
-                await clearDataSyncDatabases();
-                await benchmarkDataSync(numRows, batchSize, rowSize);
-                showStatus('DataSync benchmark complete!', 'complete');
+                await clearAbsurderSQLDatabases();
+                await benchmarkAbsurderSQL(numRows, batchSize, rowSize);
+                showStatus('AbsurderSQL benchmark complete!', 'complete');
                 setTimeout(hideStatus, 2000);
             } catch (error) {
                 showStatus(`Error: ${error.message}`, 'error');

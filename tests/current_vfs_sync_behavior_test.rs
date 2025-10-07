@@ -8,7 +8,7 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::storage::{BlockStorage, vfs_sync_database, vfs_sync_database_blocking, register_storage_for_vfs_sync};
+use absurder_sql::storage::{BlockStorage, vfs_sync_database, vfs_sync_database_blocking, register_storage_for_vfs_sync};
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
@@ -19,8 +19,8 @@ async fn test_current_vfs_sync_behavior_basic_sync() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
-        use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
@@ -54,8 +54,8 @@ async fn test_current_vfs_sync_behavior_blocking_sync() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
-        use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
@@ -97,8 +97,8 @@ async fn test_current_vfs_sync_behavior_commit_marker_advancement() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
-        use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
@@ -140,8 +140,8 @@ async fn test_current_vfs_sync_behavior_cross_instance_visibility() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
-        use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
@@ -179,8 +179,8 @@ async fn test_current_vfs_sync_behavior_storage_registration() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
-        use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
@@ -226,8 +226,8 @@ async fn test_current_vfs_sync_behavior_empty_database() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
-        use sqlite_indexeddb_rs::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());

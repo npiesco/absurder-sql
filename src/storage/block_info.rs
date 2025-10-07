@@ -1,4 +1,4 @@
-//! Block storage information API for the DataSync Viewer
+//! Block storage information API for the AbsurderSQL Viewer
 //! Provides read-only access to block metadata and cache statistics
 
 use serde::{Serialize, Deserialize};

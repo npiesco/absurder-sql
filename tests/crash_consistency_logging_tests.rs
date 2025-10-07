@@ -5,8 +5,8 @@
 
 #![cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
-use sqlite_indexeddb_rs::storage::block_storage::{RecoveryMode, RecoveryOptions, CorruptionAction};
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::block_storage::{RecoveryMode, RecoveryOptions, CorruptionAction};
 use tempfile::TempDir;
 use serial_test::serial;
 use std::fs;

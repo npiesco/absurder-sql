@@ -2,7 +2,7 @@
 // Compile and run: cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users"
 
 #[cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::{database::SqliteIndexedDB, types::ColumnValue};
+use absurder_sql::{database::SqliteIndexedDB, types::ColumnValue};
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
 
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let query = &args[1];
     
-    println!("🗄️  DataSync CLI Query Tool");
+    println!("🗄️  AbsurderSQL CLI Query Tool");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("💾 Storage: ./datasync_storage/{}/", db_name.replace(".db", ""));
     println!();
     
-    let config = sqlite_indexeddb_rs::types::DatabaseConfig {
+    let config = absurder_sql::types::DatabaseConfig {
         name: db_name.clone(),
         cache_size: Some(2000),
         page_size: None,

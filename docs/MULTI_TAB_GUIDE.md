@@ -41,7 +41,7 @@ sqlite-indexeddb-rs provides built-in multi-tab coordination using:
 ### Method 1: Using the Raw API
 
 ```javascript
-import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from './pkg/absurder_sql.js';
 
 // Initialize WASM
 await init();
@@ -71,7 +71,7 @@ db.onDataChange((changeType) => {
 ### Method 2: Using MultiTabDatabase Wrapper
 
 ```javascript
-import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from './pkg/absurder_sql.js';
 import { MultiTabDatabase } from './multi-tab-wrapper.js';
 
 await init();

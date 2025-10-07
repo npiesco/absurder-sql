@@ -4,7 +4,7 @@
 
 use wasm_bindgen_test::*;
 use wasm_bindgen::JsCast;
-use sqlite_indexeddb_rs::storage::BlockStorage;
+use absurder_sql::storage::BlockStorage;
 
 wasm_bindgen_test_configure!(run_in_browser);
 

@@ -1,6 +1,6 @@
 #![cfg(feature = "fs_persist")]
 
-use sqlite_indexeddb_rs::storage::BlockStorage;
+use absurder_sql::storage::BlockStorage;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

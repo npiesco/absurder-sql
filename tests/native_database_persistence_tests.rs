@@ -2,7 +2,7 @@
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 mod native_persistence_tests {
-    use sqlite_indexeddb_rs::{database::SqliteIndexedDB, types::DatabaseConfig};
+    use absurder_sql::{database::SqliteIndexedDB, types::DatabaseConfig};
     use std::fs;
     use tempfile::TempDir;
     use serial_test::serial;
@@ -87,13 +87,13 @@ mod native_persistence_tests {
             assert_eq!(result.columns, vec!["name"]);
             
             // Verify data
-            if let sqlite_indexeddb_rs::types::ColumnValue::Text(name) = &result.rows[0].values[0] {
+            if let absurder_sql::types::ColumnValue::Text(name) = &result.rows[0].values[0] {
                 assert_eq!(name, "Laptop");
             } else {
                 panic!("Expected Text column value");
             }
             
-            if let sqlite_indexeddb_rs::types::ColumnValue::Text(name) = &result.rows[1].values[0] {
+            if let absurder_sql::types::ColumnValue::Text(name) = &result.rows[1].values[0] {
                 assert_eq!(name, "Mouse");
             } else {
                 panic!("Expected Text column value");

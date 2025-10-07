@@ -1,6 +1,6 @@
-use sqlite_indexeddb_rs::storage::block_storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::block_storage::{BlockStorage, BLOCK_SIZE};
 #[cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::types::DatabaseError;
+use absurder_sql::types::DatabaseError;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex};
 

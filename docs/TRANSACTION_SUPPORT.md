@@ -1,6 +1,6 @@
-# Transaction Support in DataSync
+# Transaction Support in AbsurderSQL
 
-DataSync provides **full transactional support** for SQLite operations with IndexedDB persistence in WASM environments. This document outlines the transactional capabilities, limitations, and usage patterns.
+AbsurderSQL provides **full transactional support** for SQLite operations with IndexedDB persistence in WASM environments. This document outlines the transactional capabilities, limitations, and usage patterns.
 
 ## ✅ Supported Features
 
@@ -29,7 +29,7 @@ DataSync provides **full transactional support** for SQLite operations with Inde
 
 #### Explicit Transaction with Commit
 ```javascript
-import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from './pkg/absurder_sql.js';
 
 await init();
 const db = await Database.newDatabase('myapp');
@@ -286,7 +286,7 @@ await db.sync();
 
 - [SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html)
 - [IndexedDB API Specification](https://www.w3.org/TR/IndexedDB/)
-- [DataSync Main README](../README.md) - Project overview
+- [AbsurderSQL Main README](../README.md) - Project overview
 - [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Complete multi-tab guide with Phase 5 advanced features
 - [Benchmark Results](BENCHMARK.md) - Performance comparisons
 - [Demo Guide](../examples/DEMO_GUIDE.md) - Interactive demos

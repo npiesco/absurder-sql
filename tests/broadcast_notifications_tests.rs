@@ -7,7 +7,7 @@
 use wasm_bindgen_test::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use sqlite_indexeddb_rs::storage::broadcast_notifications::{
+use absurder_sql::storage::broadcast_notifications::{
     BroadcastNotification, 
     send_change_notification,
     register_change_listener,

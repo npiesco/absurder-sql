@@ -1,7 +1,7 @@
 // Auto-sync disable behavior: after disabling, timer thread should not flush
 
 #![cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
 use tempfile::TempDir;
 use serial_test::serial;
 #[path = "common/mod.rs"]

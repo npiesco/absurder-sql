@@ -1,5 +1,5 @@
 #![cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::storage::BlockStorage;
+use absurder_sql::storage::BlockStorage;
 use tempfile::TempDir;
 use serial_test::serial;
 #[path = "common/mod.rs"]

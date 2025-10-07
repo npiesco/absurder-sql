@@ -6,8 +6,11 @@ use super::block_storage::BlockStorage;
 
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
 use std::collections::HashMap;
-#[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
 use std::sync::atomic::Ordering;
+
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist"))))]
+use super::vfs_sync;
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
 use super::metadata::BlockMetadataPersist;
 
@@ -19,14 +22,11 @@ use super::metadata::BlockMetadataPersist;
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
 use super::block_storage::GLOBAL_METADATA_TEST;
 
-#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist"))))]
-use super::vfs_sync;
-
 /// Internal sync implementation shared by sync() and sync_now()
 pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), DatabaseError> {
         #[cfg(target_arch = "wasm32")]
         use wasm_bindgen::JsCast;
-        #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         let start = std::time::Instant::now();
         
         // Record sync start for observability
@@ -40,14 +40,23 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             callback(dirty_count, dirty_bytes);
         }
         
+        // Early return for native release builds without fs_persist
+        #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions)), not(feature = "fs_persist")))]
+        {
+            // In release mode without fs_persist, just clear dirty blocks
+            storage.dirty_blocks.lock().unwrap().clear();
+            storage.sync_count.fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        
         // Call the existing fs_persist implementation for native builds
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         {
             return storage.fs_persist_sync();
         }
         
-        // For native non-fs_persist builds, use simple in-memory sync with commit marker handling
-        #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
+        // For native non-fs_persist builds (test/debug only), use simple in-memory sync with commit marker handling
+        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
             let current_dirty = storage.dirty_blocks.lock().unwrap().len();
             log::info!("Syncing {} dirty blocks (native non-fs_persist)", current_dirty);

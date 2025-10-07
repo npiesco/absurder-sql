@@ -2,7 +2,7 @@
 //! TDD approach: Write failing tests for SQLite functionality
 
 #![cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::*;
+use absurder_sql::*;
 use tempfile::TempDir;
 use serial_test::serial;
 #[path = "common/mod.rs"]

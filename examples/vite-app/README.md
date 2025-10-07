@@ -1,6 +1,6 @@
-# Vite + DataSync Example with Multi-Tab Support
+# Vite + AbsurderSQL Example with Multi-Tab Support
 
-This example demonstrates using `sqlite-indexeddb-rs` in a Vite development environment with **comprehensive multi-tab coordination**.
+This example demonstrates using `absurder-sql` in a Vite development environment with **comprehensive multi-tab coordination**.
 
 ## Setup
 

@@ -3,6 +3,38 @@
 version = 4
 
 [[package]]
+name = "absurder-sql"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "crc32fast",
+ "futures",
+ "getrandom 0.2.16",
+ "indexed_db_futures",
+ "js-sys",
+ "log",
+ "once_cell",
+ "rusqlite",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "serial_test",
+ "sqlite-wasm-rs",
+ "sqlparser",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tsify",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "wee_alloc",
+]
+
+[[package]]
 name = "accessory"
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -821,38 +853,6 @@ checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
 dependencies = [
  "libc",
  "windows-sys",
-]
-
-[[package]]
-name = "sqlite-indexeddb-rs"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "console_log",
- "crc32fast",
- "futures",
- "getrandom 0.2.16",
- "indexed_db_futures",
- "js-sys",
- "log",
- "once_cell",
- "rusqlite",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "serial_test",
- "sqlite-wasm-rs",
- "sqlparser",
- "tempfile",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tsify",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
- "wee_alloc",
 ]
 
 [[package]]

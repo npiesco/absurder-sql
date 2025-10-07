@@ -16,11 +16,11 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::vfs::indexeddb_vfs::IndexedDBVFS;
+use absurder_sql::vfs::indexeddb_vfs::IndexedDBVFS;
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::{Database, ColumnValue};
+use absurder_sql::{Database, ColumnValue};
 
 /// Test 1: Verify that writes during a transaction are buffered and not immediately persisted
 #[cfg(target_arch = "wasm32")]

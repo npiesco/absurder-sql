@@ -77,7 +77,7 @@ test.describe('Example Files Smoke Tests', () => {
     
     // Should not have any errors (module loading errors are ok since absurd-sql may not be installed)
     // Just check that our WASM module doesn't cause errors
-    const hasWasmErrors = errors.some(err => err.includes('sqlite_indexeddb_rs'));
+    const hasWasmErrors = errors.some(err => err.includes('absurder_sql'));
     expect(hasWasmErrors).toBe(false);
   });
 

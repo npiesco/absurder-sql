@@ -7,10 +7,10 @@
 use wasm_bindgen_test::*;
 
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::storage::BlockStorage;
+use absurder_sql::storage::BlockStorage;
 
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::storage::SyncPolicy;
+use absurder_sql::storage::SyncPolicy;
 
 
 #[cfg(target_arch = "wasm32")]

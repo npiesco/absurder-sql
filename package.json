@@ -1,7 +1,7 @@
 {
-  "name": "sqlite-indexeddb-benchmark",
+  "name": "absurder-sql",
   "version": "0.1.0",
-  "description": "Benchmark suite for SQLite IndexedDB implementations",
+  "description": "AbsurderSQL - Benchmark suite comparing SQLite IndexedDB implementations",
   "type": "module",
   "scripts": {
     "serve": "python3 -m http.server 8080",

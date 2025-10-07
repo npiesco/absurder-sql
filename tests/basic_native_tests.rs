@@ -2,7 +2,7 @@
 // These run without WASM to test core functionality
 
 #![cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::*;
+use absurder_sql::*;
 use tempfile::TempDir;
 use serial_test::serial;
 #[path = "common/mod.rs"]
@@ -99,7 +99,7 @@ async fn test_error_types() {
 async fn test_block_storage_creation() {
     let _tmp = setup_fs_base();
     // Test that we can create a BlockStorage instance
-    let storage = sqlite_indexeddb_rs::storage::BlockStorage::new("test_db_creation").await;
+    let storage = absurder_sql::storage::BlockStorage::new("test_db_creation").await;
     
     match storage {
         Ok(_) => println!("✓ Block storage creation test passed"),
@@ -112,10 +112,10 @@ async fn test_block_storage_creation() {
 async fn test_block_storage_read_write() {
     let _tmp = setup_fs_base();
     // Test basic read/write operations
-    let mut storage = sqlite_indexeddb_rs::storage::BlockStorage::new("test_db_rw").await
+    let mut storage = absurder_sql::storage::BlockStorage::new("test_db_rw").await
         .expect("Should create storage");
     
-    let test_data = vec![42u8; sqlite_indexeddb_rs::storage::BLOCK_SIZE];
+    let test_data = vec![42u8; absurder_sql::storage::BLOCK_SIZE];
     let block_id = 1;
     
     // Write block

@@ -1,4 +1,4 @@
-# 🎯 DataSync Web Demo Guide
+# 🎯 AbsurderSQL Web Demo Guide
 
 ## What You're Looking At
 
@@ -182,7 +182,7 @@ CREATE TABLE todos (
 );
 
 INSERT INTO todos (task) VALUES 
-    ('Learn DataSync'),
+    ('Learn AbsurderSQL'),
     ('Build an app'),
     ('Deploy to production');
 

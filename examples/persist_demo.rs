@@ -2,7 +2,7 @@
 // Compile with: cargo run --example persist_demo --features fs_persist
 
 #[cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::storage::BlockStorage;
+use absurder_sql::storage::BlockStorage;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]

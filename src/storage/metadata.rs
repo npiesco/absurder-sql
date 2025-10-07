@@ -13,7 +13,6 @@ use js_sys::Date;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // MOVED from block_storage.rs lines 38-41
-#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions)), feature = "fs_persist"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 #[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]

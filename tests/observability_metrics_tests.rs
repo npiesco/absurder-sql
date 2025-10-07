@@ -1,4 +1,4 @@
-use sqlite_indexeddb_rs::storage::block_storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::block_storage::{BlockStorage, BLOCK_SIZE};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::*;

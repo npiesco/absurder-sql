@@ -1,5 +1,5 @@
 #[cfg(feature = "fs_persist")]
-use sqlite_indexeddb_rs::storage::block_storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::block_storage::{BlockStorage, BLOCK_SIZE};
 #[cfg(feature = "fs_persist")]
 use tempfile::TempDir;
 #[cfg(feature = "fs_persist")]

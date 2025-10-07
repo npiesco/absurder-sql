@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQL Demo - DataSync</title>
+    <title>SQL Demo - AbsurderSQL</title>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -44,12 +44,12 @@
     </style>
 </head>
 <body>
-    <h1>🗄️ SQL Demo - DataSync</h1>
+    <h1>🗄️ SQL Demo - AbsurderSQL</h1>
     <button id="runDemo">Run Demo Again</button>
     <div id="output">Loading demo...</div>
 
     <script type="module">
-        import init, { Database } from '../pkg/sqlite_indexeddb_rs.js';
+        import init, { Database } from '../pkg/absurder_sql.js';
 
         const output = document.getElementById('output');
         const btn = document.getElementById('runDemo');
@@ -64,7 +64,7 @@
             btn.disabled = true;
             
             try {
-                log('🗄️  SQL Demo - DataSync\n');
+                log('🗄️  SQL Demo - AbsurderSQL\n');
 
                 log('Initializing WASM...');
                 await init();

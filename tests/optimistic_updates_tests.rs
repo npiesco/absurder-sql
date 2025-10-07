@@ -6,7 +6,7 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg(target_arch = "wasm32")]
-use sqlite_indexeddb_rs::Database;
+use absurder_sql::Database;
 
 /// Test basic optimistic update tracking
 /// This tests that we can enable optimistic mode and track writes

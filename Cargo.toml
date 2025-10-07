@@ -1,10 +1,10 @@
 [package]
-name = "sqlite-indexeddb-rs"
+name = "absurder-sql"
 version = "0.1.0"
 authors = ["Nicholas G. Piesco"]
-description = "SQLite with IndexedDB persistence for web browsers"
+description = "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql"
 license = "AGPL-3.0"
-repository = "https://github.com/npiesco/DataSync"
+repository = "https://github.com/npiesco/absurder-sql"
 edition = "2024"
 rust-version = "1.85.0"
 

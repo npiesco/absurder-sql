@@ -4,7 +4,7 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::*;
+use absurder_sql::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -167,7 +167,7 @@ async fn test_compilation_requirements() {
 #[test]
 fn test_compilation_requirements() {
     // Test that all required features compile
-    use sqlite_indexeddb_rs::*;
+    use absurder_sql::*;
     
     // Test that we can access all public APIs
     let _config = DatabaseConfig::default();

@@ -1,11 +1,13 @@
-# SQLite IndexedDB Rust Library (DataSync)
+# AbsurderSQL (Rust + WASM + SQLite + IndexedDB)
 
 [![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
 [![WASM](https://img.shields.io/badge/wasm-supported-blue)](https://webassembly.org/)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE.md)
 
-A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**. DataSync implements a custom Virtual File System (VFS) with two persistence backends:
+> *SQLite + IndexedDB that's absurdly better than absurd-sql*
+
+A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**. AbsurderSQL implements a custom Virtual File System (VFS) with two persistence backends:
 
 - **Browser (WASM)**: SQLite → IndexedDB with multi-tab coordination
 - **Native/CLI**: SQLite → Real filesystem with traditional `.db` files
@@ -16,7 +18,7 @@ Enabling production-ready SQL operations with crash consistency, multi-tab coord
 
 ## Dual-Mode Architecture
 
-DataSync runs in **two modes** - Browser (WASM) and Native (Rust CLI/Server):
+AbsurderSQL runs in **two modes** - Browser (WASM) and Native (Rust CLI/Server):
 
 ```mermaid
 graph TB
@@ -30,7 +32,7 @@ graph TB
         NATIVE_DB["Native Database API<br/>(database.rs)"]
     end
     
-    subgraph "DataSync Core (Rust)"
+    subgraph "AbsurderSQL Core (Rust)"
         DB["Database API<br/>(lib.rs)"]
         SQLITE["SQLite Engine<br/>(sqlite-wasm-rs / rusqlite)"]
         VFS["Custom VFS Layer<br/>(indexeddb_vfs.rs)"]
@@ -96,7 +98,7 @@ graph TB
 ## Project Structure
 
 ```
-DataSync/
+absurder-sql/
 ├── src/
 │   ├── lib.rs              # WASM entry point, Database API exports
 │   ├── database.rs         # Native Database implementation
@@ -207,14 +209,14 @@ wasm-pack build --target web --out-dir pkg
 ```
 
 This generates the `pkg/` directory containing:
-- `sqlite_indexeddb_rs.js` - JavaScript module
-- `sqlite_indexeddb_rs_bg.wasm` - WebAssembly binary
+- `absurder_sql.js` - JavaScript module
+- `absurder_sql_bg.wasm` - WebAssembly binary
 - TypeScript definitions and package files
 
 ### Browser Usage (WASM)
 
 ```javascript
-import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from './pkg/absurder_sql.js';
 
 // Initialize WASM
 await init();
@@ -275,7 +277,7 @@ The library provides a robust SQLite implementation for WebAssembly environments
 
 ## Multi-Tab Coordination
 
-DataSync includes comprehensive multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
+AbsurderSQL includes comprehensive multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
 
 ### Core Features
 - **Automatic Leader Election**: First tab becomes leader using localStorage coordination
@@ -292,7 +294,7 @@ DataSync includes comprehensive multi-tab coordination for browser applications,
 ### Quick Example
 
 ```javascript
-import init, { Database } from './pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from './pkg/absurder_sql.js';
 import { MultiTabDatabase } from './examples/multi-tab-wrapper.js';
 
 await init();
@@ -401,7 +403,7 @@ npm run serve
 
 ## Performance Benchmarks
 
-DataSync consistently outperforms absurd-sql and raw IndexedDB across all operations.
+AbsurderSQL consistently outperforms absurd-sql and raw IndexedDB across all operations.
 
 **[📖 Full benchmark results and analysis](docs/BENCHMARK.md)**
 
@@ -409,7 +411,7 @@ DataSync consistently outperforms absurd-sql and raw IndexedDB across all operat
 
 | Implementation | Insert | Read | Update | Delete |
 |---------------|--------|------|--------|--------|
-| **DataSync** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
+| **AbsurderSQL** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
 | absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
 | Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
 
@@ -424,7 +426,7 @@ npm run serve
 
 ## Comparison with absurd-sql
 
-DataSync is inspired by and builds upon the excellent work of [absurd-sql](https://github.com/jlongster/absurd-sql) by James Long, which pioneered SQLite-in-IndexedDB. Here's how they compare:
+AbsurderSQL is inspired by and builds upon the excellent work of [absurd-sql](https://github.com/jlongster/absurd-sql) by James Long, which pioneered SQLite-in-IndexedDB. Here's how they compare:
 
 ### Similarities
 Both projects share core concepts:
@@ -435,7 +437,7 @@ Both projects share core concepts:
 
 ### Key Architectural Differences
 
-| Feature | **absurd-sql** | **DataSync** |
+| Feature | **absurd-sql** | **AbsurderSQL** |
 |---------|----------------|--------------|
 | **Engine** | sql.js (Emscripten) | sqlite-wasm-rs (Rust C API) |
 | **Language** | JavaScript | Rust/WASM |
@@ -447,7 +449,7 @@ Both projects share core concepts:
 
 ### Multi-Tab Coordination
 
-| Feature | **absurd-sql** | **DataSync** |
+| Feature | **absurd-sql** | **AbsurderSQL** |
 |---------|----------------|--------------|
 | **Coordination** | Throws errors | Coordinated with write queuing |
 | **Leadership** | No concept | Automatic election with failover |
@@ -459,7 +461,7 @@ Both projects share core concepts:
 - Worker-based architecture (mandatory)
 - Fallback mode: "one writer at a time" with errors
 
-**DataSync:**
+**AbsurderSQL:**
 - Custom Rust IndexedDB VFS implementation
 - localStorage atomic coordination primitives
 - Block-level checksums and versioning (MVCC-style)
@@ -469,7 +471,7 @@ Both projects share core concepts:
 
 ### Which Should You Choose?
 
-**Choose DataSync if you:**
+**Choose AbsurderSQL if you:**
 
 **[✓] Need dual-mode persistence (Browser + Native)**
 - Build web apps with IndexedDB storage
@@ -532,7 +534,7 @@ Both projects share core concepts:
 - Trade-off: Limited scalability if requirements change later
 
 **Bottom Line:**
-- **DataSync** = Modern, fast, works everywhere, multi-tab ready
+- **AbsurderSQL** = Modern, fast, works everywhere, multi-tab ready
 - **absurd-sql** = Proven, JavaScript-only, requires CORS headers, single-tab focus
 
 **[Detailed technical comparison in BENCHMARK.md](docs/BENCHMARK.md#comparison-with-absurd-sql)**
@@ -577,7 +579,7 @@ The library is designed to work entirely in the browser environment without requ
 
 ## License
 
-DataSync is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+AbsurderSQL is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
 This is a strong copyleft license that requires:
 - **Source code disclosure**: Any modifications must be shared under AGPL-3.0
@@ -587,4 +589,4 @@ This is a strong copyleft license that requires:
 
 See [LICENSE.md](LICENSE.md) for the full license text.
 
-**Why AGPL-3.0?** This license ensures that improvements to DataSync remain open source and benefit the entire community, even when used in cloud/SaaS environments.
+**Why AGPL-3.0?** This license ensures that improvements to AbsurderSQL remain open source and benefit the entire community, even when used in cloud/SaaS environments.

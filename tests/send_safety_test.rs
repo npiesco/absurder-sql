@@ -4,7 +4,7 @@
 #[cfg(feature = "fs_persist")]
 #[tokio::test]
 async fn test_sqlite_indexeddb_is_send() {
-    use sqlite_indexeddb_rs::{SqliteIndexedDB, DatabaseConfig};
+    use absurder_sql::{SqliteIndexedDB, DatabaseConfig};
     use tempfile::TempDir;
     
     // This test will fail to compile if SqliteIndexedDB is not Send
@@ -42,7 +42,7 @@ async fn test_sqlite_indexeddb_is_send() {
 #[cfg(feature = "fs_persist")]
 #[tokio::test]
 async fn test_database_operations_across_threads() {
-    use sqlite_indexeddb_rs::{SqliteIndexedDB, DatabaseConfig};
+    use absurder_sql::{SqliteIndexedDB, DatabaseConfig};
     use tempfile::TempDir;
     
     // Setup isolated filesystem for this test

@@ -5,8 +5,8 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
-use sqlite_indexeddb_rs::types::DatabaseError;
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::types::DatabaseError;
 use std::collections::HashMap;
 
 wasm_bindgen_test_configure!(run_in_browser);

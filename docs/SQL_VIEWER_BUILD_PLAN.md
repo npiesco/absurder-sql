@@ -1,20 +1,20 @@
-# DataSync SQL Viewer - Build Plan
+# AbsurderSQL SQL Viewer - Build Plan
 
-**Project**: Unified SQL Editor/Viewer for DataSync  
+**Project**: Unified SQL Editor/Viewer for AbsurderSQL  
 **Technology**: Tauri 2.0 + React + TypeScript + CodeMirror  
 **Purpose**: Query both Native (fs_persist) and WASM (IndexedDB) modes side-by-side  
-**Repository**: Separate repo with git dependency on DataSync library
+**Repository**: Separate repo with git dependency on AbsurderSQL library
 
 ---
 
 ## Repository Setup
 
-This viewer will be created as a **separate repository** that depends on the DataSync library:
+This viewer will be created as a **separate repository** that depends on the AbsurderSQL library:
 
 ```
 ~/Downloads/
-├── DataSync/              # Core library (github.com/npiesco/DataSync)
-└── datasync-viewer/       # Tauri app (new repo)
+├── DataSync/              # Core library (github.com/npiesco/absurder-sql)
+└── absurder-sql-viewer/   # Tauri app (new repo)
 ```
 
 **Dependency Strategy:**
@@ -51,7 +51,7 @@ This viewer will be created as a **separate repository** that depends on the Dat
 │  - query_wasm(sql) → QueryResult                            │
 │  - list_databases() → Vec<DbInfo>                           │
 │  - get_schema(db) → SchemaInfo                              │
-│  Uses: sqlite_indexeddb_rs::database::SqliteIndexedDB      │
+│  Uses: absurder_sql::database::SqliteIndexedDB            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -101,7 +101,7 @@ This viewer will be created as a **separate repository** that depends on the Dat
   ```
 
 ### 1.3 Configure Tauri Backend Dependencies
-- [ ] Add DataSync dependency to `src-tauri/Cargo.toml`
+- [ ] Add AbsurderSQL dependency to `src-tauri/Cargo.toml`
   ```toml
   [dependencies]
   tauri = { version = "2.0", features = [] }
@@ -110,12 +110,12 @@ This viewer will be created as a **separate repository** that depends on the Dat
   tokio = { version = "1.0", features = ["full"] }
   
   # Local development (faster rebuilds)
-  sqlite-indexeddb-rs = { path = "../../DataSync", features = ["fs_persist"] }
+  absurder-sql = { path = "../../DataSync", features = ["fs_persist"] }
   
   # Production/CI (uncomment when deploying)
-  # sqlite-indexeddb-rs = { git = "https://github.com/npiesco/DataSync", features = ["fs_persist"] }
+  # absurder-sql = { git = "https://github.com/npiesco/absurder-sql", features = ["fs_persist"] }
   # Or pin to specific version:
-  # sqlite-indexeddb-rs = { git = "https://github.com/npiesco/DataSync", tag = "v0.1.0", features = ["fs_persist"] }
+  # absurder-sql = { git = "https://github.com/npiesco/absurder-sql", tag = "v0.1.0", features = ["fs_persist"] }
   ```
 - [ ] Run `cargo check` in `src-tauri/` to verify dependencies resolve
 - [ ] Configure Tauri permissions in `src-tauri/capabilities/default.json`
@@ -177,7 +177,7 @@ This viewer will be created as a **separate repository** that depends on the Dat
 
 ### 2.4 Style Configuration
 - [ ] Configure dark theme in `tailwind.config.ts`
-- [ ] Add custom colors matching DataSync branding
+- [ ] Add custom colors matching AbsurderSQL branding
 - [ ] Create `src/styles/codemirror-theme.ts` for editor theming
 
 ---

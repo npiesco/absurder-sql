@@ -5,8 +5,8 @@
 #![allow(unused_imports)]
 
 use wasm_bindgen_test::*;
-use sqlite_indexeddb_rs::*;
-use sqlite_indexeddb_rs::WasmColumnValue;
+use absurder_sql::*;
+use absurder_sql::WasmColumnValue;
 
 wasm_bindgen_test_configure!(run_in_browser);
 

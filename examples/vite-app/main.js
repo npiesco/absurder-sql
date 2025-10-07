@@ -1,4 +1,4 @@
-import init, { Database } from '../../pkg/sqlite_indexeddb_rs.js';
+import init, { Database } from '../../pkg/absurder_sql.js';
 import { MultiTabDatabase } from '../multi-tab-wrapper.js';
 
 let db;
@@ -9,7 +9,7 @@ const app = document.getElementById('app');
 function renderUI() {
     app.innerHTML = `
         <div style="max-width: 800px; margin: 50px auto; font-family: system-ui;">
-            <h1>Vite + DataSync Demo <span id="leaderBadge" style="font-size: 0.5em; padding: 4px 12px; border-radius: 12px; background: #gray; color: white;">...</span></h1>
+            <h1>Vite + AbsurderSQL Demo <span id="leaderBadge" style="font-size: 0.5em; padding: 4px 12px; border-radius: 12px; background: #gray; color: white;">...</span></h1>
             <div id="status" style="padding: 10px; background: #e3f2fd; margin: 20px 0; border-radius: 4px;"></div>
             <div style="margin: 20px 0;">
                 <button id="runTest" style="padding: 10px 20px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">Run Test</button>

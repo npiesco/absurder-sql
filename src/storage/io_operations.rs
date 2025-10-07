@@ -5,6 +5,8 @@
 use std::sync::atomic::Ordering;
 use crate::types::DatabaseError;
 use super::block_storage::{BlockStorage, BLOCK_SIZE};
+
+#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions))))]
 use super::vfs_sync;
 
 #[cfg(target_arch = "wasm32")]

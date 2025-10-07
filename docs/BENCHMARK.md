@@ -4,7 +4,7 @@ Compare the performance of different SQLite-in-browser implementations.
 
 ## Implementations Compared
 
-1. **DataSync** (This library) - Rust/WASM SQLite with custom IndexedDB VFS backend 🏆
+1. **AbsurderSQL** (This library) - Rust/WASM SQLite with custom IndexedDB VFS backend 🏆
 2. **absurd-sql** - James Long's JavaScript SQLite implementation
 3. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
 
@@ -12,7 +12,7 @@ Compare the performance of different SQLite-in-browser implementations.
 
 | Implementation | Insert | Read | Update | Delete |
 |---------------|--------|------|--------|--------|
-| **DataSync** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
+| **AbsurderSQL** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
 | absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
 | Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
 
@@ -73,7 +73,7 @@ http://localhost:8080/examples/benchmark.html
 
 ## Expected Results
 
-### DataSync Advantages
+### AbsurderSQL Advantages
 - ✅ Full SQL support (joins, indexes, transactions)
 - ✅ ACID compliance
 - ✅ Persistent across page reloads
@@ -86,7 +86,7 @@ http://localhost:8080/examples/benchmark.html
 - ✅ Simpler API for basic operations
 
 ### Trade-offs
-- **DataSync**: Higher overhead for simple operations, but better for complex queries
+- **AbsurderSQL**: Higher overhead for simple operations, but better for complex queries
 - **Raw IndexedDB**: Faster for simple CRUD, but no SQL capabilities
 
 ## Interpreting Results
@@ -110,7 +110,7 @@ Both projects share these core concepts:
 
 ### Architecture Differences
 
-| Feature | **absurd-sql** | **DataSync** |
+| Feature | **absurd-sql** | **AbsurderSQL** |
 |---------|----------------|--------------|
 | **SQLite Engine** | sql.js (Emscripten-compiled) | sqlite-wasm-rs (Direct C API) |
 | **Language** | JavaScript | Rust/WASM |
@@ -121,7 +121,7 @@ Both projects share these core concepts:
 
 ### Multi-Tab Coordination
 
-| Feature | **absurd-sql** | **DataSync** |
+| Feature | **absurd-sql** | **AbsurderSQL** |
 |---------|----------------|--------------|
 | **Primary Mode** | SharedArrayBuffer + Atomics | localStorage-based leader election |
 | **Fallback Mode** | FileOpsFallback (Safari) | Same coordination mechanism |
@@ -139,7 +139,7 @@ Both projects share these core concepts:
 - Reads SQLite page size from database header
 - Fallback mode has "one writer at a time" limitation
 
-**DataSync:**
+**AbsurderSQL:**
 - Custom IndexedDB VFS implementation in Rust
 - localStorage provides atomic coordination primitives
 - Can run on main thread (though worker recommended)
@@ -154,7 +154,7 @@ Both projects share these core concepts:
 - Optimized for worker-based architecture
 - Page-level granularity matches SQLite internals
 
-**DataSync Strengths:**
+**AbsurderSQL Strengths:**
 - No worker/headers requirement (easier deployment)
 - Block-level checksums for data integrity
 - LRU cache (128 blocks default)

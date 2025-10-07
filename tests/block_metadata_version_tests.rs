@@ -1,7 +1,7 @@
 // Versioning and last_modified_ms metadata tests for BlockStorage
 
 #![cfg(not(target_arch = "wasm32"))]
-use sqlite_indexeddb_rs::storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
 use tokio::time::{sleep, Duration};
 use tempfile::TempDir;
 use serial_test::serial;
