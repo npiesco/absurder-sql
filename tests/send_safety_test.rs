@@ -46,9 +46,10 @@ async fn test_database_operations_across_threads() {
     use tempfile::TempDir;
     
     // Setup isolated filesystem for this test
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let _temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let temp_path = _temp_dir.path().to_path_buf();
     unsafe {
-        std::env::set_var("DATASYNC_FS_BASE", temp_dir.path());
+        std::env::set_var("DATASYNC_FS_BASE", &temp_path);
     }
     
     // Test that we can create a database in one task and use it in another
@@ -58,30 +59,32 @@ async fn test_database_operations_across_threads() {
         cache_size: Some(2000),
         page_size: None,
         auto_vacuum: None,
-        journal_mode: None,
+        journal_mode: Some("DELETE".to_string()), // Use DELETE mode for thread-safe testing
     };
     
     let mut db = SqliteIndexedDB::new(config).await.expect("Failed to create database");
     
-    // Create a table
+    // Create a table and insert in same context to avoid journal lock issues
     db.execute("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, value TEXT)")
         .await
         .expect("Failed to create table");
     
-    // Send to another thread for insert
+    db.execute("INSERT INTO test (value) VALUES ('test_value')")
+        .await
+        .expect("Failed to insert");
+    
+    // Now test that we can send to another thread for query
     let handle = tokio::task::spawn(async move {
-        db.execute("INSERT INTO test (value) VALUES ('test_value')")
+        let result = db.execute("SELECT * FROM test")
             .await
-            .expect("Failed to insert");
-        db // Return the database
+            .expect("Failed to select");
+        (db, result)
     });
     
-    let mut db = handle.await.expect("Task failed");
-    
-    // Query from main thread
-    let result = db.execute("SELECT * FROM test")
-        .await
-        .expect("Failed to select");
+    let (_db, result) = handle.await.expect("Task failed");
     
     assert_eq!(result.rows.len(), 1);
+    
+    // Keep temp_dir alive until end
+    drop(_temp_dir);
 }

@@ -39,23 +39,19 @@ async fn test_crash_mid_commit_blocks_written_marker_not_advanced() {
     // This is the critical test: we need to simulate the scenario where IndexedDB transaction
     // partially completes (blocks stored) but the commit marker update fails due to crash
     
-    // TODO: This test will FAIL initially because we don't have crash simulation infrastructure
-    // We need to implement:
-    // 1. A way to simulate partial IndexedDB transaction completion
-    // 2. Recovery logic that detects incomplete transactions
-    // 3. Rollback or finalization of incomplete transactions
+    // FIXED TODO #6: Crash simulation infrastructure is now fully implemented:
+    // ✅ 1. crash_simulation_sync(blocks_written: bool) - simulates partial transaction completion
+    // ✅ 2. perform_crash_recovery() - detects incomplete transactions via IndexedDB scan
+    // ✅ 3. determine_recovery_action() - chooses rollback vs finalize based on transaction state
+    // ✅ 4. rollback_incomplete_transaction() - rolls back uncommitted changes
+    // ✅ 5. finalize_complete_transaction() - finalizes committed but unfinalized changes
     
-    // For now, let's establish the expected behavior:
-    // - Blocks should be written to IndexedDB
-    // - Commit marker should NOT advance (simulating crash)
-    // - Recovery should detect this inconsistency
-    // - Recovery should either rollback or finalize based on transaction state
+    // Expected behavior validated by this test:
+    // - Blocks are written to IndexedDB but commit marker doesn't advance (crash simulation)
+    // - Recovery detects the inconsistency between IndexedDB state and commit marker
+    // - Recovery finalizes the transaction since blocks successfully made it to persistent storage
     
-    // Step 3: Simulate the crash by manually manipulating state
-    // In a real crash, blocks would be in IndexedDB but commit marker wouldn't advance
-    // We'll simulate this by calling a crash simulation function (to be implemented)
-    
-    // This will FAIL initially - we need to implement crash_simulation_sync
+    // Step 3: Execute crash simulation
     let crash_result = storage1.crash_simulation_sync(true).await;
     match crash_result {
         Ok(_) => {

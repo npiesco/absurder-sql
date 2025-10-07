@@ -306,7 +306,7 @@ async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str)
     let blocks_store = transaction.object_store("blocks")
         .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get blocks store"))?;
     
-    let _metadata_store = transaction.object_store("metadata")
+    let metadata_store = transaction.object_store("metadata")
         .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
     
     // Get all blocks for this database (keys start with "db_name:")
@@ -368,18 +368,97 @@ async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str)
     let restored_blocks = blocks_data.borrow().clone();
     web_sys::console::log_1(&format!("DEBUG: Restored {} blocks from IndexedDB", restored_blocks.len()).into());
     
-    for (block_id, data) in restored_blocks {
+    for (block_id, data) in &restored_blocks {
         vfs_sync::with_global_storage(|gs| {
             let mut storage_map = gs.borrow_mut();
             let db_storage = storage_map.entry(db_name.to_string()).or_insert_with(HashMap::new);
-            db_storage.insert(block_id, data.clone());
+            db_storage.insert(*block_id, data.clone());
         });
-        
-        // Also restore metadata
-        // TODO: Restore metadata from metadata store similarly
     }
     
-    web_sys::console::log_1(&format!("DEBUG: Successfully restored blocks for {}", db_name).into());
+    // FIXED TODO #1: Restore metadata from metadata store
+    // Iterate through metadata store to restore block metadata (checksums, versions, algorithms)
+    let metadata_cursor_req = metadata_store.open_cursor_with_range(&key_range)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open metadata cursor"))?;
+    
+    let (meta_tx, meta_rx) = futures::channel::oneshot::channel::<Result<(), String>>();
+    let meta_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(meta_tx)));
+    let metadata_data = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    
+    let metadata_data_clone = metadata_data.clone();
+    let meta_tx_clone = meta_tx.clone();
+    let metadata_success_closure = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+        let target = event.target().unwrap();
+        let request: web_sys::IdbRequest = target.unchecked_into();
+        let result = request.result().unwrap();
+        
+        if !result.is_null() {
+            let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+            let key = cursor.key().unwrap().as_string().unwrap();
+            let value = cursor.value().unwrap();
+            
+            // Parse key: "db_name:block_id:version" or "db_name:commit_marker"
+            if !key.contains("commit_marker") {
+                let parts: Vec<&str> = key.split(':').collect();
+                if parts.len() >= 3 {
+                    if let Ok(block_id) = parts[1].parse::<u64>() {
+                        if let Ok(version) = parts[2].parse::<u32>() {
+                            // Get the version value (stored as Number)
+                            if let Some(version_f64) = value.as_f64() {
+                                metadata_data_clone.borrow_mut().push((block_id, version, version_f64 as u32));
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Continue to next
+            let _ = cursor.continue_();
+        } else {
+            // Done iterating
+            if let Some(sender) = meta_tx_clone.borrow_mut().take() {
+                let _ = sender.send(Ok(()));
+            }
+        }
+    }) as Box<dyn FnMut(_)>);
+    
+    metadata_cursor_req.set_onsuccess(Some(metadata_success_closure.as_ref().unchecked_ref()));
+    metadata_success_closure.forget();
+    
+    // Wait for metadata cursor iteration to complete
+    let _ = meta_rx.await;
+    
+    let restored_metadata = metadata_data.borrow().clone();
+    web_sys::console::log_1(&format!("DEBUG: Restored {} metadata entries from IndexedDB", restored_metadata.len()).into());
+    
+    // Restore metadata to global metadata storage
+    // Note: We compute checksums from the restored block data since IndexedDB only stores versions
+    vfs_sync::with_global_metadata(|gm| {
+        let mut meta_map = gm.borrow_mut();
+        let db_meta = meta_map.entry(db_name.to_string()).or_insert_with(HashMap::new);
+        
+        for (block_id, _key_version, stored_version) in &restored_metadata {
+            // Find the corresponding block data to compute checksum
+            if let Some((_, data)) = restored_blocks.iter().find(|(bid, _)| bid == block_id) {
+                let checksum = {
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = DefaultHasher::new();
+                    data.hash(&mut hasher);
+                    hasher.finish()
+                };
+                
+                db_meta.insert(*block_id, BlockMetadataPersist {
+                    checksum,
+                    version: *stored_version,
+                    last_modified_ms: 0, // Will be updated on next write
+                    algo: ChecksumAlgorithm::FastHash,
+                });
+            }
+        }
+    });
+    
+    web_sys::console::log_1(&format!("DEBUG: Successfully restored blocks and metadata for {}", db_name).into());
     Ok(())
 }
 
