@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite IndexedDB Demo</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.css" rel="stylesheet">
+    <style>
+        .console-output {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .query-result {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: none;
+        }
+        .error {
+            color: #dc3545;
+        }
+        .success {
+            color: #198754;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="row">
+            <div class="col-md-12">
+                <h1 class="mb-4">
+                    <i data-feather="database"></i>
+                    SQLite + IndexedDB Demo
+                </h1>
+                
+                <div class="alert alert-info">
+                    <strong>Welcome!</strong> This demo showcases SQLite running in the browser with IndexedDB persistence.
+                    Your data is automatically synced to IndexedDB after each write operation and will persist across browser sessions.
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Database Connection -->
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i data-feather="settings"></i> Database Connection</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="dbName" class="form-label">Database Name</label>
+                            <input type="text" class="form-control" id="dbName" value="demo.db">
+                        </div>
+                        <div class="mb-3">
+                            <label for="cacheSize" class="form-label">Cache Size</label>
+                            <input type="number" class="form-control" id="cacheSize" value="10000">
+                        </div>
+                        <button id="connectBtn" class="btn btn-primary">
+                            <span class="loading spinner-border spinner-border-sm" role="status"></span>
+                            Connect to Database
+                        </button>
+                        <button id="disconnectBtn" class="btn btn-secondary" disabled>Disconnect</button>
+                    </div>
+                </div>
+
+                <!-- Query Interface -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i data-feather="code"></i> SQL Query Interface</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="sqlQuery" class="form-label">SQL Query</label>
+                            <textarea class="form-control" id="sqlQuery" rows="4" 
+                                placeholder="Enter your SQL query here..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <button id="executeBtn" class="btn btn-success me-2" disabled>
+                                <span class="loading spinner-border spinner-border-sm" role="status"></span>
+                                Execute Query
+                            </button>
+                            <button id="clearResultsBtn" class="btn btn-outline-secondary">Clear Results</button>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Quick Actions</label>
+                            <div class="btn-group d-block" role="group">
+                                <button type="button" class="btn btn-outline-primary btn-sm me-1 mb-1 quick-query" 
+                                        data-query="CREATE TABLE demo_users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);">
+                                    Create Demo Table
+                                </button>
+                                <button type="button" class="btn btn-outline-primary btn-sm me-1 mb-1 quick-query" 
+                                        data-query="INSERT INTO demo_users (name, email) VALUES ('John Doe', 'john@example.com');">
+                                    Insert Sample Data
+                                </button>
+                                <button type="button" class="btn btn-outline-primary btn-sm me-1 mb-1 quick-query" 
+                                        data-query="SELECT * FROM demo_users ORDER BY id DESC;">
+                                    View All Users
+                                </button>
+                                <button type="button" class="btn btn-outline-warning btn-sm me-1 mb-1 quick-query" 
+                                        data-query="SELECT name FROM sqlite_master WHERE type='table';">
+                                    List Tables
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results and Console -->
+            <div class="col-md-6">
+                <!-- Query Results -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i data-feather="table"></i> Query Results</h5>
+                        <span id="queryStats" class="badge bg-info"></span>
+                    </div>
+                    <div class="card-body">
+                        <div id="queryResults" class="query-result">
+                            <div class="text-muted">Execute a query to see results here...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Console Output -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i data-feather="terminal"></i> Console Output</h5>
+                        <button id="clearConsoleBtn" class="btn btn-sm btn-outline-secondary">Clear</button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="consoleOutput" class="console-output p-3">
+                            <div class="text-muted">Console output will appear here...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Dashboard -->
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i data-feather="bar-chart-2"></i> Database Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 id="statQueries" class="text-primary">0</h4>
+                                    <small class="text-muted">Queries Executed</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 id="statTables" class="text-success">0</h4>
+                                    <small class="text-muted">Tables Created</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 id="statRows" class="text-warning">0</h4>
+                                    <small class="text-muted">Rows Affected</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 id="statAvgTime" class="text-info">0ms</h4>
+                                    <small class="text-muted">Avg Query Time</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Feather Icons -->
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <!-- Demo Script -->
+    <script type="module" src="demo.js"></script>
+    <script>
+        // Initialize Feather icons
+        feather.replace();
+    </script>
+</body>
+</html>

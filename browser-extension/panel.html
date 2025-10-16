@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AbsurderSQL Telemetry Panel</title>
+    <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="panel-header">
+            <h1>
+                <img src="icons/icon-48.png" alt="AbsurderSQL" class="logo">
+                AbsurderSQL Telemetry
+            </h1>
+            <div class="header-actions">
+                <button id="refreshBtn" class="btn btn-secondary" title="Refresh data">
+                    Refresh
+                </button>
+                <button id="clearBtn" class="btn btn-secondary" title="Clear all data">
+                    Clear
+                </button>
+                <button id="flushBtn" class="btn btn-primary" title="Manually flush spans">
+                    Flush
+                </button>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="spans">Spans</button>
+            <button class="tab-btn" data-tab="stats">Export Stats</button>
+            <button class="tab-btn" data-tab="config">Configuration</button>
+            <button class="tab-btn" data-tab="buffer">Buffer</button>
+        </nav>
+
+        <!-- Spans Tab -->
+        <div id="spans-tab" class="tab-content active">
+            <div class="toolbar">
+                <input type="text" id="spanFilter" placeholder="Filter spans by name..." class="filter-input">
+                <select id="statusFilter" class="filter-select">
+                    <option value="">All Statuses</option>
+                    <option value="ok">OK</option>
+                    <option value="error">Error</option>
+                </select>
+                <span id="spanCount" class="count-badge">0 spans</span>
+            </div>
+            
+            <div id="spanList" class="span-list">
+                <div class="empty-state">
+                    <p>No spans recorded yet</p>
+                    <p class="hint">Spans will appear here when your application generates telemetry data</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Stats Tab -->
+        <div id="stats-tab" class="tab-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Exports</div>
+                    <div class="stat-value" id="totalExports">0</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-label">Successful</div>
+                    <div class="stat-value" id="successfulExports">0</div>
+                </div>
+                <div class="stat-card error">
+                    <div class="stat-label">Failed</div>
+                    <div class="stat-value" id="failedExports">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Success Rate</div>
+                    <div class="stat-value" id="successRate">0%</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <h3>Export History</h3>
+                <canvas id="exportChart"></canvas>
+            </div>
+
+            <div class="error-log">
+                <h3>Recent Errors</h3>
+                <div id="errorList" class="error-list">
+                    <p class="empty-state">No errors recorded</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration Tab -->
+        <div id="config-tab" class="tab-content">
+            <form id="configForm" class="config-form">
+                <div class="form-group">
+                    <label for="endpoint">OTLP Endpoint URL</label>
+                    <input type="url" id="endpoint" placeholder="http://localhost:4318/v1/traces" 
+                           class="form-input">
+                    <small>The OpenTelemetry Protocol endpoint for trace export</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="batchSize">Batch Size</label>
+                    <input type="number" id="batchSize" min="1" max="1000" value="100" 
+                           class="form-input">
+                    <small>Number of spans to buffer before auto-export (if enabled)</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="autoExport">
+                        Enable Auto-Export
+                    </label>
+                    <small>Automatically export when batch size is reached</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="devtoolsEnabled">
+                        Enable DevTools Integration
+                    </label>
+                    <small>Send telemetry data to this DevTools panel</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="customHeaders">Custom Headers (JSON)</label>
+                    <textarea id="customHeaders" rows="4" class="form-input" 
+                              placeholder='{"Authorization": "Bearer YOUR_TOKEN"}'></textarea>
+                    <small>Additional HTTP headers for authentication</small>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Configuration</button>
+                    <button type="button" id="resetConfig" class="btn btn-secondary">Reset to Defaults</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Buffer Tab -->
+        <div id="buffer-tab" class="tab-content">
+            <div class="buffer-info">
+                <h3>Buffer Status</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Buffered Spans</div>
+                        <div class="stat-value" id="bufferedCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Buffer Size</div>
+                        <div class="stat-value" id="bufferSize">0 KB</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Batch Threshold</div>
+                        <div class="stat-value" id="batchThreshold">100</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="buffer-actions">
+                <button id="inspectBuffer" class="btn btn-secondary">Inspect Buffer</button>
+                <button id="clearBuffer" class="btn btn-danger">Clear Buffer</button>
+            </div>
+
+            <div id="bufferInspector" class="buffer-inspector">
+                <h4>Buffer Contents</h4>
+                <pre id="bufferContents"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="panel.js"></script>
+</body>
+</html>

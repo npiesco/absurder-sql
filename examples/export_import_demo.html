@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AbsurderSQL - Export/Import Demo</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .demo-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            padding: 20px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        .status-success {
+            background-color: #10b981;
+            color: white;
+        }
+        .status-error {
+            background-color: #ef4444;
+            color: white;
+        }
+        .status-info {
+            background-color: #3b82f6;
+            color: white;
+        }
+        .log-output {
+            background-color: #1e293b;
+            color: #10b981;
+            border-radius: 10px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        .log-line {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #10b981;
+            padding-left: 10px;
+        }
+        .log-error {
+            color: #ef4444;
+            border-left-color: #ef4444;
+        }
+        .log-info {
+            color: #3b82f6;
+            border-left-color: #3b82f6;
+        }
+        .log-success {
+            color: #10b981;
+            border-left-color: #10b981;
+        }
+        .progress {
+            height: 30px;
+            border-radius: 15px;
+            background-color: #e5e7eb;
+        }
+        .progress-bar {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 15px;
+            font-weight: 600;
+        }
+        .file-info {
+            background-color: #f3f4f6;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .file-info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .file-info-item:last-child {
+            border-bottom: none;
+        }
+        .action-button {
+            min-width: 150px;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .feature-badge {
+            background-color: #8b5cf6;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        .data-table {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <!-- Header -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h1 class="mb-0">
+                    <i data-feather="database"></i>
+                    AbsurderSQL Export/Import Demo
+                    <span class="feature-badge">Production Ready</span>
+                </h1>
+                <p class="mb-0 mt-2">Full-featured SQLite database export and import with IndexedDB persistence</p>
+            </div>
+        </div>
+
+        <!-- Step 1: Create & Populate Database -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i data-feather="edit"></i>
+                    Step 1: Create & Populate Database
+                </h3>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Create a sample database with tables, data, indexes, and triggers.</p>
+                
+                <button id="createDbBtn" class="btn btn-primary action-button">
+                    <i data-feather="plus-circle"></i>
+                    Create Sample Database
+                </button>
+
+                <div id="createStatus" class="mt-3"></div>
+                
+                <div id="dataPreview" class="data-table mt-3" style="display: none;">
+                    <h5>Sample Data:</h5>
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Department</th>
+                                <th>Salary</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Export Database -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i data-feather="download"></i>
+                    Step 2: Export Database
+                </h3>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Export the database to a file. The file will be downloaded to your Downloads folder.</p>
+                
+                <button id="exportBtn" class="btn btn-primary action-button" disabled>
+                    <i data-feather="download"></i>
+                    Export Database
+                </button>
+
+                <div id="exportProgress" class="mt-3" style="display: none;">
+                    <div class="progress">
+                        <div id="exportProgressBar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                </div>
+
+                <div id="exportStatus" class="mt-3"></div>
+                
+                <div id="exportFileInfo" class="file-info" style="display: none;">
+                    <h5 class="mb-3">Export Information:</h5>
+                    <div class="file-info-item">
+                        <span><strong>Database Name:</strong></span>
+                        <span id="exportDbName"></span>
+                    </div>
+                    <div class="file-info-item">
+                        <span><strong>File Size:</strong></span>
+                        <span id="exportFileSize"></span>
+                    </div>
+                    <div class="file-info-item">
+                        <span><strong>Export Time:</strong></span>
+                        <span id="exportTime"></span>
+                    </div>
+                    <div class="file-info-item">
+                        <span><strong>Status:</strong></span>
+                        <span id="exportStatusBadge"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Import Database -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i data-feather="upload"></i>
+                    Step 3: Import Database
+                </h3>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Import a database from a file. This will replace the current database.</p>
+                
+                <div class="mb-3">
+                    <label for="importFile" class="form-label">Select Database File:</label>
+                    <input type="file" class="form-control" id="importFile" accept=".db,.sqlite,.sqlite3">
+                </div>
+
+                <button id="importBtn" class="btn btn-primary action-button" disabled>
+                    <i data-feather="upload"></i>
+                    Import Database
+                </button>
+
+                <div id="importProgress" class="mt-3" style="display: none;">
+                    <div class="progress">
+                        <div id="importProgressBar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                </div>
+
+                <div id="importStatus" class="mt-3"></div>
+                
+                <div id="importFileInfo" class="file-info" style="display: none;">
+                    <h5 class="mb-3">Import Information:</h5>
+                    <div class="file-info-item">
+                        <span><strong>File Name:</strong></span>
+                        <span id="importFileName"></span>
+                    </div>
+                    <div class="file-info-item">
+                        <span><strong>File Size:</strong></span>
+                        <span id="importFileSize"></span>
+                    </div>
+                    <div class="file-info-item">
+                        <span><strong>Import Time:</strong></span>
+                        <span id="importTime"></span>
+                    </div>
+                    <div class="file-info-item">
+                        <span><strong>Status:</strong></span>
+                        <span id="importStatusBadge"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Verify Imported Data -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i data-feather="check-circle"></i>
+                    Step 4: Verify Imported Data
+                </h3>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Query the imported database to verify data integrity.</p>
+                
+                <button id="verifyBtn" class="btn btn-primary action-button" disabled>
+                    <i data-feather="search"></i>
+                    Verify Data
+                </button>
+
+                <div id="verifyStatus" class="mt-3"></div>
+                
+                <div id="verifyDataPreview" class="data-table mt-3" style="display: none;">
+                    <h5>Verified Data:</h5>
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Department</th>
+                                <th>Salary</th>
+                            </tr>
+                        </thead>
+                        <tbody id="verifyTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i data-feather="activity"></i>
+                    Activity Log
+                </h3>
+            </div>
+            <div class="card-body">
+                <div id="logOutput" class="log-output"></div>
+                <button id="clearLogBtn" class="btn btn-sm btn-outline-secondary mt-2">
+                    <i data-feather="trash-2"></i>
+                    Clear Log
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script type="module">
+        import init, { Database } from '../pkg/absurder_sql.js';
+
+        // Initialize Feather icons
+        feather.replace();
+
+        // Global state
+        let db = null;
+        let exportedData = null;
+        const DB_NAME = 'export_import_demo.db';
+
+        // Logging utility
+        function log(message, type = 'info') {
+            const logOutput = document.getElementById('logOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const logLine = document.createElement('div');
+            logLine.className = `log-line log-${type}`;
+            logLine.textContent = `[${timestamp}] ${message}`;
+            logOutput.appendChild(logLine);
+            logOutput.scrollTop = logOutput.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        // Format bytes to human-readable format
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Show status message
+        function showStatus(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'}">${message}</div>`;
+        }
+
+        // Step 1: Create and populate database
+        document.getElementById('createDbBtn').addEventListener('click', async () => {
+            try {
+                log('Creating sample database...', 'info');
+                showStatus('createStatus', 'Creating database...', 'info');
+
+                if (!db) {
+                    await init();
+                    db = await Database.newDatabase(DB_NAME);
+                    log(`Database "${DB_NAME}" created`, 'success');
+                }
+
+                // Create table
+                await db.execute(`
+                    CREATE TABLE IF NOT EXISTS employees (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        email TEXT UNIQUE NOT NULL,
+                        department TEXT,
+                        salary REAL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                log('Table "employees" created', 'success');
+
+                // Create index
+                await db.execute('CREATE INDEX IF NOT EXISTS idx_department ON employees(department)');
+                log('Index created on department column', 'success');
+
+                // Create trigger
+                await db.execute(`
+                    CREATE TRIGGER IF NOT EXISTS salary_audit
+                    AFTER UPDATE OF salary ON employees
+                    BEGIN
+                        SELECT RAISE(FAIL, 'Salary cannot be negative') WHERE NEW.salary < 0;
+                    END
+                `);
+                log('Trigger "salary_audit" created', 'success');
+
+                // Insert sample data
+                const sampleData = [
+                    ['Alice Johnson', 'alice@example.com', 'Engineering', 95000],
+                    ['Bob Smith', 'bob@example.com', 'Marketing', 75000],
+                    ['Carol Williams', 'carol@example.com', 'Engineering', 105000],
+                    ['David Brown', 'david@example.com', 'Sales', 85000],
+                    ['Eve Davis', 'eve@example.com', 'HR', 70000]
+                ];
+
+                for (const [name, email, dept, salary] of sampleData) {
+                    await db.execute(
+                        `INSERT INTO employees (name, email, department, salary) VALUES ('${name}', '${email}', '${dept}', ${salary})`
+                    );
+                }
+                log(`Inserted ${sampleData.length} employee records`, 'success');
+
+                // Display data
+                const result = await db.execute('SELECT * FROM employees ORDER BY id');
+                const rows = result.rows;
+                
+                const tableBody = document.getElementById('dataTableBody');
+                tableBody.innerHTML = '';
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.values[0].value}</td>
+                        <td>${row.values[1].value}</td>
+                        <td>${row.values[2].value}</td>
+                        <td>${row.values[3].value}</td>
+                        <td>$${parseFloat(row.values[4].value).toLocaleString()}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+
+                document.getElementById('dataPreview').style.display = 'block';
+                document.getElementById('exportBtn').disabled = false;
+                showStatus('createStatus', `✓ Database created with ${sampleData.length} records`, 'success');
+                log('Database setup complete', 'success');
+
+            } catch (error) {
+                log(`Error creating database: ${error.message}`, 'error');
+                showStatus('createStatus', `Error: ${error.message}`, 'error');
+            }
+        });
+
+        // Step 2: Export database
+        document.getElementById('exportBtn').addEventListener('click', async () => {
+            try {
+                log('Starting database export...', 'info');
+                showStatus('exportStatus', 'Exporting database...', 'info');
+                document.getElementById('exportProgress').style.display = 'block';
+
+                const startTime = Date.now();
+
+                // Simulate progress (actual export is very fast)
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 10;
+                    if (progress <= 90) {
+                        document.getElementById('exportProgressBar').style.width = progress + '%';
+                        document.getElementById('exportProgressBar').textContent = progress + '%';
+                    }
+                }, 50);
+
+                // Perform export
+                exportedData = await db.exportToFile();
+                
+                clearInterval(progressInterval);
+                document.getElementById('exportProgressBar').style.width = '100%';
+                document.getElementById('exportProgressBar').textContent = '100%';
+
+                const exportTime = Date.now() - startTime;
+                const fileSize = exportedData.length;
+
+                log(`Export completed in ${exportTime}ms`, 'success');
+                log(`Exported ${formatBytes(fileSize)}`, 'success');
+
+                // Show export info
+                document.getElementById('exportDbName').textContent = DB_NAME;
+                document.getElementById('exportFileSize').textContent = formatBytes(fileSize);
+                document.getElementById('exportTime').textContent = `${exportTime}ms`;
+                document.getElementById('exportStatusBadge').innerHTML = '<span class="status-badge status-success">Success</span>';
+                document.getElementById('exportFileInfo').style.display = 'block';
+
+                // Download file
+                const blob = new Blob([exportedData], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = DB_NAME;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                log(`File "${DB_NAME}" downloaded`, 'success');
+                showStatus('exportStatus', `✓ Database exported successfully (${formatBytes(fileSize)})`, 'success');
+                document.getElementById('importBtn').disabled = false;
+
+                setTimeout(() => {
+                    document.getElementById('exportProgress').style.display = 'none';
+                }, 1000);
+
+            } catch (error) {
+                log(`Export error: ${error.message}`, 'error');
+                showStatus('exportStatus', `Error: ${error.message}`, 'error');
+                document.getElementById('exportProgress').style.display = 'none';
+            }
+        });
+
+        // Enable import button when file is selected
+        document.getElementById('importFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('importBtn').disabled = false;
+                log(`File selected: ${file.name} (${formatBytes(file.size)})`, 'info');
+            }
+        });
+
+        // Step 3: Import database
+        document.getElementById('importBtn').addEventListener('click', async () => {
+            try {
+                const fileInput = document.getElementById('importFile');
+                const file = fileInput.files[0];
+                
+                if (!file) {
+                    showStatus('importStatus', 'Please select a file to import', 'error');
+                    return;
+                }
+
+                log(`Starting import of "${file.name}"...`, 'info');
+                showStatus('importStatus', 'Importing database...', 'info');
+                document.getElementById('importProgress').style.display = 'block';
+
+                const startTime = Date.now();
+
+                // Simulate progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 10;
+                    if (progress <= 90) {
+                        document.getElementById('importProgressBar').style.width = progress + '%';
+                        document.getElementById('importProgressBar').textContent = progress + '%';
+                    }
+                }, 50);
+
+                // Read file
+                const arrayBuffer = await file.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                // Close existing database
+                if (db) {
+                    await db.close();
+                    log('Existing database closed', 'info');
+                }
+
+                // Create new database instance for import
+                await init();
+                db = await Database.newDatabase(DB_NAME);
+
+                // Perform import
+                await db.importFromFile(uint8Array);
+                
+                clearInterval(progressInterval);
+                document.getElementById('importProgressBar').style.width = '100%';
+                document.getElementById('importProgressBar').textContent = '100%';
+
+                const importTime = Date.now() - startTime;
+
+                log(`Import completed in ${importTime}ms`, 'success');
+
+                // Reopen database after import
+                db = await Database.newDatabase(DB_NAME);
+                log('Database reopened after import', 'success');
+
+                // Show import info
+                document.getElementById('importFileName').textContent = file.name;
+                document.getElementById('importFileSize').textContent = formatBytes(file.size);
+                document.getElementById('importTime').textContent = `${importTime}ms`;
+                document.getElementById('importStatusBadge').innerHTML = '<span class="status-badge status-success">Success</span>';
+                document.getElementById('importFileInfo').style.display = 'block';
+
+                showStatus('importStatus', `✓ Database imported successfully from "${file.name}"`, 'success');
+                document.getElementById('verifyBtn').disabled = false;
+
+                setTimeout(() => {
+                    document.getElementById('importProgress').style.display = 'none';
+                }, 1000);
+
+            } catch (error) {
+                log(`Import error: ${error.message}`, 'error');
+                showStatus('importStatus', `Error: ${error.message}`, 'error');
+                document.getElementById('importProgress').style.display = 'none';
+            }
+        });
+
+        // Step 4: Verify imported data
+        document.getElementById('verifyBtn').addEventListener('click', async () => {
+            try {
+                log('Verifying imported data...', 'info');
+                showStatus('verifyStatus', 'Querying database...', 'info');
+
+                const result = await db.execute('SELECT * FROM employees ORDER BY id');
+                const rows = result.rows;
+
+                log(`Found ${rows.length} records in imported database`, 'success');
+
+                const tableBody = document.getElementById('verifyTableBody');
+                tableBody.innerHTML = '';
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.values[0].value}</td>
+                        <td>${row.values[1].value}</td>
+                        <td>${row.values[2].value}</td>
+                        <td>${row.values[3].value}</td>
+                        <td>$${parseFloat(row.values[4].value).toLocaleString()}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+
+                document.getElementById('verifyDataPreview').style.display = 'block';
+                showStatus('verifyStatus', `✓ Verification complete: ${rows.length} records found`, 'success');
+                log('Data integrity verified', 'success');
+
+            } catch (error) {
+                log(`Verification error: ${error.message}`, 'error');
+                showStatus('verifyStatus', `Error: ${error.message}`, 'error');
+            }
+        });
+
+        // Clear log
+        document.getElementById('clearLogBtn').addEventListener('click', () => {
+            document.getElementById('logOutput').innerHTML = '';
+            log('Log cleared', 'info');
+        });
+
+        // Initial log
+        log('Export/Import Demo loaded - Ready to start', 'success');
+    </script>
+</body>
+</html>

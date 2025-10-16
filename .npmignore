@@ -1,0 +1,69 @@
+# Source files (not needed in published package)
+src/
+tests/
+target/
+Cargo.toml
+Cargo.lock
+rust-toolchain.toml
+
+# Development files
+examples/
+scripts/
+benchmarks/
+node_modules/
+test_env/
+
+# Test artifacts
+.absurdersql_fs/
+debounce_after_idle_db/
+manager_test_db/
+threshold_immediate_db/
+test_sqlite_creation.db/
+test_*/
+
+# Playwright
+.playwright-chrome-profile/
+playwright-report/
+test-results/
+playwright.config.js
+
+# Build tools
+webpack.worker.config.js
+webpack.config.js
+tsconfig.json
+
+# Documentation (keep main README.md, exclude others)
+docs/
+BLOG.md
+CONTRIBUTING.md
+
+# Git files
+.git/
+.gitignore
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+
+# Personal notes
+TODO.md
+NOTES.md
+WASM-TEST.md
+
+# We DO want to include:
+# - pkg/ (WASM artifacts)
+# - README.md (main readme)
+# - LICENSE.md
+# - package.json

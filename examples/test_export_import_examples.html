@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Export Import Examples Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .pass {
+            background-color: #1a3d1a;
+            border-left: 4px solid #4caf50;
+        }
+        .fail {
+            background-color: #3d1a1a;
+            border-left: 4px solid #f44336;
+        }
+        .running {
+            background-color: #1a2a3d;
+            border-left: 4px solid #2196f3;
+        }
+        h1 {
+            color: #4caf50;
+        }
+        .summary {
+            margin-top: 30px;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Export/Import Examples Validation</h1>
+    <div id="results"></div>
+    <div id="summary" class="summary" style="display: none;"></div>
+
+    <script type="module">
+        import init, { Database } from '../pkg/absurder_sql.js';
+
+        const results = document.getElementById('results');
+        const summaryDiv = document.getElementById('summary');
+        let passed = 0;
+        let failed = 0;
+
+        function log(message, status = 'running') {
+            const div = document.createElement('div');
+            div.className = `test-result ${status}`;
+            div.textContent = message;
+            results.appendChild(div);
+            console.log(`[${status.toUpperCase()}] ${message}`);
+            return div;
+        }
+
+        function updateResult(div, message, status) {
+            div.textContent = message;
+            div.className = `test-result ${status}`;
+            if (status === 'pass') passed++;
+            if (status === 'fail') failed++;
+        }
+
+        async function runTests() {
+            console.log('Starting export/import examples validation...');
+
+            // Test 1: Basic Export
+            {
+                const testDiv = log('Test 1: Basic Export...', 'running');
+                try {
+                    await init();
+                    const db = await Database.newDatabase('test_export.db');
+                    await db.execute('CREATE TABLE test (id INTEGER PRIMARY KEY, data TEXT)');
+                    await db.execute("INSERT INTO test (data) VALUES ('hello')");
+                    
+                    const exported = await db.exportToFile();
+                    
+                    if (exported && exported.length > 0) {
+                        updateResult(testDiv, `Test 1 PASSED: Exported ${exported.length} bytes`, 'pass');
+                    } else {
+                        updateResult(testDiv, `Test 1 FAILED: No data exported`, 'fail');
+                    }
+                    
+                    await db.close();
+                } catch (error) {
+                    updateResult(testDiv, `Test 1 FAILED: ${error.message}`, 'fail');
+                }
+            }
+
+            // Test 2: Basic Import
+            {
+                const testDiv = log('Test 2: Basic Import...', 'running');
+                try {
+                    // Create and export
+                    const db1 = await Database.newDatabase('test_import_source.db');
+                    await db1.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+                    await db1.execute("INSERT INTO users (name) VALUES ('Alice'), ('Bob')");
+                    const exported = await db1.exportToFile();
+                    await db1.close();
+                    
+                    // Import
+                    let db2 = await Database.newDatabase('test_import_dest.db');
+                    await db2.importFromFile(exported);
+                    
+                    // Verify
+                    db2 = await Database.newDatabase('test_import_dest.db');
+                    const result = await db2.execute('SELECT COUNT(*) as count FROM users');
+                    const count = result.rows[0].values[0].value;
+                    
+                    if (count === 2) {
+                        updateResult(testDiv, `Test 2 PASSED: Imported ${count} rows correctly`, 'pass');
+                    } else {
+                        updateResult(testDiv, `Test 2 FAILED: Expected 2 rows, got ${count}`, 'fail');
+                    }
+                    
+                    await db2.close();
+                } catch (error) {
+                    updateResult(testDiv, `Test 2 FAILED: ${error.message}`, 'fail');
+                }
+            }
+
+            // Test 3: Export/Import Roundtrip
+            {
+                const testDiv = log('Test 3: Export/Import Roundtrip...', 'running');
+                try {
+                    // Create original
+                    const db1 = await Database.newDatabase('roundtrip_original.db');
+                    await db1.execute('CREATE TABLE data (id INTEGER PRIMARY KEY, value TEXT)');
+                    const testData = ['alpha', 'beta', 'gamma'];
+                    for (const value of testData) {
+                        await db1.execute(`INSERT INTO data (value) VALUES ('${value}')`);
+                    }
+                    
+                    // Export
+                    const exported = await db1.exportToFile();
+                    await db1.close();
+                    
+                    // Import
+                    let db2 = await Database.newDatabase('roundtrip_imported.db');
+                    await db2.importFromFile(exported);
+                    
+                    // Verify
+                    db2 = await Database.newDatabase('roundtrip_imported.db');
+                    const result = await db2.execute('SELECT value FROM data ORDER BY id');
+                    const imported = result.rows.map(r => r.values[0].value);
+                    
+                    const match = JSON.stringify(testData) === JSON.stringify(imported);
+                    
+                    if (match) {
+                        updateResult(testDiv, `Test 3 PASSED: Roundtrip preserved data integrity`, 'pass');
+                    } else {
+                        console.log('Expected:', testData);
+                        console.log('Got:', imported);
+                        updateResult(testDiv, `Test 3 FAILED: Expected ${JSON.stringify(testData)}, got ${JSON.stringify(imported)}`, 'fail');
+                    }
+                    
+                    await db2.close();
+                } catch (error) {
+                    updateResult(testDiv, `Test 3 FAILED: ${error.message}`, 'fail');
+                }
+            }
+
+            // Test 4: Export with Complex Schema
+            {
+                const testDiv = log('Test 4: Export with Complex Schema...', 'running');
+                try {
+                    const db = await Database.newDatabase('complex_schema.db');
+                    
+                    // Create table with index and trigger
+                    await db.execute(`
+                        CREATE TABLE employees (
+                            id INTEGER PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            salary REAL
+                        )
+                    `);
+                    await db.execute('CREATE INDEX idx_name ON employees(name)');
+                    await db.execute(`
+                        CREATE TRIGGER salary_check 
+                        BEFORE INSERT ON employees
+                        BEGIN
+                            SELECT RAISE(FAIL, 'Salary must be positive')
+                            WHERE NEW.salary < 0;
+                        END
+                    `);
+                    
+                    await db.execute("INSERT INTO employees VALUES (1, 'Alice', 50000)");
+                    
+                    const exported = await db.exportToFile();
+                    await db.close();
+                    
+                    // Import and verify schema
+                    let db2 = await Database.newDatabase('complex_imported.db');
+                    await db2.importFromFile(exported);
+                    db2 = await Database.newDatabase('complex_imported.db');
+                    
+                    const result = await db2.execute("SELECT name FROM sqlite_master WHERE type='trigger'");
+                    
+                    if (result.rows.length > 0) {
+                        updateResult(testDiv, `Test 4 PASSED: Complex schema preserved (${result.rows.length} triggers)`, 'pass');
+                    } else {
+                        updateResult(testDiv, `Test 4 FAILED: Schema not preserved`, 'fail');
+                    }
+                    
+                    await db2.close();
+                } catch (error) {
+                    updateResult(testDiv, `Test 4 FAILED: ${error.message}`, 'fail');
+                }
+            }
+
+            // Test 5: File Size Validation
+            {
+                const testDiv = log('Test 5: File Size Validation...', 'running');
+                try {
+                    const db = await Database.newDatabase('size_test.db');
+                    await db.execute('CREATE TABLE data (id INTEGER PRIMARY KEY, content TEXT)');
+                    await db.execute("INSERT INTO data (content) VALUES ('test data')");
+                    
+                    const exported = await db.exportToFile();
+                    const sizeKB = exported.length / 1024;
+                    
+                    // Verify size is reasonable (should be a few KB for small database)
+                    if (sizeKB > 0 && sizeKB < 100) {
+                        updateResult(testDiv, `Test 5 PASSED: Export size ${sizeKB.toFixed(2)} KB is reasonable`, 'pass');
+                    } else {
+                        updateResult(testDiv, `Test 5 FAILED: Unexpected size ${sizeKB.toFixed(2)} KB`, 'fail');
+                    }
+                    
+                    await db.close();
+                } catch (error) {
+                    updateResult(testDiv, `Test 5 FAILED: ${error.message}`, 'fail');
+                }
+            }
+
+            // Show summary
+            summaryDiv.style.display = 'block';
+            const total = passed + failed;
+            const percentage = total > 0 ? ((passed / total) * 100).toFixed(1) : 0;
+            
+            summaryDiv.innerHTML = `
+                <h2>Test Summary</h2>
+                <p><strong>Total Tests:</strong> ${total}</p>
+                <p><strong>Passed:</strong> ${passed}</p>
+                <p><strong>Failed:</strong> ${failed}</p>
+                <p><strong>Success Rate:</strong> ${percentage}%</p>
+                <p style="margin-top: 20px; font-size: 1.2em; font-weight: bold; color: ${passed === total ? '#4caf50' : '#f44336'}">
+                    ${passed === total ? 'ALL TESTS PASSED!' : 'SOME TESTS FAILED'}
+                </p>
+            `;
+
+            console.log(`\n=== Test Summary ===`);
+            console.log(`Total: ${total}, Passed: ${passed}, Failed: ${failed}`);
+            console.log(`Success Rate: ${percentage}%`);
+        }
+
+        // Run tests on load
+        runTests().catch(error => {
+            console.error('Test suite failed:', error);
+            log(`Test suite crashed: ${error.message}`, 'fail');
+        });
+    </script>
+</body>
+</html>

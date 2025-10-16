@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AbsurderSQL DevTools Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f3f4f6;
+        }
+        .header {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+        }
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+        .alert {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .alert-success {
+            background: #d1fae5;
+            border-left-color: #10b981;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .card h2 {
+            margin-top: 0;
+            color: #1f2937;
+            font-size: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button.secondary {
+            background: #6b7280;
+        }
+        button.secondary:hover {
+            background: #4b5563;
+        }
+        button.success {
+            background: #10b981;
+        }
+        button.success:hover {
+            background: #059669;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #3b82f6;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .log {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px 0;
+        }
+        .log-time {
+            color: #9ca3af;
+        }
+        .log-info {
+            color: #60a5fa;
+        }
+        .log-success {
+            color: #34d399;
+        }
+        .log-error {
+            color: #f87171;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ AbsurderSQL DevTools Extension Demo</h1>
+        <p>Test the browser extension with real telemetry data</p>
+    </div>
+
+    <div class="alert" id="extensionAlert">
+        <strong>⚠️ Extension Setup Required</strong><br>
+        <ol style="margin: 10px 0 0 20px; padding: 0;">
+            <li>Open <code>browser-extension/generate_icons.html</code> and download the icons</li>
+            <li>Open Chrome and go to <code>chrome://extensions/</code></li>
+            <li>Enable "Developer mode" (top right)</li>
+            <li>Click "Load unpacked" and select the <code>browser-extension</code> directory</li>
+            <li>Open DevTools (F12) and find the "AbsurderSQL" tab</li>
+            <li>Reload this page and click buttons below to generate telemetry</li>
+        </ol>
+    </div>
+
+    <div class="card">
+        <h2>📊 Generate Telemetry Data</h2>
+        <div class="controls">
+            <button id="initBtn" onclick="initDatabase()">1. Initialize Database</button>
+            <button id="queryBtn" onclick="runQueries()" class="success">2. Run Sample Queries</button>
+            <button id="errorBtn" onclick="triggerError()" class="secondary">3. Trigger Error</button>
+            <button id="loadBtn" onclick="generateLoad()">4. Generate Load (10 queries)</button>
+            <button id="clearLogBtn" onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-label">Total Spans</div>
+                <div class="stat-value" id="spanCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Buffered</div>
+                <div class="stat-value" id="bufferedCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Exports</div>
+                <div class="stat-value" id="exportCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Errors</div>
+                <div class="stat-value" id="errorCount">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📝 Activity Log</h2>
+        <div class="log" id="activityLog">
+            <div class="log-entry log-info">Waiting for database initialization...</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>ℹ️ DevTools Integration Info</h2>
+        <p><strong>Status:</strong> <span id="devtoolsStatus">Not initialized</span></p>
+        <p><strong>Endpoint:</strong> <span id="endpoint">N/A</span></p>
+        <p><strong>Auto-Export:</strong> <span id="autoExport">N/A</span></p>
+        <p style="margin-top: 15px; padding: 15px; background: #f3f4f6; border-radius: 6px;">
+            This demo sends telemetry data to the DevTools extension using <code>chrome.runtime.sendMessage()</code>.
+            Open the DevTools panel to see real-time span visualization, export statistics, and buffer status.
+        </p>
+    </div>
+
+    <script type="module">
+        // Simulated AbsurderSQL with telemetry
+        // In a real app, you'd import the actual WASM module
+        
+        let spanCount = 0;
+        let exportCount = 0;
+        let errorCount = 0;
+        let bufferedCount = 0;
+        
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('activityLog');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function updateStats() {
+            document.getElementById('spanCount').textContent = spanCount;
+            document.getElementById('bufferedCount').textContent = bufferedCount;
+            document.getElementById('exportCount').textContent = exportCount;
+            document.getElementById('errorCount').textContent = errorCount;
+        }
+        
+        function sendToDevTools(type, data) {
+            // Use window.postMessage to send to content script, which forwards to extension
+            window.postMessage({
+                source: 'absurdersql-telemetry',
+                message: { type, data }
+            }, '*');
+        }
+        
+        function createSpan(name, durationMs, status = 'Ok') {
+            const startTime = Date.now() - durationMs;
+            const endTime = Date.now();
+            
+            const span = {
+                span_id: Math.random().toString(36).substring(2, 18),
+                trace_id: Math.random().toString(36).substring(2, 34),
+                name: name,
+                start_time_ms: startTime,
+                end_time_ms: endTime,
+                status: { code: status },
+                attributes: {
+                    'db.operation': name.split('_')[0],
+                    'db.duration_ms': durationMs.toString()
+                }
+            };
+            
+            spanCount++;
+            bufferedCount++;
+            
+            sendToDevTools('span_recorded', span);
+            sendToDevTools('buffer_update', {
+                count: bufferedCount,
+                threshold: 100,
+                size: bufferedCount * 512
+            });
+            
+            updateStats();
+            return span;
+        }
+        
+        window.initDatabase = function() {
+            log('Initializing AbsurderSQL database...', 'info');
+            
+            setTimeout(() => {
+                createSpan('database_init', 45);
+                log('✅ Database initialized successfully', 'success');
+                log('DevTools extension should show 1 span', 'info');
+                
+                document.getElementById('devtoolsStatus').textContent = '✅ Enabled';
+                document.getElementById('endpoint').textContent = 'http://localhost:4318/v1/traces';
+                document.getElementById('autoExport').textContent = 'Disabled (manual flush)';
+                
+                const alert = document.getElementById('extensionAlert');
+                if (alert) {
+                    alert.className = 'alert alert-success';
+                    alert.innerHTML = '<strong>✅ Ready!</strong> Database initialized. Open DevTools → AbsurderSQL tab to see telemetry data.';
+                }
+            }, 100);
+        };
+        
+        window.runQueries = function() {
+            log('Running sample SQL queries...', 'info');
+            
+            const queries = [
+                { name: 'CREATE_TABLE_users', duration: 12 },
+                { name: 'INSERT_user_alice', duration: 8 },
+                { name: 'INSERT_user_bob', duration: 7 },
+                { name: 'SELECT_all_users', duration: 15 },
+                { name: 'UPDATE_user_alice', duration: 10 }
+            ];
+            
+            queries.forEach((q, i) => {
+                setTimeout(() => {
+                    createSpan(q.name, q.duration);
+                    log(`  ✓ ${q.name} (${q.duration}ms)`, 'success');
+                }, i * 200);
+            });
+            
+            setTimeout(() => {
+                log(`✅ Completed ${queries.length} queries`, 'success');
+                log(`DevTools should now show ${spanCount} spans`, 'info');
+            }, queries.length * 200 + 100);
+        };
+        
+        window.triggerError = function() {
+            log('Triggering database error...', 'info');
+            
+            setTimeout(() => {
+                createSpan('INVALID_QUERY_syntax_error', 23, 'Error');
+                errorCount++;
+                updateStats();
+                
+                sendToDevTools('export_error', {
+                    message: 'SQL syntax error',
+                    details: 'Invalid SQL syntax near "SELCT"'
+                });
+                
+                log('❌ SQL syntax error occurred', 'error');
+                log('Check DevTools "Export Stats" tab for error details', 'info');
+            }, 100);
+        };
+        
+        window.generateLoad = function() {
+            log('Generating load: 10 concurrent queries...', 'info');
+            
+            for (let i = 0; i < 10; i++) {
+                setTimeout(() => {
+                    const duration = Math.floor(Math.random() * 50) + 10;
+                    createSpan(`query_batch_${i}`, duration);
+                    log(`  ⚡ Query ${i + 1}/10 completed (${duration}ms)`, 'success');
+                    
+                    if (i === 9) {
+                        log('✅ Load test complete', 'success');
+                        
+                        // Simulate export
+                        setTimeout(() => {
+                            exportCount++;
+                            bufferedCount = 0;
+                            updateStats();
+                            
+                            sendToDevTools('export_stats', {
+                                total_exports: exportCount,
+                                successful_exports: exportCount,
+                                failed_exports: errorCount
+                            });
+                            
+                            sendToDevTools('buffer_update', {
+                                count: 0,
+                                threshold: 100,
+                                size: 0
+                            });
+                            
+                            log('📤 Exported batch to OTLP endpoint', 'success');
+                        }, 200);
+                    }
+                }, i * 150);
+            }
+        };
+        
+        window.clearLog = function() {
+            document.getElementById('activityLog').innerHTML = '<div class="log-entry log-info">Log cleared</div>';
+        };
+        
+        // Handler for DevTools messages (called via inspectedWindow.eval)
+        window.handleDevToolsMessage = function(message) {
+            console.log('Demo received message from DevTools:', message);
+            
+            switch (message.type) {
+                case 'flush_spans':
+                    log('⚡ Manual flush triggered from DevTools', 'info');
+                    // Simulate flush
+                    exportCount++;
+                    bufferedCount = 0;
+                    updateStats();
+                    
+                    sendToDevTools('export_stats', {
+                        total_exports: exportCount,
+                        successful_exports: exportCount,
+                        failed_exports: errorCount
+                    });
+                    
+                    sendToDevTools('buffer_update', {
+                        count: 0,
+                        threshold: 100,
+                        size: 0
+                    });
+                    
+                    log('✅ Flush successful', 'success');
+                    return { success: true };
+                    
+                case 'get_buffer':
+                    return { buffer: [] };
+                    
+                case 'clear_buffer':
+                    bufferedCount = 0;
+                    updateStats();
+                    log('🗑️ Buffer cleared', 'info');
+                    return { success: true };
+                    
+                case 'config_update':
+                    log('⚙️ Configuration updated from DevTools', 'info');
+                    return { success: true };
+                    
+                default:
+                    return { success: false, error: 'Unknown message type' };
+            }
+        };
+        
+        // Also listen via chrome.runtime for direct communication
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+            chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+                const result = window.handleDevToolsMessage(message);
+                sendResponse(result);
+                return true;
+            });
+        }
+        
+        // Initial log
+        log('Demo ready. Click "Initialize Database" to start', 'info');
+        log('Make sure the DevTools extension is loaded!', 'info');
+    </script>
+</body>
+</html>

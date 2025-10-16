@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Tab Database Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .leader-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .leader-badge.is-leader {
+            background: #10b981;
+            color: white;
+        }
+        .leader-badge.is-follower {
+            background: #6b7280;
+            color: white;
+        }
+        .status {
+            padding: 12px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .status.info { background: #dbeafe; color: #1e40af; }
+        .status.success { background: #d1fae5; color: #065f46; }
+        .status.error { background: #fee2e2; color: #991b1b; }
+        .status.warning { background: #fef3c7; color: #92400e; }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 5px;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        button.danger {
+            background: #ef4444;
+        }
+        button.danger:hover {
+            background: #dc2626;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        th {
+            background: #f9fafb;
+            font-weight: 600;
+            color: #374151;
+        }
+        tr:hover {
+            background: #f9fafb;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .log {
+            background: #1f2937;
+            color: #d1d5db;
+            padding: 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 4px 0;
+        }
+        .log-entry.info { color: #60a5fa; }
+        .log-entry.success { color: #34d399; }
+        .log-entry.error { color: #f87171; }
+        .log-entry.warning { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <h1>
+        Multi-Tab Database Demo
+        <span id="leaderBadge" class="leader-badge">Loading...</span>
+    </h1>
+
+    <div class="container">
+        <h2>Instructions</h2>
+        <div class="status info">
+            <strong>Open this page in multiple tabs</strong> to test multi-tab coordination.
+            Only the <strong>leader tab</strong> can write to the database. 
+            Changes made in one tab will automatically sync to other tabs.
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Leadership Status</h2>
+        <div id="leaderInfo" class="status info">Loading...</div>
+        <div class="controls">
+            <button onclick="requestLeadership()">Request Leadership</button>
+            <button onclick="refreshLeaderInfo()">Refresh Status</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Add Task (Leader Only)</h2>
+        <div class="controls">
+            <input type="text" id="taskInput" placeholder="Enter task description..." style="flex: 1;">
+            <button id="addTaskBtn" onclick="addTask()">Add Task</button>
+        </div>
+        <div id="writeStatus"></div>
+    </div>
+
+    <div class="container">
+        <h2>Tasks</h2>
+        <button onclick="refreshTasks()">Refresh Tasks</button>
+        <button class="danger" onclick="clearAllTasks()">Clear All Tasks</button>
+        <div id="tasksContainer">
+            <table id="tasksTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Task</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tasksBody">
+                    <tr><td colspan="4" style="text-align: center; color: #6b7280;">No tasks yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Activity Log</h2>
+        <button onclick="clearLog()">Clear Log</button>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script type="module">
+        import init, { Database } from '../pkg/absurder_sql.js';
+        import { MultiTabDatabase } from './multi-tab-wrapper.js';
+
+        let db;
+        let isLeader = false;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        async function updateLeaderStatus() {
+            try {
+                isLeader = await db.isLeader();
+                const info = await db.getLeaderInfo();
+                
+                const badge = document.getElementById('leaderBadge');
+                const infoDiv = document.getElementById('leaderInfo');
+                const addBtn = document.getElementById('addTaskBtn');
+                
+                if (isLeader) {
+                    badge.textContent = '👑 LEADER';
+                    badge.className = 'leader-badge is-leader';
+                    infoDiv.className = 'status success';
+                    infoDiv.innerHTML = `
+                        <strong>✓ This tab is the LEADER</strong><br>
+                        Leader ID: ${info.leaderId}<br>
+                        Lease Expiry: ${new Date(info.leaseExpiry).toLocaleTimeString()}<br>
+                        You can write to the database.
+                    `;
+                    addBtn.disabled = false;
+                } else {
+                    badge.textContent = '📖 FOLLOWER';
+                    badge.className = 'leader-badge is-follower';
+                    infoDiv.className = 'status warning';
+                    infoDiv.innerHTML = `
+                        <strong>⚠ This tab is a FOLLOWER</strong><br>
+                        Leader ID: ${info.leaderId}<br>
+                        Lease Expiry: ${new Date(info.leaseExpiry).toLocaleTimeString()}<br>
+                        Read-only mode. Click "Request Leadership" to become leader.
+                    `;
+                    addBtn.disabled = true;
+                }
+            } catch (err) {
+                log(`Error updating leader status: ${err.message}`, 'error');
+            }
+        }
+
+        async function initDatabase() {
+            try {
+                log('Initializing WASM module...', 'info');
+                await init();
+                
+                log('Creating database instance...', 'info');
+                db = new MultiTabDatabase(Database, 'multi-tab-demo.db', {
+                    autoSync: true,
+                    waitForLeadership: false
+                });
+                
+                // Expose db on window for testing
+                window.db = db;
+                
+                log('Initializing database...', 'info');
+                await db.init();
+                log('Database initialized successfully!', 'success');
+                
+                // Create tasks table
+                try {
+                    await db.execute(`
+                        CREATE TABLE IF NOT EXISTS tasks (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            description TEXT NOT NULL,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `);
+                    log('Tasks table ready', 'success');
+                } catch (err) {
+                    log(`Table creation: ${err.message}`, 'info');
+                }
+                
+                // Set up refresh callback for changes from other tabs
+                db.onRefresh(async () => {
+                    log('🔄 Data changed in another tab!', 'warning');
+                    await refreshTasks();
+                    await updateLeaderStatus();
+                });
+                
+                // Update status
+                await updateLeaderStatus();
+                await refreshTasks();
+                
+                // Update status every 2 seconds
+                setInterval(updateLeaderStatus, 2000);
+                
+            } catch (err) {
+                log(`Initialization error: ${err.message}`, 'error');
+                document.getElementById('leaderBadge').textContent = 'ERROR';
+            }
+        }
+
+        window.refreshLeaderInfo = async function() {
+            log('Refreshing leader status...', 'info');
+            await updateLeaderStatus();
+        };
+
+        window.requestLeadership = async function() {
+            try {
+                log('Requesting leadership...', 'info');
+                await db.requestLeadership();
+                await new Promise(resolve => setTimeout(resolve, 200));
+                await updateLeaderStatus();
+                log('Leadership request completed', 'success');
+            } catch (err) {
+                log(`Leadership request failed: ${err.message}`, 'error');
+            }
+        };
+
+        window.addTask = async function() {
+            const input = document.getElementById('taskInput');
+            const statusDiv = document.getElementById('writeStatus');
+            const description = input.value.trim();
+            
+            if (!description) {
+                statusDiv.innerHTML = '<div class="status error">Please enter a task description</div>';
+                return;
+            }
+            
+            try {
+                statusDiv.innerHTML = '<div class="status info">Adding task...</div>';
+                log(`Adding task: "${description}"`, 'info');
+                
+                await db.write('INSERT INTO tasks (description) VALUES (?)', [
+                    { type: 'Text', value: description }
+                ]);
+                
+                input.value = '';
+                statusDiv.innerHTML = '<div class="status success">✓ Task added successfully!</div>';
+                log('Task added and synced', 'success');
+                
+                setTimeout(() => statusDiv.innerHTML = '', 3000);
+                await refreshTasks();
+            } catch (err) {
+                const errorMsg = err?.message || String(err) || 'Unknown error';
+                statusDiv.innerHTML = `<div class="status error">Error: ${errorMsg}</div>`;
+                log(`Error adding task: ${errorMsg}`, 'error');
+                console.error('Full error:', err);
+            }
+        };
+
+        window.deleteTask = async function(id) {
+            if (!confirm('Delete this task?')) return;
+            
+            try {
+                log(`Deleting task ${id}`, 'info');
+                await db.write('DELETE FROM tasks WHERE id = ?', [
+                    { type: 'Integer', value: id }
+                ]);
+                log(`Task ${id} deleted`, 'success');
+                await refreshTasks();
+            } catch (err) {
+                log(`Error deleting task: ${err.message}`, 'error');
+            }
+        };
+
+        window.clearAllTasks = async function() {
+            if (!confirm('Delete ALL tasks? This cannot be undone.')) return;
+            
+            try {
+                log('Clearing all tasks...', 'warning');
+                await db.write('DELETE FROM tasks');
+                log('All tasks cleared', 'success');
+                await refreshTasks();
+            } catch (err) {
+                log(`Error clearing tasks: ${err.message}`, 'error');
+            }
+        };
+
+        window.refreshTasks = async function() {
+            try {
+                const result = await db.query('SELECT * FROM tasks ORDER BY id DESC');
+                const tbody = document.getElementById('tasksBody');
+                
+                if (!result.rows || result.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #6b7280;">No tasks yet</td></tr>';
+                    return;
+                }
+                
+                // Convert rows to objects using column names
+                const tasks = result.rows.map(row => {
+                    const task = {};
+                    result.columns.forEach((col, i) => {
+                        const val = row.values[i];
+                        // Extract value from ColumnValue enum
+                        task[col] = val?.value ?? null;
+                    });
+                    return task;
+                });
+                
+                tbody.innerHTML = tasks.map(task => `
+                    <tr>
+                        <td>${task.id}</td>
+                        <td>${task.description}</td>
+                        <td>${task.created_at || 'N/A'}</td>
+                        <td>
+                            <button class="danger" onclick="deleteTask(${task.id})" ${!isLeader ? 'disabled' : ''}>
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                log(`Loaded ${result.rows.length} tasks`, 'info');
+            } catch (err) {
+                const errorMsg = err?.message || String(err) || 'Unknown error';
+                log(`Error loading tasks: ${errorMsg}`, 'error');
+                console.error('Full error:', err);
+            }
+        };
+
+        window.clearLog = function() {
+            document.getElementById('log').innerHTML = '';
+        };
+
+        // Initialize on load
+        initDatabase();
+    </script>
+</body>
+</html>

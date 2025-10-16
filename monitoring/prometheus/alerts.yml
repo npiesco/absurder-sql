@@ -1,0 +1,224 @@
+# Prometheus Alert Rules for AbsurderSQL
+# 
+# This file defines alerting rules for AbsurderSQL applications with telemetry enabled.
+# 
+# Severity Levels:
+#   - critical: Immediate action required, service degradation or outage
+#   - warning: Attention needed, potential issues developing
+#   - info: Informational, no immediate action required
+#
+# For runbook documentation, see: monitoring/RUNBOOK.md
+
+groups:
+  - name: absurdersql_critical_alerts
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(absurdersql_errors_total[5m]) 
+            / 
+            rate(absurdersql_queries_total[5m])
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "AbsurderSQL error rate above 1%"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%). This indicates significant issues with query execution or database operations."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#higherrorrate"
+      
+      - alert: QueryLatencySpike
+        expr: |
+          histogram_quantile(0.95, rate(absurdersql_query_duration_bucket[5m])) > 100
+        for: 5m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "AbsurderSQL P95 query latency above 100ms"
+          description: "P95 query latency is {{ $value }}ms (threshold: 100ms). Queries are taking significantly longer than expected."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#querylatencyspike"
+      
+      - alert: MemoryLeak
+        expr: |
+          increase(absurdersql_memory_bytes[15m]) > 10485760
+        for: 15m
+        labels:
+          severity: critical
+          component: memory
+        annotations:
+          summary: "AbsurderSQL continuous memory growth detected"
+          description: "Memory has grown by {{ $value | humanize1024 }}B in 15 minutes (threshold: 10MB). Possible memory leak."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#memoryleak"
+      
+      - alert: StorageQuotaExceeded
+        expr: |
+          absurdersql_storage_bytes > 943718400
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "AbsurderSQL storage usage above 900MB"
+          description: "Storage usage is {{ $value | humanize1024 }}B (threshold: 900MB). Approaching browser storage limits."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#storagequotaexceeded"
+      
+      - alert: LeaderElectionFailure
+        expr: |
+          increase(absurdersql_leader_elections_total[5m]) > 20
+        for: 5m
+        labels:
+          severity: critical
+          component: coordination
+        annotations:
+          summary: "AbsurderSQL excessive leader elections detected"
+          description: "{{ $value }} leader elections in 5 minutes (threshold: 20). Indicates coordination instability or split-brain."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#leaderelectionfailure"
+      
+      - alert: DatabaseDown
+        expr: |
+          up{job="absurdersql"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "AbsurderSQL instance is down"
+          description: "Prometheus cannot scrape metrics from AbsurderSQL instance. Service may be down or /metrics endpoint unreachable."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#databasedown"
+
+  - name: absurdersql_warning_alerts
+    interval: 1m
+    rules:
+      - alert: ElevatedErrorRate
+        expr: |
+          (
+            rate(absurdersql_errors_total[5m]) 
+            / 
+            rate(absurdersql_queries_total[5m])
+          ) > 0.001
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "AbsurderSQL error rate above 0.1%"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 0.1%). Elevated but not critical."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#elevatederrorrate"
+      
+      - alert: IncreasedQueryLatency
+        expr: |
+          histogram_quantile(0.95, rate(absurdersql_query_duration_bucket[5m])) > 50
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "AbsurderSQL P95 query latency above 50ms"
+          description: "P95 query latency is {{ $value }}ms (threshold: 50ms). Performance degradation detected."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#increasedquerylatency"
+      
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            rate(absurdersql_cache_hits_total[5m]) 
+            / 
+            (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))
+          ) < 0.7
+        for: 15m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "AbsurderSQL cache hit rate below 70%"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 70%). Cache may be undersized or experiencing churn."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#lowcachehitrate"
+      
+      - alert: FrequentLeaderElections
+        expr: |
+          increase(absurdersql_leader_elections_total[5m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: coordination
+        annotations:
+          summary: "AbsurderSQL frequent leader elections detected"
+          description: "{{ $value }} leader elections in 5 minutes (threshold: 10). May indicate coordination instability."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#frequentleaderelections"
+      
+      - alert: HighMemoryUsage
+        expr: |
+          absurdersql_memory_bytes > 104857600
+        for: 10m
+        labels:
+          severity: warning
+          component: memory
+        annotations:
+          summary: "AbsurderSQL memory usage above 100MB"
+          description: "Memory usage is {{ $value | humanize1024 }}B (threshold: 100MB). Monitor for continued growth."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#highmemoryusage"
+      
+      - alert: HighStorageUsage
+        expr: |
+          absurdersql_storage_bytes > 524288000
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "AbsurderSQL storage usage above 500MB"
+          description: "Storage usage is {{ $value | humanize1024 }}B (threshold: 500MB). Approaching quota limits."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#highstorageusage"
+      
+      - alert: SlowIndexedDBOperations
+        expr: |
+          histogram_quantile(0.95, rate(absurdersql_indexeddb_duration_bucket[5m])) > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "AbsurderSQL IndexedDB P95 latency above 100ms"
+          description: "P95 IndexedDB latency is {{ $value }}ms (threshold: 100ms). Storage operations are slow."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#slowindexeddboperations"
+      
+      - alert: SlowVFSSyncOperations
+        expr: |
+          histogram_quantile(0.95, rate(absurdersql_sync_duration_bucket[5m])) > 200
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "AbsurderSQL VFS sync P95 latency above 200ms"
+          description: "P95 VFS sync latency is {{ $value }}ms (threshold: 200ms). Cross-tab synchronization is slow."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#slowvfssyncoperations"
+
+  - name: absurdersql_info_alerts
+    interval: 5m
+    rules:
+      - alert: NoRecentQueries
+        expr: |
+          rate(absurdersql_queries_total[5m]) == 0
+        for: 30m
+        labels:
+          severity: info
+          component: activity
+        annotations:
+          summary: "AbsurderSQL has no query activity"
+          description: "No queries executed in the last 30 minutes. Database may be idle."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#norecentqueries"
+      
+      - alert: LeadershipChange
+        expr: |
+          changes(absurdersql_is_leader[5m]) > 0
+        for: 1m
+        labels:
+          severity: info
+          component: coordination
+        annotations:
+          summary: "AbsurderSQL leadership changed"
+          description: "Leadership status changed in the last 5 minutes. New leader may have been elected."
+          runbook_url: "https://github.com/npiesco/absurder-sql/blob/main/monitoring/RUNBOOK.md#leadershipchange"

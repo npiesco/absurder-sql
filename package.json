@@ -1,0 +1,62 @@
+{
+  "name": "@npiesco/absurder-sql",
+  "version": "0.1.7",
+  "description": "High-performance SQLite for browsers with IndexedDB persistence. Export/import databases, multi-tab coordination, dual-mode (browser + native).",
+  "type": "module",
+  "main": "./pkg/absurder_sql.js",
+  "module": "./pkg/absurder_sql.js",
+  "types": "./pkg/absurder_sql.d.ts",
+  "exports": {
+    ".": {
+      "types": "./pkg/absurder_sql.d.ts",
+      "import": "./pkg/absurder_sql.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "pkg/"
+  ],
+  "keywords": [
+    "sqlite",
+    "indexeddb",
+    "wasm",
+    "webassembly",
+    "database",
+    "offline-first",
+    "rust",
+    "browser-database",
+    "sql",
+    "persistent-storage"
+  ],
+  "author": "Nicholas G. Piesco",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/npiesco/absurder-sql.git"
+  },
+  "bugs": {
+    "url": "https://github.com/npiesco/absurder-sql/issues"
+  },
+  "homepage": "https://github.com/npiesco/absurder-sql#readme",
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir pkg && rm -f pkg/.gitignore",
+    "prepublishOnly": "npm run build",
+    "serve": "python3 -m http.server 8080",
+    "build:worker": "webpack --config webpack.worker.config.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:vite:start": "cd examples/vite-app && npm run dev",
+    "test:pack": "npm pack && tar -tzf npiesco-absurder-sql-*.tgz"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@jlongster/sql.js": "^1.5.0",
+    "absurd-sql": "^0.0.54",
+    "@playwright/test": "^1.40.0",
+    "webpack": "^5.50.0",
+    "webpack-cli": "^4.7.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

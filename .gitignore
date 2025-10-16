@@ -1,0 +1,36 @@
+target/
+node_modules/
+test_env/
+target
+
+# Test artifact directories (native fs_persist)
+.absurdersql_fs/
+debounce_after_idle_db/
+manager_test_db/
+threshold_immediate_db/
+test_sqlite_creation.db/
+test_*/
+.DS_Storenode_modules/
+package-lock.json
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Test output
+test-output/
+
+# Playwright
+.playwright-chrome-profile/
+playwright-report/
+test-results/
+
+# Personal
+# TRANSACTION_SUPPORT.md
+WASM-TEST.md
+BLOG.md
+
+# npm pack test artifacts
+package/
+*.tgzpkg/

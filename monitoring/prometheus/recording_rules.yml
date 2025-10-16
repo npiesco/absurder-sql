@@ -1,0 +1,143 @@
+# Prometheus Recording Rules for AbsurderSQL
+#
+# Recording rules pre-compute expensive queries and store them as new time series.
+# This improves dashboard performance and reduces query load on Prometheus.
+#
+# Naming Convention: level:metric:operation
+#   - level: aggregation level (e.g., job, instance)
+#   - metric: the metric being computed
+#   - operation: the operation performed (e.g., rate, ratio)
+
+groups:
+  - name: absurdersql_aggregation_rules
+    interval: 30s
+    rules:
+      # Query rate metrics
+      - record: absurdersql:query_rate:5m
+        expr: rate(absurdersql_queries_total[5m])
+      
+      - record: absurdersql:error_rate:5m
+        expr: |
+          rate(absurdersql_errors_total[5m]) 
+          / 
+          rate(absurdersql_queries_total[5m])
+      
+      # Cache performance
+      - record: absurdersql:cache_hit_rate:5m
+        expr: |
+          rate(absurdersql_cache_hits_total[5m]) 
+          / 
+          (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))
+      
+      - record: absurdersql:cache_miss_rate:5m
+        expr: |
+          rate(absurdersql_cache_misses_total[5m]) 
+          / 
+          (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))
+      
+      # Query latency percentiles
+      - record: absurdersql:query_latency_p50:5m
+        expr: histogram_quantile(0.50, rate(absurdersql_query_duration_bucket[5m]))
+      
+      - record: absurdersql:query_latency_p95:5m
+        expr: histogram_quantile(0.95, rate(absurdersql_query_duration_bucket[5m]))
+      
+      - record: absurdersql:query_latency_p99:5m
+        expr: histogram_quantile(0.99, rate(absurdersql_query_duration_bucket[5m]))
+      
+      # IndexedDB performance
+      - record: absurdersql:indexeddb_ops_rate:5m
+        expr: rate(absurdersql_indexeddb_operations_total[5m])
+      
+      - record: absurdersql:indexeddb_latency_p95:5m
+        expr: histogram_quantile(0.95, rate(absurdersql_indexeddb_duration_bucket[5m]))
+      
+      # VFS sync performance
+      - record: absurdersql:sync_ops_rate:5m
+        expr: rate(absurdersql_sync_operations_total[5m])
+      
+      - record: absurdersql:sync_latency_p95:5m
+        expr: histogram_quantile(0.95, rate(absurdersql_sync_duration_bucket[5m]))
+      
+      # Leader election metrics
+      - record: absurdersql:leader_election_rate:5m
+        expr: rate(absurdersql_leader_elections_total[5m])
+      
+      - record: absurdersql:leadership_change_rate:5m
+        expr: rate(absurdersql_leadership_changes_total[5m])
+      
+      - record: absurdersql:leader_election_latency_p95:5m
+        expr: histogram_quantile(0.95, rate(absurdersql_leader_election_duration_bucket[5m]))
+      
+      # Memory allocation metrics
+      - record: absurdersql:block_allocation_rate:5m
+        expr: rate(absurdersql_blocks_allocated_total[5m])
+      
+      - record: absurdersql:block_deallocation_rate:5m
+        expr: rate(absurdersql_blocks_deallocated_total[5m])
+      
+      - record: absurdersql:net_block_allocation_rate:5m
+        expr: |
+          rate(absurdersql_blocks_allocated_total[5m]) 
+          - 
+          rate(absurdersql_blocks_deallocated_total[5m])
+
+  - name: absurdersql_derived_metrics
+    interval: 1m
+    rules:
+      # Query success rate (inverse of error rate)
+      - record: absurdersql:query_success_rate:5m
+        expr: |
+          1 - (
+            rate(absurdersql_errors_total[5m]) 
+            / 
+            rate(absurdersql_queries_total[5m])
+          )
+      
+      # Cache efficiency score (0-1, higher is better)
+      - record: absurdersql:cache_efficiency:5m
+        expr: |
+          (
+            rate(absurdersql_cache_hits_total[5m]) 
+            / 
+            (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))
+          )
+      
+      # Memory growth rate (bytes per second)
+      - record: absurdersql:memory_growth_rate:5m
+        expr: deriv(absurdersql_memory_bytes[5m])
+      
+      # Storage growth rate (bytes per second)
+      - record: absurdersql:storage_growth_rate:5m
+        expr: deriv(absurdersql_storage_bytes[5m])
+      
+      # Predicted memory usage in 1 hour
+      - record: absurdersql:memory_predicted_1h:30m
+        expr: predict_linear(absurdersql_memory_bytes[30m], 3600)
+      
+      # Predicted storage usage in 1 hour
+      - record: absurdersql:storage_predicted_1h:30m
+        expr: predict_linear(absurdersql_storage_bytes[30m], 3600)
+      
+      # Leader election stability (lower is better)
+      - record: absurdersql:election_instability:5m
+        expr: |
+          (
+            rate(absurdersql_leader_elections_total[5m]) * 60
+          ) + (
+            rate(absurdersql_leadership_changes_total[5m]) * 120
+          )
+      
+      # Overall system health score (0-1, higher is better)
+      - record: absurdersql:health_score:5m
+        expr: |
+          (
+            # Low error rate (< 1%)
+            min(1, 1 - (rate(absurdersql_errors_total[5m]) / rate(absurdersql_queries_total[5m]) * 100)) * 0.3
+            +
+            # High cache hit rate (> 80%)
+            (rate(absurdersql_cache_hits_total[5m]) / (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))) * 0.3
+            +
+            # Fast queries (P95 < 50ms)
+            min(1, 1 - (histogram_quantile(0.95, rate(absurdersql_query_duration_bucket[5m])) / 50)) * 0.4
+          )

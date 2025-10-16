@@ -1,0 +1,113 @@
+[package]
+name = "absurder-sql"
+version = "0.1.7"
+authors = ["Nicholas G. Piesco"]
+description = "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql"
+license = "AGPL-3.0"
+repository = "https://github.com/npiesco/absurder-sql"
+edition = "2024"
+rust-version = "1.85.0"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core WebAssembly bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Document",
+    "Storage",
+    "IdbFactory",
+    "IdbDatabase",
+    "IdbObjectStore",
+    "IdbTransaction",
+    "IdbRequest",
+    "IdbCursorWithValue",
+    "IdbKeyRange",
+    "DomException",
+    "Event",
+    "EventTarget",
+    "BroadcastChannel",
+    "MessageEvent",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Headers",
+] }
+
+# TypeScript integration
+tsify = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+crc32fast = "1.4"
+
+# IndexedDB async API
+indexed_db_futures = "0.5"
+
+futures = "0.3"
+
+# SQL parsing
+sqlparser = "0.53"
+
+# SQLite WASM - use sqlite-wasm-rs for proper WASM support
+sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["precompiled"] }
+
+# Error handling and logging
+thiserror = "1.0"
+log = "0.4"
+console_error_panic_hook = { version = "0.1", optional = true }
+wee_alloc = { version = "0.4", optional = true }
+console_log = { version = "0.2", optional = true }
+
+# Synchronization primitives
+parking_lot = { version = "0.12", features = ["send_guard"] }
+
+# Date handling
+time = { version = "0.3", features = ["formatting", "parsing"] }
+
+# Observability - OpenTelemetry and Prometheus
+# All telemetry dependencies are OPTIONAL
+prometheus = { version = "0.13", optional = true }
+opentelemetry = { version = "0.21", optional = true }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
+opentelemetry-prometheus = { version = "0.14", optional = true }
+
+[dependencies.getrandom]
+version = "0.2"
+features = ["js"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+tempfile = "3"
+serial_test = "2"
+once_cell = "1"
+# Telemetry dependencies for tests
+prometheus = "0.13"
+opentelemetry = "0.21"
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-prometheus = "0.14"
+
+
+[features]
+default = ["console_error_panic_hook", "console_log"]
+fs_persist = []
+telemetry = ["prometheus", "opentelemetry", "opentelemetry_sdk", "opentelemetry-prometheus"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { version = "0.30", features = ["bundled", "vtab", "backup"] }
+tokio = { version = "1.0", features = ["full"] }
+# OpenTelemetry OTLP exporter (native only - requires network) - OPTIONAL
+opentelemetry-otlp = { version = "0.14", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1.0", features = ["full", "test-util"] }
+opentelemetry-otlp = "0.14"

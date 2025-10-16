@@ -1,0 +1,186 @@
+# AlertManager Configuration for AbsurderSQL
+#
+# This configuration defines how alerts are routed, grouped, and sent to notification channels.
+# Customize this file to match your notification preferences and infrastructure.
+#
+# For production use, replace placeholder values with your actual endpoints and credentials.
+
+global:
+  # Default time to wait before sending a notification about new alerts
+  resolve_timeout: 5m
+  
+  # SMTP settings for email notifications (optional)
+  # smtp_from: 'alertmanager@example.com'
+  # smtp_smarthost: 'smtp.example.com:587'
+  # smtp_auth_username: 'alertmanager@example.com'
+  # smtp_auth_password: 'your-password-here'
+  # smtp_require_tls: true
+
+# Templates for custom alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for organizing alerts
+route:
+  # Default receiver for all alerts
+  receiver: 'default'
+  
+  # Group alerts by these labels
+  group_by: ['alertname', 'component', 'severity']
+  
+  # Wait time before sending first notification for a group
+  group_wait: 30s
+  
+  # Wait time before sending notification about new alerts added to a group
+  group_interval: 5m
+  
+  # Wait time before re-sending a notification
+  repeat_interval: 4h
+  
+  # Child routes for specific alert types
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: true  # Also send to default receiver
+    
+    # Warning alerts - less urgent
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 12h
+    
+    # Info alerts - informational only
+    - match:
+        severity: info
+      receiver: 'info-alerts'
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 24h
+    
+    # Database-specific alerts
+    - match:
+        component: database
+      receiver: 'database-team'
+      continue: true
+    
+    # Performance alerts
+    - match:
+        component: performance
+      receiver: 'performance-team'
+      continue: true
+    
+    # Coordination/multi-tab alerts
+    - match:
+        component: coordination
+      receiver: 'coordination-team'
+      continue: true
+
+# Inhibition rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # Don't alert about high latency if database is down
+  - source_match:
+      alertname: 'DatabaseDown'
+    target_match:
+      component: 'performance'
+    equal: ['job', 'instance']
+  
+  # Don't alert about warnings if critical alert is firing for same component
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'component', 'instance']
+  
+  # Don't alert about elevated error rate if high error rate is firing
+  - source_match:
+      alertname: 'HighErrorRate'
+    target_match:
+      alertname: 'ElevatedErrorRate'
+    equal: ['job', 'instance']
+  
+  # Don't alert about increased latency if latency spike is firing
+  - source_match:
+      alertname: 'QueryLatencySpike'
+    target_match:
+      alertname: 'IncreasedQueryLatency'
+    equal: ['job', 'instance']
+
+# Receiver definitions
+receivers:
+  # Default receiver - logs only
+  - name: 'default'
+    # Uncomment and configure your preferred notification method
+    # webhook_configs:
+    #   - url: 'http://localhost:5001/'
+
+  # Critical alerts receiver
+  - name: 'critical-alerts'
+    # Slack webhook for critical alerts
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    #     channel: '#absurdersql-critical'
+    #     title: '{{ .GroupLabels.alertname }}'
+    #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+    #     send_resolved: true
+    #     color: 'danger'
+    
+    # PagerDuty for critical alerts
+    # pagerduty_configs:
+    #   - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+    #     description: '{{ .GroupLabels.alertname }}: {{ .GroupLabels.instance }}'
+    #     severity: 'critical'
+    
+    # Email for critical alerts
+    # email_configs:
+    #   - to: 'oncall@example.com'
+    #     headers:
+    #       Subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
+    #     html: '{{ range .Alerts }}{{ .Annotations.description }}<br/>{{ end }}'
+    #     send_resolved: true
+
+  # Warning alerts receiver
+  - name: 'warning-alerts'
+    # Slack webhook for warnings
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    #     channel: '#absurdersql-warnings'
+    #     title: '{{ .GroupLabels.alertname }}'
+    #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+    #     send_resolved: true
+    #     color: 'warning'
+    
+    # Email for warnings
+    # email_configs:
+    #   - to: 'team@example.com'
+    #     headers:
+    #       Subject: '[WARNING] {{ .GroupLabels.alertname }}'
+
+  # Info alerts receiver
+  - name: 'info-alerts'
+    # Webhook for informational alerts
+    # webhook_configs:
+    #   - url: 'http://localhost:5001/info'
+
+  # Team-specific receivers
+  - name: 'database-team'
+    # Configure team-specific notification channels
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    #     channel: '#database-team'
+
+  - name: 'performance-team'
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    #     channel: '#performance-team'
+
+  - name: 'coordination-team'
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    #     channel: '#coordination-team'
