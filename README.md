@@ -406,7 +406,7 @@ await db.close();
 ```
 
 **Package includes:**
-- Pre-built WASM binary (~1.6MB, ~660KB gzipped)
+- Pre-built WASM binary (~1.3MB, ~595KB gzipped)
 - TypeScript definitions
 - All necessary JavaScript glue code
 - **No telemetry dependencies** - minimal size, zero observability overhead
@@ -436,7 +436,7 @@ wasm-pack build --target web --out-dir pkg
 
 This generates the `pkg/` directory containing:
 - `absurder_sql.js` - JavaScript module
-- `absurder_sql_bg.wasm` - WebAssembly binary (~1.6MB)
+- `absurder_sql_bg.wasm` - WebAssembly binary (~1.3MB)
 - TypeScript definitions and package files
 
 ### Optional Features
