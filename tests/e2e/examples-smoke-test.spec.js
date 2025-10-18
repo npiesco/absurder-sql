@@ -2,7 +2,7 @@
  * Smoke Tests for Example Files
  * 
  * Verifies that all example HTML files load correctly and don't have
- * JavaScript errors after the Phase 5.2 and 5.3 updates.
+ * JavaScript errors after advanced features updates.
  */
 
 import { test, expect } from '@playwright/test';

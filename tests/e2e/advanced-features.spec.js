@@ -1,7 +1,7 @@
 /**
  * End-to-End Tests for Advanced Multi-Tab Features
  * 
- * Tests Phase 5.2 (Optimistic Updates) and Phase 5.3 (Coordination Metrics)
+ * Tests Optimistic Updates and Coordination Metrics
  * in a real browser environment.
  */
 
@@ -11,7 +11,7 @@ const VITE_URL = 'http://localhost:3000';
 
 test.describe('Advanced Multi-Tab Features', () => {
   
-  test.describe('Phase 5.2: Optimistic Updates', () => {
+  test.describe('Optimistic Updates', () => {
     test('should enable and disable optimistic mode', async ({ page }) => {
       await page.goto(VITE_URL);
       await page.waitForSelector('#leaderBadge', { timeout: 10000 });
@@ -83,7 +83,7 @@ test.describe('Advanced Multi-Tab Features', () => {
     });
   });
 
-  test.describe('Phase 5.3: Coordination Metrics', () => {
+  test.describe('Coordination Metrics', () => {
     test('should enable and disable coordination metrics', async ({ page }) => {
       await page.goto(VITE_URL);
       await page.waitForSelector('#leaderBadge', { timeout: 10000 });

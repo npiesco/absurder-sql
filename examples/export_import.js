@@ -439,7 +439,7 @@ async function backupRestoreWorkflow() {
     try {
         await init();
         
-        // === Backup Phase ===
+        // === Backup Step ===
         console.log('📦 Starting backup...');
         
         const db = await Database.newDatabase('app_data.db');
@@ -470,7 +470,7 @@ async function backupRestoreWorkflow() {
         // === Simulate Data Loss ===
         console.log('💥 Simulating data loss...');
         
-        // === Restore Phase ===
+        // === Restore Step ===
         console.log('♻️ Starting restore...');
         
         // Retrieve backup

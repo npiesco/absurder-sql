@@ -180,7 +180,7 @@ Both projects share these core concepts:
 ## Related Documentation
 
 - [Main README](../README.md) - Project overview and features
-- [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Complete guide with Phase 5 features
+- [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Complete guide with advanced features
 - [Transaction Support](TRANSACTION_SUPPORT.md) - Transaction handling details
 - [Demo Guide](../examples/DEMO_GUIDE.md) - Interactive demo instructions
 - [Vite App Example](../examples/vite-app/README.md) - Production-ready multi-tab application

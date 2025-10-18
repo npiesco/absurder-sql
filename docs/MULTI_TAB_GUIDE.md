@@ -234,14 +234,14 @@ Close database and cleanup.
 
 #### Advanced Features APIs
 
-**Optimistic Updates (Phase 5.2)**:
+**Optimistic Updates**:
 - `db.enableOptimisticUpdates(enabled: boolean): Promise<void>` - Enable/disable optimistic mode
 - `db.isOptimisticMode(): Promise<boolean>` - Check if optimistic mode is enabled
 - `db.trackOptimisticWrite(sql: string): Promise<string>` - Track a pending write, returns unique ID
 - `db.getPendingWritesCount(): Promise<number>` - Get count of pending writes
 - `db.clearOptimisticWrites(): Promise<void>` - Clear all pending writes
 
-**Coordination Metrics (Phase 5.3)**:
+**Coordination Metrics**:
 - `db.enableCoordinationMetrics(enabled: boolean): Promise<void>` - Enable/disable metrics tracking
 - `db.isCoordinationMetricsEnabled(): Promise<boolean>` - Check if metrics are enabled
 - `db.recordLeadershipChange(becameLeader: boolean): Promise<void>` - Record a leadership transition
@@ -408,7 +408,7 @@ setInterval(checkAndUpdate, 1000);
 
 ## Advanced Features
 
-### Phase 5.1: Write Queuing [Implemented]
+### Write Queuing [Implemented]
 
 Queue writes from non-leader tabs that automatically forward to the leader:
 
@@ -433,7 +433,7 @@ await db.queueWriteWithTimeout("UPDATE users SET active = 1", 10000);
 - **[X]** High-frequency writes (check isLeader first)
 - **[X]** Operations requiring immediate response
 
-### Phase 5.2: Optimistic UI Updates [Implemented]
+### Optimistic UI Updates [Implemented]
 
 Track pending writes for immediate UI feedback before leader confirmation:
 
@@ -460,7 +460,7 @@ const isOptimistic = await db.isOptimisticMode(); // true/false
 - Rollback UI on write failures
 - Track write state across components
 
-### Phase 5.3: Coordination Metrics [Implemented]
+### Coordination Metrics [Implemented]
 
 Monitor multi-tab coordination performance and events:
 

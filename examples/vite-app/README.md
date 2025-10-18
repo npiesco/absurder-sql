@@ -30,9 +30,9 @@ npm run dev
 - **[✓]** Automatic UI updates on tab status change
 
 ### Advanced Features
-- **[✓]** **Write Queuing** (Phase 5.1): Queue writes from any tab
-- **[✓]** **Optimistic Updates** (Phase 5.2): Track pending writes
-- **[✓]** **Coordination Metrics** (Phase 5.3): Monitor performance
+- **[✓]** **Write Queuing**: Queue writes from any tab
+- **[✓]** **Optimistic Updates**: Track pending writes
+- **[✓]** **Coordination Metrics**: Monitor performance
 
 ## Multi-Tab Testing
 
@@ -69,7 +69,7 @@ await db.init();
 // Only leader can write
 await db.write("INSERT INTO items VALUES (1, 'Item', 9.99)");
 
-// OR use queueWrite from any tab (Phase 5.1)
+// OR use queueWrite from any tab
 await db.queueWrite("INSERT INTO items VALUES (1, 'Item', 9.99)");
 // Leaders execute immediately, followers forward to leader
 
@@ -83,12 +83,12 @@ db.onRefresh(() => {
 
 // Advanced Features:
 
-// Optimistic Updates (Phase 5.2)
+// Optimistic Updates
 await db.enableOptimisticUpdates(true);
 const writeId = await db.trackOptimisticWrite("INSERT ...");
 const pending = await db.getPendingWritesCount();
 
-// Coordination Metrics (Phase 5.3)
+// Coordination Metrics
 await db.enableCoordinationMetrics(true);
 await db.recordLeadershipChange(true);
 const metrics = JSON.parse(await db.getCoordinationMetrics());

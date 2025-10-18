@@ -249,7 +249,7 @@ export class MultiTabDatabase {
     console.log(`[MultiTabDatabase] Closed database: ${this.dbName}`);
   }
 
-  // ========== Phase 5.2: Optimistic Updates ==========
+  // ========== Optimistic Updates ==========
 
   /**
    * Enable or disable optimistic updates mode
@@ -293,7 +293,7 @@ export class MultiTabDatabase {
     return await this.db.clearOptimisticWrites();
   }
 
-  // ========== Phase 5.3: Coordination Metrics ==========
+  // ========== Coordination Metrics ==========
 
   /**
    * Enable or disable coordination metrics tracking

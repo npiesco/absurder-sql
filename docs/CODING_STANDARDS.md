@@ -146,7 +146,7 @@ log::debug!("Native: Writing {} blocks to filesystem", count);
 #### DON'T: Use console.log in Production Code
 
 ```rust
-// BAD - Phase 1 eliminated all of these
+// BAD - All console.log calls eliminated
 #[cfg(target_arch = "wasm32")]
 web_sys::console::log_1(&"Debug message".into());  // BAD
 

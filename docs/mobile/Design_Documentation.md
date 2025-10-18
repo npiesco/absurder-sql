@@ -3,7 +3,7 @@
 
 **Version:** 1.0  
 **Date:** October 17, 2025  
-**Status:** Design Phase
+**Status:** Design
 
 ---
 
@@ -519,7 +519,7 @@ class Database {
   importFromFile(path: string): Promise<void>
 }
 
-// Advanced Features (Phase 2)
+// Advanced Features (Future)
 class Database {
   beginTransaction(): Promise<Transaction>
   vacuum(): Promise<void>
@@ -829,14 +829,14 @@ describe('Database', () => {
 
 ## Future Enhancements
 
-### Phase 2 Features
+### Future Enhancements (Tier 1)
 - **Transactions**: Explicit begin/commit/rollback API
 - **Streaming Results**: Cursor-based pagination for large result sets
 - **Background Sync**: Export to iCloud/Google Drive
 - **Encryption**: SQLCipher integration for encrypted databases
 - **Migrations**: Schema migration framework
 
-### Phase 3 Features
+### Future Enhancements (Tier 2)
 - **Turbo Modules**: React Native new architecture support
 - **Flutter Support**: Dart FFI bindings
 - **Desktop Support**: macOS, Windows, Linux via Electron or Tauri

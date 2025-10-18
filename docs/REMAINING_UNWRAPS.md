@@ -230,10 +230,7 @@ tx.send(result).unwrap(); // Receiver guaranteed to exist
 | File | Count | Category | Status |
 |------|-------|----------|--------|
 | `wasm_indexeddb.rs` | 28 | JS Event Closures | **[✓]** Safe |
-| `leader_election.rs` | 0 | localStorage | **[✓]** **FIXED** |
 | `leader_election.rs` | 13 | window()/Other | **[✓]** Safe |
-| `sync_operations.rs` | 0 | IndexedDB | **[✓]** **FIXED** |
-| `fs_persist.rs` | 0 | IndexedDB | **[✓]** **FIXED** |
 | `fs_persist.rs` | 9 | File Path Ops | **[✓]** Safe |
 | `sync_operations.rs` | 9 | Channels/Sync | **[✓]** Safe |
 | `block_storage.rs` | 8 | Various | **[✓]** Safe |
@@ -247,7 +244,7 @@ tx.send(result).unwrap(); // Receiver guaranteed to exist
 
 ## Decision: ALL CRITICAL FIXES COMPLETE **[✓]**
 
-### Fixes Implemented (Phase 5.3)
+### Fixes Implemented
 
 #### **[✓]** localStorage Double Unwraps (5 instances) - FIXED
 **Files:** `src/storage/leader_election.rs`  
