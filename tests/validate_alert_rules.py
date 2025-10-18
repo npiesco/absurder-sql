@@ -234,11 +234,11 @@ def main():
     metrics_file = repo_root / "src" / "telemetry" / "metrics.rs"
     
     if not alert_dir.exists():
-        print(f"❌ Alert directory not found: {alert_dir}")
+        print(f"[ERROR] Alert directory not found: {alert_dir}")
         sys.exit(1)
     
     if not metrics_file.exists():
-        print(f"❌ Metrics file not found: {metrics_file}")
+        print(f"[ERROR] Metrics file not found: {metrics_file}")
         sys.exit(1)
     
     print("=" * 80)
@@ -252,24 +252,24 @@ def main():
         print("ERRORS:")
         print("-" * 80)
         for error in errors:
-            print(f"  ❌ {error}")
+            print(f"  [X] {error}")
         print()
     
     if warnings:
         print("WARNINGS:")
         print("-" * 80)
         for warning in warnings:
-            print(f"  ⚠️  {warning}")
+            print(f"  [!] {warning}")
         print()
     
     print("=" * 80)
     if valid:
         if warnings:
-            print(f"✅ SUCCESS: All alert rules are valid ({len(warnings)} warnings)")
+            print(f"[OK] SUCCESS: All alert rules are valid ({len(warnings)} warnings)")
         else:
-            print("✅ SUCCESS: All alert rules are valid (no warnings)")
+            print("[OK] SUCCESS: All alert rules are valid (no warnings)")
     else:
-        print(f"❌ FAILURE: Found {len(errors)} validation errors")
+        print(f"[ERROR] FAILURE: Found {len(errors)} validation errors")
     print("=" * 80)
     print()
     

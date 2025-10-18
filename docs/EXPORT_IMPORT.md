@@ -457,9 +457,9 @@ All modern browsers support export/import:
 
 | Browser | Export | Import | Max Tested Size |
 |---------|--------|--------|-----------------|
-| **Chrome 131** | ✅ | ✅ | 500MB |
-| **Firefox 143** | ✅ | ✅ | 500MB |
-| **Safari 26** | ✅ | ✅ | 500MB |
+| **Chrome 131** | **[✓]** | **[✓]** | 500MB |
+| **Firefox 143** | **[✓]** | **[✓]** | 500MB |
+| **Safari 26** | **[✓]** | **[✓]** | 500MB |
 
 ### Multi-Tab Coordination
 
@@ -620,14 +620,14 @@ if (fileSize > estimate.quota - estimate.usage) {
 
 | Feature | absurd-sql | AbsurderSQL |
 |---------|-----------|-------------|
-| **Export to File** | ❌ Not supported | ✅ Full support |
-| **Import from File** | ❌ Not supported | ✅ Full support |
-| **Database Backup** | ❌ Not possible | ✅ Standard SQLite files |
-| **Data Migration** | ❌ Manual only | ✅ Automated |
-| **File Portability** | ❌ Locked in IndexedDB | ✅ Standard SQLite format |
-| **Multi-Device Sync** | ❌ Not possible | ✅ Export/import workflow |
-| **Disaster Recovery** | ❌ No backups | ✅ Full backup/restore |
-| **CLI/Tool Integration** | ❌ No file access | ✅ Use sqlite3, DB Browser |
+| **Export to File** | **[X]** Not supported | **[✓]** Full support |
+| **Import from File** | **[X]** Not supported | **[✓]** Full support |
+| **Database Backup** | **[X]** Not possible | **[✓]** Standard SQLite files |
+| **Data Migration** | **[X]** Manual only | **[✓]** Automated |
+| **File Portability** | **[X]** Locked in IndexedDB | **[✓]** Standard SQLite format |
+| **Multi-Device Sync** | **[X]** Not possible | **[✓]** Export/import workflow |
+| **Disaster Recovery** | **[X]** No backups | **[✓]** Full backup/restore |
+| **CLI/Tool Integration** | **[X]** No file access | **[✓]** Use sqlite3, DB Browser |
 
 **AbsurderSQL provides complete data portability that absurd-sql cannot offer.**
 

@@ -1,4 +1,4 @@
-# 🎯 AbsurderSQL Web Demo Guide
+# AbsurderSQL Web Demo Guide
 
 ## What You're Looking At
 
@@ -12,12 +12,12 @@ wasm-pack build --target web
 ```
 Output:
 ```
-[INFO]: 🎯  Checking for the Wasm target...
-[INFO]: 🌀  Compiling to Wasm...
+[INFO]: Checking for the Wasm target...
+[INFO]: Compiling to Wasm...
     Finished `release` profile [optimized] target(s) in 0.08s
-[INFO]: ⬇️  Installing wasm-bindgen...
-[INFO]: ✨   Done in 0.32s
-[INFO]: 📦   Your wasm pkg is ready to publish at /Users/nicholas.piesco/Downloads/DataSync/pkg.
+[INFO]: Installing wasm-bindgen...
+[INFO]: Done in 0.32s
+[INFO]: Your wasm pkg is ready to publish at /Users/nicholas.piesco/Downloads/DataSync/pkg.
 ```
 
 ### 2. **Start Web Server**
@@ -99,12 +99,12 @@ SELECT * FROM products WHERE price > 50;
 
 ## What Makes This Special
 
-✅ **No Backend** - Everything runs in the browser  
-✅ **Real SQLite** - Full SQL support with transactions  
-✅ **Persistent** - Data survives page refreshes (IndexedDB)  
-✅ **Fast** - Sub-millisecond queries  
-✅ **Type-Safe** - Proper data types (INTEGER, TEXT, REAL, BLOB)  
-✅ **Multi-Tab Ready** - Built-in coordination (leader election, write queuing, optimistic updates, metrics)  
+**[✓]** **No Backend** - Everything runs in the browser  
+**[✓]** **Real SQLite** - Full SQL support with transactions  
+**[✓]** **Persistent** - Data survives page refreshes (IndexedDB)  
+**[✓]** **Fast** - Sub-millisecond queries  
+**[✓]** **Type-Safe** - Proper data types (INTEGER, TEXT, REAL, BLOB)  
+**[✓]** **Multi-Tab Ready** - Built-in coordination (leader election, write queuing, optimistic updates, metrics)  
 
 ## Features You Can Demo
 
@@ -225,9 +225,9 @@ JOIN products p ON c.product_id = p.id;
 
 ## This Proves
 
-✅ **Full SQLite compatibility** - All SQL features work  
-✅ **Browser persistence** - Data survives refreshes  
-✅ **Production-ready** - Fast, reliable, type-safe  
-✅ **Better than absurd-sql** - More features, better tested  
+**[✓]** **Full SQLite compatibility** - All SQL features work  
+**[✓]** **Browser persistence** - Data survives refreshes  
+**[✓]** **Production-ready** - Fast, reliable, type-safe  
+**[✓]** **Better than absurd-sql** - More features, better tested  
 
-**Now you have a working demo to show anyone who asks "Does it really work?"** 🚀
+**Now you have a working demo to show anyone who asks "Does it really work?"**

@@ -28,11 +28,11 @@ sqlite-indexeddb-rs provides built-in multi-tab coordination using:
 
 ### Why This Approach?
 
-- ✅ **Browser Compatible**: No SharedArrayBuffer required
-- ✅ **Simple**: Leader-only writes avoid conflicts
-- ✅ **Performant**: Better than SQLite WAL with async IndexedDB
-- ✅ **Reliable**: Automatic leader failover when tabs close
-- ✅ **Flexible**: Write queuing allows any tab to initiate writes
+- **[✓]** **Browser Compatible**: No SharedArrayBuffer required
+- **[✓]** **Simple**: Leader-only writes avoid conflicts
+- **[✓]** **Performant**: Better than SQLite WAL with async IndexedDB
+- **[✓]** **Reliable**: Automatic leader failover when tabs close
+- **[✓]** **Flexible**: Write queuing allows any tab to initiate writes
 
 ---
 
@@ -126,10 +126,10 @@ await db.requestLeadership();
 Only the leader tab can execute write operations:
 
 ```javascript
-// ✅ Allowed (leader only)
+// Allowed (leader only)
 INSERT, UPDATE, DELETE, REPLACE
 
-// ✅ Allowed (any tab)
+// Allowed (any tab)
 SELECT, CREATE TABLE, ALTER TABLE, CREATE INDEX
 
 // DDL operations are not considered writes
@@ -148,7 +148,7 @@ try {
 }
 ```
 
-**Option 2: Queue Write (Recommended for Non-Leaders)** ✨ NEW:
+**Option 2: Queue Write (Recommended for Non-Leaders)**:
 ```javascript
 // Non-leader can queue writes that forward to leader
 await db.queueWrite("INSERT INTO users (name) VALUES ('Bob')");
@@ -218,13 +218,13 @@ Register change notification callback.
 #### `db.allowNonLeaderWrites(allow: boolean): Promise<void>`
 Override write guard for single-tab mode.
 
-#### `db.queueWrite(sql: string): Promise<void>` ✨ NEW
+#### `db.queueWrite(sql: string): Promise<void>`
 Queue a write operation. Leaders execute immediately, followers forward to leader.
 - **Timeout**: 5 seconds default
 - **Returns**: When leader acknowledges or times out
 - **Throws**: On timeout or execution error
 
-#### `db.queueWriteWithTimeout(sql: string, timeoutMs: number): Promise<void>` ✨ NEW
+#### `db.queueWriteWithTimeout(sql: string, timeoutMs: number): Promise<void>` 
 Queue write with custom timeout.
 - **timeoutMs**: Timeout in milliseconds
 - **Use case**: Long-running operations or slow networks
@@ -232,7 +232,7 @@ Queue write with custom timeout.
 #### `db.close(): Promise<void>`
 Close database and cleanup.
 
-#### Advanced Features APIs ✨
+#### Advanced Features APIs
 
 **Optimistic Updates (Phase 5.2)**:
 - `db.enableOptimisticUpdates(enabled: boolean): Promise<void>` - Enable/disable optimistic mode
@@ -317,7 +317,7 @@ await db.init();
 await db.write("INSERT INTO data (value) VALUES (42)");
 ```
 
-### Pattern 3: Queue Writes from Any Tab ✨ NEW
+### Pattern 3: Queue Writes from Any Tab
 
 ```javascript
 // Non-leaders forward writes to leader automatically
@@ -341,11 +341,11 @@ await db.queueWriteWithTimeout("UPDATE large_table SET processed = 1", 30000);
 ```
 
 **When to use queueWrite**:
-- ✅ Multi-tab apps where any tab may need to write
-- ✅ Background tasks that don't need immediate leader status
-- ✅ Form submissions from follower tabs
-- ❌ High-frequency writes (use leader check instead)
-- ❌ Operations requiring immediate response (check isLeader first)
+- **[✓]** Multi-tab apps where any tab may need to write
+- **[✓]** Background tasks that don't need immediate leader status
+- **[✓]** Form submissions from follower tabs
+- **[X]** High-frequency writes (use leader check instead)
+- **[X]** Operations requiring immediate response (check isLeader first)
 
 ### Pattern 4: Real-time Sync Across Tabs
 
@@ -408,7 +408,7 @@ setInterval(checkAndUpdate, 1000);
 
 ## Advanced Features
 
-### Phase 5.1: Write Queuing ✅
+### Phase 5.1: Write Queuing [Implemented]
 
 Queue writes from non-leader tabs that automatically forward to the leader:
 
@@ -427,13 +427,13 @@ await db.queueWriteWithTimeout("UPDATE users SET active = 1", 10000);
 - **Error**: Throws if timeout or leader execution fails
 
 **Use Cases**:
-- ✅ Multi-tab apps where any tab may need to write
-- ✅ Background tasks that don't need immediate leader status
-- ✅ Form submissions from follower tabs
-- ❌ High-frequency writes (check isLeader first)
-- ❌ Operations requiring immediate response
+- **[✓]** Multi-tab apps where any tab may need to write
+- **[✓]** Background tasks that don't need immediate leader status
+- **[✓]** Form submissions from follower tabs
+- **[X]** High-frequency writes (check isLeader first)
+- **[X]** Operations requiring immediate response
 
-### Phase 5.2: Optimistic UI Updates ✅
+### Phase 5.2: Optimistic UI Updates [Implemented]
 
 Track pending writes for immediate UI feedback before leader confirmation:
 
@@ -460,7 +460,7 @@ const isOptimistic = await db.isOptimisticMode(); // true/false
 - Rollback UI on write failures
 - Track write state across components
 
-### Phase 5.3: Coordination Metrics ✅
+### Phase 5.3: Coordination Metrics [Implemented]
 
 Monitor multi-tab coordination performance and events:
 

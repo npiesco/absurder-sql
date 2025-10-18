@@ -211,7 +211,7 @@
                 const addBtn = document.getElementById('addTaskBtn');
                 
                 if (isLeader) {
-                    badge.textContent = '👑 LEADER';
+                    badge.textContent = '[LEADER]';
                     badge.className = 'leader-badge is-leader';
                     infoDiv.className = 'status success';
                     infoDiv.innerHTML = `
@@ -222,7 +222,7 @@
                     `;
                     addBtn.disabled = false;
                 } else {
-                    badge.textContent = '📖 FOLLOWER';
+                    badge.textContent = 'FOLLOWER';
                     badge.className = 'leader-badge is-follower';
                     infoDiv.className = 'status warning';
                     infoDiv.innerHTML = `
@@ -272,7 +272,7 @@
                 
                 // Set up refresh callback for changes from other tabs
                 db.onRefresh(async () => {
-                    log('🔄 Data changed in another tab!', 'warning');
+                    log('[SYNC] Data changed in another tab!', 'warning');
                     await refreshTasks();
                     await updateLeaderStatus();
                 });

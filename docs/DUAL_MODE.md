@@ -2,7 +2,7 @@
 
 AbsurderSQL is a **dual-mode** library that supports both **Browser (IndexedDB)** and **Native (filesystem)** persistence. This unique capability allows you to build offline-first web applications while maintaining full CLI/server access to the same data.
 
-## 🌐 Browser Mode (WASM)
+## Browser Mode (WASM)
 
 **Target:** Web applications running in browsers
 
@@ -30,7 +30,7 @@ const result = await db.execute('SELECT * FROM users');
 
 ---
 
-## 💻 Native Mode (Rust CLI/Server)
+## Native Mode (Rust CLI/Server)
 
 **Target:** Command-line tools, servers, desktop applications
 
@@ -80,7 +80,7 @@ absurdersql_storage/
 
 ---
 
-## 🎯 Use Cases
+## Use Cases
 
 ### 1. Offline-First Web Apps with Server Sync
 
@@ -141,7 +141,7 @@ cargo run --bin cli_query --features fs_persist -- "SELECT COUNT(*) FROM users"
 
 ---
 
-## 🔧 CLI Query Tool
+## CLI Query Tool
 
 AbsurderSQL includes a production-ready CLI tool for querying filesystem databases:
 
@@ -171,22 +171,22 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 
 **Output:**
 ```
-🗄️  AbsurderSQL CLI Query Tool
+  AbsurderSQL CLI Query Tool
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📂 Database: cli_demo.db
-💾 Storage: ./absurdersql_storage/cli_demo/
+ Database: cli_demo.db
+[STORAGE] ./absurdersql_storage/cli_demo/
 
-🔍 Executing: SELECT * FROM users
+[EXEC] Executing: SELECT * FROM users
 
 ┌────────────────────────────────────────────────────────────┐
-│ id                 │ name               │ email              │
+│ id                 │ name              │ email             │
 ├────────────────────────────────────────────────────────────┤
-│ 1                  │ Alice              │ alice@example.com  │
+│ 1                  │ Alice             │ alice@example.com │
 └────────────────────────────────────────────────────────────┘
 
-📊 1 row(s) returned
-⏱️  Execution time: 0.02ms
+1 row(s) returned
+Execution time: 0.02ms
 ```
 
 **Environment Variables:**
@@ -194,22 +194,22 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 
 ---
 
-## 🆚 Comparison with absurd-sql
+## Comparison with absurd-sql
 
 | Feature | absurd-sql | AbsurderSQL |
 |---------|------------|----------|
-| **Browser Support** | ✅ Yes | ✅ Yes |
-| **Native/CLI Support** | ❌ No | ✅ Yes |
-| **Filesystem .db files** | ❌ No | ✅ Yes |
-| **Standard SQLite tools** | ❌ No | ✅ Yes |
-| **Debug production data locally** | ❌ No | ✅ Yes |
-| **Server-side processing** | ❌ No | ✅ Yes |
+| **Browser Support** | **[✓]** Yes | **[✓]** Yes |
+| **Native/CLI Support** | **[X]** No | **[✓]** Yes |
+| **Filesystem .db files** | **[X]** No | **[✓]** Yes |
+| **Standard SQLite tools** | **[X]** No | **[✓]** Yes |
+| **Debug production data locally** | **[X]** No | **[✓]** Yes |
+| **Server-side processing** | **[X]** No | **[✓]** Yes |
 
 **Key Advantage:** AbsurderSQL supports both modes, absurd-sql is **browser-only**.
 
 ---
 
-## 🧪 Testing
+## Testing
 
 AbsurderSQL includes comprehensive tests for dual-mode functionality:
 
@@ -232,7 +232,7 @@ cargo run --bin cli_query --features fs_persist -- "SELECT * FROM my_table"
 
 ---
 
-## 📋 Technical Details
+## Technical Details
 
 ### Browser Mode Implementation
 - Uses `wasm-bindgen` for JavaScript interop
@@ -267,7 +267,7 @@ cargo build --features fs_persist
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Browser Setup
 ```bash
@@ -289,7 +289,7 @@ cargo add absurder-sql
 
 ---
 
-## 💡 Best Practices
+## Best Practices
 
 1. **Use consistent database names** between browser and native modes
 2. **Enable checksums** for data integrity in both modes
@@ -299,7 +299,7 @@ cargo add absurder-sql
 
 ---
 
-## 🔗 Related Documentation
+## Related Documentation
 
 - [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Browser multi-tab features
 - [Transaction Support](TRANSACTION_SUPPORT.md) - Transaction handling
@@ -308,14 +308,14 @@ cargo add absurder-sql
 
 ---
 
-## 📝 Summary
+## Summary
 
 AbsurderSQL's **dual-mode persistence** is a unique capability that allows you to:
 
-✅ Build offline-first web apps with IndexedDB  
-✅ Query the same data from CLI/server with filesystem access  
-✅ Debug production data locally using standard SQLite tools  
-✅ Run the same Rust codebase in browser AND on server  
-✅ Maintain data integrity with checksums in both modes  
+**[✓]** Build offline-first web apps with IndexedDB  
+**[✓]** Query the same data from CLI/server with filesystem access  
+**[✓]** Debug production data locally using standard SQLite tools  
+**[✓]** Run the same Rust codebase in browser AND on server  
+**[✓]** Maintain data integrity with checksums in both modes  
 
 **No other library** (including absurd-sql) provides this flexibility. AbsurderSQL is truly **universal SQLite**.

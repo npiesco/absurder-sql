@@ -41,17 +41,17 @@ async function updateLeaderStatus() {
         const clearBtn = document.getElementById('clear');
         
         if (isLeader) {
-            badge.textContent = '👑 LEADER';
+            badge.textContent = '[LEADER]';
             badge.style.background = '#28a745';
             runBtn.disabled = false;
             clearBtn.disabled = false;
-            status('✅ This tab is the LEADER - you can write to the database');
+            status('This tab is the LEADER - you can write to the database');
         } else {
-            badge.textContent = '📖 FOLLOWER';
+            badge.textContent = '[FOLLOWER]';
             badge.style.background = '#6c757d';
             runBtn.disabled = true;
             clearBtn.disabled = true;
-            status('⚠️ This tab is a FOLLOWER - read-only mode (click "Request Leadership" to become leader)');
+            status('This tab is a FOLLOWER - read-only mode (click "Request Leadership" to become leader)');
         }
     } catch (err) {
         console.error('Error updating leader status:', err);

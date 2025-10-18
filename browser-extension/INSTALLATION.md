@@ -155,11 +155,11 @@ The extension requires `<all_urls>` host permission to communicate with any OTLP
 
 ## Next Steps
 
-1. ✅ Install the extension
-2. ✅ Test with the demo page
-3. ✅ Configure your OTLP endpoint
-4. ✅ Enable DevTools in your AbsurderSQL code
-5. ✅ Start monitoring your application!
+1. **[✓]** Install the extension
+2. **[✓]** Test with the demo page
+3. **[✓]** Configure your OTLP endpoint
+4. **[✓]** Enable DevTools in your AbsurderSQL code
+5. **[✓]** Start monitoring your application!
 
 ## Support
 

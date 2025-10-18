@@ -90,20 +90,20 @@ def validate_metrics(dashboard_metrics: Dict[str, Set[str]], actual_metrics: Set
         
         if missing_metrics:
             all_valid = False
-            print(f"  ❌ MISSING METRICS ({len(missing_metrics)}):")
+            print(f"  [X] MISSING METRICS ({len(missing_metrics)}):")
             for metric in sorted(missing_metrics):
                 print(f"     - {metric}")
         else:
-            print(f"  ✅ All {len(metrics)} metrics are valid")
+            print(f"  [OK] All {len(metrics)} metrics are valid")
         
         print()
     
     # Summary
     print("=" * 80)
     if all_valid:
-        print("✅ SUCCESS: All dashboards reference valid metrics")
+        print("[SUCCESS] All dashboards reference valid metrics")
     else:
-        print("❌ FAILURE: Some dashboards reference non-existent metrics")
+        print("[ERROR] FAILURE: Some dashboards reference non-existent metrics")
     print("=" * 80)
     print()
     
@@ -125,11 +125,11 @@ def main():
     
     # Validate paths exist
     if not dashboard_dir.exists():
-        print(f"❌ Dashboard directory not found: {dashboard_dir}")
+        print(f"[ERROR] Dashboard directory not found: {dashboard_dir}")
         sys.exit(1)
     
     if not metrics_file.exists():
-        print(f"❌ Metrics file not found: {metrics_file}")
+        print(f"[ERROR] Metrics file not found: {metrics_file}")
         sys.exit(1)
     
     # Extract metrics

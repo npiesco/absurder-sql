@@ -7,7 +7,7 @@ This document defines the coding standards, patterns, and best practices for con
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Error Handling](#error-handling)
 - [Logging Strategy](#logging-strategy)
@@ -28,7 +28,7 @@ This document defines the coding standards, patterns, and best practices for con
 
 ### Error Handling Patterns
 
-#### ✅ DO: Return Errors for User Operations
+#### DO: Return Errors for User Operations
 
 ```rust
 pub async fn execute(&mut self, sql: &str) -> Result<JsValue, DatabaseError> {
@@ -46,7 +46,7 @@ pub async fn execute(&mut self, sql: &str) -> Result<JsValue, DatabaseError> {
 }
 ```
 
-#### ✅ DO: Use Expect for Documented Invariants
+#### DO: Use Expect for Documented Invariants
 
 ```rust
 // Safe: null bytes removed before this call
@@ -54,12 +54,12 @@ let text_cstr = CString::new(sanitized.as_str())
     .expect("CString::new should not fail after null byte removal");
 ```
 
-#### ❌ DON'T: Use Unwrap in User-Facing Code
+#### DON'T: Use Unwrap in User-Facing Code
 
 ```rust
 // BAD - can panic on user input
 pub fn parse_config(json: &str) -> Config {
-    serde_json::from_str(json).unwrap()  // ❌
+    serde_json::from_str(json).unwrap()  // BAD
 }
 
 // GOOD - returns error
@@ -113,7 +113,7 @@ AbsurderSQL uses the `log` crate with the following level conventions:
 
 ### Logging Patterns
 
-#### ✅ DO: Use Structured Logging
+#### DO: Use Structured Logging
 
 ```rust
 // Good - includes context
@@ -133,7 +133,7 @@ log::error!(
 );
 ```
 
-#### ✅ DO: Use Debug Level for Development
+#### DO: Use Debug Level for Development
 
 ```rust
 #[cfg(target_arch = "wasm32")]
@@ -143,15 +143,15 @@ log::debug!("WASM: Syncing {} blocks to IndexedDB", count);
 log::debug!("Native: Writing {} blocks to filesystem", count);
 ```
 
-#### ❌ DON'T: Use console.log in Production Code
+#### DON'T: Use console.log in Production Code
 
 ```rust
 // BAD - Phase 1 eliminated all of these
 #[cfg(target_arch = "wasm32")]
-web_sys::console::log_1(&"Debug message".into());  // ❌
+web_sys::console::log_1(&"Debug message".into());  // BAD
 
 // GOOD - use log crate
-log::debug!("Debug message");  // ✅
+log::debug!("Debug message");  // GOOD
 ```
 
 ### WASM Console Integration
@@ -185,7 +185,7 @@ AbsurderSQL uses `parking_lot::Mutex` instead of `std::sync::Mutex` for:
 - **Better Performance** - Faster lock/unlock operations
 - **Cleaner API** - Direct `.lock()` without error handling
 
-#### ✅ DO: Use parking_lot::Mutex
+#### DO: Use parking_lot::Mutex
 
 ```rust
 use parking_lot::Mutex;
@@ -202,13 +202,13 @@ impl Database {
 }
 ```
 
-#### ❌ DON'T: Use std::sync::Mutex
+#### DON'T: Use std::sync::Mutex
 
 ```rust
 // BAD - requires unwrap or error handling
 use std::sync::Mutex;
 
-let state = self.state.lock().unwrap();  // ❌ Can poison
+let state = self.state.lock().unwrap();  // BAD - Can poison
 ```
 
 ### Lock Ordering
@@ -220,12 +220,12 @@ To prevent deadlocks, always acquire locks in this order:
 3. **Block-level locks** (individual block metadata)
 
 ```rust
-// ✅ Correct order
+// Correct order
 let storage = STORAGE_REGISTRY.lock();
 let state = self.state.lock();
 let block_meta = self.metadata.lock();
 
-// ❌ Wrong order - potential deadlock
+// Wrong order - potential deadlock
 let block_meta = self.metadata.lock();  // Acquired first
 let storage = STORAGE_REGISTRY.lock();   // Global lock acquired later - DEADLOCK RISK!
 ```
@@ -261,7 +261,7 @@ struct LeaderElection {
 Always sanitize strings before creating `CString` for FFI:
 
 ```rust
-// ✅ Safe - removes null bytes
+// Safe - removes null bytes
 let sanitized = user_input.replace('\0', "");
 let c_string = CString::new(sanitized)
     .expect("CString::new cannot fail after null byte removal");
@@ -272,7 +272,7 @@ let c_string = CString::new(sanitized)
 Window and DOM APIs can fail in non-browser environments:
 
 ```rust
-// ✅ Graceful handling
+// Graceful handling
 if let Some(window) = web_sys::window() {
     if let Ok(Some(storage)) = window.local_storage() {
         // Use storage
@@ -289,7 +289,7 @@ if let Some(window) = web_sys::window() {
 Event handlers from browser APIs are safe to unwrap (see [REMAINING_UNWRAPS.md](REMAINING_UNWRAPS.md)):
 
 ```rust
-// ✅ Safe - browser guarantees event.target exists
+// Safe - browser guarantees event.target exists
 let success_callback = Closure::wrap(Box::new(move |event: web_sys::Event| {
     let target = event.target().unwrap();  // Safe: browser API guarantee
     let request: web_sys::IdbRequest = target.unchecked_into();
@@ -403,38 +403,38 @@ RUST_LOG=debug cargo test
 
 Before submitting a PR, verify:
 
-### Error Handling ✅
+### Error Handling **[✓]**
 - [ ] All user-facing functions return `Result<T, DatabaseError>`
 - [ ] Unwraps are only in safe contexts (see [REMAINING_UNWRAPS.md](REMAINING_UNWRAPS.md))
 - [ ] Error messages include helpful context
 - [ ] Fallback behavior is documented
 
-### Logging ✅
+### Logging **[✓]**
 - [ ] No `web_sys::console::log` or `println!` in production code
 - [ ] Log levels are appropriate (error/warn/info/debug/trace)
 - [ ] Structured logging with context included
 - [ ] Debug logs are helpful for troubleshooting
 
-### Concurrency ✅
+### Concurrency **[✓]**
 - [ ] Uses `parking_lot::Mutex` (not `std::sync::Mutex`)
 - [ ] Lock ordering is correct (no deadlock risk)
 - [ ] RefCell used for WASM single-threaded code
 - [ ] No data races in multi-threaded native code
 
-### WASM Safety ✅
+### WASM Safety **[✓]**
 - [ ] Strings sanitized before CString creation
 - [ ] Window/DOM access handles None gracefully
 - [ ] Async operations use wasm_bindgen_futures
 - [ ] Memory cleanup in Drop implementations
 
-### Testing ✅
+### Testing **[✓]**
 - [ ] Unit tests for new functions
 - [ ] Integration test for feature
 - [ ] WASM test if browser-specific
 - [ ] Native test if filesystem-specific
 - [ ] All tests pass: `cargo test && cargo test --features fs_persist && wasm-pack test --chrome --headless`
 
-### Documentation ✅
+### Documentation **[✓]**
 - [ ] Public APIs have doc comments (`///`)
 - [ ] Complex logic has inline comments
 - [ ] README updated if user-facing changes

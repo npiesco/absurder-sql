@@ -4,7 +4,7 @@ Compare the performance of different SQLite-in-browser implementations.
 
 ## Implementations Compared
 
-1. **AbsurderSQL** (This library) - Rust/WASM SQLite with custom IndexedDB VFS backend 🏆
+1. **AbsurderSQL** (This library) - Rust/WASM SQLite with custom IndexedDB VFS backend
 2. **absurd-sql** - James Long's JavaScript SQLite implementation
 3. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
 
@@ -18,13 +18,13 @@ Compare the performance of different SQLite-in-browser implementations.
 
 ### Key Achievements
 
-- ✅ **16% faster INSERT** than absurd-sql (3.2ms vs 3.8ms)
-- ✅ **43% faster READ** than absurd-sql (1.2ms vs 2.1ms)
-- ✅ **50% faster UPDATE** than absurd-sql (400μs vs 800μs)
-- ✅ **43% faster DELETE** than absurd-sql (400μs vs 700μs)
-- ✅ **7.5x faster INSERT** than raw IndexedDB
-- ✅ **Zero console logging overhead** in release builds
-- ✅ **PRAGMA journal_mode=MEMORY** working correctly
+- **[✓]** **16% faster INSERT** than absurd-sql (3.2ms vs 3.8ms)
+- **[✓]** **43% faster READ** than absurd-sql (1.2ms vs 2.1ms)
+- **[✓]** **50% faster UPDATE** than absurd-sql (400μs vs 800μs)
+- **[✓]** **43% faster DELETE** than absurd-sql (400μs vs 700μs)
+- **[✓]** **7.5x faster INSERT** than raw IndexedDB
+- **[✓]** **Zero console logging overhead** in release builds
+- **[✓]** **PRAGMA journal_mode=MEMORY** working correctly
 
 ## Running the Benchmark
 
@@ -74,16 +74,16 @@ http://localhost:8080/examples/benchmark.html
 ## Expected Results
 
 ### AbsurderSQL Advantages
-- ✅ Full SQL support (joins, indexes, transactions)
-- ✅ ACID compliance
-- ✅ Persistent across page reloads
-- ✅ Multi-tab coordination (leader election, write queuing, optimistic updates, metrics)
-- ✅ Block-level storage with checksums
+- **[✓]** Full SQL support (joins, indexes, transactions)
+- **[✓]** ACID compliance
+- **[✓]** Persistent across page reloads
+- **[✓]** Multi-tab coordination (leader election, write queuing, optimistic updates, metrics)
+- **[✓]** Block-level storage with checksums
 
 ### Raw IndexedDB Advantages
-- ✅ Lower overhead (no SQL parsing)
-- ✅ Direct key-value access
-- ✅ Simpler API for basic operations
+- **[✓]** Lower overhead (no SQL parsing)
+- **[✓]** Direct key-value access
+- **[✓]** Simpler API for basic operations
 
 ### Trade-offs
 - **AbsurderSQL**: Higher overhead for simple operations, but better for complex queries
@@ -102,11 +102,11 @@ absurd-sql is an excellent project by James Long that pioneered SQLite-in-Indexe
 ### Similarities
 
 Both projects share these core concepts:
-- ✅ **IndexedDB Backend**: Use IndexedDB as persistent storage
-- ✅ **Block/Page Storage**: Store data in chunks, not as a single file
-- ✅ **SQLite in Browser**: Full SQLite functionality in the browser
-- ✅ **Persistence**: Data survives page refreshes
-- ✅ **Better than Raw IndexedDB**: Significant performance improvements over direct IndexedDB usage
+- **[✓]** **IndexedDB Backend**: Use IndexedDB as persistent storage
+- **[✓]** **Block/Page Storage**: Store data in chunks, not as a single file
+- **[✓]** **SQLite in Browser**: Full SQLite functionality in the browser
+- **[✓]** **Persistence**: Data survives page refreshes
+- **[✓]** **Better than Raw IndexedDB**: Significant performance improvements over direct IndexedDB usage
 
 ### Architecture Differences
 
@@ -177,7 +177,7 @@ Both projects share these core concepts:
 - IndexedDB quota limits apply
 - Network conditions don't affect local benchmarks
 
-## 📚 Related Documentation
+## Related Documentation
 
 - [Main README](../README.md) - Project overview and features
 - [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Complete guide with Phase 5 features

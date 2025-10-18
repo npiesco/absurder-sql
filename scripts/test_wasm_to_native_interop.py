@@ -28,7 +28,7 @@ def start_vite_server():
     """Start the Vite dev server."""
     global VITE_PROCESS
     
-    print("🚀 Starting Vite dev server...")
+    print("[VITE] Starting Vite dev server...")
     repo_root = Path(__file__).parent.parent
     vite_dir = repo_root / "examples" / "vite-app"
     
@@ -41,16 +41,16 @@ def start_vite_server():
     )
     
     # Wait for server to be ready
-    print("⏳ Waiting for Vite server to start...")
+    print("[WAIT] Waiting for Vite server to start...")
     time.sleep(5)  # Give it time to start
-    print(f"✅ Vite server should be running at {VITE_URL}")
+    print(f"[OK] Vite server should be running at {VITE_URL}")
 
 def stop_vite_server():
     """Stop the Vite dev server."""
     global VITE_PROCESS
     
     if VITE_PROCESS:
-        print("🛑 Stopping Vite dev server...")
+        print("[STOP] Stopping Vite dev server...")
         VITE_PROCESS.terminate()
         try:
             VITE_PROCESS.wait(timeout=5)
@@ -68,23 +68,23 @@ async def export_db_from_browser(output_path: Path):
     Returns:
         True if successful, False otherwise
     """
-    print("🌐 Starting Playwright browser automation...")
+    print("[BROWSER] Starting Playwright browser automation...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         page = await browser.new_page()
         
-        print(f"📡 Navigating to {VITE_URL}...")
+        print(f"[NAV] Navigating to {VITE_URL}...")
         await page.goto(VITE_URL)
         
-        print("⏳ Waiting for WASM to initialize...")
+        print("[WAIT] Waiting for WASM to initialize...")
         await page.wait_for_selector('#leaderBadge', timeout=10000)
         await page.wait_for_function(
             '() => window.Database && typeof window.Database.newDatabase === "function"',
             timeout=10000
         )
         
-        print("💾 Creating test database with sample data...")
+        print("[DB] Creating test database with sample data...")
         db_bytes = await page.evaluate("""
             async () => {
                 // Create database with test data
@@ -108,7 +108,7 @@ async def export_db_from_browser(output_path: Path):
                         ('Alice O''Brien', 'alice@example.com', 30, 1234.56, '2024-01-15'),
                         ('Bob "The Builder"', 'bob@example.com', 25, 9876.54, '2024-02-20'),
                         ('Charlie 你好', 'charlie@example.com', 35, 5555.55, '2024-03-10'),
-                        ('Diana 🚀', 'diana@example.com', 28, 7777.77, '2024-04-05')
+                        ('Diana [rocket]', 'diana@example.com', 28, 7777.77, '2024-04-05')
                 `);
                 
                 // Export to bytes
@@ -120,11 +120,11 @@ async def export_db_from_browser(output_path: Path):
             }
         """)
         
-        print(f"✅ Exported {len(db_bytes)} bytes from browser")
+        print(f"[OK] Exported {len(db_bytes)} bytes from browser")
         
         # Write bytes to file
         output_path.write_bytes(bytes(db_bytes))
-        print(f"💾 Saved database to: {output_path}")
+        print(f"[SAVE] Saved database to: {output_path}")
         
         await browser.close()
         return True
@@ -139,7 +139,7 @@ def verify_with_rusqlite(db_path: Path):
     Returns:
         True if verification successful, False otherwise
     """
-    print("\n🦀 Running Rust verification with rusqlite...")
+    print("\n[RUST] Running Rust verification with rusqlite...")
     
     # Create a temporary Rust test file
     # Use absolute path for database
@@ -150,7 +150,7 @@ use rusqlite::{{Connection, Result}};
 fn main() -> Result<()> {{
     let conn = Connection::open("{db_abs_path}")?;
     
-    println!("✅ Successfully opened WASM-created database with rusqlite");
+    println!("[OK] Successfully opened WASM-created database with rusqlite");
     
     // Query the data
     let mut stmt = conn.prepare("SELECT id, name, email, age, balance FROM users ORDER BY id")?;
@@ -171,11 +171,11 @@ fn main() -> Result<()> {{
         count += 1;
     }}
     
-    println!("✅ Successfully queried {{}} rows from WASM-created database", count);
+    println!("[OK] Successfully queried {{}} rows from WASM-created database", count);
     
     // Verify we got the expected number of rows
     if count != 4 {{
-        eprintln!("❌ ERROR: Expected 4 rows, got {{}}", count);
+        eprintln!("[ERROR] Expected 4 rows, got {{}}", count);
         std::process::exit(1);
     }}
     
@@ -183,13 +183,13 @@ fn main() -> Result<()> {{
     let mut stmt = conn.prepare("SELECT name FROM users WHERE id = 1")?;
     let name: String = stmt.query_row([], |row| row.get(0))?;
     if name != "Alice O'Brien" {{
-        eprintln!("❌ ERROR: Special characters not preserved. Got: {{}}", name);
+        eprintln!("[ERROR] Special characters not preserved. Got: {{}}", name);
         std::process::exit(1);
     }}
-    println!("✅ Special characters preserved correctly");
+    println!("[OK] Special characters preserved correctly");
     
     // NOW: Write additional data from native Rust code
-    println!("\\n📝 Writing additional data from Rust...");
+    println!("\n[WRITE] Writing additional data from Rust...");
     
     conn.execute(
         "INSERT INTO users (name, email, age, balance, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -213,19 +213,19 @@ fn main() -> Result<()> {{
         ],
     )?;
     
-    println!("✅ Added 2 more rows from native Rust");
+    println!("[OK] Added 2 more rows from native Rust");
     
     // Verify total count
     let total_count: i32 = conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
-    println!("✅ Total rows after native write: {{}}", total_count);
+    println!("[OK] Total rows after native write: {{}}", total_count);
     
     if total_count != 6 {{
-        eprintln!("❌ ERROR: Expected 6 total rows, got {{}}", total_count);
+        eprintln!("[ERROR] Expected 6 total rows, got {{}}", total_count);
         std::process::exit(1);
     }}
     
     // Explicitly close connection to flush writes (conn is dropped automatically at function end)
-    println!("✅ All writes complete, connection will be closed");
+    println!("[OK] All writes complete, connection will be closed");
     
     Ok(())
 }}
@@ -252,7 +252,7 @@ rusqlite = "0.32"
         (src_dir / "main.rs").write_text(rust_code)
         
         # Run the Rust test
-        print("🔨 Compiling Rust verification code...")
+        print("[BUILD] Compiling Rust verification code...")
         result = subprocess.run(
             ["cargo", "run", "--quiet"],
             cwd=tmp_path,
@@ -261,7 +261,7 @@ rusqlite = "0.32"
         )
         
         if result.returncode != 0:
-            print(f"❌ Rust verification failed!")
+            print(f"[ERROR] Rust verification failed!")
             print(f"STDERR: {result.stderr}")
             return False
         
@@ -278,7 +278,7 @@ async def import_and_verify_in_wasm(db_file: Path):
     Returns:
         True if successful, False otherwise
     """
-    print("\n🌐 Importing Rust-modified database back into WASM...")
+    print("\n[WASM] Importing Rust-modified database back into WASM...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -294,7 +294,7 @@ async def import_and_verify_in_wasm(db_file: Path):
         # Read the database file
         db_bytes = db_file.read_bytes()
         
-        print(f"📥 Importing {len(db_bytes)} bytes back into WASM...")
+        print(f"[IMPORT] Importing {len(db_bytes)} bytes back into WASM...")
         
         # Import and verify in WASM
         result = await page.evaluate("""
@@ -364,7 +364,7 @@ async def import_and_verify_in_wasm(db_file: Path):
         """, list(db_bytes))
         
         if not result.get('success'):
-            print(f"❌ ERROR during WASM import:")
+            print(f"[ERROR] ERROR during WASM import:")
             print(f"  Message: {result.get('error', 'Unknown error')}")
             print(f"  Error Name: {result.get('errorName', 'N/A')}")
             print(f"  Error Code: {result.get('errorCode', 'N/A')}")
@@ -375,18 +375,18 @@ async def import_and_verify_in_wasm(db_file: Path):
                 print(f"\n  Stack trace:\n{result['stack']}")
             return False
         
-        print(f"✅ Successfully imported into WASM")
+        print(f"[OK] Successfully imported into WASM")
         print(f"\n  Import steps:")
         for step in result.get('steps', []):
             print(f"    ✓ {step}")
-        print(f"\n✅ Total rows in WASM after import: {result['rowCount']}")
+        print(f"\n[OK] Total rows in WASM after import: {result['rowCount']}")
         
         if result['rowCount'] != 6:
-            print(f"❌ ERROR: Expected 6 rows, got {result['rowCount']}")
+            print(f"[ERROR] Expected 6 rows, got {result['rowCount']}")
             return False
         
         # Print all rows to verify
-        print("\n📊 All rows in WASM (after Rust writes):")
+        print("\n[DATA] All rows in WASM (after Rust writes):")
         for idx, row in enumerate(result['rows']):
             print(f"  Row {idx + 1}: {row}")
         
@@ -394,13 +394,13 @@ async def import_and_verify_in_wasm(db_file: Path):
         row5 = result['rows'][4]  # Eve
         row6 = result['rows'][5]  # Frank
         
-        print(f"\n🔍 Checking Rust-written rows...")
+        print(f"\n[CHECK] Checking Rust-written rows...")
         print(f"  Row 5 (should be Eve): {row5}")
         print(f"  Row 6 (should be Frank): {row6}")
         
         # For now, just check we have the rows (validation can come later)
-        print("✅ Rust-written rows successfully read in WASM!")
-        print("✅ Data retrieved from imported database!")
+        print("[OK] Rust-written rows successfully read in WASM!")
+        print("[OK] Data retrieved from imported database!")
         
         await browser.close()
         return True
@@ -423,29 +423,29 @@ async def main():
         
         # Step 1: Export from browser
         if not await export_db_from_browser(db_file):
-            print("❌ Failed to export database from browser")
+            print("[ERROR] Failed to export database from browser")
             return 1
         
         # Step 2: Verify and write with Rust
         if not verify_with_rusqlite(db_file):
-            print("❌ Failed to verify database with Rust")
+            print("[ERROR] Failed to verify database with Rust")
             return 1
         
         # Check file size after Rust writes
         file_size = db_file.stat().st_size
-        print(f"\n📏 Database file size after Rust writes: {file_size} bytes ({file_size // 1024}KB)")
+        print(f"\n[SIZE] Database file size after Rust writes: {file_size} bytes ({file_size // 1024}KB)")
         
         # Verify file is still valid SQLite after Rust writes
-        print("\n🔍 Verifying file integrity with sqlite3...")
+        print("\n[VERIFY] Verifying file integrity with sqlite3...")
         result = subprocess.run(
             ["sqlite3", str(db_file), "PRAGMA integrity_check;"],
             capture_output=True,
             text=True
         )
         if result.returncode == 0:
-            print(f"✅ SQLite integrity check: {result.stdout.strip()}")
+            print(f"[OK] SQLite integrity check: {result.stdout.strip()}")
         else:
-            print(f"❌ SQLite integrity check failed: {result.stderr}")
+            print(f"[ERROR] SQLite integrity check failed: {result.stderr}")
             return 1
         
         # Count rows with sqlite3
@@ -454,28 +454,28 @@ async def main():
             capture_output=True,
             text=True
         )
-        print(f"✅ sqlite3 row count: {result.stdout.strip()}")
+        print(f"[OK] sqlite3 row count: {result.stdout.strip()}")
         
         # Step 3: Import Rust-modified database back into WASM
         if not await import_and_verify_in_wasm(db_file):
-            print("❌ Failed to import and verify in WASM")
+            print("[ERROR] Failed to import and verify in WASM")
             return 1
         
         print()
         print("=" * 70)
-        print("✅ SUCCESS: Full bidirectional interoperability verified!")
+        print("[SUCCESS] Full bidirectional interoperability verified!")
         print("=" * 70)
         print()
-        print("✅ WASM → SQLite file → Native Rust read")
-        print("✅ Native Rust write → SQLite file → WASM read")
-        print("✅ All data preserved across entire cycle!")
+        print("[OK] WASM -> SQLite file -> Native Rust read")
+        print("[OK] Native Rust write -> SQLite file -> WASM read")
+        print("[OK] All data preserved across entire cycle!")
         print(f"\nDatabase saved at: {db_file.absolute()}")
         print("You can inspect it with: sqlite3", db_file)
         
         return 0
         
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\n[ERROR] {e}")
         import traceback
         traceback.print_exc()
         return 1

@@ -20,25 +20,25 @@ npm run dev
 ## Features
 
 ### Core Features
-- ✅ Hot module replacement with Vite
-- ✅ SQLite database in the browser
-- ✅ IndexedDB persistence
-- ✅ **Multi-tab leader election**
-- ✅ **Automatic write coordination**
-- ✅ **Real-time sync across tabs**
-- ✅ Leader/follower badge display
-- ✅ Automatic UI updates on tab status change
+- **[✓]** Hot module replacement with Vite
+- **[✓]** SQLite database in the browser
+- **[✓]** IndexedDB persistence
+- **[✓]** **Multi-tab leader election**
+- **[✓]** **Automatic write coordination**
+- **[✓]** **Real-time sync across tabs**
+- **[✓]** Leader/follower badge display
+- **[✓]** Automatic UI updates on tab status change
 
-### Advanced Features ✨
-- ✅ **Write Queuing** (Phase 5.1): Queue writes from any tab
-- ✅ **Optimistic Updates** (Phase 5.2): Track pending writes
-- ✅ **Coordination Metrics** (Phase 5.3): Monitor performance
+### Advanced Features
+- **[✓]** **Write Queuing** (Phase 5.1): Queue writes from any tab
+- **[✓]** **Optimistic Updates** (Phase 5.2): Track pending writes
+- **[✓]** **Coordination Metrics** (Phase 5.3): Monitor performance
 
 ## Multi-Tab Testing
 
 1. Open http://localhost:5173 in your browser
 2. **Open the same URL in additional tabs**
-3. Observe the leader badge (👑 LEADER or 📖 FOLLOWER)
+3. Observe the leader badge ([LEADER] or [FOLLOWER])
 4. Try clicking "Run Test" in different tabs
 5. See how only the leader tab can write
 6. Click "Request Leadership" to become leader

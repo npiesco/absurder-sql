@@ -170,8 +170,8 @@ graph TB
 ```
 
 **Legend:**  
-🟪 SQLite Engine • 🟦 VFS Layer • 🟨 BlockStorage • 🟩 Persistence • 🟥 Multi-Tab  
-🟫 Observability • ⬛ Prometheus • 🟧 Grafana
+Purple=SQLite Engine • Blue=VFS Layer • Yellow=BlockStorage • Green=Persistence • Red=Multi-Tab  
+Brown=Observability • Black=Prometheus • Orange=Grafana
 
 ## Project Structure
 

@@ -148,12 +148,12 @@
 </head>
 <body>
     <div class="header">
-        <h1>🛠️ AbsurderSQL DevTools Extension Demo</h1>
+        <h1>AbsurderSQL DevTools Extension Demo</h1>
         <p>Test the browser extension with real telemetry data</p>
     </div>
 
     <div class="alert" id="extensionAlert">
-        <strong>⚠️ Extension Setup Required</strong><br>
+        <strong>Extension Setup Required</strong><br>
         <ol style="margin: 10px 0 0 20px; padding: 0;">
             <li>Open <code>browser-extension/generate_icons.html</code> and download the icons</li>
             <li>Open Chrome and go to <code>chrome://extensions/</code></li>
@@ -165,7 +165,7 @@
     </div>
 
     <div class="card">
-        <h2>📊 Generate Telemetry Data</h2>
+        <h2>Generate Telemetry Data</h2>
         <div class="controls">
             <button id="initBtn" onclick="initDatabase()">1. Initialize Database</button>
             <button id="queryBtn" onclick="runQueries()" class="success">2. Run Sample Queries</button>
@@ -195,7 +195,7 @@
     </div>
 
     <div class="card">
-        <h2>📝 Activity Log</h2>
+        <h2>Activity Log</h2>
         <div class="log" id="activityLog">
             <div class="log-entry log-info">Waiting for database initialization...</div>
         </div>
@@ -282,17 +282,17 @@
             
             setTimeout(() => {
                 createSpan('database_init', 45);
-                log('✅ Database initialized successfully', 'success');
+                log('[OK] Database initialized successfully', 'success');
                 log('DevTools extension should show 1 span', 'info');
                 
-                document.getElementById('devtoolsStatus').textContent = '✅ Enabled';
+                document.getElementById('devtoolsStatus').textContent = 'Enabled';
                 document.getElementById('endpoint').textContent = 'http://localhost:4318/v1/traces';
                 document.getElementById('autoExport').textContent = 'Disabled (manual flush)';
                 
                 const alert = document.getElementById('extensionAlert');
                 if (alert) {
                     alert.className = 'alert alert-success';
-                    alert.innerHTML = '<strong>✅ Ready!</strong> Database initialized. Open DevTools → AbsurderSQL tab to see telemetry data.';
+                    alert.innerHTML = '<strong>Ready!</strong> Database initialized. Open DevTools -> AbsurderSQL tab to see telemetry data.';
                 }
             }, 100);
         };
@@ -316,7 +316,7 @@
             });
             
             setTimeout(() => {
-                log(`✅ Completed ${queries.length} queries`, 'success');
+                log(`[OK] Completed ${queries.length} queries`, 'success');
                 log(`DevTools should now show ${spanCount} spans`, 'info');
             }, queries.length * 200 + 100);
         };
@@ -334,7 +334,7 @@
                     details: 'Invalid SQL syntax near "SELCT"'
                 });
                 
-                log('❌ SQL syntax error occurred', 'error');
+                log('[ERROR] SQL syntax error occurred', 'error');
                 log('Check DevTools "Export Stats" tab for error details', 'info');
             }, 100);
         };
@@ -349,7 +349,7 @@
                     log(`  ⚡ Query ${i + 1}/10 completed (${duration}ms)`, 'success');
                     
                     if (i === 9) {
-                        log('✅ Load test complete', 'success');
+                        log('[OK] Load test complete', 'success');
                         
                         // Simulate export
                         setTimeout(() => {
@@ -369,7 +369,7 @@
                                 size: 0
                             });
                             
-                            log('📤 Exported batch to OTLP endpoint', 'success');
+                            log('[EXPORT] Exported batch to OTLP endpoint', 'success');
                         }, 200);
                     }
                 }, i * 150);
@@ -404,7 +404,7 @@
                         size: 0
                     });
                     
-                    log('✅ Flush successful', 'success');
+                    log('[OK] Flush successful', 'success');
                     return { success: true };
                     
                 case 'get_buffer':
@@ -413,11 +413,11 @@
                 case 'clear_buffer':
                     bufferedCount = 0;
                     updateStats();
-                    log('🗑️ Buffer cleared', 'info');
+                    log('[CLEAR] Buffer cleared', 'info');
                     return { success: true };
                     
                 case 'config_update':
-                    log('⚙️ Configuration updated from DevTools', 'info');
+                    log('[CONFIG] Configuration updated from DevTools', 'info');
                     return { success: true };
                     
                 default:

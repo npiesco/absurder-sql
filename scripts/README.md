@@ -13,10 +13,10 @@ This script proves complete bidirectional compatibility between WASM and native 
 3. **Querying the file with native Rust code** (rusqlite)
 
 This validates that:
-- ✅ WASM can create valid, spec-compliant SQLite files
-- ✅ Native tools can read WASM-created databases
-- ✅ Data integrity is maintained (special characters, types, etc.)
-- ✅ Full round-trip compatibility works
+- **[✓]** WASM can create valid, spec-compliant SQLite files
+- **[✓]** Native tools can read WASM-created databases
+- **[✓]** Data integrity is maintained (special characters, types, etc.)
+- **[✓]** Full round-trip compatibility works
 
 ### Prerequisites
 
@@ -78,25 +78,25 @@ npm run test:interop
 WASM → Native Interoperability Test
 ======================================================================
 
-🌐 Starting Playwright browser automation...
-📡 Navigating to http://localhost:3000...
-⏳ Waiting for WASM to initialize...
-💾 Creating test database with sample data...
-✅ Exported 12288 bytes from browser
-💾 Saved database to: test-output/wasm_exported.db
+[BROWSER] Starting Playwright browser automation...
+[NAV] Navigating to http://localhost:3000...
+[WAIT] Waiting for WASM to initialize...
+[DB] Creating test database with sample data...
+[OK] Exported 12288 bytes from browser
+[SAVE] Saved database to: test-output/wasm_exported.db
 
-🦀 Running Rust verification with rusqlite...
-🔨 Compiling Rust verification code...
-✅ Successfully opened WASM-created database with rusqlite
+[Rust] Running Rust verification with rusqlite...
+[BUILD] Compiling Rust verification code...
+[OK] Successfully opened WASM-created database with rusqlite
   Row 1: Alice O'Brien | alice@example.com | 30 | 1234.56
   Row 2: Bob "The Builder" | bob@example.com | 25 | 9876.54
   Row 3: Charlie 你好 | charlie@example.com | 35 | 5555.55
-  Row 4: Diana 🚀 | diana@example.com | 28 | 7777.77
-✅ Successfully queried 4 rows from WASM-created database
-✅ Special characters preserved correctly
+  Row 4: Diana [emoji] | diana@example.com | 28 | 7777.77
+[OK] Successfully queried 4 rows from WASM-created database
+[OK] Special characters preserved correctly
 
 ======================================================================
-✅ SUCCESS: WASM → Native interoperability verified!
+[SUCCESS] WASM -> Native interoperability verified!
 ======================================================================
 
 Exported database saved at: /path/to/test-output/wasm_exported.db

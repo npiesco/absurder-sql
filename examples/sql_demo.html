@@ -44,7 +44,7 @@
     </style>
 </head>
 <body>
-    <h1>🗄️ SQL Demo - AbsurderSQL</h1>
+    <h1>SQL Demo - AbsurderSQL</h1>
     <button id="runDemo">Run Demo Again</button>
     <div id="output">Loading demo...</div>
 
@@ -64,7 +64,7 @@
             btn.disabled = true;
             
             try {
-                log('🗄️  SQL Demo - AbsurderSQL\n');
+                log('SQL Demo - AbsurderSQL\n');
 
                 log('Initializing WASM...');
                 await init();
@@ -151,13 +151,13 @@
                 log('✓ Transaction committed and synced');
 
                 const countResult = await db.execute('SELECT COUNT(*) as count FROM users');
-                log(`\n📊 Final user count: ${countResult.rows[0].values[0].value}`);
+                log(`\nFinal user count: ${countResult.rows[0].values[0].value}`);
 
                 await db.close();
-                log('\n✅ Demo complete!');
+                log('\n[OK] Demo complete!');
 
             } catch (error) {
-                log(`\n❌ ERROR: ${error.message}`);
+                log(`\n[ERROR] ${error.message}`);
                 log(`Stack: ${error.stack}`);
                 console.error(error);
             } finally {
