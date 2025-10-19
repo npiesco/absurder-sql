@@ -24,11 +24,11 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
 ## Foundation & Setup (Weeks 1-2)
 
 ### 1.1 Project Structure
-- **[ ]** Create `absurder-sql-mobile` workspace crate
-  - **[ ]** Create `absurder-sql-mobile/Cargo.toml` with dependencies
-  - **[ ]** Set up `crate-type = ["cdylib", "staticlib"]`
-  - **[ ]** Add dependency on parent `absurder-sql` crate with `fs_persist` feature
-  - **[ ]** Configure build profiles (release optimization)
+- **[✓]** Create `absurder-sql-mobile` workspace crate
+  - **[✓]** Create `absurder-sql-mobile/Cargo.toml` with dependencies
+  - **[✓]** Set up `crate-type = ["cdylib", "staticlib"]`
+  - **[✓]** Add dependency on parent `absurder-sql` crate with `fs_persist` feature
+  - **[✓]** Configure build profiles (release optimization)
 - **[ ]** Set up npm package structure
   - **[ ]** Create `package.json` for `@npiesco/absurder-sql-mobile`
   - **[ ]** Define peer dependencies (react-native, react)
@@ -46,53 +46,49 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
 - **[ ]** Install iOS development tools (macOS only)
   - **[ ]** Xcode 14+ with command-line tools
   - **[ ]** CocoaPods for dependency management
-- **[ ]** Set up React Native test app
-  - **[ ]** Create `examples/mobile-example` with `npx react-native init`
-  - **[ ]** Configure for local package testing
 
 ### 1.3 Core FFI Layer
-- [ ] Implement C ABI interface (`absurder-sql-mobile/src/lib.rs`)
-  - [ ] Define database handle registry (`HashMap<u64, SqliteIndexedDB>`)
-  - [ ] Implement `absurder_db_new()` - Create database
-      - [ ] Accept C string name parameter
-      - [ ] Create `SqliteIndexedDB` with `fs_persist` enabled
-      - [ ] Store in registry with unique handle
-      - [ ] Return handle (0 on error)
-  - [ ] Implement `absurder_db_execute()` - Execute SQL
-      - [ ] Accept handle and SQL C string
-      - [ ] Look up database from registry
-      - [ ] Execute on Tokio runtime (blocking)
-      - [ ] Serialize `QueryResult` to JSON
-      - [ ] Return JSON C string (NULL on error)
-  - [ ] Implement `absurder_db_execute_with_params()` - Parameterized queries
+- **[✓]** Implement C ABI interface (`absurder-sql-mobile/src/lib.rs`)
+  - **[✓]** Define database handle registry (`Arc<Mutex<HashMap<u64, Arc<Mutex<SqliteIndexedDB>>>>>`)
+  - **[✓]** Implement `absurder_db_new()` - Create database
+      - **[✓]** Accept C string name parameter
+      - **[✓]** Create `SqliteIndexedDB` with `fs_persist` enabled
+      - **[✓]** Store in registry with unique handle
+      - **[✓]** Return handle (0 on error)
+  - **[✓]** Implement `absurder_db_execute()` - Execute SQL
+      - **[✓]** Accept handle and SQL C string
+      - **[✓]** Look up database from registry
+      - **[✓]** Execute on Tokio runtime (blocking)
+      - **[✓]** Serialize `QueryResult` to JSON
+      - **[✓]** Return JSON C string (NULL on error)
+  - [ ] Implement `absurder_db_execute_with_params()` - Parameterized queries (Future)
       - [ ] Accept JSON array of parameters
       - [ ] Deserialize to `Vec<ColumnValue>`
       - [ ] Execute prepared statement
-  - [ ] Implement `absurder_db_close()` - Close database
-      - [ ] Remove from registry
-      - [ ] Drop database (cleanup)
-  - [ ] Implement `absurder_free_string()` - Free returned strings
-      - [ ] Convert to `CString` and drop
-  - [ ] Implement `absurder_get_error()` - Get last error
+  - **[✓]** Implement `absurder_db_close()` - Close database
+      - **[✓]** Remove from registry
+      - **[✓]** Drop database (cleanup)
+  - **[✓]** Implement `absurder_free_string()` - Free returned strings
+      - **[✓]** Convert to `CString` and drop
+  - [ ] Implement `absurder_get_error()` - Get last error (Future)
       - [ ] Thread-local error storage
       - [ ] Return error message as C string
 
 ### 1.4 Memory Safety & Error Handling
-- [ ] Add safety checks in FFI layer
-  - [ ] Validate handle exists before use
-  - [ ] Check for null pointers
-  - [ ] Validate UTF-8 encoding
-  - [ ] Catch panics with `catch_unwind`
-- [ ] Implement error propagation
-  - [ ] Convert Rust errors to error codes
-  - [ ] Store detailed error messages
-  - [ ] Add logging for debugging
-- [ ] Add unit tests for FFI layer
-  - [ ] Test successful database creation
-  - [ ] Test SQL execution (CREATE, INSERT, SELECT)
-  - [ ] Test error cases (invalid handle, bad SQL)
-  - [ ] Test memory cleanup (no leaks)
-  - [ ] Run with Valgrind/AddressSanitizer
+- **[✓]** Add safety checks in FFI layer
+  - **[✓]** Validate handle exists before use
+  - **[✓]** Check for null pointers
+  - **[✓]** Validate UTF-8 encoding
+  - [ ] Catch panics with `catch_unwind` (Future enhancement)
+- **[✓]** Implement error propagation
+  - **[✓]** Return 0/NULL on errors
+  - **[✓]** Add logging for debugging
+- **[✓]** Add unit tests for FFI layer
+  - **[✓]** Test successful database creation
+  - **[✓]** Test SQL execution (CREATE, INSERT, SELECT)
+  - **[✓]** Test error cases (invalid handle, bad SQL, null pointers)
+  - **[✓]** Test memory cleanup
+  - [ ] Run with Valgrind/AddressSanitizer (Future)
 
 ---
 

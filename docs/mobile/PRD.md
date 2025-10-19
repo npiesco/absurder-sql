@@ -47,7 +47,6 @@ AbsurderSQL currently supports:
 1. **Binary Size Optimization**: Keep mobile binaries under 5MB (vs. 1.3MB WASM)
 2. **Documentation**: Complete integration guides for iOS and Android
 3. **Testing**: Mobile-specific test suite covering FFI boundaries
-4. **Example App**: Reference React Native app demonstrating best practices
 
 ### Non-Goals (Out of Scope)
 - **[X]** Flutter FFI support (future consideration)
@@ -154,12 +153,11 @@ AbsurderSQL currently supports:
 - **FR-5.4**: Maintain block-level metadata and checksums
 - **FR-5.5**: Support database directory customization
 
-### FR-6: Testing
+### FR-6: Testing and Quality
 - **FR-6.1**: Unit tests for FFI boundary (Rust side)
 - **FR-6.2**: Integration tests for iOS native bridge
 - **FR-6.3**: Integration tests for Android native bridge
-- **FR-6.4**: E2E tests in example React Native app
-- **FR-6.5**: Performance benchmarks vs. competitors
+- **FR-6.4**: Performance benchmarks vs. competitors
 
 ---
 
@@ -225,18 +223,16 @@ AbsurderSQL currently supports:
 ## Success Metrics
 
 ### Adoption Metrics
-- npm downloads of `@npiesco/absurder-sql-mobile`: 1000+/month within 6 months
-- GitHub stars: +200 within 3 months
-- Example app forks: 50+
+- npm downloads: 1000+ in first month
+- GitHub stars: 100+ on mobile repo
 
 ### Performance Metrics
-- Query latency < 5ms (measured via example app)
+- Query latency < 5ms (measured via integration tests)
 - 10x faster than WebView-based solutions
 - < 5% overhead vs. native rusqlite
 
 ### Quality Metrics
 - Test coverage: > 80%
-- Zero critical bugs in first release
 - Documentation completeness: 100% of APIs documented
 
 ### Developer Satisfaction
@@ -309,7 +305,6 @@ AbsurderSQL currently supports:
 
 ### Testing and Examples (Week 5)
 - Integration tests for iOS/Android
-- Example React Native app
 - Performance benchmarks
 - Documentation
 
