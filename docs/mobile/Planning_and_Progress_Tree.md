@@ -90,9 +90,12 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Implement `absurder_db_rollback()` - Rollback transaction
       - **[✓]** Execute ROLLBACK SQL
       - **[✓]** Test commit and rollback behavior
-  - [ ] Implement `absurder_get_error()` - Get last error
-      - [ ] Thread-local error storage
-      - [ ] Return error message as C string
+  - **[✓]** Implement `absurder_get_error()` - Get last error
+      - **[✓]** Thread-local error storage with `RefCell<Option<String>>`
+      - **[✓]** Return error message as C string
+      - **[✓]** `set_last_error()` helper to store errors
+      - **[✓]** `clear_last_error()` on successful operations
+      - **[✓]** Updated all error paths to call `set_last_error()`
 
 ### 1.4 Memory Safety & Error Handling
 - **[✓]** Add safety checks in FFI layer

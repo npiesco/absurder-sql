@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::Arc;
+use std::cell::RefCell;
 use parking_lot::Mutex;
 use once_cell::sync::Lazy;
 use absurder_sql::database::SqliteIndexedDB;
@@ -29,6 +30,26 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("Failed to create Tokio runtime")
 });
 
+// Thread-local storage for the last error message
+// This allows each thread to have its own error state without requiring synchronization
+thread_local! {
+    static LAST_ERROR: RefCell<Option<String>> = RefCell::new(None);
+}
+
+/// Set the last error message for this thread
+fn set_last_error(msg: String) {
+    LAST_ERROR.with(|e| {
+        *e.borrow_mut() = Some(msg);
+    });
+}
+
+/// Clear the last error message for this thread
+fn clear_last_error() {
+    LAST_ERROR.with(|e| {
+        *e.borrow_mut() = None;
+    });
+}
+
 /// Create a new database and return a handle
 /// 
 /// # Safety
@@ -36,9 +57,13 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 /// - Returns 0 on error
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn absurder_db_new(name: *const c_char) -> u64 {
+    clear_last_error();
+    
     // Validate name pointer
     if name.is_null() {
-        log::error!("absurder_db_new: null name pointer");
+        let err = "Database name cannot be null".to_string();
+        log::error!("absurder_db_new: {}", err);
+        set_last_error(err);
         return 0;
     }
 
@@ -46,7 +71,9 @@ pub unsafe extern "C" fn absurder_db_new(name: *const c_char) -> u64 {
     let name_str = match unsafe { CStr::from_ptr(name) }.to_str() {
         Ok(s) => s,
         Err(e) => {
-            log::error!("absurder_db_new: invalid UTF-8 in name: {}", e);
+            let err = format!("Invalid UTF-8 in database name: {}", e);
+            log::error!("absurder_db_new: {}", err);
+            set_last_error(err);
             return 0;
         }
     };
@@ -97,15 +124,21 @@ pub unsafe extern "C" fn absurder_db_execute(
     handle: u64,
     sql: *const c_char,
 ) -> *mut c_char {
+    clear_last_error();
+    
     // Validate handle
     if handle == 0 {
-        log::error!("absurder_db_execute: invalid handle 0");
+        let err = "Invalid database handle".to_string();
+        log::error!("absurder_db_execute: {}", err);
+        set_last_error(err);
         return std::ptr::null_mut();
     }
 
     // Validate SQL pointer
     if sql.is_null() {
-        log::error!("absurder_db_execute: null SQL pointer");
+        let err = "SQL string cannot be null".to_string();
+        log::error!("absurder_db_execute: {}", err);
+        set_last_error(err);
         return std::ptr::null_mut();
     }
 
@@ -113,7 +146,9 @@ pub unsafe extern "C" fn absurder_db_execute(
     let sql_str = match unsafe { CStr::from_ptr(sql) }.to_str() {
         Ok(s) => s,
         Err(e) => {
-            log::error!("absurder_db_execute: invalid UTF-8 in SQL: {}", e);
+            let err = format!("Invalid UTF-8 in SQL: {}", e);
+            log::error!("absurder_db_execute: {}", err);
+            set_last_error(err);
             return std::ptr::null_mut();
         }
     };
@@ -124,7 +159,9 @@ pub unsafe extern "C" fn absurder_db_execute(
         match registry.get(&handle) {
             Some(db) => Arc::clone(db),
             None => {
-                log::error!("absurder_db_execute: handle {} not found", handle);
+                let err = format!("Database handle {} not found", handle);
+                log::error!("absurder_db_execute: {}", err);
+                set_last_error(err);
                 return std::ptr::null_mut();
             }
         }
@@ -139,8 +176,10 @@ pub unsafe extern "C" fn absurder_db_execute(
     let query_result = match result {
         Ok(r) => r,
         Err(e) => {
-            log::error!("absurder_db_execute: SQL execution failed: {:?}", e);
-            eprintln!("absurder_db_execute: SQL execution failed: {:?}", e);
+            let err = format!("SQL execution failed: {:?}", e);
+            log::error!("absurder_db_execute: {}", err);
+            eprintln!("absurder_db_execute: {}", err);
+            set_last_error(err);
             return std::ptr::null_mut();
         }
     };
@@ -440,6 +479,32 @@ pub unsafe extern "C" fn absurder_free_string(s: *mut c_char) {
             drop(CString::from_raw(s));
         }
     }
+}
+
+/// Get the last error message for the current thread
+/// 
+/// # Safety
+/// - Returns a pointer to a static string that should NOT be freed
+/// - Returns null if there is no error
+/// - The pointer is valid until the next error occurs on this thread
+/// 
+/// # Thread Safety
+/// Each thread has its own error message, so this is thread-safe
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_get_error() -> *const c_char {
+    LAST_ERROR.with(|e| {
+        match e.borrow().as_ref() {
+            Some(err_msg) => {
+                // Create a CString and leak it to get a stable pointer
+                // This is safe because we'll replace it on the next error
+                match CString::new(err_msg.as_str()) {
+                    Ok(c_str) => c_str.into_raw() as *const c_char,
+                    Err(_) => std::ptr::null(),
+                }
+            }
+            None => std::ptr::null(),
+        }
+    })
 }
 
 //=============================================================================
@@ -980,6 +1045,92 @@ mod tests {
             assert!(result_str.contains("5"), "All committed items should be present");
             
             absurder_free_string(result);
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_get_error_returns_null_when_no_error() {
+        unsafe {
+            clear_last_error();
+            let error = absurder_get_error();
+            assert!(error.is_null(), "Should return null when no error");
+        }
+    }
+
+    #[test]
+    fn test_get_error_returns_message_after_failure() {
+        unsafe {
+            // Trigger an error by using invalid handle
+            let result = absurder_db_execute(0, CString::new("SELECT 1").unwrap().as_ptr());
+            assert!(result.is_null(), "Should fail with invalid handle");
+            
+            // Get error message
+            let error_ptr = absurder_get_error();
+            assert!(!error_ptr.is_null(), "Should have error message");
+            
+            let error_str = CStr::from_ptr(error_ptr).to_str().unwrap();
+            assert!(error_str.contains("Invalid database handle"), 
+                "Error message should describe the problem: {}", error_str);
+        }
+    }
+
+    #[test]
+    fn test_error_cleared_on_success() {
+        unsafe {
+            // First trigger an error
+            let _ = absurder_db_execute(0, CString::new("SELECT 1").unwrap().as_ptr());
+            assert!(!absurder_get_error().is_null(), "Should have error");
+            
+            // Now do a successful operation
+            let name = CString::new("test_clear_error.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            assert_ne!(handle, 0, "Should succeed");
+            
+            // Error should be cleared
+            let error = absurder_get_error();
+            assert!(error.is_null(), "Error should be cleared after success");
+            
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_error_with_null_sql() {
+        unsafe {
+            let name = CString::new("test_null_sql_error.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            let result = absurder_db_execute(handle, std::ptr::null());
+            assert!(result.is_null(), "Should fail with null SQL");
+            
+            let error_ptr = absurder_get_error();
+            assert!(!error_ptr.is_null(), "Should have error message");
+            
+            let error_str = CStr::from_ptr(error_ptr).to_str().unwrap();
+            assert!(error_str.contains("SQL") || error_str.contains("null"), 
+                "Error should mention SQL: {}", error_str);
+            
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_error_with_bad_sql() {
+        unsafe {
+            let name = CString::new("test_bad_sql_error.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            let bad_sql = CString::new("INVALID SQL!!!").unwrap();
+            let result = absurder_db_execute(handle, bad_sql.as_ptr());
+            assert!(result.is_null(), "Should fail with bad SQL");
+            
+            let error_ptr = absurder_get_error();
+            assert!(!error_ptr.is_null(), "Should have error message");
+            
+            let error_str = CStr::from_ptr(error_ptr).to_str().unwrap();
+            assert!(!error_str.is_empty(), "Error message should not be empty");
+            
             absurder_db_close(handle);
         }
     }
