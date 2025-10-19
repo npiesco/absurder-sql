@@ -95,13 +95,64 @@ RCT_EXPORT_METHOD(importFromFile:(uint64_t)handle
     reject(@"NOT_IMPLEMENTED", @"Import not yet implemented", nil);
 }
 
-// Close database
-RCT_EXPORT_METHOD(close:(uint64_t)handle
+// Begin transaction
+RCT_EXPORT_METHOD(beginTransaction:(nonnull NSNumber *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    absurder_db_close(handle);
-    self.dbHandle = 0;
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    int32_t result = absurder_db_begin_transaction(dbHandle);
+    
+    if (result == 0) {
+        resolve(@(YES));
+    } else {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to begin transaction";
+        reject(@"TRANSACTION_ERROR", errorMsg, nil);
+    }
+}
+
+// Commit transaction
+RCT_EXPORT_METHOD(commit:(nonnull NSNumber *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    int32_t result = absurder_db_commit(dbHandle);
+    
+    if (result == 0) {
+        resolve(@(YES));
+    } else {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to commit transaction";
+        reject(@"TRANSACTION_ERROR", errorMsg, nil);
+    }
+}
+
+// Rollback transaction
+RCT_EXPORT_METHOD(rollback:(nonnull NSNumber *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    int32_t result = absurder_db_rollback(dbHandle);
+    
+    if (result == 0) {
+        resolve(@(YES));
+    } else {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to rollback transaction";
+        reject(@"TRANSACTION_ERROR", errorMsg, nil);
+    }
+}
+
+// Close database
+RCT_EXPORT_METHOD(close:(nonnull NSNumber *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    absurder_db_close(dbHandle);
     resolve(@(YES));
 }
 

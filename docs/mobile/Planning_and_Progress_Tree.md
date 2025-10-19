@@ -141,6 +141,16 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
       - [ ] Call FFI with JSON params (Pending FFI implementation)
   - **[✓]** `exportToFile:(NSString *)path resolver:rejecter:` (Stub - returns NOT_IMPLEMENTED)
   - **[✓]** `importFromFile:(NSString *)path resolver:rejecter:` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** `beginTransaction:resolver:rejecter:` - Begin transaction
+      - **[✓]** Call `absurder_db_begin_transaction()`
+      - **[✓]** Check return status
+      - **[✓]** Resolve/reject promise with error handling
+  - **[✓]** `commit:resolver:rejecter:` - Commit transaction
+      - **[✓]** Call `absurder_db_commit()`
+      - **[✓]** Handle success/error
+  - **[✓]** `rollback:resolver:rejecter:` - Rollback transaction
+      - **[✓]** Call `absurder_db_rollback()`
+      - **[✓]** Handle success/error
   - **[✓]** `close:resolver:rejecter:`
       - **[✓]** Call `absurder_db_close()`
       - **[✓]** Clear instance handle
@@ -182,6 +192,15 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - [ ] Implement `Java_..._nativeExecuteWithParams` (Future)
   - [ ] Implement `Java_..._nativeExport` (Future)
   - [ ] Implement `Java_..._nativeImport` (Future)
+  - **[✓]** Implement `Java_..._nativeBeginTransaction`
+      - **[✓]** Call `absurder_db_begin_transaction()`
+      - **[✓]** Return status code
+  - **[✓]** Implement `Java_..._nativeCommit`
+      - **[✓]** Call `absurder_db_commit()`
+      - **[✓]** Return status code
+  - **[✓]** Implement `Java_..._nativeRollback`
+      - **[✓]** Call `absurder_db_rollback()`
+      - **[✓]** Return status code
   - **[✓]** Implement `Java_..._nativeClose`
 - **[✓]** Implement Kotlin native module
   - **[✓]** Create `AbsurderSQLModule.kt`
@@ -198,6 +217,15 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Implement `@ReactMethod executeWithParams(...)` (Stub - returns NOT_IMPLEMENTED)
   - **[✓]** Implement `@ReactMethod exportToFile(...)` (Stub - returns NOT_IMPLEMENTED)
   - **[✓]** Implement `@ReactMethod importFromFile(...)` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** Implement `@ReactMethod beginTransaction(...)` - Begin transaction
+      - **[✓]** Call JNI `nativeBeginTransaction()`
+      - **[✓]** Check result and resolve/reject promise
+  - **[✓]** Implement `@ReactMethod commit(...)` - Commit transaction
+      - **[✓]** Call JNI `nativeCommit()`
+      - **[✓]** Handle result
+  - **[✓]** Implement `@ReactMethod rollback(...)` - Rollback transaction
+      - **[✓]** Call JNI `nativeRollback()`
+      - **[✓]** Handle result
   - **[✓]** Implement `@ReactMethod close(...)`
   - **[✓]** Create `AbsurderSQLPackage.kt` (register module)
 - **[✓]** Build shared libraries
@@ -244,10 +272,20 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
       - [ ] Implement once FFI layer supports export
   - **[✓]** `importFromFile(path: string): Promise<void>` (Stub)
       - [ ] Implement once FFI layer supports import
-  - [ ] `beginTransaction(mode?: 'DEFERRED' | 'IMMEDIATE' | 'EXCLUSIVE'): Promise<void>`
-  - [ ] `commit(): Promise<void>`
-  - [ ] `rollback(): Promise<void>`
-  - [ ] `transaction<T>(fn: () => Promise<T>): Promise<T>` - automatic transaction wrapper
+  - **[✓]** `beginTransaction(): Promise<void>`
+      - **[✓]** Call native bridge method
+      - **[✓]** Handle errors via promise rejection
+  - **[✓]** `commit(): Promise<void>`
+      - **[✓]** Call native bridge method
+      - **[✓]** Return promise
+  - **[✓]** `rollback(): Promise<void>`
+      - **[✓]** Call native bridge method  
+      - **[✓]** Return promise
+  - **[✓]** `transaction<T>(fn: () => Promise<T>): Promise<T>` - automatic transaction wrapper
+      - **[✓]** Begin transaction automatically
+      - **[✓]** Commit on success
+      - **[✓]** Rollback on error
+      - **[✓]** Return function result
   - **[✓]** `close(): Promise<void>`
 - **[✓]** Define TypeScript interfaces
   - **[✓]** `QueryResult` - columns, rows, rowsAffected

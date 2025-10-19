@@ -624,6 +624,36 @@ mod android_jni {
         }
         log::info!("JNI nativeClose: closed database with handle {}", handle);
     }
+
+    /// JNI: Begin transaction
+    #[no_mangle]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeBeginTransaction(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) -> jint {
+        absurder_db_begin_transaction(handle as u64)
+    }
+
+    /// JNI: Commit transaction
+    #[no_mangle]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCommit(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) -> jint {
+        absurder_db_commit(handle as u64)
+    }
+
+    /// JNI: Rollback transaction
+    #[no_mangle]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeRollback(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) -> jint {
+        absurder_db_rollback(handle as u64)
+    }
 }
 
 #[cfg(test)]

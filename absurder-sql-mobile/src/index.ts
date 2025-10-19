@@ -119,6 +119,90 @@ export class AbsurderDatabase {
   }
 
   /**
+   * Begin a database transaction
+   * 
+   * @returns Promise that resolves when transaction begins
+   * @throws Error if database is not open or transaction fails
+   * 
+   * @example
+   * await db.beginTransaction();
+   * try {
+   *   await db.execute("INSERT INTO users VALUES (1, 'Alice')");
+   *   await db.commit();
+   * } catch (err) {
+   *   await db.rollback();
+   *   throw err;
+   * }
+   */
+  async beginTransaction(): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await AbsurderSQLNative.beginTransaction(this.handle);
+  }
+
+  /**
+   * Commit the current transaction
+   * 
+   * @returns Promise that resolves when transaction is committed
+   * @throws Error if database is not open or no transaction is active
+   */
+  async commit(): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await AbsurderSQLNative.commit(this.handle);
+  }
+
+  /**
+   * Rollback the current transaction
+   * 
+   * @returns Promise that resolves when transaction is rolled back
+   * @throws Error if database is not open or no transaction is active
+   */
+  async rollback(): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await AbsurderSQLNative.rollback(this.handle);
+  }
+
+  /**
+   * Execute a function within a transaction
+   * Automatically commits on success or rolls back on error
+   * 
+   * @param fn Function to execute within transaction
+   * @returns Promise with the function's return value
+   * @throws Error if database is not open or transaction fails
+   * 
+   * @example
+   * const result = await db.transaction(async () => {
+   *   await db.execute("INSERT INTO users VALUES (1, 'Alice')");
+   *   await db.execute("INSERT INTO users VALUES (2, 'Bob')");
+   *   return { inserted: 2 };
+   * });
+   */
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await this.beginTransaction();
+    
+    try {
+      const result = await fn();
+      await this.commit();
+      return result;
+    } catch (error) {
+      await this.rollback();
+      throw error;
+    }
+  }
+
+  /**
    * Close the database
    */
   async close(): Promise<void> {

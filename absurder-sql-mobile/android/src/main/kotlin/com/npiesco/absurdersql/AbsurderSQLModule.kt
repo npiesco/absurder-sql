@@ -81,6 +81,48 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun beginTransaction(handle: Double, promise: Promise) {
+        try {
+            val result = nativeBeginTransaction(handle.toLong())
+            if (result == 0) {
+                promise.resolve(true)
+            } else {
+                promise.reject("TRANSACTION_ERROR", "Failed to begin transaction")
+            }
+        } catch (e: Exception) {
+            promise.reject("TRANSACTION_ERROR", "Failed to begin transaction: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun commit(handle: Double, promise: Promise) {
+        try {
+            val result = nativeCommit(handle.toLong())
+            if (result == 0) {
+                promise.resolve(true)
+            } else {
+                promise.reject("TRANSACTION_ERROR", "Failed to commit transaction")
+            }
+        } catch (e: Exception) {
+            promise.reject("TRANSACTION_ERROR", "Failed to commit transaction: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun rollback(handle: Double, promise: Promise) {
+        try {
+            val result = nativeRollback(handle.toLong())
+            if (result == 0) {
+                promise.resolve(true)
+            } else {
+                promise.reject("TRANSACTION_ERROR", "Failed to rollback transaction")
+            }
+        } catch (e: Exception) {
+            promise.reject("TRANSACTION_ERROR", "Failed to rollback transaction: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
     fun close(handle: Double, promise: Promise) {
         try {
             val handleLong = handle.toLong()
@@ -99,5 +141,8 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     // JNI native method declarations
     private external fun nativeCreateDb(name: String): Long
     private external fun nativeExecute(handle: Long, sql: String): String?
+    private external fun nativeBeginTransaction(handle: Long): Int
+    private external fun nativeCommit(handle: Long): Int
+    private external fun nativeRollback(handle: Long): Int
     private external fun nativeClose(handle: Long)
 }
