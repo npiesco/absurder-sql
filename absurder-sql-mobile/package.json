@@ -1,0 +1,46 @@
+{
+  "name": "@npiesco/absurder-sql-mobile",
+  "version": "0.1.0",
+  "description": "AbsurderSQL Mobile - React Native bindings for iOS and Android",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "react-native": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "prepare": "tsc"
+  },
+  "keywords": [
+    "sqlite",
+    "database",
+    "react-native",
+    "ios",
+    "android",
+    "absurdersql",
+    "offline-first"
+  ],
+  "author": "Nicholas G. Piesco",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/npiesco/absurder-sql.git",
+    "directory": "absurder-sql-mobile"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "react-native": ">=0.64.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-native": "^0.72.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "lib/",
+    "ios/",
+    "android/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ]
+}

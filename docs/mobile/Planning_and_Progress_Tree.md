@@ -29,11 +29,11 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Set up `crate-type = ["cdylib", "staticlib"]`
   - **[✓]** Add dependency on parent `absurder-sql` crate with `fs_persist` feature
   - **[✓]** Configure build profiles (release optimization)
-- **[ ]** Set up npm package structure
-  - **[ ]** Create `package.json` for `@npiesco/absurder-sql-mobile`
-  - **[ ]** Define peer dependencies (react-native, react)
-  - **[ ]** Set up TypeScript configuration
-  - **[ ]** Create directory structure (`src/`, `ios/`, `android/`)
+- **[✓]** Set up npm package structure
+  - **[✓]** Create `package.json` for `@npiesco/absurder-sql-mobile`
+  - **[✓]** Define peer dependencies (react-native, react)
+  - **[✓]** Set up TypeScript configuration
+  - **[✓]** Create directory structure (`src/`, `ios/`, `android/`)
 
 ### 1.2 Development Environment
 - **[ ]** Install Rust mobile targets
@@ -95,32 +95,32 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
 ## Platform Integration (Weeks 3-4)
 
 ### 2.1 iOS Native Bridge
-- [ ] Create iOS module structure
-  - [ ] Create `ios/AbsurderSQL.xcodeproj`
-  - [ ] Create `ios/AbsurderSQL-Bridging-Header.h`
-  - [ ] Create `ios/AbsurderSQLBridge.h` (header)
-  - [ ] Create `ios/AbsurderSQLBridge.m` (implementation)
-- [ ] Implement React Native bridge methods
-  - [ ] `RCT_EXPORT_MODULE()` registration
-  - [ ] `createDatabase:(NSString *)name resolver:rejecter:`
-      - [ ] Convert `NSString` to C string
-      - [ ] Call `absurder_db_new()`
-      - [ ] Store handle in instance variable
-      - [ ] Resolve/reject promise
-  - [ ] `execute:(NSString *)sql resolver:rejecter:`
-      - [ ] Convert SQL to C string
-      - [ ] Call `absurder_db_execute()`
-      - [ ] Parse JSON result to `NSDictionary`
-      - [ ] Free C string
-      - [ ] Resolve/reject promise
-  - [ ] `executeWithParams:(NSString *)sql params:(NSArray *)params resolver:rejecter:`
-      - [ ] Serialize params to JSON
-      - [ ] Call FFI with JSON params
-  - [ ] `exportToFile:(NSString *)path resolver:rejecter:`
-  - [ ] `importFromFile:(NSString *)path resolver:rejecter:`
-  - [ ] `close:resolver:rejecter:`
-      - [ ] Call `absurder_db_close()`
-      - [ ] Clear instance handle
+- **[✓]** Create iOS module structure
+  - [ ] Create `ios/AbsurderSQL.xcodeproj` (Future - requires Xcode)
+  - **[✓]** Create `ios/AbsurderSQL-Bridging-Header.h`
+  - **[✓]** Create `ios/AbsurderSQLBridge.h` (header)
+  - **[✓]** Create `ios/AbsurderSQLBridge.m` (implementation)
+- **[✓]** Implement React Native bridge methods
+  - **[✓]** `RCT_EXPORT_MODULE()` registration
+  - **[✓]** `createDatabase:(NSString *)name resolver:rejecter:`
+      - **[✓]** Convert `NSString` to C string
+      - **[✓]** Call `absurder_db_new()`
+      - **[✓]** Store handle in instance variable
+      - **[✓]** Resolve/reject promise
+  - **[✓]** `execute:(NSString *)sql resolver:rejecter:`
+      - **[✓]** Convert SQL to C string
+      - **[✓]** Call `absurder_db_execute()`
+      - **[✓]** Return JSON string directly
+      - **[✓]** Free C string
+      - **[✓]** Resolve/reject promise
+  - **[✓]** `executeWithParams:(NSString *)sql params:(NSArray *)params resolver:rejecter:` (Stub - returns NOT_IMPLEMENTED)
+      - **[✓]** Serialize params to JSON
+      - [ ] Call FFI with JSON params (Pending FFI implementation)
+  - **[✓]** `exportToFile:(NSString *)path resolver:rejecter:` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** `importFromFile:(NSString *)path resolver:rejecter:` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** `close:resolver:rejecter:`
+      - **[✓]** Call `absurder_db_close()`
+      - **[✓]** Clear instance handle
 - [ ] Build static library
   - [ ] Build for `aarch64-apple-ios` (device)
   - [ ] Build for `x86_64-apple-ios` (Intel simulator)
