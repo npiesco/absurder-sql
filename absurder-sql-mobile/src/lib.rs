@@ -278,6 +278,141 @@ pub unsafe extern "C" fn absurder_db_execute_with_params(
     }
 }
 
+/// Begin a database transaction
+/// 
+/// # Safety
+/// - handle must be a valid database handle
+/// 
+/// # Returns
+/// - 0 on success
+/// - -1 on error (invalid handle or SQL execution failure)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_db_begin_transaction(handle: u64) -> i32 {
+    if handle == 0 {
+        log::error!("absurder_db_begin_transaction: invalid handle 0");
+        return -1;
+    }
+
+    // Get database from registry
+    let db = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => Arc::clone(db),
+            None => {
+                log::error!("absurder_db_begin_transaction: handle {} not found", handle);
+                return -1;
+            }
+        }
+    };
+
+    // Execute BEGIN TRANSACTION
+    let result = RUNTIME.block_on(async {
+        let mut db_guard = db.lock();
+        db_guard.execute("BEGIN TRANSACTION").await
+    });
+
+    match result {
+        Ok(_) => {
+            log::info!("absurder_db_begin_transaction: started transaction for handle {}", handle);
+            0
+        }
+        Err(e) => {
+            log::error!("absurder_db_begin_transaction: failed to begin transaction: {:?}", e);
+            -1
+        }
+    }
+}
+
+/// Commit the current transaction
+/// 
+/// # Safety
+/// - handle must be a valid database handle
+/// 
+/// # Returns
+/// - 0 on success
+/// - -1 on error (invalid handle or SQL execution failure)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_db_commit(handle: u64) -> i32 {
+    if handle == 0 {
+        log::error!("absurder_db_commit: invalid handle 0");
+        return -1;
+    }
+
+    // Get database from registry
+    let db = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => Arc::clone(db),
+            None => {
+                log::error!("absurder_db_commit: handle {} not found", handle);
+                return -1;
+            }
+        }
+    };
+
+    // Execute COMMIT
+    let result = RUNTIME.block_on(async {
+        let mut db_guard = db.lock();
+        db_guard.execute("COMMIT").await
+    });
+
+    match result {
+        Ok(_) => {
+            log::info!("absurder_db_commit: committed transaction for handle {}", handle);
+            0
+        }
+        Err(e) => {
+            log::error!("absurder_db_commit: failed to commit transaction: {:?}", e);
+            -1
+        }
+    }
+}
+
+/// Rollback the current transaction
+/// 
+/// # Safety
+/// - handle must be a valid database handle
+/// 
+/// # Returns
+/// - 0 on success
+/// - -1 on error (invalid handle or SQL execution failure)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_db_rollback(handle: u64) -> i32 {
+    if handle == 0 {
+        log::error!("absurder_db_rollback: invalid handle 0");
+        return -1;
+    }
+
+    // Get database from registry
+    let db = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => Arc::clone(db),
+            None => {
+                log::error!("absurder_db_rollback: handle {} not found", handle);
+                return -1;
+            }
+        }
+    };
+
+    // Execute ROLLBACK
+    let result = RUNTIME.block_on(async {
+        let mut db_guard = db.lock();
+        db_guard.execute("ROLLBACK").await
+    });
+
+    match result {
+        Ok(_) => {
+            log::info!("absurder_db_rollback: rolled back transaction for handle {}", handle);
+            0
+        }
+        Err(e) => {
+            log::error!("absurder_db_rollback: failed to rollback transaction: {:?}", e);
+            -1
+        }
+    }
+}
+
 /// Close database and remove from registry
 /// 
 /// # Safety
@@ -583,11 +718,15 @@ mod tests {
     #[test]
     fn test_absurder_db_execute_with_params_basic_query() {
         unsafe {
-            let name = CString::new("test_params.db").unwrap();
+            let name = CString::new("test_params_unique_12345.db").unwrap();
             let handle = absurder_db_new(name.as_ptr());
             assert_ne!(handle, 0, "Database creation should succeed");
             
-            // Create table
+            // Clean slate: drop if exists, then create
+            let drop_sql = CString::new("DROP TABLE IF EXISTS users").unwrap();
+            let drop_result = absurder_db_execute(handle, drop_sql.as_ptr());
+            absurder_free_string(drop_result);
+            
             let create_sql = CString::new("CREATE TABLE users (id INTEGER, name TEXT, age INTEGER)").unwrap();
             let create_result = absurder_db_execute(handle, create_sql.as_ptr());
             assert!(!create_result.is_null(), "CREATE TABLE should succeed");
@@ -702,6 +841,145 @@ mod tests {
             let result = absurder_db_execute_with_params(handle, sql.as_ptr(), bad_params.as_ptr());
             
             assert!(result.is_null(), "Should return null for invalid JSON params");
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_transaction_begin_commit() {
+        unsafe {
+            let name = CString::new("test_transaction.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            assert_ne!(handle, 0, "Database creation should succeed");
+            
+            // Clean slate: drop if exists, then create
+            let drop_sql = CString::new("DROP TABLE IF EXISTS accounts").unwrap();
+            let result = absurder_db_execute(handle, drop_sql.as_ptr());
+            absurder_free_string(result);
+            
+            let create_sql = CString::new("CREATE TABLE accounts (id INTEGER, balance INTEGER)").unwrap();
+            let result = absurder_db_execute(handle, create_sql.as_ptr());
+            assert!(!result.is_null());
+            absurder_free_string(result);
+            
+            // Begin transaction
+            let status = absurder_db_begin_transaction(handle);
+            assert_eq!(status, 0, "BEGIN TRANSACTION should succeed");
+            
+            // Insert data in transaction
+            let insert_sql = CString::new("INSERT INTO accounts VALUES (1, 100)").unwrap();
+            let result = absurder_db_execute(handle, insert_sql.as_ptr());
+            assert!(!result.is_null());
+            absurder_free_string(result);
+            
+            // Commit transaction
+            let status = absurder_db_commit(handle);
+            assert_eq!(status, 0, "COMMIT should succeed");
+            
+            // Verify data persisted
+            let select_sql = CString::new("SELECT * FROM accounts").unwrap();
+            let result = absurder_db_execute(handle, select_sql.as_ptr());
+            assert!(!result.is_null());
+            
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            assert!(result_str.contains("100"), "Committed data should be present");
+            
+            absurder_free_string(result);
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_transaction_rollback() {
+        unsafe {
+            let name = CString::new("test_rollback.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            // Clean slate
+            let drop_sql = CString::new("DROP TABLE IF EXISTS test").unwrap();
+            let result = absurder_db_execute(handle, drop_sql.as_ptr());
+            absurder_free_string(result);
+            
+            let create_sql = CString::new("CREATE TABLE test (id INTEGER)").unwrap();
+            let result = absurder_db_execute(handle, create_sql.as_ptr());
+            absurder_free_string(result);
+            
+            // Begin transaction
+            let status = absurder_db_begin_transaction(handle);
+            assert_eq!(status, 0);
+            
+            // Insert data
+            let insert_sql = CString::new("INSERT INTO test VALUES (999)").unwrap();
+            let result = absurder_db_execute(handle, insert_sql.as_ptr());
+            absurder_free_string(result);
+            
+            // Rollback
+            let status = absurder_db_rollback(handle);
+            assert_eq!(status, 0, "ROLLBACK should succeed");
+            
+            // Verify data was not persisted
+            let select_sql = CString::new("SELECT * FROM test").unwrap();
+            let result = absurder_db_execute(handle, select_sql.as_ptr());
+            
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            assert!(result_str.contains("\"rows\":[]") || !result_str.contains("999"), 
+                "Rolled back data should not be present");
+            
+            absurder_free_string(result);
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_transaction_invalid_handle() {
+        unsafe {
+            let status = absurder_db_begin_transaction(0);
+            assert_eq!(status, -1, "Should fail for invalid handle");
+            
+            let status = absurder_db_commit(0);
+            assert_eq!(status, -1, "Should fail for invalid handle");
+            
+            let status = absurder_db_rollback(0);
+            assert_eq!(status, -1, "Should fail for invalid handle");
+        }
+    }
+
+    #[test]
+    fn test_transaction_nested_operations() {
+        // Test that multiple operations work correctly in a transaction
+        unsafe {
+            let name = CString::new("test_nested_tx.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            // Clean slate
+            let drop_sql = CString::new("DROP TABLE IF EXISTS items").unwrap();
+            let result = absurder_db_execute(handle, drop_sql.as_ptr());
+            absurder_free_string(result);
+            
+            let create_sql = CString::new("CREATE TABLE items (id INTEGER, value TEXT)").unwrap();
+            let result = absurder_db_execute(handle, create_sql.as_ptr());
+            absurder_free_string(result);
+            
+            // Begin transaction
+            assert_eq!(absurder_db_begin_transaction(handle), 0);
+            
+            // Multiple inserts
+            for i in 1..=5 {
+                let sql = CString::new(format!("INSERT INTO items VALUES ({}, 'item{}')", i, i)).unwrap();
+                let result = absurder_db_execute(handle, sql.as_ptr());
+                absurder_free_string(result);
+            }
+            
+            // Commit
+            assert_eq!(absurder_db_commit(handle), 0);
+            
+            // Verify all data
+            let select_sql = CString::new("SELECT COUNT(*) FROM items").unwrap();
+            let result = absurder_db_execute(handle, select_sql.as_ptr());
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            assert!(result_str.contains("5"), "All committed items should be present");
+            
+            absurder_free_string(result);
             absurder_db_close(handle);
         }
     }

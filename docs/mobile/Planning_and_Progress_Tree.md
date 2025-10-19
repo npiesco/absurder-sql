@@ -80,11 +80,16 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
       - [ ] Accept handle and file path
       - [ ] Import from SQLite file format
       - [ ] Handle merge strategies
-  - [ ] Implement `absurder_db_begin_transaction()` - Start transaction
-      - [ ] Support BEGIN, BEGIN IMMEDIATE, BEGIN EXCLUSIVE
-      - [ ] Track transaction state per handle
-  - [ ] Implement `absurder_db_commit()` - Commit transaction
-  - [ ] Implement `absurder_db_rollback()` - Rollback transaction
+  - **[✓]** Implement `absurder_db_begin_transaction()` - Start transaction
+      - **[✓]** Execute BEGIN TRANSACTION SQL
+      - **[✓]** Validate handle and return status code
+      - **[✓]** Add unit tests
+  - **[✓]** Implement `absurder_db_commit()` - Commit transaction
+      - **[✓]** Execute COMMIT SQL
+      - **[✓]** Return status code (0 success, -1 error)
+  - **[✓]** Implement `absurder_db_rollback()` - Rollback transaction
+      - **[✓]** Execute ROLLBACK SQL
+      - **[✓]** Test commit and rollback behavior
   - [ ] Implement `absurder_get_error()` - Get last error
       - [ ] Thread-local error storage
       - [ ] Return error message as C string
