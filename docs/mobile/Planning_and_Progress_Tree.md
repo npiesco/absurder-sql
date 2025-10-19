@@ -134,42 +134,42 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - [ ] Test `pod install` workflow
 
 ### 2.2 Android Native Bridge
-- [ ] Create Android module structure
-  - [ ] Create `android/build.gradle` (module config)
-  - [ ] Create `android/src/main/AndroidManifest.xml`
-  - [ ] Create package structure (`com.npiesco.absurdersql`)
-- [ ] Implement JNI bindings in Rust
-  - [ ] Add `jni` dependency to `Cargo.toml`
-  - [ ] Implement `Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCreateDb`
-      - [ ] Accept `JString` name parameter
-      - [ ] Convert to Rust `String`
-      - [ ] Call `absurder_db_new()`
-      - [ ] Return handle as `jlong`
-  - [ ] Implement `Java_..._nativeExecute`
-      - [ ] Accept `jlong` handle and `JString` SQL
-      - [ ] Call `absurder_db_execute()`
-      - [ ] Convert result to `jstring` (JSON)
-  - [ ] Implement `Java_..._nativeExecuteWithParams`
-  - [ ] Implement `Java_..._nativeExport`
-  - [ ] Implement `Java_..._nativeImport`
-  - [ ] Implement `Java_..._nativeClose`
-- [ ] Implement Kotlin native module
-  - [ ] Create `AbsurderSQLModule.kt`
-  - [ ] Extend `ReactContextBaseJavaModule`
-  - [ ] Load native library in static block
-  - [ ] Implement `@ReactMethod createDatabase(name: String, promise: Promise)`
-      - [ ] Call JNI method
-      - [ ] Store handle
-      - [ ] Resolve/reject promise
-  - [ ] Implement `@ReactMethod execute(sql: String, promise: Promise)`
-      - [ ] Call JNI method
-      - [ ] Parse JSON to `WritableMap`
-      - [ ] Resolve/reject promise
-  - [ ] Implement `@ReactMethod executeWithParams(...)`
-  - [ ] Implement `@ReactMethod exportToFile(...)`
-  - [ ] Implement `@ReactMethod importFromFile(...)`
-  - [ ] Implement `@ReactMethod close(...)`
-  - [ ] Create `AbsurderSQLPackage.kt` (register module)
+- **[✓]** Create Android module structure
+  - **[✓]** Create `android/build.gradle` (module config)
+  - **[✓]** Create `android/src/main/AndroidManifest.xml`
+  - **[✓]** Create package structure (`com.npiesco.absurdersql`)
+- **[✓]** Implement JNI bindings in Rust
+  - **[✓]** Add `jni` dependency to `Cargo.toml`
+  - **[✓]** Implement `Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCreateDb`
+      - **[✓]** Accept `JString` name parameter
+      - **[✓]** Convert to Rust `String`
+      - **[✓]** Call `absurder_db_new()`
+      - **[✓]** Return handle as `jlong`
+  - **[✓]** Implement `Java_..._nativeExecute`
+      - **[✓]** Accept `jlong` handle and `JString` SQL
+      - **[✓]** Call `absurder_db_execute()`
+      - **[✓]** Convert result to `jstring` (JSON)
+  - [ ] Implement `Java_..._nativeExecuteWithParams` (Future)
+  - [ ] Implement `Java_..._nativeExport` (Future)
+  - [ ] Implement `Java_..._nativeImport` (Future)
+  - **[✓]** Implement `Java_..._nativeClose`
+- **[✓]** Implement Kotlin native module
+  - **[✓]** Create `AbsurderSQLModule.kt`
+  - **[✓]** Extend `ReactContextBaseJavaModule`
+  - **[✓]** Load native library in static block
+  - **[✓]** Implement `@ReactMethod createDatabase(name: String, promise: Promise)`
+      - **[✓]** Call JNI method
+      - **[✓]** Store handle
+      - **[✓]** Resolve/reject promise
+  - **[✓]** Implement `@ReactMethod execute(sql: String, promise: Promise)`
+      - **[✓]** Call JNI method
+      - **[✓]** Return JSON string directly
+      - **[✓]** Resolve/reject promise
+  - **[✓]** Implement `@ReactMethod executeWithParams(...)` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** Implement `@ReactMethod exportToFile(...)` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** Implement `@ReactMethod importFromFile(...)` (Stub - returns NOT_IMPLEMENTED)
+  - **[✓]** Implement `@ReactMethod close(...)`
+  - **[✓]** Create `AbsurderSQLPackage.kt` (register module)
 - [ ] Build shared libraries
   - [ ] Build for `aarch64-linux-android` (ARM64)
   - [ ] Build for `armv7-linux-androideabi` (ARMv7)
@@ -186,54 +186,51 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - [ ] Test Gradle sync
 
 ### 2.3 JavaScript/TypeScript API
-- [ ] Create TypeScript source files
-  - [ ] `src/index.ts` - Main entry point
-  - [ ] `src/Database.ts` - Database class
-  - [ ] `src/types.ts` - TypeScript interfaces
-- [ ] Implement `Database` class
-  - [ ] Static `create(name: string): Promise<Database>`
-      - [ ] Call `NativeModules.AbsurderSQL.createDatabase()`
-      - [ ] Return new instance
-  - [ ] `execute(sql: string): Promise<QueryResult>`
-      - [ ] Call native module
-      - [ ] Return typed result
-  - [ ] `executeWithParams(sql: string, params: any[]): Promise<QueryResult>`
-  - [ ] `query(sql: string): Promise<Array<Record<string, any>>>`
-      - [ ] Convenience wrapper returning rows only
-  - [ ] `exportToFile(path?: string): Promise<string>`
-      - [ ] Default path: Documents directory
-      - [ ] Return actual file path
-  - [ ] `importFromFile(path: string): Promise<void>`
-  - [ ] `close(): Promise<void>`
-- [ ] Define TypeScript interfaces
-  - [ ] `QueryResult` - rows, rowsAffected, lastInsertId
-  - [ ] `DatabaseConfig` - optional settings
-  - [ ] `ExportOptions` - path, compression
-- [ ] Add JSDoc comments
-  - [ ] Document all public methods
-  - [ ] Add usage examples
-  - [ ] Document error handling
-- [ ] Build TypeScript to JavaScript
-  - [ ] Configure `tsconfig.json`
-  - [ ] Build to `lib/` directory
-  - [ ] Generate `.d.ts` declaration files
+- **[✓]** Create TypeScript source files
+  - **[✓]** `src/index.ts` - Main entry point (includes Database class and types)
+  - [ ] `src/Database.ts` - Database class (consolidated in index.ts)
+  - [ ] `src/types.ts` - TypeScript interfaces (consolidated in index.ts)
+- **[✓]** Implement `Database` class
+  - **[✓]** `openDatabase(config)` - Static factory function
+      - **[✓]** Call `NativeModules.AbsurderSQL.createDatabase()`
+      - **[✓]** Return new instance
+  - **[✓]** `execute(sql: string): Promise<QueryResult>`
+      - **[✓]** Call native module
+      - **[✓]** Return typed result
+  - **[✓]** `executeWithParams(sql: string, params: any[]): Promise<QueryResult>`
+  - [ ] `query(sql: string): Promise<Array<Record<string, any>>>` (Future - convenience wrapper)
+  - **[✓]** `exportToFile(path: string): Promise<void>`
+  - **[✓]** `importFromFile(path: string): Promise<void>`
+  - **[✓]** `close(): Promise<void>`
+- **[✓]** Define TypeScript interfaces
+  - **[✓]** `QueryResult` - columns, rows, rowsAffected
+  - **[✓]** `DatabaseConfig` - name and optional settings
+  - [ ] `ExportOptions` - path, compression (Future)
+- **[✓]** Add JSDoc comments
+  - **[✓]** Document all public methods
+  - **[✓]** Add usage examples in comments
+  - **[✓]** Document error handling
+- **[✓]** Build TypeScript to JavaScript
+  - **[✓]** Configure `tsconfig.json`
+  - **[✓]** Build to `lib/` directory configured
+  - **[✓]** Generate `.d.ts` declaration files
 
 ---
 
 ## Testing & Documentation (Week 5)
 
 ### 3.1 Unit Testing (Rust)
-- [ ] FFI layer tests
-  - [ ] Test `absurder_db_new` returns valid handle
-  - [ ] Test `absurder_db_new` with invalid name returns 0
-  - [ ] Test `absurder_db_execute` with CREATE TABLE
-  - [ ] Test `absurder_db_execute` with INSERT
-  - [ ] Test `absurder_db_execute` with SELECT returns JSON
-  - [ ] Test `absurder_db_execute` with invalid handle returns NULL
-  - [ ] Test `absurder_db_execute` with bad SQL returns NULL
-  - [ ] Test `absurder_db_close` removes from registry
-  - [ ] Test `absurder_free_string` doesn't crash
-  - [ ] Test concurrent operations (thread safety)
+- **[✓]** FFI layer tests
+  - **[✓]** Test `absurder_db_new` returns valid handle
+  - **[✓]** Test `absurder_db_new` with invalid name returns 0
+  - **[✓]** Test `absurder_db_execute` with CREATE TABLE
+  - **[✓]** Test `absurder_db_execute` with INSERT
+  - **[✓]** Test `absurder_db_execute` with SELECT returns JSON
+  - **[✓]** Test `absurder_db_execute` with invalid handle returns NULL
+  - **[✓]** Test `absurder_db_execute` with bad SQL returns NULL
+  - **[✓]** Test `absurder_db_close` removes from registry
+  - **[✓]** Test `absurder_free_string` doesn't crash (implicit in close tests)
+  - [ ] Test concurrent operations (thread safety) (Future)
 - [ ] Memory leak tests
   - [ ] Run with Valgrind (Linux)
   - [ ] Run with AddressSanitizer (all platforms)
