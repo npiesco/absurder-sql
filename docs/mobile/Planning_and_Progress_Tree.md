@@ -61,12 +61,12 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
       - **[✓]** Execute on Tokio runtime (blocking)
       - **[✓]** Serialize `QueryResult` to JSON
       - **[✓]** Return JSON C string (NULL on error)
-  - [ ] Implement `absurder_db_execute_with_params()` - Parameterized queries
-      - [ ] Accept JSON array of parameters
-      - [ ] Deserialize to `Vec<ColumnValue>`
-      - [ ] Execute prepared statement
-      - [ ] Add unit tests for parameterized queries
-      - [ ] Test SQL injection prevention
+  - **[✓]** Implement `absurder_db_execute_with_params()` - Parameterized queries
+      - **[✓]** Accept JSON array of parameters
+      - **[✓]** Deserialize to `Vec<ColumnValue>`
+      - **[✓]** Execute prepared statement
+      - **[✓]** Add unit tests for parameterized queries
+      - **[✓]** Test SQL injection prevention
   - **[✓]** Implement `absurder_db_close()` - Close database
       - **[✓]** Remove from registry
       - **[✓]** Drop database (cleanup)

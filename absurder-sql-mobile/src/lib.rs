@@ -164,6 +164,120 @@ pub unsafe extern "C" fn absurder_db_execute(
     }
 }
 
+/// Execute SQL with parameterized query support
+/// 
+/// # Safety
+/// - handle must be a valid database handle
+/// - sql must be a valid null-terminated UTF-8 C string or null
+/// - params_json must be a valid null-terminated JSON array string or null
+/// - Caller must free the returned string with absurder_free_string
+/// - Returns null on error
+/// 
+/// # Parameters Format
+/// params_json should be a JSON array of values, e.g.:
+/// `[{"type": "Integer", "value": 42}, {"type": "Text", "value": "hello"}]`
+/// 
+/// # SQL Injection Prevention
+/// This function uses parameterized queries which automatically escape values
+/// and prevent SQL injection attacks. Never concatenate user input into SQL strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_db_execute_with_params(
+    handle: u64,
+    sql: *const c_char,
+    params_json: *const c_char,
+) -> *mut c_char {
+    use absurder_sql::types::ColumnValue;
+
+    // Validate handle
+    if handle == 0 {
+        log::error!("absurder_db_execute_with_params: invalid handle 0");
+        return std::ptr::null_mut();
+    }
+
+    // Validate SQL pointer
+    if sql.is_null() {
+        log::error!("absurder_db_execute_with_params: null SQL pointer");
+        return std::ptr::null_mut();
+    }
+
+    // Validate params pointer
+    if params_json.is_null() {
+        log::error!("absurder_db_execute_with_params: null params_json pointer");
+        return std::ptr::null_mut();
+    }
+
+    // Convert SQL C string to Rust String
+    let sql_str = match unsafe { CStr::from_ptr(sql) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: invalid UTF-8 in SQL: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Convert params C string to Rust String
+    let params_str = match unsafe { CStr::from_ptr(params_json) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: invalid UTF-8 in params: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Deserialize params from JSON
+    let params: Vec<ColumnValue> = match serde_json::from_str(params_str) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: failed to parse params JSON: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Get database from registry
+    let db = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => Arc::clone(db),
+            None => {
+                log::error!("absurder_db_execute_with_params: handle {} not found", handle);
+                return std::ptr::null_mut();
+            }
+        }
+    };
+
+    // Execute SQL with parameters
+    let result = RUNTIME.block_on(async {
+        let mut db_guard = db.lock();
+        db_guard.execute_with_params(sql_str, &params).await
+    });
+
+    let query_result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: SQL execution failed: {:?}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Serialize to JSON
+    let json = match serde_json::to_string(&query_result) {
+        Ok(j) => j,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: JSON serialization failed: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Convert to C string
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: CString conversion failed: {}", e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Close database and remove from registry
 /// 
 /// # Safety
@@ -462,6 +576,132 @@ mod tests {
             
             assert!(result.is_null(), "Invalid SQL should return null");
             
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_absurder_db_execute_with_params_basic_query() {
+        unsafe {
+            let name = CString::new("test_params.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            assert_ne!(handle, 0, "Database creation should succeed");
+            
+            // Create table
+            let create_sql = CString::new("CREATE TABLE users (id INTEGER, name TEXT, age INTEGER)").unwrap();
+            let create_result = absurder_db_execute(handle, create_sql.as_ptr());
+            assert!(!create_result.is_null(), "CREATE TABLE should succeed");
+            absurder_free_string(create_result);
+            
+            // Insert with parameters - using SQLite's ?1, ?2, ?3 syntax
+            let insert_sql = CString::new("INSERT INTO users VALUES (?1, ?2, ?3)").unwrap();
+            let params_json = CString::new(r#"[{"type":"Integer","value":1},{"type":"Text","value":"Bob"},{"type":"Integer","value":30}]"#).unwrap();
+            let insert_result = absurder_db_execute_with_params(handle, insert_sql.as_ptr(), params_json.as_ptr());
+            
+            assert!(!insert_result.is_null(), "INSERT with params should succeed");
+            absurder_free_string(insert_result);
+            
+            // Query with parameter
+            let select_sql = CString::new("SELECT * FROM users WHERE id = ?1").unwrap();
+            let select_params = CString::new(r#"[{"type":"Integer","value":1}]"#).unwrap();
+            let select_result = absurder_db_execute_with_params(handle, select_sql.as_ptr(), select_params.as_ptr());
+            
+            assert!(!select_result.is_null(), "SELECT with params should return result");
+            
+            let result_str = CStr::from_ptr(select_result).to_str().unwrap();
+            assert!(result_str.contains("Bob"), "Result should contain parameterized data");
+            
+            absurder_free_string(select_result);
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_absurder_db_execute_with_params_sql_injection_prevention() {
+        // This test verifies that parameterized queries prevent SQL injection
+        // by ensuring malicious input is treated as data, not SQL code
+        unsafe {
+            let name = CString::new("test_injection.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            // Create table
+            let create_sql = CString::new("CREATE TABLE secrets (id INTEGER, data TEXT)").unwrap();
+            let create_result = absurder_db_execute(handle, create_sql.as_ptr());
+            absurder_free_string(create_result);
+            
+            // Insert normal data
+            let insert_sql = CString::new("INSERT INTO secrets VALUES (?1, ?2)").unwrap();
+            let params = CString::new(r#"[{"type":"Integer","value":1},{"type":"Text","value":"secret data"}]"#).unwrap();
+            let result = absurder_db_execute_with_params(handle, insert_sql.as_ptr(), params.as_ptr());
+            absurder_free_string(result);
+            
+            // Attempt SQL injection via parameter (should be escaped/sanitized automatically)
+            let malicious_sql = CString::new("SELECT * FROM secrets WHERE data = ?1").unwrap();
+            let malicious_params = CString::new(r#"[{"type":"Text","value":"x' OR '1'='1"}]"#).unwrap();
+            let malicious_result = absurder_db_execute_with_params(handle, malicious_sql.as_ptr(), malicious_params.as_ptr());
+            
+            // The query should execute safely and return no results (the literal string doesn't match)
+            assert!(!malicious_result.is_null(), "Query should execute without error");
+            
+            let result_str = CStr::from_ptr(malicious_result).to_str().unwrap();
+            // Should return empty result set, not all secrets
+            assert!(result_str.contains("\"rows\":[]") || !result_str.contains("secret data"), 
+                "SQL injection should be prevented - malicious pattern should not match data");
+            
+            absurder_free_string(malicious_result);
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_absurder_db_execute_with_params_null_handle() {
+        unsafe {
+            let sql = CString::new("SELECT * FROM test").unwrap();
+            let params = CString::new("[]").unwrap();
+            let result = absurder_db_execute_with_params(0, sql.as_ptr(), params.as_ptr());
+            assert!(result.is_null(), "Should return null for invalid handle");
+        }
+    }
+
+    #[test]
+    fn test_absurder_db_execute_with_params_null_sql() {
+        unsafe {
+            let name = CString::new("test_null_sql_params.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            let params = CString::new("[]").unwrap();
+            let result = absurder_db_execute_with_params(handle, std::ptr::null(), params.as_ptr());
+            
+            assert!(result.is_null(), "Should return null for null SQL");
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_absurder_db_execute_with_params_null_params() {
+        unsafe {
+            let name = CString::new("test_null_params.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            let sql = CString::new("SELECT 1").unwrap();
+            let result = absurder_db_execute_with_params(handle, sql.as_ptr(), std::ptr::null());
+            
+            assert!(result.is_null(), "Should return null for null params");
+            absurder_db_close(handle);
+        }
+    }
+
+    #[test]
+    fn test_absurder_db_execute_with_params_invalid_json() {
+        unsafe {
+            let name = CString::new("test_invalid_json_params.db").unwrap();
+            let handle = absurder_db_new(name.as_ptr());
+            
+            let sql = CString::new("SELECT 1").unwrap();
+            let bad_params = CString::new("not valid json!!!").unwrap();
+            let result = absurder_db_execute_with_params(handle, sql.as_ptr(), bad_params.as_ptr());
+            
+            assert!(result.is_null(), "Should return null for invalid JSON params");
             absurder_db_close(handle);
         }
     }
