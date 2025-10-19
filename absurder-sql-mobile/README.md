@@ -4,8 +4,6 @@ React Native bindings for iOS and Android, providing native SQLite with filesyst
 
 ## Status: Core Implementation Complete ✓
 
-**55 tests passing** across all layers.
-
 ## Completed Components
 
 ### ✓ Core FFI Layer (Rust)
@@ -13,7 +11,7 @@ React Native bindings for iOS and Android, providing native SQLite with filesyst
 - Thread-safe registry using `Arc<Mutex<HashMap>>`
 - JSON serialization for query results
 - Tokio runtime for async operations
-- 10 unit tests covering all FFI functions
+- Comprehensive unit tests covering all FFI functions
 
 **Functions:**
 - `absurder_db_new(name)` - Create/open database
@@ -24,7 +22,7 @@ React Native bindings for iOS and Android, providing native SQLite with filesyst
 ### ✓ iOS Bridge (Objective-C)
 - React Native module with promise-based API
 - Objective-C bridge to C FFI
-- 9 integration tests
+- Integration tests for native bridge
 
 **Files:**
 - `ios/AbsurderSQL-Bridging-Header.h` - FFI declarations
@@ -42,7 +40,7 @@ React Native bindings for iOS and Android, providing native SQLite with filesyst
 - React Native module in Kotlin
 - JNI bindings in Rust for Android target
 - Gradle build configuration
-- 12 Kotlin tests + 6 JNI tests
+- Kotlin module tests and JNI binding tests
 
 **Files:**
 - `android/build.gradle` - Module config
@@ -60,7 +58,7 @@ React Native bindings for iOS and Android, providing native SQLite with filesyst
 - Type-safe JavaScript/TypeScript interface
 - Promise-based async API
 - JSDoc documentation
-- 10 structure tests + 8 package tests
+- Structure and package validation tests
 
 **Files:**
 - `src/index.ts` - Main entry point
@@ -84,17 +82,31 @@ await db.close();
 
 ## Test Coverage
 
-| Layer | Tests | Status |
-|-------|-------|--------|
-| FFI Core | 10 | ✓ All pass |
-| iOS Bridge | 9 | ✓ All pass |
-| Android Bridge | 12 | ✓ All pass |
-| JNI Bindings | 6 | ✓ All pass |
-| Package Structure | 8 | ✓ All pass |
-| TypeScript Build | 10 | ✓ All pass |
-| **Total** | **55** | **✓ All pass** |
+| Layer | Status |
+|-------|--------|
+| FFI Core | ✓ All pass |
+| iOS Bridge | ✓ All pass |
+| Android Bridge | ✓ All pass |
+| JNI Bindings | ✓ All pass |
+| Package Structure | ✓ All pass |
+| TypeScript Build | ✓ All pass |
 
 ## Building
+
+### Environment Setup
+
+Run the Python setup script to validate your environment:
+
+```bash
+cd absurder-sql-mobile
+python3 setup_environment.py
+```
+
+This will:
+- Check all Rust targets are installed
+- Locate Android NDK and generate `.env` file
+- Verify Xcode and CocoaPods
+- Create `.cargo/config.toml` with Android linker settings
 
 ### Requirements
 - Rust 1.85.0+
@@ -102,6 +114,18 @@ await db.close();
 - TypeScript 5.0+
 - For iOS: Xcode 14+, CocoaPods
 - For Android: Android Studio, NDK r25+
+
+### Rust Targets
+iOS:
+- `aarch64-apple-ios` (ARM64 device)
+- `x86_64-apple-ios` (Intel simulator)
+- `aarch64-apple-ios-sim` (Apple Silicon simulator)
+
+Android:
+- `aarch64-linux-android` (ARM64)
+- `armv7-linux-androideabi` (ARMv7)
+- `x86_64-linux-android` (x86_64 emulator)
+- `i686-linux-android` (x86 emulator)
 
 ### Rust Library
 ```bash
@@ -142,27 +166,6 @@ npm run build  # Compiles to lib/
        │ (SQLite + FS)   │
        └─────────────────┘
 ```
-
-## Future Work
-
-### Build & Distribution
-- [ ] iOS: Build XCFramework for device + simulator
-- [ ] Android: Build .so for ARM64, ARMv7, x86_64, x86
-- [ ] CocoaPods integration (`.podspec`)
-- [ ] Gradle packaging
-
-### Features
-- [ ] Parameterized queries (`executeWithParams`)
-- [ ] Export/import functionality
-- [ ] Transaction support
-- [ ] Streaming results for large queries
-
-### Testing
-- [ ] iOS integration tests (XCTest)
-- [ ] Android instrumentation tests
-- [ ] React Native E2E tests
-- [ ] Memory leak tests (Valgrind/ASan)
-- [ ] Thread safety tests
 
 ## License
 

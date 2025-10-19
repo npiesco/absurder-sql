@@ -36,16 +36,16 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Create directory structure (`src/`, `ios/`, `android/`)
 
 ### 1.2 Development Environment
-- **[ ]** Install Rust mobile targets
-  - **[ ]** iOS: `rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim`
-  - **[ ]** Android: `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android`
-- **[ ]** Set up Android NDK
-  - **[ ]** Install NDK via Android Studio
-  - **[ ]** Set `ANDROID_NDK_HOME` environment variable
-  - **[ ]** Create `.cargo/config.toml` with NDK linker paths
-- **[ ]** Install iOS development tools (macOS only)
-  - **[ ]** Xcode 14+ with command-line tools
-  - **[ ]** CocoaPods for dependency management
+- **[✓]** Install Rust mobile targets
+  - **[✓]** iOS: `rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim`
+  - **[✓]** Android: `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android`
+- **[✓]** Set up Android NDK
+  - **[✓]** Install NDK via Android Studio
+  - **[✓]** Set `ANDROID_NDK_HOME` environment variable (.env file)
+  - **[✓]** Create `.cargo/config.toml` with NDK linker paths
+- **[✓]** Install iOS development tools (macOS only)
+  - **[✓]** Xcode 14+ with command-line tools
+  - **[✓]** CocoaPods for dependency management
 
 ### 1.3 Core FFI Layer
 - **[✓]** Implement C ABI interface (`absurder-sql-mobile/src/lib.rs`)
@@ -61,16 +61,31 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
       - **[✓]** Execute on Tokio runtime (blocking)
       - **[✓]** Serialize `QueryResult` to JSON
       - **[✓]** Return JSON C string (NULL on error)
-  - [ ] Implement `absurder_db_execute_with_params()` - Parameterized queries (Future)
+  - [ ] Implement `absurder_db_execute_with_params()` - Parameterized queries
       - [ ] Accept JSON array of parameters
       - [ ] Deserialize to `Vec<ColumnValue>`
       - [ ] Execute prepared statement
+      - [ ] Add unit tests for parameterized queries
+      - [ ] Test SQL injection prevention
   - **[✓]** Implement `absurder_db_close()` - Close database
       - **[✓]** Remove from registry
       - **[✓]** Drop database (cleanup)
   - **[✓]** Implement `absurder_free_string()` - Free returned strings
       - **[✓]** Convert to `CString` and drop
-  - [ ] Implement `absurder_get_error()` - Get last error (Future)
+  - [ ] Implement `absurder_db_export()` - Export database to file
+      - [ ] Accept handle and file path
+      - [ ] Export to SQLite file format
+      - [ ] Return success/failure
+  - [ ] Implement `absurder_db_import()` - Import database from file
+      - [ ] Accept handle and file path
+      - [ ] Import from SQLite file format
+      - [ ] Handle merge strategies
+  - [ ] Implement `absurder_db_begin_transaction()` - Start transaction
+      - [ ] Support BEGIN, BEGIN IMMEDIATE, BEGIN EXCLUSIVE
+      - [ ] Track transaction state per handle
+  - [ ] Implement `absurder_db_commit()` - Commit transaction
+  - [ ] Implement `absurder_db_rollback()` - Rollback transaction
+  - [ ] Implement `absurder_get_error()` - Get last error
       - [ ] Thread-local error storage
       - [ ] Return error message as C string
 
@@ -132,6 +147,12 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - [ ] Specify static library paths
   - [ ] Define dependencies (none required)
   - [ ] Test `pod install` workflow
+- [ ] iOS integration testing
+  - [ ] Create XCTest suite
+  - [ ] Test native bridge functionality
+  - [ ] Test database operations
+  - [ ] Test memory management
+  - [ ] Test on physical devices
 
 ### 2.2 Android Native Bridge
 - **[✓]** Create Android module structure
@@ -171,19 +192,25 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Implement `@ReactMethod close(...)`
   - **[✓]** Create `AbsurderSQLPackage.kt` (register module)
 - [ ] Build shared libraries
-  - [ ] Build for `aarch64-linux-android` (ARM64)
-  - [ ] Build for `armv7-linux-androideabi` (ARMv7)
-  - [ ] Build for `x86_64-linux-android` (x86_64 emulator)
-  - [ ] Build for `i686-linux-android` (x86 emulator)
+  - [ ] Build for `aarch64-linux-android` (ARM64) → `arm64-v8a/libabsurder_sql_mobile.so`
+  - [ ] Build for `armv7-linux-androideabi` (ARMv7) → `armeabi-v7a/libabsurder_sql_mobile.so`
+  - [ ] Build for `x86_64-linux-android` (x86_64 emulator) → `x86_64/libabsurder_sql_mobile.so`
+  - [ ] Build for `i686-linux-android` (x86 emulator) → `x86/libabsurder_sql_mobile.so`
   - [ ] Copy to `android/src/main/jniLibs/` structure
       - [ ] `jniLibs/arm64-v8a/libabsurder_sql_mobile.so`
       - [ ] `jniLibs/armeabi-v7a/libabsurder_sql_mobile.so`
       - [ ] `jniLibs/x86_64/libabsurder_sql_mobile.so`
       - [ ] `jniLibs/x86/libabsurder_sql_mobile.so`
 - [ ] Gradle integration
-  - [ ] Configure `android/build.gradle`
+  - [ ] Configure `android/build.gradle` for native libs
   - [ ] Add ProGuard rules for JNI methods
   - [ ] Test Gradle sync
+- [ ] Android integration testing
+  - [ ] Create instrumentation test suite
+  - [ ] Test native bridge functionality
+  - [ ] Test database operations
+  - [ ] Test JNI bindings
+  - [ ] Test on physical devices and emulators
 
 ### 2.3 JavaScript/TypeScript API
 - **[✓]** Create TypeScript source files
@@ -197,10 +224,20 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** `execute(sql: string): Promise<QueryResult>`
       - **[✓]** Call native module
       - **[✓]** Return typed result
-  - **[✓]** `executeWithParams(sql: string, params: any[]): Promise<QueryResult>`
-  - [ ] `query(sql: string): Promise<Array<Record<string, any>>>` (Future - convenience wrapper)
-  - **[✓]** `exportToFile(path: string): Promise<void>`
-  - **[✓]** `importFromFile(path: string): Promise<void>`
+  - **[✓]** `executeWithParams(sql: string, params: any[]): Promise<QueryResult>` (Stub)
+      - [ ] Implement once FFI layer supports parameterized queries
+  - [ ] `query(sql: string): Promise<Array<Record<string, any>>>` - convenience wrapper returning rows only
+  - [ ] `executeStream(sql: string): AsyncIterator<Record<string, any>>` - streaming results for large datasets
+      - [ ] Implement cursor-based pagination
+      - [ ] Yield rows incrementally
+  - **[✓]** `exportToFile(path: string): Promise<void>` (Stub)
+      - [ ] Implement once FFI layer supports export
+  - **[✓]** `importFromFile(path: string): Promise<void>` (Stub)
+      - [ ] Implement once FFI layer supports import
+  - [ ] `beginTransaction(mode?: 'DEFERRED' | 'IMMEDIATE' | 'EXCLUSIVE'): Promise<void>`
+  - [ ] `commit(): Promise<void>`
+  - [ ] `rollback(): Promise<void>`
+  - [ ] `transaction<T>(fn: () => Promise<T>): Promise<T>` - automatic transaction wrapper
   - **[✓]** `close(): Promise<void>`
 - **[✓]** Define TypeScript interfaces
   - **[✓]** `QueryResult` - columns, rows, rowsAffected
@@ -277,13 +314,21 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
 
 ### 3.4 E2E Testing (React Native)
 - [ ] Create example React Native app
-  - [ ] Initialize with `npx react-native init MobileExample`
-  - [ ] Install `@npiesco/absurder-sql-mobile` locally
-  - [ ] Link native modules
-- [ ] Implement test scenarios
-  - [ ] Create database on app launch
-  - [ ] Create table and insert sample data
-  - [ ] Display data in FlatList
+  - [ ] New React Native project
+  - [ ] Install `@npiesco/absurder-sql-mobile`
+  - [ ] Demonstrate core features (CRUD)
+  - [ ] Demonstrate export/import
+  - [ ] Demonstrate transactions
+  - [ ] Demonstrate parameterized queries
+  - [ ] Add UI for testing
+  - [ ] Include in repo as `example/`
+- [ ] React Native E2E tests
+  - [ ] Set up Detox or Appium
+  - [ ] Test database creation flow
+  - [ ] Test SQL execution from JavaScript
+  - [ ] Test error handling
+  - [ ] Test app backgrounding/foregrounding
+  - [ ] Test concurrent database access
   - [ ] Test CRUD operations
   - [ ] Test export database to Files app (iOS) / Downloads (Android)
   - [ ] Test import database from file picker
