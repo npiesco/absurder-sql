@@ -34,6 +34,10 @@ thiserror = "1.0"
 # Logging
 log = "0.4"
 
+# JNI for Android
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+
 [profile.release]
 opt-level = "z"     # Optimize for size
 lto = true          # Link-time optimization
