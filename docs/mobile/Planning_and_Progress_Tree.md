@@ -270,11 +270,12 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Test `absurder_db_close` removes from registry
   - **[✓]** Test `absurder_free_string` doesn't crash (implicit in close tests)
   - [ ] Test concurrent operations (thread safety) (Future)
-- [ ] Memory leak tests
-  - [ ] Run with Valgrind (Linux)
-  - [ ] Run with AddressSanitizer (all platforms)
-  - [ ] Verify no memory leaks after 1000 operations
-  - [ ] Test handle cleanup on drop
+- **[✓]** Memory leak tests
+  - [ ] Run with Valgrind (Linux) (Optional - not available on macOS)
+  - **[✓]** Run with AddressSanitizer (all platforms)
+  - **[✓]** Verify no memory leaks after 1000 operations
+  - **[✓]** Test handle cleanup on drop
+  - **[✓]** Python test script (`scripts/test_memory_leaks.py`)
 
 ### 3.2 Integration Testing (iOS)
 - [ ] Create iOS test app
