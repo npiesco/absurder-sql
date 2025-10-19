@@ -136,17 +136,18 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** `close:resolver:rejecter:`
       - **[✓]** Call `absurder_db_close()`
       - **[✓]** Clear instance handle
-- [ ] Build static library
-  - [ ] Build for `aarch64-apple-ios` (device)
-  - [ ] Build for `x86_64-apple-ios` (Intel simulator)
-  - [ ] Build for `aarch64-apple-ios-sim` (Apple Silicon simulator)
-  - [ ] Create universal simulator library with `lipo`
-  - [ ] Create XCFramework with `xcodebuild`
-- [ ] CocoaPods integration
-  - [ ] Create `AbsurderSQL.podspec`
-  - [ ] Specify static library paths
-  - [ ] Define dependencies (none required)
-  - [ ] Test `pod install` workflow
+- **[✓]** Build static library
+  - **[✓]** Build for `aarch64-apple-ios` (device)
+  - **[✓]** Build for `x86_64-apple-ios` (Intel simulator)
+  - **[✓]** Build for `aarch64-apple-ios-sim` (Apple Silicon simulator)
+  - **[✓]** Create universal simulator library with `lipo`
+  - **[✓]** Create XCFramework with `xcodebuild`
+  - **[✓]** Python build script (`scripts/build_ios.py`)
+- **[✓]** CocoaPods integration
+  - **[✓]** Create `AbsurderSQL.podspec`
+  - **[✓]** Specify vendored XCFramework
+  - **[✓]** Define minimum iOS version (13.0)
+  - [ ] Test `pod install` workflow (requires actual build)
 - [ ] iOS integration testing
   - [ ] Create XCTest suite
   - [ ] Test native bridge functionality
