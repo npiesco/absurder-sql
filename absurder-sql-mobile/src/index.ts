@@ -97,6 +97,25 @@ export class AbsurderDatabase {
   }
 
   /**
+   * Execute SQL query and return only the rows
+   * 
+   * This is a convenience method that calls execute() and returns just the rows array,
+   * which is useful when you only need the data and not metadata like columns or rowsAffected.
+   * 
+   * @param sql SQL query to execute
+   * @returns Promise resolving to array of row objects
+   * @throws Error if database is not open or query fails
+   * 
+   * @example
+   * const users = await db.query("SELECT * FROM users WHERE age > 18");
+   * console.log(users); // [{ id: 1, name: 'Alice', age: 25 }, ...]
+   */
+  async query(sql: string): Promise<Array<Record<string, any>>> {
+    const result = await this.execute(sql);
+    return result.rows;
+  }
+
+  /**
    * Export database to file
    */
   async exportToFile(path: string): Promise<void> {
