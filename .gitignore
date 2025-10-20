@@ -33,4 +33,23 @@ BLOG.md
 
 # npm pack test artifacts
 package/
-*.tgzpkg/
+*.tgz
+pkg/
+
+# Mobile build artifacts
+absurder-sql-mobile/build/
+absurder-sql-mobile/lib/
+absurder-sql-mobile/test_json_output.rs
+
+# Android
+absurder-sql-mobile/android/.gradle/
+absurder-sql-mobile/android/build/
+absurder-sql-mobile/android/local.properties
+absurder-sql-mobile/android/gradle.properties
+absurder-sql-mobile/android/src/main/jniLibs/
+
+# iOS
+absurder-sql-mobile/ios/Pods/
+absurder-sql-mobile/ios/build/
+absurder-sql-mobile/ios/.xcode.env.local
+absurder-sql-mobile/ios/AbsurderSQLTests.xcworkspace/

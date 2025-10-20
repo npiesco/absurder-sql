@@ -63,20 +63,28 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun exportToFile(handle: Double, path: String, promise: Promise) {
         try {
-            // TODO: Implement nativeExport in FFI layer
-            promise.reject("NOT_IMPLEMENTED", "Export not yet implemented")
+            val result = nativeExport(handle.toLong(), path)
+            if (result == 0) {
+                promise.resolve(true)
+            } else {
+                promise.reject("EXPORT_ERROR", "Failed to export database")
+            }
         } catch (e: Exception) {
-            promise.reject("EXPORT_ERROR", e)
+            promise.reject("EXPORT_ERROR", "Failed to export: ${e.message}", e)
         }
     }
 
     @ReactMethod
     fun importFromFile(handle: Double, path: String, promise: Promise) {
         try {
-            // TODO: Implement nativeImport in FFI layer
-            promise.reject("NOT_IMPLEMENTED", "Import not yet implemented")
+            val result = nativeImport(handle.toLong(), path)
+            if (result == 0) {
+                promise.resolve(true)
+            } else {
+                promise.reject("IMPORT_ERROR", "Failed to import database")
+            }
         } catch (e: Exception) {
-            promise.reject("IMPORT_ERROR", e)
+            promise.reject("IMPORT_ERROR", "Failed to import: ${e.message}", e)
         }
     }
 
@@ -142,6 +150,8 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     private external fun nativeCreateDb(name: String): Long
     private external fun nativeExecute(handle: Long, sql: String): String?
     private external fun nativeExecuteWithParams(handle: Long, sql: String, paramsJson: String): String?
+    private external fun nativeExport(handle: Long, path: String): Int
+    private external fun nativeImport(handle: Long, path: String): Int
     private external fun nativeBeginTransaction(handle: Long): Int
     private external fun nativeCommit(handle: Long): Int
     private external fun nativeRollback(handle: Long): Int

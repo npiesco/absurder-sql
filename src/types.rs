@@ -56,6 +56,7 @@ impl Default for DatabaseConfig {
 // Query result types with proper TypeScript mapping
 #[derive(Tsify, Serialize, Deserialize, Debug)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Row>,

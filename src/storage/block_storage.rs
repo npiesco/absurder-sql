@@ -24,7 +24,7 @@ use std::cell::RefCell;
 
 // FS persistence imports (native only when feature is enabled)
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
-use std::{fs, io::Read, path::PathBuf};
+use std::path::PathBuf;
 
 // Global storage management moved to vfs_sync module
 
@@ -858,13 +858,14 @@ impl BlockStorage {
         }
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         {
+            use std::io::Read;
             let mut out = HashMap::new();
             let base: PathBuf = self.base_dir.clone();
             let mut db_dir = base.clone();
             db_dir.push(&self.db_name);
             let mut meta_path = db_dir.clone();
             meta_path.push("metadata.json");
-            if let Ok(mut f) = fs::File::open(&meta_path) {
+            if let Ok(mut f) = std::fs::File::open(&meta_path) {
                 let mut s = String::new();
                 if f.read_to_string(&mut s).is_ok() {
                     if let Ok(parsed) = serde_json::from_str::<FsMeta>(&s) {

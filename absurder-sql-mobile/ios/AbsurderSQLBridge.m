@@ -94,23 +94,43 @@ RCT_EXPORT_METHOD(executeWithParams:(nonnull NSNumber *)handle
 }
 
 // Export to file
-RCT_EXPORT_METHOD(exportToFile:(uint64_t)handle
+RCT_EXPORT_METHOD(exportToFile:(nonnull NSNumber *)handle
                   path:(NSString *)path
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    // TODO: Implement absurder_db_export in FFI layer
-    reject(@"NOT_IMPLEMENTED", @"Export not yet implemented", nil);
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    const char* pathCStr = [path UTF8String];
+    
+    int32_t result = absurder_db_export(dbHandle, pathCStr);
+    
+    if (result == 0) {
+        resolve(@(YES));
+    } else {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Export failed";
+        reject(@"EXPORT_ERROR", errorMsg, nil);
+    }
 }
 
 // Import from file
-RCT_EXPORT_METHOD(importFromFile:(uint64_t)handle
+RCT_EXPORT_METHOD(importFromFile:(nonnull NSNumber *)handle
                   path:(NSString *)path
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    // TODO: Implement absurder_db_import in FFI layer
-    reject(@"NOT_IMPLEMENTED", @"Import not yet implemented", nil);
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    const char* pathCStr = [path UTF8String];
+    
+    int32_t result = absurder_db_import(dbHandle, pathCStr);
+    
+    if (result == 0) {
+        resolve(@(YES));
+    } else {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Import failed";
+        reject(@"IMPORT_ERROR", errorMsg, nil);
+    }
 }
 
 // Begin transaction

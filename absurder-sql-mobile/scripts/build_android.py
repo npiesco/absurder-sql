@@ -84,7 +84,7 @@ def build_android():
         print(f"{Colors.YELLOW}{description} ({rust_target} -> {android_abi})...{Colors.END}")
         
         exit_code, output = run_command(
-            ["cargo", "build", "--release", f"--target={rust_target}"],
+            ["cargo", "build", "--release", "--features", "fs_persist", f"--target={rust_target}"],
             cwd=project_dir
         )
         

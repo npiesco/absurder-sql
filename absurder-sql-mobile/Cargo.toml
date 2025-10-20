@@ -38,6 +38,9 @@ log = "0.4"
 [target.'cfg(target_os = "android")'.dependencies]
 jni = { version = "0.21", default-features = false }
 
+[features]
+fs_persist = ["absurder-sql/fs_persist"]
+
 [profile.release]
 opt-level = "z"     # Optimize for size
 lto = true          # Link-time optimization

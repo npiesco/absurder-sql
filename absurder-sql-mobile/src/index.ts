@@ -77,6 +77,9 @@ export class AbsurderDatabase {
     }
 
     const resultJson = await AbsurderSQLNative.execute(this.handle, sql);
+    if (resultJson === null || resultJson === undefined) {
+      throw new Error('Native module returned null or undefined');
+    }
     return JSON.parse(resultJson);
   }
 
@@ -93,6 +96,9 @@ export class AbsurderDatabase {
       sql,
       params
     );
+    if (resultJson === null || resultJson === undefined) {
+      throw new Error('Native module returned null or undefined');
+    }
     return JSON.parse(resultJson);
   }
 
@@ -244,9 +250,6 @@ export async function openDatabase(
   await db.open();
   return db;
 }
-
-// Export types
-export type { QueryResult, DatabaseConfig };
 
 // Export default
 export default {

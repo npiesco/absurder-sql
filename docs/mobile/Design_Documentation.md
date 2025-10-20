@@ -1,9 +1,9 @@
 # Design Documentation
 ## AbsurderSQL Mobile: React Native FFI Integration
 
-**Version:** 1.0  
-**Date:** October 17, 2025  
-**Status:** Design
+**Version:** 1.1  
+**Date:** October 20, 2025  
+**Status:** Implementation (iOS Complete)
 
 ---
 
@@ -360,8 +360,10 @@ const { AbsurderSQL } = NativeModules;
 
 export interface QueryResult {
   rows: Array<Record<string, any>>;
-  rowsAffected: number;
+  affectedRows: number;  // camelCase for JavaScript/TypeScript
   lastInsertId?: number;
+  columns: string[];
+  executionTimeMs: number;
 }
 
 export class Database {
@@ -840,6 +842,93 @@ describe('Database', () => {
 - **Turbo Modules**: React Native new architecture support
 - **Flutter Support**: Dart FFI bindings
 - **Desktop Support**: macOS, Windows, Linux via Electron or Tauri
+
+---
+
+## Implementation Notes
+
+### React Native Version Requirements
+
+**Critical:** React Native 0.82+ is **required** when using Xcode 16 or later.
+
+**Background:** Xcode 16 ships with LLVM 19, which includes breaking changes to the `fmt` library. React Native versions prior to 0.77 use an older version of Folly that depends on `fmt` 8.x, which is incompatible with LLVM 19's `char8_t` changes.
+
+**Solution:**
+- React Native 0.82 includes Folly with `fmt` 11.0.2, which is Xcode 16 compatible
+- Minimum iOS deployment target: 15.1 (aligned with RN 0.82 requirements)
+
+**Migration Path:**
+```bash
+# Upgrade React Native
+npx react-native upgrade
+
+# Update Podfile for RN 0.82 compatibility
+# Remove deprecated imports like @react-native-community/cli-platform-ios
+
+# Clean and reinstall
+cd ios && pod install
+```
+
+### JSON Serialization Format
+
+The FFI layer returns query results in **camelCase** JSON format for JavaScript/TypeScript compatibility:
+
+```typescript
+interface QueryResult {
+  columns: string[];           // Column names
+  rows: Row[];                 // Result rows
+  affectedRows: number;        // Rows affected by mutation queries
+  lastInsertId?: number;       // Last inserted row ID (if applicable)
+  executionTimeMs: number;     // Query execution time
+}
+```
+
+**Implementation:** The Rust `QueryResult` struct uses `#[serde(rename_all = "camelCase")]` to automatically convert snake_case field names to camelCase during JSON serialization.
+
+### iOS Build Configuration
+
+**Xcode Project Settings:**
+- `ENABLE_USER_SCRIPT_SANDBOXING = NO` - Required for CocoaPods scripts to run
+- `IPHONEOS_DEPLOYMENT_TARGET = 15.1` - Matches React Native 0.82 requirement
+- Static library linking via `LIBRARY_SEARCH_PATHS` pointing to XCFramework directories
+- Link flag: `-labsurder_sql_mobile` instead of `-framework AbsurderSQL`
+
+**Build Script:**
+```bash
+python3 scripts/build_ios.py --features fs_persist
+```
+
+This creates a universal XCFramework supporting:
+- `aarch64-apple-ios` (device)
+- `x86_64-apple-ios` (Intel simulator)
+- `aarch64-apple-ios-sim` (Apple Silicon simulator)
+
+### Testing Status
+
+**iOS FFI Integration Tests:** ✅ **18/18 Passing** (as of October 20, 2025)
+
+**Test Environment:**
+- Platform: iOS Simulator (iPhone 16, iOS 18.4)
+- Execution: Headless via `xcodebuild` CLI (no visible simulator window)
+- Architecture: x86_64 or ARM64 depending on Mac host
+
+All tests cover:
+- Database lifecycle (create, execute, close)
+- SQL operations (CREATE, INSERT, SELECT)
+- Parameterized queries with SQL injection prevention
+- Transaction support (begin, commit, rollback)
+- Export/import functionality
+- Error handling and memory management
+
+**Test execution:**
+```bash
+xcodebuild test \
+  -workspace ios/AbsurderSQLTests.xcworkspace \
+  -scheme AbsurderSQLTests \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+**Note:** Tests run headlessly when executed via command line. To see the simulator UI during testing, open the project in Xcode and use `Cmd+U` (Product > Test).
 
 ---
 
