@@ -654,6 +654,89 @@ mod android_jni {
     ) -> jint {
         absurder_db_rollback(handle as u64)
     }
+
+    /// JNI: Execute SQL with parameters
+    #[no_mangle]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecuteWithParams(
+        mut env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        sql: JString,
+        params_json: JString,
+    ) -> jstring {
+        // Convert SQL JString to Rust String
+        let sql_str: String = match env.get_string(&sql) {
+            Ok(s) => s.into(),
+            Err(e) => {
+                log::error!("JNI nativeExecuteWithParams: Failed to get SQL string: {:?}", e);
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Convert params JSON JString to Rust String
+        let params_str: String = match env.get_string(&params_json) {
+            Ok(s) => s.into(),
+            Err(e) => {
+                log::error!("JNI nativeExecuteWithParams: Failed to get params JSON: {:?}", e);
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Convert to C strings
+        let sql_cstr = match CString::new(sql_str) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("JNI nativeExecuteWithParams: SQL CString conversion failed: {}", e);
+                return std::ptr::null_mut();
+            }
+        };
+
+        let params_cstr = match CString::new(params_str) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("JNI nativeExecuteWithParams: Params CString conversion failed: {}", e);
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Call FFI function
+        let result_ptr = unsafe { 
+            absurder_db_execute_with_params(handle as u64, sql_cstr.as_ptr(), params_cstr.as_ptr()) 
+        };
+
+        if result_ptr.is_null() {
+            log::error!("JNI nativeExecuteWithParams: absurder_db_execute_with_params returned null");
+            return std::ptr::null_mut();
+        }
+
+        // Convert C string to JString
+        let result_str = unsafe {
+            match CStr::from_ptr(result_ptr).to_str() {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("JNI nativeExecuteWithParams: UTF-8 conversion failed: {}", e);
+                    absurder_free_string(result_ptr as *mut i8);
+                    return std::ptr::null_mut();
+                }
+            }
+        };
+
+        let output = match env.new_string(result_str) {
+            Ok(s) => s.into_raw(),
+            Err(e) => {
+                log::error!("JNI nativeExecuteWithParams: JString creation failed: {:?}", e);
+                unsafe { absurder_free_string(result_ptr as *mut i8); }
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Free the C string
+        unsafe {
+            absurder_free_string(result_ptr as *mut i8);
+        }
+
+        output
+    }
 }
 
 #[cfg(test)]

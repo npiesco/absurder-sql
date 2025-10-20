@@ -51,28 +51,46 @@ RCT_EXPORT_METHOD(execute:(uint64_t)handle
 }
 
 // Execute SQL with parameters
-RCT_EXPORT_METHOD(executeWithParams:(uint64_t)handle
+RCT_EXPORT_METHOD(executeWithParams:(nonnull NSNumber *)handle
                   sql:(NSString *)sql
                   params:(NSArray *)params
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    // Serialize params to JSON
-    NSError *error = nil;
-    NSData *paramsData = [NSJSONSerialization dataWithJSONObject:params options:0 error:&error];
+    uint64_t dbHandle = [handle unsignedLongLongValue];
     
-    if (error) {
-        reject(@"PARAM_ERROR", @"Failed to serialize parameters", error);
+    // Convert SQL to C string
+    const char* sqlCStr = [sql UTF8String];
+    if (!sqlCStr) {
+        reject(@"INVALID_SQL", @"Failed to convert SQL to C string", nil);
         return;
     }
     
-    NSString *paramsJson = [[NSString alloc] initWithData:paramsData encoding:NSUTF8StringEncoding];
-    const char *cSql = [sql UTF8String];
-    const char *cParams = [paramsJson UTF8String];
+    // Serialize params array to JSON
+    NSError *jsonError = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:params options:0 error:&jsonError];
+    if (jsonError || !jsonData) {
+        reject(@"JSON_ERROR", @"Failed to serialize parameters to JSON", jsonError);
+        return;
+    }
     
-    // For now, return not implemented error
-    // TODO: Implement absurder_db_execute_with_params in FFI layer
-    reject(@"NOT_IMPLEMENTED", @"Parameterized queries not yet implemented", nil);
+    NSString *paramsJson = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    const char* paramsCStr = [paramsJson UTF8String];
+    
+    // Call FFI function
+    const char* result = absurder_db_execute_with_params(dbHandle, sqlCStr, paramsCStr);
+    
+    if (result == NULL) {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Query execution failed";
+        reject(@"QUERY_ERROR", errorMsg, nil);
+        return;
+    }
+    
+    NSString *resultStr = [NSString stringWithUTF8String:result];
+    absurder_free_string((char*)result);
+    
+    resolve(resultStr);
 }
 
 // Export to file

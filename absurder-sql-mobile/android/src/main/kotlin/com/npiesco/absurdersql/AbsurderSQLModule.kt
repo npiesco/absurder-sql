@@ -53,10 +53,10 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
             // Convert params to JSON string
             val paramsJson = Arguments.toJsonArray(params).toString()
             
-            // TODO: Implement nativeExecuteWithParams in FFI layer
-            promise.reject("NOT_IMPLEMENTED", "Parameterized queries not yet implemented")
+            val result = nativeExecuteWithParams(handle.toLong(), sql, paramsJson)
+            promise.resolve(result)
         } catch (e: Exception) {
-            promise.reject("PARAM_ERROR", e)
+            promise.reject("EXECUTE_ERROR", "Failed to execute parameterized query: ${e.message}", e)
         }
     }
 
@@ -141,6 +141,7 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     // JNI native method declarations
     private external fun nativeCreateDb(name: String): Long
     private external fun nativeExecute(handle: Long, sql: String): String?
+    private external fun nativeExecuteWithParams(handle: Long, sql: String, paramsJson: String): String?
     private external fun nativeBeginTransaction(handle: Long): Int
     private external fun nativeCommit(handle: Long): Int
     private external fun nativeRollback(handle: Long): Int
