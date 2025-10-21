@@ -1,11 +1,11 @@
 buildscript {
-    ext.kotlin_version = '1.8.0'
+    ext.kotlin_version = '2.1.20'
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.0'
+        classpath 'com.android.tools.build:gradle:8.1.4'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -13,22 +13,28 @@ buildscript {
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
+def safeExtGet(prop, fallback) {
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
 android {
-    compileSdkVersion 33
-    buildToolsVersion "33.0.0"
+    compileSdkVersion = safeExtGet('compileSdkVersion', 34)
+    buildToolsVersion = safeExtGet('buildToolsVersion', '34.0.0')
+    
+    namespace = 'com.npiesco.absurdersql'
 
     defaultConfig {
-        minSdkVersion 21
-        targetSdkVersion 33
-        versionCode 1
-        versionName "0.1.0"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        minSdkVersion = safeExtGet('minSdkVersion', 24)
+        targetSdkVersion = safeExtGet('targetSdkVersion', 34)
+        versionCode = 1
+        versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            minifyEnabled = false
+            proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
         }
     }
 
@@ -39,8 +45,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     kotlinOptions {
@@ -51,10 +57,19 @@ android {
 repositories {
     google()
     mavenCentral()
+    maven {
+        // React Native from local node_modules
+        url = "$rootDir/../node_modules/react-native/android"
+    }
+    maven {
+        // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+        url = "$rootDir/../node_modules/jsc-android/dist"
+    }
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.1.20"
+    implementation "com.facebook.react:react-android:+"
     
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'

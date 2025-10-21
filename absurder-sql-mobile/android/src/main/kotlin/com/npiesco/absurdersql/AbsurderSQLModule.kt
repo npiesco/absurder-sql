@@ -2,6 +2,7 @@ package com.npiesco.absurdersql
 
 import com.facebook.react.bridge.*
 import org.json.JSONObject
+import org.json.JSONArray
 
 class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -50,10 +51,23 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun executeWithParams(handle: Double, sql: String, params: ReadableArray, promise: Promise) {
         try {
-            // Convert params to JSON string
-            val paramsJson = Arguments.toJsonArray(params).toString()
+            // Convert params to JSON string manually
+            val jsonArray = JSONArray()
+            for (i in 0 until params.size()) {
+                val param = params.getMap(i)
+                jsonArray.put(JSONObject().apply {
+                    put("type", param?.getString("type"))
+                    when (param?.getString("type")) {
+                        "Integer" -> put("value", param.getInt("value"))
+                        "Real" -> put("value", param.getDouble("value"))
+                        "Text" -> put("value", param.getString("value"))
+                        "Blob" -> put("value", param.getString("value"))
+                        "Null" -> put("value", JSONObject.NULL)
+                    }
+                })
+            }
             
-            val result = nativeExecuteWithParams(handle.toLong(), sql, paramsJson)
+            val result = nativeExecuteWithParams(handle.toLong(), sql, jsonArray.toString())
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("EXECUTE_ERROR", "Failed to execute parameterized query: ${e.message}", e)

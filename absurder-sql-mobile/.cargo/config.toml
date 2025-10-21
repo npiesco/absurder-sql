@@ -1,17 +1,17 @@
 # Cargo configuration for mobile builds
 
 [target.aarch64-linux-android]
-linker = "aarch64-linux-android21-clang"
-ar = "llvm-ar"
+linker = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android21-clang"
+ar = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
 
 [target.armv7-linux-androideabi]
-linker = "armv7a-linux-androideabi21-clang"
-ar = "llvm-ar"
+linker = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi21-clang"
+ar = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
 
 [target.i686-linux-android]
-linker = "i686-linux-android21-clang"
-ar = "llvm-ar"
+linker = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/i686-linux-android21-clang"
+ar = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
 
 [target.x86_64-linux-android]
-linker = "x86_64-linux-android21-clang"
-ar = "llvm-ar"
+linker = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android21-clang"
+ar = "/Users/nicholas.piesco/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"

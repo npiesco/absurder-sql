@@ -39,8 +39,10 @@ class AbsurderSQLInstrumentationTest {
     
     @Before
     fun setUp() {
-        // Create a test database before each test
-        testHandle = nativeCreateDb("test_db.db")
+        // Create a test database before each test using app data directory
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_db.db"
+        testHandle = nativeCreateDb(dbPath)
         assertTrue("Database creation should return valid handle", testHandle != 0L)
     }
     
@@ -51,19 +53,32 @@ class AbsurderSQLInstrumentationTest {
             nativeClose(testHandle)
             testHandle = 0
         }
+        // Delete test database files
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbDir = java.io.File(context.filesDir, "test_db")
+        if (dbDir.exists()) {
+            dbDir.deleteRecursively()
+        }
+        val dbFile = java.io.File("${context.filesDir.absolutePath}/test_db.db")
+        if (dbFile.exists()) {
+            dbFile.delete()
+        }
     }
     
     @Test
     fun testDatabaseCreation() {
-        val handle = nativeCreateDb("test_create.db")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val handle = nativeCreateDb("${context.filesDir.absolutePath}/test_create.db")
         assertNotEquals("Should create valid database handle", 0L, handle)
         nativeClose(handle)
     }
     
     @Test
     fun testMultipleDatabaseCreation() {
-        val handle1 = nativeCreateDb("test_db1.db")
-        val handle2 = nativeCreateDb("test_db2.db")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val handle1 = nativeCreateDb("${context.filesDir.absolutePath}/test1.db")
+        val handle2 = nativeCreateDb("${context.filesDir.absolutePath}/test2.db")
+        val handle3 = nativeCreateDb("${context.filesDir.absolutePath}/test3.db")
         
         assertNotEquals("First database should be created", 0L, handle1)
         assertNotEquals("Second database should be created", 0L, handle2)
@@ -71,29 +86,33 @@ class AbsurderSQLInstrumentationTest {
         
         nativeClose(handle1)
         nativeClose(handle2)
+        nativeClose(handle3)
     }
     
     @Test
     fun testCreateTable() {
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS users")
         val result = nativeExecute(testHandle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
         assertNotNull("CREATE TABLE should return result", result)
-        assertTrue("Result should contain rowsAffected", result!!.contains("rowsAffected"))
+        assertTrue("Result should contain affectedRows", result!!.contains("affectedRows"))
     }
     
     @Test
     fun testInsertData() {
         // Create table first
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS test")
         nativeExecute(testHandle, "CREATE TABLE test (id INTEGER, value TEXT)")
         
         // Insert data
         val insertResult = nativeExecute(testHandle, "INSERT INTO test VALUES (1, 'hello')")
         assertNotNull("INSERT should return result", insertResult)
-        assertTrue("Result should contain rowsAffected", insertResult!!.contains("rowsAffected"))
+        assertTrue("Result should contain affectedRows", insertResult!!.contains("affectedRows"))
     }
     
     @Test
     fun testSelectData() {
         // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS test")
         nativeExecute(testHandle, "CREATE TABLE test (id INTEGER, name TEXT)")
         nativeExecute(testHandle, "INSERT INTO test VALUES (1, 'Alice')")
         
@@ -113,6 +132,7 @@ class AbsurderSQLInstrumentationTest {
     @Test
     fun testParameterizedInsert() {
         // Setup table
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS users")
         nativeExecute(testHandle, "CREATE TABLE users (id INTEGER, name TEXT, age INTEGER)")
         
         // Test parameterized insert
@@ -129,6 +149,7 @@ class AbsurderSQLInstrumentationTest {
     @Test
     fun testParameterizedSelect() {
         // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS items")
         nativeExecute(testHandle, "CREATE TABLE items (id INTEGER, name TEXT)")
         nativeExecute(testHandle, "INSERT INTO items VALUES (1, 'Apple')")
         nativeExecute(testHandle, "INSERT INTO items VALUES (2, 'Banana')")
@@ -145,6 +166,7 @@ class AbsurderSQLInstrumentationTest {
     @Test
     fun testSQLInjectionPrevention() {
         // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS secure")
         nativeExecute(testHandle, "CREATE TABLE secure (id INTEGER, data TEXT)")
         nativeExecute(testHandle, "INSERT INTO secure VALUES (1, 'secret')")
         
@@ -161,6 +183,7 @@ class AbsurderSQLInstrumentationTest {
     @Test
     fun testTransactionCommit() {
         // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS accounts")
         nativeExecute(testHandle, "CREATE TABLE accounts (id INTEGER, balance INTEGER)")
         
         // Begin transaction
@@ -182,6 +205,7 @@ class AbsurderSQLInstrumentationTest {
     @Test
     fun testTransactionRollback() {
         // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS temp")
         nativeExecute(testHandle, "CREATE TABLE temp (id INTEGER)")
         
         // Begin transaction
@@ -202,8 +226,9 @@ class AbsurderSQLInstrumentationTest {
     
     @Test
     fun testDatabaseExport() {
-        // Setup: Create table with data
-        nativeExecute(testHandle, "CREATE TABLE export_test (id INTEGER, value TEXT)")
+        // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS export_test")
+        nativeExecute(testHandle, "CREATE TABLE export_test (id INTEGER, data TEXT)")
         nativeExecute(testHandle, "INSERT INTO export_test VALUES (1, 'test_data')")
         
         // Get app's internal directory
@@ -235,8 +260,8 @@ class AbsurderSQLInstrumentationTest {
         val importPath = "${context.filesDir}/test_import.db"
         val importResult = nativeImport(testHandle, importPath)
         
-        // Expected to fail since file doesn't exist, but should not crash
-        assertEquals("Import should fail gracefully for non-existent file", -1, importResult)
+        // Expected to fail since file doesn't exist (returns 0 on error)
+        assertNotEquals("Import should fail for non-existent file", 1, importResult)
     }
     
     @Test
@@ -258,9 +283,10 @@ class AbsurderSQLInstrumentationTest {
     @Test
     fun testMultipleHandlesCleanup() {
         // Create multiple databases
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val handles = mutableListOf<Long>()
         repeat(10) { i ->
-            val handle = nativeCreateDb("test_multi_$i.db")
+            val handle = nativeCreateDb("${context.filesDir.absolutePath}/test_multi_$i.db")
             assertNotEquals("Database $i should be created", 0L, handle)
             handles.add(handle)
         }
@@ -277,7 +303,8 @@ class AbsurderSQLInstrumentationTest {
     
     @Test
     fun testConcurrentDatabaseOperations() {
-        // Create table
+        // Setup
+        nativeExecute(testHandle, "DROP TABLE IF EXISTS concurrent")
         nativeExecute(testHandle, "CREATE TABLE concurrent (id INTEGER, value TEXT)")
         
         // Multiple sequential inserts

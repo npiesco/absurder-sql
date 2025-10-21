@@ -170,9 +170,3 @@ npm run build  # Compiles to lib/
 ## License
 
 AGPL-3.0
-
-## Links
-
-- [PRD](../docs/mobile/PRD.md)
-- [Design Documentation](../docs/mobile/Design_Documentation.md)
-- [Planning & Progress Tree](../docs/mobile/Planning_and_Progress_Tree.md)

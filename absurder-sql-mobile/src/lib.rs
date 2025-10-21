@@ -599,7 +599,21 @@ mod android_jni {
     use super::*;
     use jni::JNIEnv;
     use jni::objects::{JClass, JString};
-    use jni::sys::{jlong, jstring, jint};
+    use jni::sys::{jlong, jstring, jint, JavaVM, jint as JInt};
+    use std::os::raw::c_void;
+    
+    /// Called when the native library is loaded
+    #[unsafe(no_mangle)]
+    pub extern "system" fn JNI_OnLoad(_vm: *mut JavaVM, _reserved: *mut c_void) -> JInt {
+        // Initialize Android logger
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Debug)
+                .with_tag("AbsurderSQL")
+        );
+        log::info!("AbsurderSQL native library loaded");
+        jni::sys::JNI_VERSION_1_6
+    }
 
     /// JNI: Create database
     #[unsafe(no_mangle)]
@@ -857,6 +871,95 @@ mod android_jni {
         }
 
         output
+    }
+    
+    // ==================== JNI Bindings for Android Instrumentation Tests ====================
+    // These are duplicates of the Module bindings but with the test class name
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeCreateDb(
+        env: JNIEnv,
+        _class: JClass,
+        name: JString,
+    ) -> jlong {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCreateDb(env, _class, name)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeExecute(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        sql: JString,
+    ) -> jstring {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecute(env, _class, handle, sql)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeClose(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeClose(_env, _class, handle)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeBeginTransaction(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) -> jint {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeBeginTransaction(_env, _class, handle)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeCommit(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) -> jint {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCommit(_env, _class, handle)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeRollback(
+        _env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) -> jint {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeRollback(_env, _class, handle)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeExport(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        path: JString,
+    ) -> jint {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExport(env, _class, handle, path)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeImport(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        path: JString,
+    ) -> jint {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeImport(env, _class, handle, path)
+    }
+    
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeExecuteWithParams(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        sql: JString,
+        params: JString,
+    ) -> jstring {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecuteWithParams(env, _class, handle, sql, params)
     }
 }
 
