@@ -24,7 +24,7 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
             if (dbHandle == 0L) {
                 promise.reject("CREATE_ERROR", "Failed to create database")
             } else {
-                promise.resolve(dbHandle)
+                promise.resolve(dbHandle.toDouble())
             }
         } catch (e: Exception) {
             promise.reject("CREATE_ERROR", e)
@@ -76,16 +76,25 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun exportToFile(handle: Double, path: String, promise: Promise) {
-        try {
-            val result = nativeExport(handle.toLong(), path)
-            if (result == 0) {
-                promise.resolve(true)
-            } else {
-                promise.reject("EXPORT_ERROR", "Failed to export database")
+        android.util.Log.i("AbsurderSQL", "exportToFile called with handle=$handle path=$path")
+        // Run export on background thread to avoid blocking React Native bridge
+        Thread {
+            try {
+                android.util.Log.i("AbsurderSQL", "Starting nativeExport...")
+                val startTime = System.currentTimeMillis()
+                val result = nativeExport(handle.toLong(), path)
+                val duration = System.currentTimeMillis() - startTime
+                android.util.Log.i("AbsurderSQL", "nativeExport completed in ${duration}ms with result=$result")
+                if (result == 0) {
+                    promise.resolve(true)
+                } else {
+                    promise.reject("EXPORT_ERROR", "Failed to export database, result=$result")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AbsurderSQL", "Export exception: ${e.message}", e)
+                promise.reject("EXPORT_ERROR", "Failed to export: ${e.message}", e)
             }
-        } catch (e: Exception) {
-            promise.reject("EXPORT_ERROR", "Failed to export: ${e.message}", e)
-        }
+        }.start()
     }
 
     @ReactMethod

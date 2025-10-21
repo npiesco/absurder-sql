@@ -504,15 +504,29 @@ pub unsafe extern "C" fn absurder_db_export(handle: u64, path: *const c_char) ->
         }
     };
     drop(registry);
+    
+    // Delete export file if it exists (VACUUM INTO fails if file exists)
+    if let Ok(path) = std::path::Path::new(path_str).canonicalize() {
+        let _ = std::fs::remove_file(path);
+    } else {
+        // If canonicalize fails, try to delete anyway
+        let _ = std::fs::remove_file(path_str);
+    }
+    
     let export_sql = format!("VACUUM INTO '{}'", path_str.replace("'", "''"));
     let result = RUNTIME.block_on(async {
         let mut db_guard = db.lock();
         db_guard.execute(&export_sql).await
     });
     match result {
-        Ok(_) => 0,
+        Ok(_) => {
+            log::info!("Export successful");
+            0
+        },
         Err(e) => {
-            set_last_error(format!("Export failed: {:?}", e));
+            let error_msg = format!("Export failed: {:?}", e);
+            log::error!("{}", error_msg);
+            set_last_error(error_msg);
             -1
         }
     }
@@ -897,11 +911,50 @@ mod android_jni {
     
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeClose(
-        _env: JNIEnv,
+        env: JNIEnv,
         _class: JClass,
         handle: jlong,
     ) {
-        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeClose(_env, _class, handle)
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeClose(env, _class, handle)
+    }
+
+    // JNI bindings for ExportHangTest
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_ExportHangTest_nativeCreateDb(
+        env: JNIEnv,
+        _class: JClass,
+        name: JString,
+    ) -> jlong {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCreateDb(env, _class, name)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_ExportHangTest_nativeExecute(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        sql: JString,
+    ) -> jstring {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecute(env, _class, handle, sql)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_ExportHangTest_nativeExport(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        path: JString,
+    ) -> jint {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExport(env, _class, handle, path)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_ExportHangTest_nativeClose(
+        env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+    ) {
+        Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeClose(env, _class, handle)
     }
     
     #[unsafe(no_mangle)]
