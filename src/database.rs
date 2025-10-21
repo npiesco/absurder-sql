@@ -16,6 +16,8 @@ pub struct SqliteIndexedDB {
     config: DatabaseConfig,
     #[cfg(feature = "fs_persist")]
     storage: BlockStorage,
+    /// Track transaction depth to defer sync operations during transactions
+    transaction_depth: u32,
 }
 
 impl SqliteIndexedDB {
@@ -83,6 +85,7 @@ impl SqliteIndexedDB {
             vfs,
             config,
             storage,
+            transaction_depth: 0,
         };
         instance.apply_pragmas()?;
         Ok(instance)
@@ -98,6 +101,7 @@ impl SqliteIndexedDB {
             connection,
             vfs,
             config,
+            transaction_depth: 0,
         };
         instance.apply_pragmas()?;
         Ok(instance)
@@ -223,8 +227,24 @@ impl SqliteIndexedDB {
                    result.execution_time_ms, 
                    if is_select { result.rows.len() } else { result.affected_rows as usize });
         
-        // Sync to IndexedDB after write operations
-        if !is_select {
+        // Track transaction boundaries
+        if trimmed_sql.starts_with("begin") {
+            self.transaction_depth += 1;
+            log::debug!("Transaction BEGIN, depth now: {}", self.transaction_depth);
+        } else if trimmed_sql.starts_with("commit") || trimmed_sql.starts_with("end") {
+            if self.transaction_depth > 0 {
+                self.transaction_depth -= 1;
+                log::debug!("Transaction COMMIT, depth now: {}", self.transaction_depth);
+            }
+        } else if trimmed_sql.starts_with("rollback") {
+            if self.transaction_depth > 0 {
+                self.transaction_depth -= 1;
+                log::debug!("Transaction ROLLBACK, depth now: {}", self.transaction_depth);
+            }
+        }
+        
+        // Sync to IndexedDB after write operations, but ONLY if not in a transaction
+        if !is_select && self.transaction_depth == 0 {
             self.sync().await?;
         }
         
