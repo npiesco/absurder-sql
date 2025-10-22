@@ -251,6 +251,26 @@ impl SqliteIndexedDB {
         Ok(result)
     }
 
+    /// Execute multiple SQL statements as a batch
+    /// This is more efficient than calling execute() multiple times when crossing FFI boundaries
+    /// as it reduces the number of bridge calls from N to 1
+    pub async fn execute_batch(&mut self, statements: &[String]) -> Result<(), DatabaseError> {
+        log::debug!("Executing batch of {} statements", statements.len());
+        let start_time = Instant::now();
+        
+        for (i, sql) in statements.iter().enumerate() {
+            self.execute(sql).await.map_err(|e| {
+                log::error!("Batch execution failed at statement {}: {}", i, sql);
+                e.with_sql(sql)
+            })?;
+        }
+        
+        let duration = start_time.elapsed().as_secs_f64() * 1000.0;
+        log::debug!("Batch of {} statements executed in {:.2}ms", statements.len(), duration);
+        
+        Ok(())
+    }
+
     pub async fn sync(&mut self) -> Result<(), DatabaseError> {
         #[cfg(feature = "fs_persist")]
         {
