@@ -69,9 +69,7 @@ def build_android():
     # Target architectures mapping: Rust target -> Android ABI
     targets = [
         ("aarch64-linux-android", "arm64-v8a", "📱 ARM64"),
-        ("armv7-linux-androideabi", "armeabi-v7a", "📱 ARMv7"),
         ("x86_64-linux-android", "x86_64", "💻 x86_64 emulator"),
-        ("i686-linux-android", "x86", "💻 x86 emulator"),
     ]
     
     # Clean jniLibs directory

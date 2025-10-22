@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use parking_lot::Mutex;
 use once_cell::sync::Lazy;
-use absurder_sql::{SqliteIndexedDB, DatabaseConfig, ColumnValue, DatabaseError};
+use absurder_sql::{SqliteIndexedDB, DatabaseConfig, DatabaseError};
 use tokio::runtime::Runtime;
 
 /// Global database registry
@@ -556,23 +556,93 @@ pub unsafe extern "C" fn absurder_db_import(handle: u64, path: *const c_char) ->
         }
     };
     drop(registry);
+    // Use rusqlite to read the native SQLite export file
+    use rusqlite::Connection;
+    
     let result = RUNTIME.block_on(async {
-        let mut db_guard = db.lock();
-        db_guard.execute(&format!("ATTACH DATABASE '{}' AS import_source", path_str.replace("'", "''"))).await?;
-        let tables_result = db_guard.execute("SELECT name FROM import_source.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").await?;
-        for row in &tables_result.rows {
-            if let Some(ColumnValue::Text(name)) = row.values.get(0) {
-                let _ = db_guard.execute(&format!("DROP TABLE IF EXISTS {}", name)).await;
-                db_guard.execute(&format!("CREATE TABLE {} AS SELECT * FROM import_source.{}", name, name)).await?;
+        let mut dest_guard = db.lock();
+        
+        // Open the export file as a native SQLite connection
+        let source_conn = Connection::open(path_str)
+            .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to open export file: {}", e)))?;
+        
+        // Get list of tables
+        let mut stmt = source_conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to query tables: {}", e)))?;
+        
+        let table_names: Vec<String> = stmt.query_map([], |row| row.get(0))
+            .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to get table names: {}", e)))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to collect table names: {}", e)))?;
+        
+        for table_name in table_names {
+            log::info!("Importing table: {}", table_name);
+            
+            // Get CREATE TABLE statement
+            let create_sql: String = source_conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                [&table_name],
+                |row| row.get(0)
+            ).map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to get schema for {}: {}", table_name, e)))?;
+            
+            // Drop and recreate table in destination
+            let _ = dest_guard.execute(&format!("DROP TABLE IF EXISTS {}", table_name)).await;
+            dest_guard.execute(&create_sql).await?;
+            
+            // Get all data from source table
+            let mut data_stmt = source_conn.prepare(&format!("SELECT * FROM {}", table_name))
+                .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to select from {}: {}", table_name, e)))?;
+            
+            let column_count = data_stmt.column_count();
+            let mut rows = data_stmt.query([])
+                .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to query {}: {}", table_name, e)))?;
+            
+            // Begin transaction for bulk insert
+            dest_guard.execute("BEGIN TRANSACTION").await?;
+            
+            let mut row_count = 0;
+            while let Some(row) = rows.next()
+                .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to fetch row from {}: {}", table_name, e)))? {
+                
+                // Build INSERT VALUES string
+                let mut values = Vec::new();
+                for i in 0..column_count {
+                    let value_str = match row.get_ref(i)
+                        .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to get column {}: {}", i, e)))? {
+                        rusqlite::types::ValueRef::Null => "NULL".to_string(),
+                        rusqlite::types::ValueRef::Integer(n) => n.to_string(),
+                        rusqlite::types::ValueRef::Real(r) => r.to_string(),
+                        rusqlite::types::ValueRef::Text(t) => {
+                            let text = std::str::from_utf8(t)
+                                .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Invalid UTF-8: {}", e)))?;
+                            format!("'{}'", text.replace("'", "''"))
+                        },
+                        rusqlite::types::ValueRef::Blob(_) => "NULL".to_string(), // TODO: handle blobs
+                    };
+                    values.push(value_str);
+                }
+                
+                dest_guard.execute(&format!("INSERT INTO {} VALUES ({})", table_name, values.join(", "))).await?;
+                row_count += 1;
             }
+            
+            // Commit transaction
+            dest_guard.execute("COMMIT").await?;
+            
+            log::info!("Successfully imported table: {} ({} rows)", table_name, row_count);
         }
-        db_guard.execute("DETACH DATABASE import_source").await?;
+        
         Ok::<(), DatabaseError>(())
     });
     match result {
-        Ok(_) => 0,
+        Ok(_) => {
+            log::info!("Import successful");
+            0
+        },
         Err(e) => {
-            set_last_error(format!("Import failed: {:?}", e));
+            let error_msg = format!("Import failed: {:?}", e);
+            log::error!("{}", error_msg);
+            set_last_error(error_msg);
             -1
         }
     }
