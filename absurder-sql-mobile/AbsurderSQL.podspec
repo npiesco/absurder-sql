@@ -17,7 +17,8 @@ Pod::Spec.new do |s|
   s.platform = :ios, '13.0'
 
   s.source_files = 'ios/**/*.{h,m,swift}'
-  s.public_header_files = 'ios/**/*.h'
+  s.public_header_files = 'ios/AbsurderSQLBridge.h'
+  s.exclude_files = ['ios/Pods/**/*', 'ios/Tests/**/*', 'ios/**/*.xcodeproj/**/*', 'ios/**/*.xcworkspace/**/*']
 
   # Vendored XCFramework
   s.vendored_frameworks = 'build/ios/AbsurderSQL.xcframework'

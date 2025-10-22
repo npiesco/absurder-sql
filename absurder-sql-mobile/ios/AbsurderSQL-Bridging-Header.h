@@ -11,6 +11,13 @@
 // FFI function declarations
 uint64_t absurder_db_new(const char *name);
 char *absurder_db_execute(uint64_t handle, const char *sql);
+const char *absurder_db_execute_with_params(uint64_t handle, const char *sql, const char *params_json);
+const char *absurder_get_error(void);
+int32_t absurder_db_export(uint64_t handle, const char *path);
+int32_t absurder_db_import(uint64_t handle, const char *path);
+int32_t absurder_db_begin_transaction(uint64_t handle);
+int32_t absurder_db_commit(uint64_t handle);
+int32_t absurder_db_rollback(uint64_t handle);
 void absurder_db_close(uint64_t handle);
 void absurder_free_string(char *s);
 

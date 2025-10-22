@@ -99,16 +99,23 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun importFromFile(handle: Double, path: String, promise: Promise) {
-        try {
-            val result = nativeImport(handle.toLong(), path)
-            if (result == 0) {
-                promise.resolve(true)
-            } else {
-                promise.reject("IMPORT_ERROR", "Failed to import database")
+        android.util.Log.i("AbsurderSQL", "importFromFile called with handle=$handle path=$path")
+        Thread {
+            try {
+                android.util.Log.i("AbsurderSQL", "Starting nativeImport...")
+                val result = nativeImport(handle.toLong(), path)
+                android.util.Log.i("AbsurderSQL", "nativeImport completed with result=$result")
+                if (result == 0) {
+                    promise.resolve(true)
+                } else {
+                    android.util.Log.e("AbsurderSQL", "Import failed with result=$result")
+                    promise.reject("IMPORT_ERROR", "Failed to import database, result=$result")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AbsurderSQL", "Import exception: ${e.message}", e)
+                promise.reject("IMPORT_ERROR", "Failed to import: ${e.message}", e)
             }
-        } catch (e: Exception) {
-            promise.reject("IMPORT_ERROR", "Failed to import: ${e.message}", e)
-        }
+        }.start()
     }
 
     @ReactMethod
@@ -172,11 +179,11 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     // JNI native method declarations
     private external fun nativeCreateDb(name: String): Long
     private external fun nativeExecute(handle: Long, sql: String): String?
-    private external fun nativeExecuteWithParams(handle: Long, sql: String, paramsJson: String): String?
+    private external fun nativeExecuteWithParams(handle: Long, sql: String, params: String): String?
+    private external fun nativeClose(handle: Long): Int
     private external fun nativeExport(handle: Long, path: String): Int
     private external fun nativeImport(handle: Long, path: String): Int
     private external fun nativeBeginTransaction(handle: Long): Int
     private external fun nativeCommit(handle: Long): Int
     private external fun nativeRollback(handle: Long): Int
-    private external fun nativeClose(handle: Long)
 }

@@ -53,3 +53,6 @@ absurder-sql-mobile/ios/Pods/
 absurder-sql-mobile/ios/build/
 absurder-sql-mobile/ios/.xcode.env.local
 absurder-sql-mobile/ios/AbsurderSQLTests.xcworkspace/
+
+# Nicholas's Personal Files
+PERSONAL.md

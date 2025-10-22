@@ -34,6 +34,9 @@ thiserror = "1.0"
 # Logging
 log = "0.4"
 
+# SQLite for reading native export files
+rusqlite = { version = "0.30", features = ["bundled"] }
+
 # JNI for Android
 [target.'cfg(target_os = "android")'.dependencies]
 jni = { version = "0.21", default-features = false }

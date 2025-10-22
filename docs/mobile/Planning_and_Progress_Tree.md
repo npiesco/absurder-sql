@@ -472,30 +472,22 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **[✓]** Test integration tests execution
   - **[✓]** Test app persistence (close and reopen)
   - **[✓]** All 6 E2E tests passing on Android emulator
-- [ ] Add Detox E2E tests to CI
-  - [ ] Install Detox dependencies
-  - [ ] Configure iOS simulator (macOS runners)
-  - [ ] Configure Android emulator (Linux runners)
-  - [ ] Write E2E test suite
-  - [ ] Run on CI (iOS & Android)
-  - [ ] Note: Detox works on emulators/simulators; for broader real device testing consider Appium
-
 ### 3.5 Performance Benchmarking
-- [ ] Create benchmark suite
-  - [ ] Simple SELECT (1 row)
-  - [ ] Simple SELECT (100 rows)
-  - [ ] Bulk INSERT (1000 rows in transaction)
-  - [ ] Complex JOIN query
-  - [ ] Export 1MB database
-  - [ ] Import 1MB database
-- [ ] Run benchmarks
-  - [ ] iOS (iPhone 14 Pro)
-  - [ ] Android (Pixel 6)
-- [ ] Compare against competitors
+- **[✓]** Create benchmark suite
+  - **[✓]** Simple SELECT (1 row) - ~2ms ✅
+  - **[✓]** Simple SELECT (100 rows) - ~4ms ✅
+  - **[✓]** Bulk INSERT (1000 rows in transaction) - ~374ms ✅
+  - **[✓]** Complex JOIN query - ~1ms ✅
+  - **[✓]** Export 1MB database - ~8ms ✅
+  - **[✓]** Import 1MB database - ~97ms ✅
+- **[✓]** Run benchmarks
+  - [ ] iOS (iPhone 16 Simulator, iOS 18.4)
+  - **[✓]** Android (test_avd, Android 13, ARM64)
+- [ ] Compare against competitors (Future)
   - [ ] react-native-sqlite-storage
   - [ ] WatermelonDB
   - [ ] Raw SQLite via expo-sqlite
-- [ ] Document results in README
+- **[✓]** Document results in Design_Documentation.md
 
 ### 3.6 Documentation
 - [ ] Create user documentation
@@ -518,31 +510,7 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
 
 ## 4. Release & Deployment 🚧
 
-### 4.1 Build Automation
-- [ ] Create build scripts
-  - [ ] `scripts/build-mobile.sh` - Build all platforms
-  - [ ] `scripts/build-ios.sh` - iOS-specific build
-  - [ ] `scripts/build-android.sh` - Android-specific build
-  - [ ] `scripts/test-mobile.sh` - Run all tests
-- [ ] Set up GitHub Actions CI/CD
-  - [ ] Create `.github/workflows/mobile-ci.yml`
-  - [ ] Build on: push to main, PRs
-  - [ ] Matrix build: iOS (macOS runner), Android (Linux runner)
-  - [ ] Run Rust unit tests
-  - [ ] Run iOS integration tests
-  - [ ] Run Android integration tests
-  - [ ] Run E2E tests with Detox
-  - [ ] Cache Rust dependencies
-  - [ ] Cache NDK and Xcode tools
-- [ ] Set up release workflow
-  - [ ] Create `.github/workflows/mobile-release.yml`
-  - [ ] Trigger on: git tag `v*-mobile`
-  - [ ] Build all platforms
-  - [ ] Create GitHub release
-  - [ ] Upload artifacts (XCFramework, jniLibs)
-  - [ ] Publish to npm automatically
-
-### 4.2 Package Publishing
+### 4.1 Package Publishing
 - [ ] Prepare npm package
   - [ ] Update `package.json` metadata
       - [ ] Name: `@npiesco/absurder-sql-mobile`

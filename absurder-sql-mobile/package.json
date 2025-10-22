@@ -1,5 +1,5 @@
 {
-  "name": "@npiesco/absurder-sql-mobile",
+  "name": "absurder-sql-mobile",
   "version": "0.1.0",
   "description": "AbsurderSQL Mobile - React Native bindings for iOS and Android",
   "main": "lib/index.js",
