@@ -11,4 +11,6 @@
 
 @property (nonatomic, assign) uint64_t dbHandle;
 
+- (void)executeBatch:(NSArray *)statements;
+
 @end

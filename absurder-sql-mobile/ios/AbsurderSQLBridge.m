@@ -231,14 +231,44 @@ RCT_EXPORT_METHOD(rollback:(nonnull NSNumber *)handle
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
     uint64_t dbHandle = [handle unsignedLongLongValue];
-    int32_t result = absurder_db_rollback(dbHandle);
-    
+    int result = absurder_db_rollback(dbHandle);
     if (result == 0) {
         resolve(@(YES));
     } else {
-        const char* error = absurder_get_error();
-        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to rollback transaction";
-        reject(@"TRANSACTION_ERROR", errorMsg, nil);
+        reject(@"ROLLBACK_ERROR", @"Failed to rollback transaction", nil);
+    }
+}
+
+// Execute batch of SQL statements
+RCT_EXPORT_METHOD(executeBatch:(nonnull NSNumber *)handle
+                  statements:(NSArray *)statements
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    
+    // Convert NSArray to JSON string
+    NSError *jsonError = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:statements options:0 error:&jsonError];
+    if (jsonError) {
+        reject(@"JSON_ERROR", [NSString stringWithFormat:@"Failed to serialize statements: %@", jsonError.localizedDescription], jsonError);
+        return;
+    }
+    
+    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    const char *statementsCStr = [jsonString UTF8String];
+    
+    NSLog(@"[AbsurderSQL] executeBatch called with %lu statements", (unsigned long)statements.count);
+    
+    int result = absurder_db_execute_batch(dbHandle, statementsCStr);
+    if (result == 0) {
+        NSLog(@"[AbsurderSQL] executeBatch succeeded");
+        resolve(@(YES));
+    } else {
+        const char *errorCStr = absurder_get_error();
+        NSString *errorMsg = errorCStr ? [NSString stringWithUTF8String:errorCStr] : @"Unknown error";
+        NSLog(@"[AbsurderSQL] executeBatch failed: %@", errorMsg);
+        reject(@"BATCH_ERROR", errorMsg, nil);
     }
 }
 

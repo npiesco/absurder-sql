@@ -15,10 +15,11 @@ const char *absurder_db_execute_with_params(uint64_t handle, const char *sql, co
 const char *absurder_get_error(void);
 int32_t absurder_db_export(uint64_t handle, const char *path);
 int32_t absurder_db_import(uint64_t handle, const char *path);
-int32_t absurder_db_begin_transaction(uint64_t handle);
-int32_t absurder_db_commit(uint64_t handle);
-int32_t absurder_db_rollback(uint64_t handle);
-void absurder_db_close(uint64_t handle);
-void absurder_free_string(char *s);
+extern int32_t absurder_db_begin_transaction(uint64_t handle);
+extern int32_t absurder_db_commit(uint64_t handle);
+extern int32_t absurder_db_rollback(uint64_t handle);
+extern int32_t absurder_db_execute_batch(uint64_t handle, const char* statements_json);
+extern void absurder_db_close(uint64_t handle);
+extern void absurder_free_string(char* s);
 
 #endif /* AbsurderSQL_Bridging_Header_h */

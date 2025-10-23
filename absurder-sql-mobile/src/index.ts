@@ -196,6 +196,29 @@ export class AbsurderDatabase {
   }
 
   /**
+   * Execute multiple SQL statements as a batch
+   * Reduces bridge overhead by making one call instead of N calls
+   * 
+   * @param statements Array of SQL statements to execute
+   * @returns Promise that resolves when all statements are executed
+   * @throws Error if database is not open or batch execution fails
+   * 
+   * @example
+   * const statements = [];
+   * for (let i = 0; i < 5000; i++) {
+   *   statements.push(`INSERT INTO users VALUES (${i}, 'user_${i}')`);
+   * }
+   * await db.executeBatch(statements);
+   */
+  async executeBatch(statements: string[]): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await AbsurderSQLNative.executeBatch(this.handle, statements);
+  }
+
+  /**
    * Execute a function within a transaction
    * Automatically commits on success or rolls back on error
    * 

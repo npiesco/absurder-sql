@@ -156,7 +156,33 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
                 promise.reject("TRANSACTION_ERROR", "Failed to rollback transaction")
             }
         } catch (e: Exception) {
-            promise.reject("TRANSACTION_ERROR", "Failed to rollback transaction: ${e.message}", e)
+            promise.reject("TRANSACTION_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun executeBatch(handle: Double, statements: ReadableArray, promise: Promise) {
+        try {
+            // Convert ReadableArray to JSON string
+            val jsonArray = org.json.JSONArray()
+            for (i in 0 until statements.size()) {
+                jsonArray.put(statements.getString(i))
+            }
+            val jsonString = jsonArray.toString()
+            
+            android.util.Log.i("AbsurderSQL", "executeBatch called with ${statements.size()} statements")
+            
+            val result = nativeExecuteBatch(handle.toLong(), jsonString)
+            if (result == 0) {
+                android.util.Log.i("AbsurderSQL", "executeBatch succeeded")
+                promise.resolve(true)
+            } else {
+                android.util.Log.e("AbsurderSQL", "executeBatch failed with code $result")
+                promise.reject("BATCH_ERROR", "Failed to execute batch")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AbsurderSQL", "executeBatch exception: ${e.message}")
+            promise.reject("BATCH_ERROR", e.message, e)
         }
     }
 
@@ -186,4 +212,5 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     private external fun nativeBeginTransaction(handle: Long): Int
     private external fun nativeCommit(handle: Long): Int
     private external fun nativeRollback(handle: Long): Int
+    private external fun nativeExecuteBatch(handle: Long, statementsJson: String): Int
 }

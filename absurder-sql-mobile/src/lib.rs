@@ -451,6 +451,101 @@ pub unsafe extern "C" fn absurder_db_rollback(handle: u64) -> i32 {
     }
 }
 
+/// Execute multiple SQL statements as a batch
+/// Reduces bridge overhead from N calls to 1 call
+/// 
+/// # Safety
+/// - handle must be a valid database handle
+/// - statements_json must be a valid null-terminated UTF-8 JSON array string
+/// 
+/// # Parameters
+/// statements_json should be a JSON array of SQL strings, e.g.:
+/// `["INSERT INTO users VALUES (1, 'Alice')", "INSERT INTO users VALUES (2, 'Bob')"]`
+/// 
+/// # Returns
+/// - 0 on success
+/// - -1 on error
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_db_execute_batch(
+    handle: u64,
+    statements_json: *const c_char,
+) -> i32 {
+    clear_last_error();
+    
+    // Validate handle
+    if handle == 0 {
+        let err = "Invalid database handle".to_string();
+        log::error!("absurder_db_execute_batch: {}", err);
+        set_last_error(err);
+        return -1;
+    }
+
+    // Validate statements_json pointer
+    if statements_json.is_null() {
+        let err = "Statements JSON cannot be null".to_string();
+        log::error!("absurder_db_execute_batch: {}", err);
+        set_last_error(err);
+        return -1;
+    }
+
+    // Convert C string to Rust String
+    let statements_str = match unsafe { CStr::from_ptr(statements_json) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            let err = format!("Invalid UTF-8 in statements JSON: {}", e);
+            log::error!("absurder_db_execute_batch: {}", err);
+            set_last_error(err);
+            return -1;
+        }
+    };
+
+    // Deserialize JSON array of statements
+    let statements: Vec<String> = match serde_json::from_str(statements_str) {
+        Ok(s) => s,
+        Err(e) => {
+            let err = format!("Failed to parse statements JSON: {}", e);
+            log::error!("absurder_db_execute_batch: {}", err);
+            set_last_error(err);
+            return -1;
+        }
+    };
+
+    log::info!("absurder_db_execute_batch: executing batch of {} statements", statements.len());
+
+    // Get database from registry
+    let db = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => Arc::clone(db),
+            None => {
+                let err = format!("Database handle {} not found", handle);
+                log::error!("absurder_db_execute_batch: {}", err);
+                set_last_error(err);
+                return -1;
+            }
+        }
+    };
+
+    // Execute batch
+    let result = RUNTIME.block_on(async {
+        let mut db_guard = db.lock();
+        db_guard.execute_batch(&statements).await
+    });
+
+    match result {
+        Ok(_) => {
+            log::info!("absurder_db_execute_batch: successfully executed batch of {} statements", statements.len());
+            0
+        }
+        Err(e) => {
+            let err = format!("Batch execution failed: {:?}", e);
+            log::error!("absurder_db_execute_batch: {}", err);
+            set_last_error(err);
+            -1
+        }
+    }
+}
+
 /// Close database and remove from registry
 /// 
 /// # Safety
@@ -834,6 +929,36 @@ mod android_jni {
         handle: jlong,
     ) -> jint {
         unsafe { absurder_db_rollback(handle as u64) }
+    }
+
+    /// JNI: Execute batch
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecuteBatch(
+        mut env: JNIEnv,
+        _class: JClass,
+        handle: jlong,
+        statements_json: JString,
+    ) -> jint {
+        // Convert JString to Rust String
+        let statements_str: String = match env.get_string(&statements_json) {
+            Ok(s) => s.into(),
+            Err(e) => {
+                log::error!("JNI nativeExecuteBatch: Failed to get statements JSON: {:?}", e);
+                return -1;
+            }
+        };
+
+        // Convert to C string
+        let statements_cstr = match CString::new(statements_str) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("JNI nativeExecuteBatch: CString conversion failed: {}", e);
+                return -1;
+            }
+        };
+
+        // Call FFI function
+        unsafe { absurder_db_execute_batch(handle as u64, statements_cstr.as_ptr()) }
     }
 
     /// JNI: Export database

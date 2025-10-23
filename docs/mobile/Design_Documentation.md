@@ -919,12 +919,14 @@ This creates a universal XCFramework supporting:
 - Execution: Instrumentation tests via `./gradlew connectedAndroidTest`
 - Architecture: x86_64 emulator
 
-**React Native Integration Tests:** ✅ **8/8 Passing** (as of October 21, 2025)
+**React Native Integration Tests:** ✅ **8/8 Passing** (as of October 22, 2025)
 
 **Test Environment:**
-- Platform: Android Emulator (Pixel API 33, Android 13)
+- Platforms: 
+  - iOS Simulator (iPhone 16, iOS 18.4)
+  - Android Emulator (Pixel API 33, Android 13)
 - Framework: React Native test app with UI test runner
-- Tests: Database creation, CRUD operations, transactions, export, cleanup
+- Tests: Database creation, CRUD operations, transactions, export/import, cleanup
 
 All tests cover:
 - Database lifecycle (create, execute, close)
@@ -934,7 +936,9 @@ All tests cover:
 - Export/import functionality
 - Error handling and memory management
 - React Native bridge integration
-- Background thread execution for long-running operations
+- Background thread execution for long-running operations (dispatch_async on iOS, Thread on Android)
+- Platform-specific path handling (iOS Documents directory, Android internal storage)
+- Comprehensive NSLog/Log debugging on both platforms
 
 **Test execution:**
 ```bash
