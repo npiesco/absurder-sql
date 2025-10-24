@@ -571,10 +571,12 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - **Note:** All features work via rusqlite - 3 new tests added (7 total tests now)
 
 #### Mobile FFI Layer (absurder-sql-mobile)
-- [ ] **Phase 4: Mobile FFI Bindings**
-  - [ ] Add `absurder_db_prepare(handle, sql)` → stmt_handle
-  - [ ] Add `absurder_stmt_execute(stmt_handle, params_json)` → QueryResult
-  - [ ] Add `absurder_stmt_finalize(stmt_handle)` → success
+- [✓] **Phase 4: Mobile FFI Bindings (TDD)**
+  - [✓] Write tests for prepare/execute/finalize FFI (4 tests in prepared_statement_ffi_test.rs)
+  - [✓] Add `absurder_db_prepare(handle, sql)` → stmt_handle (validates SQL, stores for on-demand prep)
+  - [✓] Add `absurder_stmt_execute(stmt_handle, params_json)` → QueryResult JSON (prepare fresh, execute, cleanup)
+  - [✓] Add `absurder_stmt_finalize(stmt_handle)` → success (removes from registry)
+  - [✓] All tests pass (31 total: 27 existing + 4 new)
   - [ ] Add JNI bindings (Android Kotlin)
   - [ ] Add Objective-C bindings (iOS)
 - [ ] **Phase 5: React Native Integration**
