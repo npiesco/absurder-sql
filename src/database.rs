@@ -1,12 +1,83 @@
 use crate::types::{DatabaseConfig, QueryResult, ColumnValue, Row, DatabaseError};
 use crate::vfs::IndexedDBVFS;
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::{Connection, params_from_iter, Statement};
 use std::time::Instant;
 
 #[cfg(feature = "fs_persist")]
 use crate::storage::BlockStorage;
 #[cfg(feature = "fs_persist")]
 use std::path::PathBuf;
+
+/// Prepared statement wrapper for efficient repeated execution
+pub struct PreparedStatement<'conn> {
+    stmt: Statement<'conn>,
+}
+
+impl<'conn> PreparedStatement<'conn> {
+    /// Execute the prepared statement with given parameters
+    pub async fn execute(&mut self, params: &[ColumnValue]) -> Result<QueryResult, DatabaseError> {
+        log::debug!("Executing prepared statement with {} parameters", params.len());
+        let start_time = Instant::now();
+        
+        // Convert parameters to rusqlite format
+        let rusqlite_params: Vec<rusqlite::types::Value> = params.iter()
+            .map(|p| p.to_rusqlite_value())
+            .collect();
+        
+        let mut result = QueryResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+            affected_rows: 0,
+            last_insert_id: None,
+            execution_time_ms: 0.0,
+        };
+        
+        // Get column names
+        result.columns = self.stmt.column_names().iter()
+            .map(|name| name.to_string())
+            .collect();
+        
+        // Check if this is a SELECT query (has columns)
+        let is_select = !result.columns.is_empty();
+        
+        if is_select {
+            // Execute query and collect rows
+            let rows = self.stmt.query_map(params_from_iter(rusqlite_params.iter()), |row| {
+                let mut values = Vec::new();
+                for i in 0..result.columns.len() {
+                    let value = row.get_ref(i)?;
+                    values.push(ColumnValue::from_rusqlite_value(&value.into()));
+                }
+                Ok(Row { values })
+            }).map_err(|e| DatabaseError::from(e))?;
+            
+            for row in rows {
+                result.rows.push(row.map_err(|e| DatabaseError::from(e))?);
+            }
+        } else {
+            // Execute non-SELECT query (INSERT, UPDATE, DELETE)
+            self.stmt.execute(params_from_iter(rusqlite_params.iter()))
+                .map_err(|e| DatabaseError::from(e))?;
+            
+            // Note: Cannot get affected_rows or last_insert_id from Statement
+            // These require access to the Connection which we don't have here
+        }
+        
+        result.execution_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+        log::debug!("Prepared statement executed in {:.2}ms, {} rows returned", 
+                   result.execution_time_ms, result.rows.len());
+        
+        Ok(result)
+    }
+    
+    /// Finalize the statement and release resources
+    /// This is called automatically when the PreparedStatement is dropped,
+    /// but calling it explicitly allows error handling
+    pub fn finalize(self) -> Result<(), DatabaseError> {
+        // Statement is dropped here, rusqlite handles cleanup
+        Ok(())
+    }
+}
 
 /// Main database interface that combines SQLite with IndexedDB persistence
 pub struct SqliteIndexedDB {
@@ -160,6 +231,28 @@ impl SqliteIndexedDB {
 
     pub async fn execute(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
         self.execute_with_params(sql, &[]).await
+    }
+    
+    /// Prepare a SQL statement for efficient repeated execution
+    /// 
+    /// # Example
+    /// ```no_run
+    /// # use absurder_sql::database::SqliteIndexedDB;
+    /// # use absurder_sql::types::{DatabaseConfig, ColumnValue};
+    /// # async {
+    /// # let mut db = SqliteIndexedDB::new(DatabaseConfig::default()).await.unwrap();
+    /// let mut stmt = db.prepare("SELECT * FROM users WHERE id = ?").unwrap();
+    /// for i in 1..=100 {
+    ///     let result = stmt.execute(&[ColumnValue::Integer(i)]).await.unwrap();
+    /// }
+    /// stmt.finalize().unwrap();
+    /// # };
+    /// ```
+    pub fn prepare(&mut self, sql: &str) -> Result<PreparedStatement<'_>, DatabaseError> {
+        log::debug!("Preparing SQL statement: {}", sql);
+        let stmt = self.connection.prepare(sql)
+            .map_err(|e| DatabaseError::from(e).with_sql(sql))?;
+        Ok(PreparedStatement { stmt })
     }
 
     pub async fn execute_with_params(&mut self, sql: &str, params: &[ColumnValue]) -> Result<QueryResult, DatabaseError> {

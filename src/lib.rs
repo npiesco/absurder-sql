@@ -32,6 +32,8 @@ pub mod storage;
 pub mod vfs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod database;
+#[cfg(not(target_arch = "wasm32"))]
+pub use database::PreparedStatement;
 pub mod utils;
 #[cfg(feature = "telemetry")]
 pub mod telemetry;

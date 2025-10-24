@@ -70,7 +70,7 @@ pub struct Row {
     pub values: Vec<ColumnValue>,
 }
 
-#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(tag = "type", content = "value")]
 pub enum ColumnValue {
