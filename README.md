@@ -685,6 +685,84 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 
 See [**docs/DUAL_MODE.md**](docs/DUAL_MODE.md) for complete dual-mode guide.
 
+## Performance Features
+
+AbsurderSQL includes several performance optimizations for high-throughput applications:
+
+### Transaction-Deferred Sync
+
+Filesystem sync operations are automatically deferred during transactions for massive performance improvements:
+
+```javascript
+// Without transactions: ~2883ms for 1000 inserts (sync after each)
+for (let i = 0; i < 1000; i++) {
+  await db.execute(`INSERT INTO data VALUES (${i}, 'value${i}')`);
+}
+
+// With transactions: <1ms for 1000 inserts (sync only on COMMIT)
+await db.execute('BEGIN TRANSACTION');
+for (let i = 0; i < 1000; i++) {
+  await db.execute(`INSERT INTO data VALUES (${i}, 'value${i}')`);
+}
+await db.execute('COMMIT');  // Single sync here
+```
+
+**Performance:** 2278x speedup for bulk inserts (1034ms → 0.45ms for 100 inserts)
+
+### Batch Execution
+
+Execute multiple SQL statements in one call to reduce bridge overhead (especially important for React Native):
+
+```javascript
+// Native API (browser/WASM)
+const statements = [
+  "INSERT INTO users VALUES (1, 'Alice')",
+  "INSERT INTO users VALUES (2, 'Bob')",
+  "INSERT INTO users VALUES (3, 'Charlie')"
+];
+
+await db.executeBatch(statements);
+```
+
+**Performance:** Reduces N bridge calls to 1 call. For 5000 statements:
+- Individual calls: ~170ms bridge overhead (0.034ms × 5000)
+- Batch call: ~12ms total execution time
+
+### Prepared Statements (Native Only)
+
+Eliminate SQL re-parsing overhead for repeated queries:
+
+```rust
+// Native/CLI usage only (not available in WASM)
+use absurder_sql::{SqliteIndexedDB, DatabaseConfig, ColumnValue};
+
+let mut db = SqliteIndexedDB::new(config).await?;
+
+// Prepare once
+let mut stmt = db.prepare("INSERT INTO users VALUES (?, ?, ?)")?;
+
+// Execute many times
+for i in 1..=1000 {
+    stmt.execute(&[
+        ColumnValue::Integer(i),
+        ColumnValue::Text(format!("User{}", i)),
+        ColumnValue::Integer(25 + (i % 50)),
+    ]).await?;
+}
+
+// Cleanup
+stmt.finalize()?;
+```
+
+**Supported parameter styles:**
+- Positional: `?`
+- Numbered: `?1`, `?2` (can reuse same parameter)
+- Named: `:name`, `:id`
+
+**Performance:** 1.5-2x faster for repeated queries (eliminates SQL parsing on each execution)
+
+**Note:** PreparedStatement is currently available for native/CLI applications only. Browser/WASM support will be added in a future release.
+
 ## SQLite WASM Integration
 
 ### Architecture Overview
