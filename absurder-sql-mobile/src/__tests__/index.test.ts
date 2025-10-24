@@ -13,6 +13,9 @@ const mockBeginTransaction = jest.fn();
 const mockCommit = jest.fn();
 const mockRollback = jest.fn();
 const mockClose = jest.fn();
+const mockPrepare = jest.fn();
+const mockStmtExecute = jest.fn();
+const mockStmtFinalize = jest.fn();
 
 jest.mock('react-native', () => ({
   NativeModules: {
@@ -26,6 +29,9 @@ jest.mock('react-native', () => ({
       commit: mockCommit,
       rollback: mockRollback,
       close: mockClose,
+      prepare: mockPrepare,
+      stmtExecute: mockStmtExecute,
+      stmtFinalize: mockStmtFinalize,
     },
   },
   Platform: {
@@ -572,6 +578,249 @@ describe('AbsurderDatabase', () => {
       await Promise.all([transactionPromise, executePromise]);
 
       expect(mockExecute).toHaveBeenCalled();
+    });
+  });
+
+  describe('PreparedStatement API', () => {
+    beforeEach(async () => {
+      mockCreateDatabase.mockResolvedValue(42);
+      await db.open();
+    });
+
+    describe('prepare()', () => {
+      it('should prepare a SQL statement and return PreparedStatement', async () => {
+        mockPrepare.mockResolvedValue(100); // statement handle
+
+        const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+
+        expect(mockPrepare).toHaveBeenCalledWith(42, 'SELECT * FROM users WHERE id = ?');
+        expect(stmt).toBeDefined();
+        expect(stmt.execute).toBeInstanceOf(Function);
+        expect(stmt.finalize).toBeInstanceOf(Function);
+      });
+
+      it('should throw error if database is not open', async () => {
+        const unopenedDb = new AbsurderDatabase('test.db');
+
+        await expect(
+          unopenedDb.prepare('SELECT * FROM users')
+        ).rejects.toThrow('Database is not open');
+      });
+
+      it('should propagate prepare errors', async () => {
+        mockPrepare.mockRejectedValue(
+          new Error('SQL syntax error at position 10')
+        );
+
+        await expect(
+          db.prepare('SELECT * FROM invalid syntax')
+        ).rejects.toThrow('SQL syntax error at position 10');
+      });
+    });
+
+    describe('PreparedStatement.execute()', () => {
+      const mockResult: QueryResult = {
+        columns: ['id', 'name'],
+        rows: [{ id: 1, name: 'Alice' }],
+        rowsAffected: 1,
+      };
+
+      it('should execute statement with parameters', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(JSON.stringify(mockResult));
+
+        const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+        const result = await stmt.execute([1]);
+
+        expect(mockStmtExecute).toHaveBeenCalledWith(100, [1]);
+        expect(result).toEqual(mockResult);
+      });
+
+      it('should reuse statement for multiple executions', async () => {
+        mockPrepare.mockResolvedValue(100);
+        const result1 = { columns: ['id'], rows: [{ id: 1 }], rowsAffected: 1 };
+        const result2 = { columns: ['id'], rows: [{ id: 2 }], rowsAffected: 1 };
+        
+        mockStmtExecute
+          .mockResolvedValueOnce(JSON.stringify(result1))
+          .mockResolvedValueOnce(JSON.stringify(result2));
+
+        const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+        const r1 = await stmt.execute([1]);
+        const r2 = await stmt.execute([2]);
+
+        expect(mockPrepare).toHaveBeenCalledTimes(1);
+        expect(mockStmtExecute).toHaveBeenCalledTimes(2);
+        expect(mockStmtExecute).toHaveBeenNthCalledWith(1, 100, [1]);
+        expect(mockStmtExecute).toHaveBeenNthCalledWith(2, 100, [2]);
+        expect(r1.rows[0].id).toBe(1);
+        expect(r2.rows[0].id).toBe(2);
+      });
+
+      it('should handle empty parameters', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(
+          JSON.stringify({ columns: [], rows: [], rowsAffected: 0 })
+        );
+
+        const stmt = await db.prepare('SELECT * FROM users');
+        await stmt.execute([]);
+
+        expect(mockStmtExecute).toHaveBeenCalledWith(100, []);
+      });
+
+      it('should handle multiple parameters', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(
+          JSON.stringify(mockResult)
+        );
+
+        const stmt = await db.prepare('INSERT INTO users VALUES (?, ?, ?)');
+        await stmt.execute([1, 'Alice', 25]);
+
+        expect(mockStmtExecute).toHaveBeenCalledWith(100, [1, 'Alice', 25]);
+      });
+
+      it('should propagate execution errors', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockRejectedValue(
+          new Error('Execution failed: no such table')
+        );
+
+        const stmt = await db.prepare('SELECT * FROM nonexistent');
+        
+        await expect(stmt.execute([])).rejects.toThrow(
+          'Execution failed: no such table'
+        );
+      });
+
+      it('should handle null/undefined results', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(null);
+
+        const stmt = await db.prepare('SELECT 1');
+        
+        await expect(stmt.execute([])).rejects.toThrow();
+      });
+    });
+
+    describe('PreparedStatement.finalize()', () => {
+      it('should finalize statement and release resources', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtFinalize.mockResolvedValue(undefined);
+
+        const stmt = await db.prepare('SELECT * FROM users');
+        await stmt.finalize();
+
+        expect(mockStmtFinalize).toHaveBeenCalledWith(100);
+      });
+
+      it('should prevent execution after finalize', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtFinalize.mockResolvedValue(undefined);
+        mockStmtExecute.mockRejectedValue(
+          new Error('Statement handle not found')
+        );
+
+        const stmt = await db.prepare('SELECT * FROM users');
+        await stmt.finalize();
+
+        await expect(stmt.execute([])).rejects.toThrow(
+          'Statement handle not found'
+        );
+      });
+
+      it('should be safe to call finalize multiple times', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtFinalize
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(new Error('Statement handle 100 not found'));
+
+        const stmt = await db.prepare('SELECT * FROM users');
+        await stmt.finalize();
+        
+        // Second finalize should propagate error from native
+        await expect(stmt.finalize()).rejects.toThrow(
+          'Statement handle 100 not found'
+        );
+
+        expect(mockStmtFinalize).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    describe('PreparedStatement lifecycle', () => {
+      it('should handle prepare-execute-finalize sequence', async () => {
+        const mockResult: QueryResult = {
+          columns: ['count'],
+          rows: [{ count: 5 }],
+          rowsAffected: 0,
+        };
+
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(JSON.stringify(mockResult));
+        mockStmtFinalize.mockResolvedValue(undefined);
+
+        // Prepare
+        const stmt = await db.prepare('SELECT COUNT(*) as count FROM users WHERE age > ?');
+        
+        // Execute multiple times
+        await stmt.execute([18]);
+        await stmt.execute([21]);
+        await stmt.execute([30]);
+        
+        // Finalize
+        await stmt.finalize();
+
+        expect(mockPrepare).toHaveBeenCalledTimes(1);
+        expect(mockStmtExecute).toHaveBeenCalledTimes(3);
+        expect(mockStmtFinalize).toHaveBeenCalledTimes(1);
+      });
+
+      it('should handle concurrent statement executions', async () => {
+        const mockResult: QueryResult = {
+          columns: ['id'],
+          rows: [{ id: 1 }],
+          rowsAffected: 0,
+        };
+
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(JSON.stringify(mockResult));
+
+        const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+
+        const promises = [
+          stmt.execute([1]),
+          stmt.execute([2]),
+          stmt.execute([3]),
+        ];
+
+        await Promise.all(promises);
+
+        expect(mockStmtExecute).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    describe('PreparedStatement vs execute performance benefit', () => {
+      it('should prepare once but execute many times', async () => {
+        mockPrepare.mockResolvedValue(100);
+        mockStmtExecute.mockResolvedValue(
+          JSON.stringify({ columns: [], rows: [], rowsAffected: 1 })
+        );
+
+        const stmt = await db.prepare('INSERT INTO data VALUES (?, ?)');
+
+        // Execute 100 times
+        for (let i = 0; i < 100; i++) {
+          await stmt.execute([i, `value_${i}`]);
+        }
+
+        await stmt.finalize();
+
+        // Key performance indicator: prepare called once, execute called 100 times
+        expect(mockPrepare).toHaveBeenCalledTimes(1);
+        expect(mockStmtExecute).toHaveBeenCalledTimes(100);
+        expect(mockStmtFinalize).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

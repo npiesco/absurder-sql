@@ -33,6 +33,64 @@ export interface QueryResult {
 }
 
 /**
+ * Prepared SQL statement for repeated execution with different parameters
+ * 
+ * PreparedStatements eliminate SQL parsing overhead by preparing once
+ * and executing multiple times with different parameters.
+ * 
+ * @example
+ * const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+ * const user1 = await stmt.execute([1]);
+ * const user2 = await stmt.execute([2]);
+ * await stmt.finalize();
+ */
+export class PreparedStatement {
+  private stmtHandle: number;
+
+  constructor(stmtHandle: number) {
+    this.stmtHandle = stmtHandle;
+  }
+
+  /**
+   * Execute the prepared statement with parameters
+   * 
+   * @param params Array of parameters to bind to the statement
+   * @returns Promise resolving to query result
+   * @throws Error if execution fails or statement is finalized
+   * 
+   * @example
+   * const stmt = await db.prepare('INSERT INTO users VALUES (?, ?)');
+   * await stmt.execute([1, 'Alice']);
+   * await stmt.execute([2, 'Bob']);
+   */
+  async execute(params: any[]): Promise<QueryResult> {
+    const resultJson = await AbsurderSQLNative.stmtExecute(this.stmtHandle, params);
+    if (resultJson === null || resultJson === undefined) {
+      throw new Error('Native module returned null or undefined');
+    }
+    return JSON.parse(resultJson);
+  }
+
+  /**
+   * Finalize the statement and release resources
+   * 
+   * After calling finalize(), the statement cannot be executed again.
+   * Always call finalize() when done with a prepared statement to prevent memory leaks.
+   * 
+   * @returns Promise that resolves when statement is finalized
+   * @throws Error if finalization fails
+   * 
+   * @example
+   * const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+   * await stmt.execute([1]);
+   * await stmt.finalize(); // Release resources
+   */
+  async finalize(): Promise<void> {
+    await AbsurderSQLNative.stmtFinalize(this.stmtHandle);
+  }
+}
+
+/**
  * Database configuration options
  */
 export interface DatabaseConfig {
@@ -216,6 +274,39 @@ export class AbsurderDatabase {
     }
 
     await AbsurderSQLNative.executeBatch(this.handle, statements);
+  }
+
+  /**
+   * Prepare a SQL statement for repeated execution
+   * 
+   * Prepared statements eliminate SQL parsing overhead by preparing once
+   * and executing multiple times with different parameters. This provides
+   * significant performance benefits for repeated queries.
+   * 
+   * @param sql SQL statement to prepare (use ? for parameters)
+   * @returns Promise resolving to PreparedStatement instance
+   * @throws Error if database is not open or SQL is invalid
+   * 
+   * @example
+   * // Prepare once
+   * const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
+   * 
+   * // Execute many times with different parameters
+   * for (let i = 1; i <= 100; i++) {
+   *   const result = await stmt.execute([i]);
+   *   console.log(result.rows);
+   * }
+   * 
+   * // Always finalize when done
+   * await stmt.finalize();
+   */
+  async prepare(sql: string): Promise<PreparedStatement> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    const stmtHandle = await AbsurderSQLNative.prepare(this.handle, sql);
+    return new PreparedStatement(stmtHandle);
   }
 
   /**
