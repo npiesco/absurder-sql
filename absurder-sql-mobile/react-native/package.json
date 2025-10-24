@@ -1,0 +1,52 @@
+{
+  "name": "AbsurderSQLTestApp",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "lint": "eslint .",
+    "start": "react-native start",
+    "test": "jest",
+    "e2e:android:build": "detox build --configuration android.emu.debug",
+    "e2e:android:test": "detox test --configuration android.emu.debug",
+    "e2e:ios:build": "detox build --configuration ios.sim.debug",
+    "e2e:ios:test": "detox test --configuration ios.sim.debug"
+  },
+  "dependencies": {
+    "@nozbe/watermelondb": "^0.27.1",
+    "@react-native/new-app-screen": "0.82.1",
+    "absurder-sql-mobile": "file:..",
+    "react": "19.1.1",
+    "react-native": "0.82.1",
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-sqlite-storage": "^6.0.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/plugin-proposal-decorators": "^7.28.0",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native-community/cli-platform-android": "20.0.0",
+    "@react-native-community/cli-platform-ios": "20.0.0",
+    "@react-native/babel-preset": "0.82.1",
+    "@react-native/eslint-config": "0.82.1",
+    "@react-native/metro-config": "0.82.1",
+    "@react-native/typescript-config": "0.82.1",
+    "@types/jest": "^29.5.13",
+    "@types/react": "^19.1.1",
+    "@types/react-native-sqlite-storage": "^6.0.5",
+    "@types/react-test-renderer": "^19.1.0",
+    "detox": "^20.44.0",
+    "detox-cli": "^20.0.0",
+    "eslint": "^8.19.0",
+    "jest": "^29.6.3",
+    "prettier": "2.8.8",
+    "react-test-renderer": "19.1.1",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

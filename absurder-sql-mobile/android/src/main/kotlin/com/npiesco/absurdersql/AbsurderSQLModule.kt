@@ -202,6 +202,82 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun prepare(handle: Double, sql: String, promise: Promise) {
+        try {
+            val stmtHandle = nativePrepare(handle.toLong(), sql)
+            if (stmtHandle == 0L) {
+                promise.reject("PREPARE_ERROR", "Failed to prepare statement")
+            } else {
+                promise.resolve(stmtHandle.toDouble())
+            }
+        } catch (e: Exception) {
+            promise.reject("PREPARE_ERROR", "Failed to prepare statement: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun stmtExecute(stmtHandle: Double, params: ReadableArray, promise: Promise) {
+        try {
+            // Convert params to ColumnValue JSON format: [{"type":"Integer","value":1}]
+            val jsonArray = JSONArray()
+            for (i in 0 until params.size()) {
+                val columnValue = JSONObject()
+                when (params.getType(i)) {
+                    ReadableType.Number -> {
+                        val num = params.getDouble(i)
+                        if (num % 1.0 == 0.0) {
+                            columnValue.put("type", "Integer")
+                            columnValue.put("value", num.toLong())
+                        } else {
+                            columnValue.put("type", "Real")
+                            columnValue.put("value", num)
+                        }
+                    }
+                    ReadableType.String -> {
+                        columnValue.put("type", "Text")
+                        columnValue.put("value", params.getString(i))
+                    }
+                    ReadableType.Boolean -> {
+                        columnValue.put("type", "Integer")
+                        columnValue.put("value", if (params.getBoolean(i)) 1 else 0)
+                    }
+                    ReadableType.Null -> {
+                        columnValue.put("type", "Null")
+                    }
+                    else -> {
+                        columnValue.put("type", "Text")
+                        columnValue.put("value", params.getString(i))
+                    }
+                }
+                jsonArray.put(columnValue)
+            }
+            
+            val result = nativeStmtExecute(stmtHandle.toLong(), jsonArray.toString())
+            if (result == null) {
+                promise.reject("STMT_EXEC_ERROR", "Statement execution failed")
+            } else {
+                promise.resolve(result)
+            }
+        } catch (e: Exception) {
+            promise.reject("STMT_EXEC_ERROR", "Failed to execute statement: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun stmtFinalize(stmtHandle: Double, promise: Promise) {
+        try {
+            val result = nativeStmtFinalize(stmtHandle.toLong())
+            if (result == 0) {
+                promise.resolve(true)
+            } else {
+                promise.reject("FINALIZE_ERROR", "Failed to finalize statement")
+            }
+        } catch (e: Exception) {
+            promise.reject("FINALIZE_ERROR", "Failed to finalize statement: ${e.message}", e)
+        }
+    }
+
     // JNI native method declarations
     private external fun nativeCreateDb(name: String): Long
     private external fun nativeExecute(handle: Long, sql: String): String?
@@ -213,4 +289,7 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     private external fun nativeCommit(handle: Long): Int
     private external fun nativeRollback(handle: Long): Int
     private external fun nativeExecuteBatch(handle: Long, statementsJson: String): Int
+    private external fun nativePrepare(handle: Long, sql: String): Long
+    private external fun nativeStmtExecute(stmtHandle: Long, paramsJson: String): String?
+    private external fun nativeStmtFinalize(stmtHandle: Long): Int
 }
