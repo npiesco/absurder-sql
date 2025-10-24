@@ -61,19 +61,18 @@ absurder-sql-mobile/src/
 - [✓] **Run tests**: All 41 tests passing (36 original + 5 new)
 - [✓] **Commit**: "refactor: extract registry module"
 
-### Phase 3: Extract FFI Core Module
-- [ ] **Write test**: Verify core FFI functions work after extraction
-- [ ] **Create** `src/ffi/core.rs`
-- [ ] **Move functions**:
-  - [ ] `absurder_db_new()`
-  - [ ] `absurder_db_execute()`
-  - [ ] `absurder_db_execute_with_params()`
-  - [ ] `absurder_db_close()`
-  - [ ] `absurder_free_string()`
-  - [ ] `absurder_get_error()`
-- [ ] **Update** `src/ffi/mod.rs` to re-export
-- [ ] **Run tests**: Ensure all existing tests pass
-- [ ] **Commit**: "refactor: extract ffi/core module"
+### Phase 3: Extract FFI Core Module ✅
+- [✓] **Write test**: Verify core FFI functions work after extraction
+- [✓] **Create** `src/ffi/core.rs` (219 lines)
+- [✓] **Move functions**:
+  - [✓] `absurder_db_new()`
+  - [✓] `absurder_db_execute()`
+  - [✓] `absurder_db_close()`
+  - [✓] `absurder_free_string()`
+  - [✓] `absurder_get_error()`
+- [✓] **Update** `src/ffi/mod.rs` to include core module
+- [✓] **Run tests**: All 47 tests passing (41 original + 6 new)
+- [✓] **Commit**: "refactor: extract ffi/core module"
 
 ### Phase 4: Extract FFI Transactions Module
 - [ ] **Write test**: Verify transaction functions work after extraction
