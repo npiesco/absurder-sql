@@ -545,7 +545,11 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
       - **Run 4**: 7.71x (7.13ms vs 55ms), 1.27x (1.18ms vs 1.5ms), 1.87x (1.5ms vs 2.8ms), 2.21x (20.33ms vs 45ms)
       - **Average**: 7.30x, 1.24x, 1.72x, 2.08x faster than WatermelonDB
       - **Key Finding**: AbsurderSQL wins all 4 tests; WatermelonDB lacks eager loading (Issue #763), causing N+1 query problems
-  - [ ] expo-sqlite comparison
+  - **[X]** expo-sqlite comparison - **EXCLUDED**
+      - **Reason**: Requires Expo managed workflow infrastructure (expo-modules-core gradle plugin, expo-asset, expo-file-system)
+      - **Impact**: Would add ~15MB to APK and require Expo SDK version management
+      - **Decision**: AbsurderSQL targets bare React Native for maximum flexibility
+      - **Alternative**: Developers using Expo can still use AbsurderSQL's native modules directly
 - **[✓]** Document results in Design_Documentation.md
 
 ### 3.6 PreparedStatement API (Performance Optimization)

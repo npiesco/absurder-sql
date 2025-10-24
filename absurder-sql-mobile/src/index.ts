@@ -103,6 +103,17 @@ export interface DatabaseConfig {
 }
 
 /**
+ * Options for streaming query results
+ */
+export interface StreamOptions {
+  /**
+   * Number of rows to fetch per batch
+   * @default 100
+   */
+  batchSize?: number;
+}
+
+/**
  * AbsurderSQL Database class
  * 
  * Provides a high-performance SQLite database with filesystem persistence
@@ -338,6 +349,70 @@ export class AbsurderDatabase {
     } catch (error) {
       await this.rollback();
       throw error;
+    }
+  }
+
+  /**
+   * Stream query results using cursor-based pagination
+   * 
+   * This method returns an AsyncIterator that yields rows one at a time,
+   * fetching them in configurable batches to avoid loading large result sets into memory.
+   * 
+   * The stream automatically cleans up resources when iteration completes or breaks early.
+   * 
+   * @param sql SQL query to execute
+   * @param options Streaming options (batch size, etc.)
+   * @returns AsyncIterator that yields individual rows
+   * @throws Error if database is not open or query fails
+   * 
+   * @example
+   * // Stream all users
+   * for await (const user of db.executeStream('SELECT * FROM users')) {
+   *   console.log(user);
+   * }
+   * 
+   * @example
+   * // Stream with custom batch size
+   * for await (const row of db.executeStream('SELECT * FROM large_table', { batchSize: 50 })) {
+   *   console.log(row);
+   *   if (someCondition) break; // Automatic cleanup on early break
+   * }
+   */
+  async *executeStream(
+    sql: string,
+    options?: StreamOptions
+  ): AsyncIterable<Record<string, any>> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    const batchSize = options?.batchSize ?? 100;
+    let streamHandle: number | null = null;
+
+    try {
+      // Prepare streaming statement
+      streamHandle = await AbsurderSQLNative.prepareStream(this.handle, sql);
+
+      // Fetch and yield rows in batches
+      while (true) {
+        const batchJson = await AbsurderSQLNative.fetchNext(streamHandle, batchSize);
+        const batch: Array<Record<string, any>> = JSON.parse(batchJson);
+
+        // EOF: empty batch means no more rows
+        if (batch.length === 0) {
+          break;
+        }
+
+        // Yield each row individually
+        for (const row of batch) {
+          yield row;
+        }
+      }
+    } finally {
+      // Always cleanup, even on early break or error
+      if (streamHandle !== null) {
+        await AbsurderSQLNative.closeStream(streamHandle);
+      }
     }
   }
 

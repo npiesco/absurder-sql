@@ -952,6 +952,21 @@ xcodebuild test \
 
 ## Performance Benchmarks vs. Competitors
 
+### Benchmark Scope
+
+AbsurderSQL performance is compared against two popular React Native SQLite libraries:
+1. **react-native-sqlite-storage** - Bare React Native SQLite wrapper
+2. **WatermelonDB** - Reactive ORM with lazy loading
+
+**Excluded from Comparison:**
+- **expo-sqlite** - Requires Expo managed workflow infrastructure (expo-modules-core gradle plugin, expo-asset, expo-file-system). This project uses bare React Native for maximum flexibility and minimal dependencies. Adding Expo infrastructure would require:
+  - Converting to Expo managed workflow OR
+  - Installing expo-modules-core gradle plugin (adds ~15MB to APK)
+  - Configuring Expo autolinking and module resolution
+  - Managing Expo SDK version compatibility
+  
+  Since AbsurderSQL targets bare React Native projects, expo-sqlite is out of scope. Developers using Expo can still use AbsurderSQL's native modules directly.
+
 ### Competitive Analysis: react-native-sqlite-storage
 
 **Test Environment:**

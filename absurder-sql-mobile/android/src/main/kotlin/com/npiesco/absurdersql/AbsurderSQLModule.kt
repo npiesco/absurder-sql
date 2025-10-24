@@ -278,6 +278,60 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun prepareStream(handle: Double, sql: String, promise: Promise) {
+        try {
+            android.util.Log.i("AbsurderSQL", "prepareStream called with handle=$handle sql=$sql")
+            val streamHandle = nativePrepareStream(handle.toLong(), sql)
+            if (streamHandle == 0L) {
+                promise.reject("STREAM_PREPARE_ERROR", "Failed to prepare streaming statement")
+            } else {
+                android.util.Log.i("AbsurderSQL", "prepareStream succeeded with streamHandle=$streamHandle")
+                promise.resolve(streamHandle.toDouble())
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AbsurderSQL", "prepareStream exception: ${e.message}", e)
+            promise.reject("STREAM_PREPARE_ERROR", "Failed to prepare stream: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun fetchNext(streamHandle: Double, batchSize: Double, promise: Promise) {
+        android.util.Log.i("AbsurderSQL", "fetchNext called with streamHandle=$streamHandle batchSize=$batchSize")
+        // Run on background thread to avoid blocking React Native bridge
+        Thread {
+            try {
+                val resultJson = nativeFetchNext(streamHandle.toLong(), batchSize.toInt())
+                if (resultJson == null) {
+                    promise.reject("STREAM_FETCH_ERROR", "Failed to fetch next batch")
+                } else {
+                    android.util.Log.i("AbsurderSQL", "fetchNext succeeded, returning ${resultJson.length} bytes")
+                    promise.resolve(resultJson)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AbsurderSQL", "fetchNext exception: ${e.message}", e)
+                promise.reject("STREAM_FETCH_ERROR", "Failed to fetch: ${e.message}", e)
+            }
+        }.start()
+    }
+
+    @ReactMethod
+    fun closeStream(streamHandle: Double, promise: Promise) {
+        try {
+            android.util.Log.i("AbsurderSQL", "closeStream called with streamHandle=$streamHandle")
+            val result = nativeCloseStream(streamHandle.toLong())
+            if (result == 0) {
+                android.util.Log.i("AbsurderSQL", "closeStream succeeded")
+                promise.resolve(true)
+            } else {
+                promise.reject("STREAM_CLOSE_ERROR", "Failed to close streaming statement")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AbsurderSQL", "closeStream exception: ${e.message}", e)
+            promise.reject("STREAM_CLOSE_ERROR", "Failed to close stream: ${e.message}", e)
+        }
+    }
+
     // JNI native method declarations
     private external fun nativeCreateDb(name: String): Long
     private external fun nativeExecute(handle: Long, sql: String): String?
@@ -292,4 +346,7 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     private external fun nativePrepare(handle: Long, sql: String): Long
     private external fun nativeStmtExecute(stmtHandle: Long, paramsJson: String): String?
     private external fun nativeStmtFinalize(stmtHandle: Long): Int
+    private external fun nativePrepareStream(handle: Long, sql: String): Long
+    private external fun nativeFetchNext(streamHandle: Long, batchSize: Int): String?
+    private external fun nativeCloseStream(streamHandle: Long): Int
 }

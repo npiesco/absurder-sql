@@ -16,6 +16,9 @@ const mockClose = jest.fn();
 const mockPrepare = jest.fn();
 const mockStmtExecute = jest.fn();
 const mockStmtFinalize = jest.fn();
+const mockPrepareStream = jest.fn();
+const mockFetchNext = jest.fn();
+const mockCloseStream = jest.fn();
 
 jest.mock('react-native', () => ({
   NativeModules: {
@@ -32,6 +35,9 @@ jest.mock('react-native', () => ({
       prepare: mockPrepare,
       stmtExecute: mockStmtExecute,
       stmtFinalize: mockStmtFinalize,
+      prepareStream: mockPrepareStream,
+      fetchNext: mockFetchNext,
+      closeStream: mockCloseStream,
     },
   },
   Platform: {
@@ -820,6 +826,131 @@ describe('AbsurderDatabase', () => {
         expect(mockPrepare).toHaveBeenCalledTimes(1);
         expect(mockStmtExecute).toHaveBeenCalledTimes(100);
         expect(mockStmtFinalize).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('Streaming API', () => {
+    beforeEach(async () => {
+      mockCreateDatabase.mockResolvedValue(42);
+      await db.open();
+    });
+
+    describe('executeStream', () => {
+      it('should stream results in batches', async () => {
+        mockPrepareStream.mockResolvedValue(100);
+        mockFetchNext
+          .mockResolvedValueOnce(JSON.stringify([{ id: 1 }, { id: 2 }]))
+          .mockResolvedValueOnce(JSON.stringify([{ id: 3 }, { id: 4 }]))
+          .mockResolvedValueOnce(JSON.stringify([])); // EOF
+        mockCloseStream.mockResolvedValue(true);
+
+        const rows: any[] = [];
+        for await (const row of db.executeStream('SELECT * FROM test')) {
+          rows.push(row);
+        }
+
+        expect(rows).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]);
+        expect(mockPrepareStream).toHaveBeenCalledWith(42, 'SELECT * FROM test');
+        expect(mockFetchNext).toHaveBeenCalledTimes(3);
+        expect(mockCloseStream).toHaveBeenCalledWith(100);
+      });
+
+      it('should support configurable batch size', async () => {
+        mockPrepareStream.mockResolvedValue(101);
+        mockFetchNext.mockResolvedValue(JSON.stringify([])); // Empty result
+        mockCloseStream.mockResolvedValue(true);
+
+        const rows: any[] = [];
+        for await (const row of db.executeStream('SELECT * FROM test', { batchSize: 50 })) {
+          rows.push(row);
+        }
+
+        expect(mockFetchNext).toHaveBeenCalledWith(101, 50);
+        expect(mockCloseStream).toHaveBeenCalledWith(101);
+      });
+
+      it('should cleanup on early break', async () => {
+        mockPrepareStream.mockResolvedValue(102);
+        mockFetchNext
+          .mockResolvedValueOnce(JSON.stringify([{ id: 1 }, { id: 2 }]))
+          .mockResolvedValueOnce(JSON.stringify([{ id: 3 }, { id: 4 }]));
+        mockCloseStream.mockResolvedValue(true);
+
+        const rows: any[] = [];
+        for await (const row of db.executeStream('SELECT * FROM test')) {
+          rows.push(row);
+          if (rows.length === 2) {
+            break; // Early termination
+          }
+        }
+
+        expect(rows).toEqual([{ id: 1 }, { id: 2 }]);
+        expect(mockCloseStream).toHaveBeenCalledWith(102);
+      });
+
+      it('should throw error if database is not open', async () => {
+        const closedDb = new AbsurderDatabase('closed.db');
+
+        await expect(async () => {
+          for await (const row of closedDb.executeStream('SELECT * FROM test')) {
+            // Should not reach here
+          }
+        }).rejects.toThrow('Database is not open');
+      });
+
+      it('should handle empty result set', async () => {
+        mockPrepareStream.mockReset().mockResolvedValue(103);
+        mockFetchNext.mockReset().mockResolvedValue(JSON.stringify([])); // Empty from start
+        mockCloseStream.mockReset().mockResolvedValue(true);
+
+        const rows: any[] = [];
+        for await (const row of db.executeStream('SELECT * FROM empty_table')) {
+          rows.push(row);
+        }
+
+        expect(rows).toEqual([]);
+        expect(mockCloseStream).toHaveBeenCalledWith(103);
+      });
+
+      it('should handle errors during streaming', async () => {
+        mockPrepareStream.mockResolvedValue(104);
+        mockFetchNext.mockRejectedValue(new Error('Network error'));
+        mockCloseStream.mockResolvedValue(true);
+
+        await expect(async () => {
+          for await (const row of db.executeStream('SELECT * FROM test')) {
+            // Should not reach here
+          }
+        }).rejects.toThrow('Network error');
+
+        // Should still cleanup
+        expect(mockCloseStream).toHaveBeenCalledWith(104);
+      });
+
+      it('should handle large result sets efficiently', async () => {
+        mockPrepareStream.mockResolvedValue(105);
+        
+        // Simulate 10 batches of 100 rows each (1000 total rows)
+        const batches = Array.from({ length: 10 }, (_, i) =>
+          Array.from({ length: 100 }, (_, j) => ({ id: i * 100 + j }))
+        );
+        
+        mockFetchNext
+          .mockImplementation(async (streamHandle: number, batchSize: number) => {
+            const batch = batches.shift();
+            return JSON.stringify(batch || []);
+          });
+        mockCloseStream.mockResolvedValue(true);
+
+        const rows: any[] = [];
+        for await (const row of db.executeStream('SELECT * FROM large_table', { batchSize: 100 })) {
+          rows.push(row);
+        }
+
+        expect(rows.length).toBe(1000);
+        expect(mockFetchNext).toHaveBeenCalledTimes(11); // 10 batches + 1 EOF check
+        expect(mockCloseStream).toHaveBeenCalledWith(105);
       });
     });
   });

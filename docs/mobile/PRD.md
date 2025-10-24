@@ -50,7 +50,8 @@ AbsurderSQL currently supports:
 
 ### Non-Goals (Out of Scope)
 - **[X]** Flutter FFI support (future consideration)
-- **[X]** Expo managed workflow (requires custom native code)
+- **[X]** Expo managed workflow (requires custom native code and expo-modules-core gradle plugin)
+- **[X]** expo-sqlite comparison (requires Expo infrastructure incompatible with bare React Native)
 - **[X]** Multi-process coordination (single app instance on mobile)
 - **[X]** Cloud sync (developers can build on top using export/import)
 

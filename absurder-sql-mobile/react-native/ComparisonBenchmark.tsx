@@ -69,6 +69,7 @@ export default function ComparisonBenchmark() {
       {name: '5000 INSERTs (transaction)', count: 5000},
       {name: '100 SELECT queries', count: 100},
       {name: '100 SELECTs (PreparedStatement)', count: 100},
+      {name: 'Stream 5000 rows (batch 100)', count: 5000},
       {name: 'Complex JOIN (5K+ records)', count: 1},
     ];
 
@@ -214,41 +215,27 @@ export default function ComparisonBenchmark() {
       }
       resultIndex++;
 
-      // Test 5: Complex JOIN query
-      console.log('[Comparison] Test 5: Complex JOIN query');
+      // Test 5: Stream 5000 rows (batch 100)
+      console.log('[Comparison] Test 5: Stream 5000 rows (batch 100)');
       updateResult(resultIndex, {status: 'running'});
-      let absurderTime5 = 0;
-      try {
-        absurderTime5 = await benchmarkAbsurderJoin();
-        updateResult(resultIndex, {duration: absurderTime5, status: 'pass'});
-      } catch (error) {
-        console.error('[Comparison] AbsurderSQL JOIN failed:', error);
-        updateResult(resultIndex, {status: 'fail'});
-      }
+      const absurderTime5 = await benchmarkAbsurderStream(5000);
+      updateResult(resultIndex, {duration: absurderTime5, status: 'pass'});
       resultIndex++;
 
       updateResult(resultIndex, {status: 'running'});
-      let rnssTime5 = 0;
-      try {
-        rnssTime5 = await benchmarkRNSSJoin();
-        updateResult(resultIndex, {duration: rnssTime5, status: 'pass'});
-      } catch (error) {
-        console.error('[Comparison] RNSS JOIN failed:', error);
-        updateResult(resultIndex, {status: 'fail'});
-      }
+      const rnssTime5 = await benchmarkRNSSStream(5000);
+      updateResult(resultIndex, {duration: rnssTime5, status: 'pass'});
       resultIndex++;
 
       updateResult(resultIndex, {status: 'running'});
-      let watermelonTime5 = 0;
-      try {
-        watermelonTime5 = await benchmarkWatermelonJoin();
+      const watermelonTime5 = await benchmarkWatermelonStream(5000);
+      if (watermelonTime5 === 0) {
+        updateResult(resultIndex, {duration: 0, status: 'fail', speedup: 'Not supported'});
+      } else {
         updateResult(resultIndex, {duration: watermelonTime5, status: 'pass'});
-      } catch (error) {
-        console.error('[Comparison] WatermelonDB JOIN failed:', error);
-        updateResult(resultIndex, {duration: 0, status: 'fail'});
       }
 
-      // Mark winner among all three
+      // Mark winner (only among libraries that support streaming)
       const times5 = [
         {idx: resultIndex - 2, time: absurderTime5},
         {idx: resultIndex - 1, time: rnssTime5},
@@ -258,6 +245,53 @@ export default function ComparisonBenchmark() {
         const fastest5 = times5.reduce((min, curr) => curr.time < min.time ? curr : min);
         const speedup5 = times5.map(t => (t.time / fastest5.time).toFixed(2) + 'x').join(', ');
         updateResult(fastest5.idx, {winner: true, speedup: speedup5});
+      }
+      resultIndex++;
+
+      // Test 6: Complex JOIN query
+      console.log('[Comparison] Test 6: Complex JOIN query');
+      updateResult(resultIndex, {status: 'running'});
+      let absurderTime6 = 0;
+      try {
+        absurderTime6 = await benchmarkAbsurderJoin();
+        updateResult(resultIndex, {duration: absurderTime6, status: 'pass'});
+      } catch (error) {
+        console.error('[Comparison] AbsurderSQL JOIN failed:', error);
+        updateResult(resultIndex, {status: 'fail'});
+      }
+      resultIndex++;
+
+      updateResult(resultIndex, {status: 'running'});
+      let rnssTime6 = 0;
+      try {
+        rnssTime6 = await benchmarkRNSSJoin();
+        updateResult(resultIndex, {duration: rnssTime6, status: 'pass'});
+      } catch (error) {
+        console.error('[Comparison] RNSS JOIN failed:', error);
+        updateResult(resultIndex, {status: 'fail'});
+      }
+      resultIndex++;
+
+      updateResult(resultIndex, {status: 'running'});
+      let watermelonTime6 = 0;
+      try {
+        watermelonTime6 = await benchmarkWatermelonJoin();
+        updateResult(resultIndex, {duration: watermelonTime6, status: 'pass'});
+      } catch (error) {
+        console.error('[Comparison] WatermelonDB JOIN failed:', error);
+        updateResult(resultIndex, {duration: 0, status: 'fail'});
+      }
+
+      // Mark winner among all three
+      const times6 = [
+        {idx: resultIndex - 2, time: absurderTime6},
+        {idx: resultIndex - 1, time: rnssTime6},
+        {idx: resultIndex, time: watermelonTime6},
+      ].filter(t => t.time > 0);
+      if (times6.length > 0) {
+        const fastest6 = times6.reduce((min, curr) => curr.time < min.time ? curr : min);
+        const speedup6 = times6.map(t => (t.time / fastest6.time).toFixed(2) + 'x').join(', ');
+        updateResult(fastest6.idx, {winner: true, speedup: speedup6});
       }
 
       console.log('[Comparison] All tests complete');
@@ -444,6 +478,45 @@ export default function ComparisonBenchmark() {
     return duration;
   };
 
+  const benchmarkAbsurderStream = async (count: number): Promise<number> => {
+    const dbPath =
+      Platform.OS === 'ios'
+        ? 'comp_absurder_stream.db'
+        : '/data/data/com.absurdersqltestapp/files/comp_absurder_stream.db';
+    const handle = await AbsurderSQL.createDatabase(dbPath);
+
+    // Setup: Create table and insert test data
+    await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS stream_test');
+    await AbsurderSQL.execute(handle, 'CREATE TABLE stream_test (id INTEGER PRIMARY KEY, data TEXT)');
+    await AbsurderSQL.beginTransaction(handle);
+    for (let i = 1; i <= count; i++) {
+      await AbsurderSQL.execute(
+        handle,
+        `INSERT INTO stream_test VALUES (${i}, 'data_${i}')`,
+      );
+    }
+    await AbsurderSQL.commit(handle);
+
+    // Benchmark: Stream all rows in batches of 100
+    const start = Date.now();
+    const streamHandle = await AbsurderSQL.prepareStream(handle, 'SELECT * FROM stream_test');
+    let rowCount = 0;
+    
+    while (true) {
+      const batchJson = await AbsurderSQL.fetchNext(streamHandle, 100);
+      const batch = JSON.parse(batchJson);
+      if (batch.length === 0) break;
+      rowCount += batch.length;
+    }
+    
+    await AbsurderSQL.closeStream(streamHandle);
+    const duration = Date.now() - start;
+
+    await AbsurderSQL.close(handle);
+    console.log(`[AbsurderSQL] Stream ${rowCount} rows: ${duration}ms`);
+    return duration;
+  };
+
   // ========== react-native-sqlite-storage Benchmarks ==========
 
   const benchmarkRNSSInserts = async (count: number): Promise<number> => {
@@ -593,6 +666,44 @@ export default function ComparisonBenchmark() {
 
     await db.close();
     console.log(`[RNSS] Complex JOIN: ${duration}ms`);
+    return duration;
+  };
+
+  const benchmarkRNSSStream = async (count: number): Promise<number> => {
+    const db = await SQLite.openDatabase({
+      name: 'comp_rnss_stream.db',
+      location: 'default',
+    });
+
+    // Setup: Create table and insert test data
+    await db.executeSql('DROP TABLE IF EXISTS stream_test');
+    await db.executeSql('CREATE TABLE stream_test (id INTEGER PRIMARY KEY, data TEXT)');
+    
+    await db.transaction(tx => {
+      for (let i = 1; i <= count; i++) {
+        tx.executeSql('INSERT INTO stream_test VALUES (?, ?)', [i, `data_${i}`]);
+      }
+    });
+
+    // Benchmark: Paginate using LIMIT/OFFSET (apples-to-apples with AbsurderSQL streaming)
+    const start = Date.now();
+    let offset = 0;
+    const batchSize = 100;
+    let rowCount = 0;
+    
+    while (true) {
+      const [result] = await db.executeSql(
+        `SELECT * FROM stream_test LIMIT ${batchSize} OFFSET ${offset}`
+      );
+      if (result.rows.length === 0) break;
+      rowCount += result.rows.length;
+      offset += batchSize;
+    }
+    
+    const duration = Date.now() - start;
+
+    await db.close();
+    console.log(`[RNSS] Stream ${rowCount} rows: ${duration}ms`);
     return duration;
   };
 
@@ -804,6 +915,13 @@ export default function ComparisonBenchmark() {
       console.error('[WatermelonDB] JOIN benchmark error:', error);
       return 0;
     }
+  };
+
+  const benchmarkWatermelonStream = async (count: number): Promise<number> => {
+    // WatermelonDB doesn't support streaming/pagination well
+    // Return 0 to skip this benchmark for WatermelonDB
+    console.log('[WatermelonDB] Streaming not supported - skipping');
+    return 0;
   };
 
   // ========== UI Rendering ==========

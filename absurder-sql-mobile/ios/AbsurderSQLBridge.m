@@ -272,6 +272,85 @@ RCT_EXPORT_METHOD(executeBatch:(nonnull NSNumber *)handle
     }
 }
 
+// Prepare streaming statement
+RCT_EXPORT_METHOD(prepareStream:(nonnull NSNumber *)handle
+                  sql:(NSString *)sql
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    const char *cSql = [sql UTF8String];
+    
+    NSLog(@"[AbsurderSQL] prepareStream called with handle: %llu, sql: %@", dbHandle, sql);
+    
+    uint64_t streamHandle = absurder_stmt_prepare_stream(dbHandle, cSql);
+    
+    if (streamHandle == 0) {
+        NSString *errorMsg = @"Failed to prepare streaming statement";
+        NSLog(@"[AbsurderSQL] prepareStream failed: %@", errorMsg);
+        reject(@"STREAM_PREPARE_ERROR", errorMsg, nil);
+    } else {
+        NSLog(@"[AbsurderSQL] prepareStream succeeded with stream handle: %llu", streamHandle);
+        resolve(@(streamHandle));
+    }
+}
+
+// Fetch next batch from stream
+RCT_EXPORT_METHOD(fetchNext:(nonnull NSNumber *)streamHandle
+                  batchSize:(nonnull NSNumber *)batchSize
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t stream = [streamHandle unsignedLongLongValue];
+    int32_t batch = [batchSize intValue];
+    
+    NSLog(@"[AbsurderSQL] fetchNext called with stream: %llu, batchSize: %d", stream, batch);
+    
+    // Execute on background thread to avoid blocking main thread
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        char *resultJson = absurder_stmt_fetch_next(stream, batch);
+        
+        if (resultJson == NULL) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSString *errorMsg = @"Failed to fetch next batch";
+                NSLog(@"[AbsurderSQL] fetchNext failed: %@", errorMsg);
+                reject(@"STREAM_FETCH_ERROR", errorMsg, nil);
+            });
+            return;
+        }
+        
+        // Convert JSON string to NSString
+        NSString *jsonStr = [NSString stringWithUTF8String:resultJson];
+        absurder_free_string(resultJson);
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSLog(@"[AbsurderSQL] fetchNext succeeded, returning %lu bytes", (unsigned long)[jsonStr length]);
+            resolve(jsonStr);
+        });
+    });
+}
+
+// Close streaming statement
+RCT_EXPORT_METHOD(closeStream:(nonnull NSNumber *)streamHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t stream = [streamHandle unsignedLongLongValue];
+    
+    NSLog(@"[AbsurderSQL] closeStream called with stream: %llu", stream);
+    
+    int result = absurder_stmt_stream_close(stream);
+    
+    if (result == 0) {
+        NSLog(@"[AbsurderSQL] closeStream succeeded");
+        resolve(@(YES));
+    } else {
+        NSString *errorMsg = @"Failed to close streaming statement";
+        NSLog(@"[AbsurderSQL] closeStream failed: %@", errorMsg);
+        reject(@"STREAM_CLOSE_ERROR", errorMsg, nil);
+    }
+}
+
 // Close database
 RCT_EXPORT_METHOD(close:(nonnull NSNumber *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
