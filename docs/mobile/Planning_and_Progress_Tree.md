@@ -577,8 +577,8 @@ This document tracks the implementation progress of AbsurderSQL mobile support u
   - [✓] Add `absurder_stmt_execute(stmt_handle, params_json)` → QueryResult JSON (prepare fresh, execute, cleanup)
   - [✓] Add `absurder_stmt_finalize(stmt_handle)` → success (removes from registry)
   - [✓] All tests pass (31 total: 27 existing + 4 new)
-  - [ ] Add JNI bindings (Android Kotlin)
-  - [ ] Add Objective-C bindings (iOS)
+  - [✓] Add JNI bindings (Android): nativePrepare, nativeStmtExecute, nativeStmtFinalize
+  - [✓] iOS bindings: C FFI functions callable directly from Objective-C/Swift via React Native bridge
 - [ ] **Phase 5: React Native Integration**
   - [ ] Expose `AbsurderSQL.prepare(handle, sql)` TypeScript API
   - [ ] Expose `PreparedStatement.execute(params)` method

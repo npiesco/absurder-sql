@@ -1277,6 +1277,113 @@ mod android_jni {
         unsafe { absurder_db_import(handle as u64, path_cstr.as_ptr()) }
     }
 
+    /// JNI: Prepare statement
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativePrepare(
+        mut env: JNIEnv,
+        _class: JClass,
+        db_handle: jlong,
+        sql: JString,
+    ) -> jlong {
+        // Convert JString to Rust String
+        let sql_str: String = match env.get_string(&sql) {
+            Ok(s) => s.into(),
+            Err(e) => {
+                log::error!("JNI nativePrepare: Failed to get SQL string: {:?}", e);
+                return 0;
+            }
+        };
+
+        // Convert to C string
+        let sql_cstr = match CString::new(sql_str) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("JNI nativePrepare: CString conversion failed: {}", e);
+                return 0;
+            }
+        };
+
+        // Call FFI function
+        let stmt_handle = unsafe { absurder_db_prepare(db_handle as u64, sql_cstr.as_ptr()) };
+        
+        log::info!("JNI nativePrepare: prepared statement with handle {}", stmt_handle);
+        stmt_handle as jlong
+    }
+
+    /// JNI: Execute prepared statement
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeStmtExecute(
+        mut env: JNIEnv,
+        _class: JClass,
+        stmt_handle: jlong,
+        params_json: JString,
+    ) -> jstring {
+        // Convert JString to Rust String
+        let params_str: String = match env.get_string(&params_json) {
+            Ok(s) => s.into(),
+            Err(e) => {
+                log::error!("JNI nativeStmtExecute: Failed to get params JSON: {:?}", e);
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Convert to C string
+        let params_cstr = match CString::new(params_str) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("JNI nativeStmtExecute: CString conversion failed: {}", e);
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Call FFI function
+        let result_ptr = unsafe { absurder_stmt_execute(stmt_handle as u64, params_cstr.as_ptr()) };
+
+        if result_ptr.is_null() {
+            log::error!("JNI nativeStmtExecute: absurder_stmt_execute returned null");
+            return std::ptr::null_mut();
+        }
+
+        // Convert C string to JString
+        let result_str = unsafe {
+            match CStr::from_ptr(result_ptr).to_str() {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("JNI nativeStmtExecute: UTF-8 conversion failed: {}", e);
+                    absurder_free_string(result_ptr);
+                    return std::ptr::null_mut();
+                }
+            }
+        };
+
+        let jstring_result = match env.new_string(result_str) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("JNI nativeStmtExecute: Failed to create JString: {:?}", e);
+                unsafe { absurder_free_string(result_ptr); }
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Free the C string
+        unsafe { absurder_free_string(result_ptr); }
+
+        log::debug!("JNI nativeStmtExecute: successfully returned result");
+        jstring_result.into_raw()
+    }
+
+    /// JNI: Finalize prepared statement
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeStmtFinalize(
+        _env: JNIEnv,
+        _class: JClass,
+        stmt_handle: jlong,
+    ) -> jint {
+        let result = unsafe { absurder_stmt_finalize(stmt_handle as u64) };
+        log::info!("JNI nativeStmtFinalize: finalized statement {} with result {}", stmt_handle, result);
+        result
+    }
+
     /// JNI: Execute SQL with parameters
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecuteWithParams(
