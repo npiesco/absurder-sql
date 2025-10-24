@@ -4,3 +4,4 @@
 //! All functions are organized by functionality.
 
 pub mod core;
+pub mod transactions;

@@ -74,17 +74,17 @@ absurder-sql-mobile/src/
 - [✓] **Run tests**: All 47 tests passing (41 original + 6 new)
 - [✓] **Commit**: "refactor: extract ffi/core module"
 
-### Phase 4: Extract FFI Transactions Module
-- [ ] **Write test**: Verify transaction functions work after extraction
-- [ ] **Create** `src/ffi/transactions.rs`
-- [ ] **Move functions**:
-  - [ ] `absurder_db_begin_transaction()`
-  - [ ] `absurder_db_commit()`
-  - [ ] `absurder_db_rollback()`
-  - [ ] `absurder_db_execute_batch()`
-- [ ] **Update** `src/ffi/mod.rs` to re-export
-- [ ] **Run tests**: Ensure all existing tests pass
-- [ ] **Commit**: "refactor: extract ffi/transactions module"
+### Phase 4: Extract FFI Transactions Module ✅
+- [✓] **Write test**: Verify transaction functions work after extraction
+- [✓] **Create** `src/ffi/transactions.rs` (241 lines)
+- [✓] **Move functions**:
+  - [✓] `absurder_db_begin_transaction()`
+  - [✓] `absurder_db_commit()`
+  - [✓] `absurder_db_rollback()`
+  - [✓] `absurder_db_execute_batch()`
+- [✓] **Update** `src/ffi/mod.rs` to include transactions module
+- [✓] **Run tests**: All 52 tests passing (47 original + 5 new)
+- [✓] **Commit**: "refactor: extract ffi/transactions module"
 
 ### Phase 5: Extract FFI Prepared Statements Module
 - [ ] **Write test**: Verify prepared statement functions work after extraction
