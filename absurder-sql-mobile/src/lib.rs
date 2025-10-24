@@ -3,89 +3,22 @@
 //! Provides C ABI bindings for React Native integration on iOS and Android.
 //! Uses handle-based API for memory safety and JSON for cross-language data exchange.
 
-use std::collections::HashMap;
+mod registry;
+mod ffi;
+mod android_jni;
+
 use std::ffi::{CStr, CString, c_char};
 use std::sync::Arc;
-use std::cell::RefCell;
 use parking_lot::Mutex;
-use once_cell::sync::Lazy;
 use absurder_sql::{SqliteIndexedDB, DatabaseConfig, DatabaseError};
-use tokio::runtime::Runtime;
 
-/// Global database registry
-/// Maps handles (u64) to Arc<Mutex<SqliteIndexedDB>> instances
-/// We need Mutex because SqliteIndexedDB::execute() requires &mut self
-static DB_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, Arc<Mutex<SqliteIndexedDB>>>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
-
-/// Wrapper for PreparedStatement that stores SQL for on-demand preparation
-/// We store the SQL and database handle, then prepare fresh on each execute
-/// This avoids lifetime issues while still providing the prepared statement API
-struct PreparedStatementWrapper {
-    db_handle: u64,
-    sql: String,
-}
-
-/// Global prepared statement registry
-/// Maps statement handles (u64) to PreparedStatementWrapper instances
-static STMT_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, PreparedStatementWrapper>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
-
-/// Streaming statement wrapper for cursor-based iteration
-/// Stores the database handle and prepared SQL for on-demand execution
-struct StreamingStatement {
-    db_handle: u64,
-    sql: String,
-    current_offset: usize,
-}
-
-/// Global streaming statement registry
-/// Maps stream handles (u64) to StreamingStatement instances
-static STREAM_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, StreamingStatement>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
-
-/// Counter for generating unique stream handles
-static STREAM_HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(1))
-});
-
-/// Counter for generating unique database handles
-static HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(1))
-});
-
-/// Counter for generating unique statement handles
-static STMT_HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(1))
-});
-
-/// Global Tokio runtime for executing async database operations
-static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
-    Runtime::new().expect("Failed to create Tokio runtime")
-});
-
-// Thread-local storage for the last error message
-// This allows each thread to have its own error state without requiring synchronization
-thread_local! {
-    static LAST_ERROR: RefCell<Option<String>> = RefCell::new(None);
-}
-
-/// Set the last error message for this thread
-fn set_last_error(msg: String) {
-    LAST_ERROR.with(|e| {
-        *e.borrow_mut() = Some(msg);
-    });
-}
-
-/// Clear the last error message for this thread
-fn clear_last_error() {
-    LAST_ERROR.with(|e| {
-        *e.borrow_mut() = None;
-    });
-}
+// Re-export registry items for internal use
+use registry::{
+    DB_REGISTRY, STMT_REGISTRY, STREAM_REGISTRY,
+    HANDLE_COUNTER, STMT_HANDLE_COUNTER, STREAM_HANDLE_COUNTER,
+    RUNTIME, PreparedStatementWrapper, StreamingStatement,
+    set_last_error, clear_last_error,
+};
 
 /// Create a new database and return a handle
 /// 
@@ -792,19 +725,17 @@ pub unsafe extern "C" fn absurder_db_import(handle: u64, path: *const c_char) ->
 /// Each thread has its own error message, so this is thread-safe
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn absurder_get_error() -> *const c_char {
-    LAST_ERROR.with(|e| {
-        match e.borrow().as_ref() {
-            Some(err_msg) => {
-                // Create a CString and leak it to get a stable pointer
-                // This is safe because we'll replace it on the next error
-                match CString::new(err_msg.as_str()) {
-                    Ok(c_str) => c_str.into_raw() as *const c_char,
-                    Err(_) => std::ptr::null(),
-                }
+    match registry::get_last_error_internal() {
+        Some(err_msg) => {
+            // Create a CString and leak it to get a stable pointer
+            // This is safe because we'll replace it on the next error
+            match CString::new(err_msg.as_str()) {
+                Ok(c_str) => c_str.into_raw() as *const c_char,
+                Err(_) => std::ptr::null(),
             }
-            None => std::ptr::null(),
         }
-    })
+        None => std::ptr::null(),
+    }
 }
 
 /// Prepare a SQL statement for repeated execution
@@ -1272,6 +1203,10 @@ mod prepared_statement_ffi_test;
 #[cfg(test)]
 #[path = "__tests__/streaming_api_test.rs"]
 mod streaming_api_test;
+
+#[cfg(test)]
+#[path = "__tests__/registry_test.rs"]
+mod registry_test;
 
 //=============================================================================
 // Android JNI Bindings
