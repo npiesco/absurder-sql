@@ -60,7 +60,7 @@ fn test_execute_batch_accessible() {
     let name = CString::new("test_tx_batch.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
-    let batch_json = CString::new(r#"["CREATE TABLE batch_test (id INTEGER)", "INSERT INTO batch_test VALUES (1)"]"#).unwrap();
+    let batch_json = CString::new(r#"["DROP TABLE IF EXISTS batch_test", "CREATE TABLE batch_test (id INTEGER)", "INSERT INTO batch_test VALUES (1)"]"#).unwrap();
     let result = unsafe { crate::ffi::transactions::absurder_db_execute_batch(handle, batch_json.as_ptr()) };
     
     assert_eq!(result, 0, "Should execute batch successfully");

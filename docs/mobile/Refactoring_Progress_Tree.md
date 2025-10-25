@@ -100,18 +100,19 @@ absurder-sql-mobile/src/
 - [✓] **Fix test isolation**: Fixed parallel test conflicts with unique DB names
 - [✓] **Commit**: "refactor: extract ffi/prepared_statements module"
 
-### Phase 6: Extract FFI Streaming Module
-- [ ] **Write test**: Verify streaming functions work after extraction
-- [ ] **Create** `src/ffi/streaming.rs`
-- [ ] **Move structs**:
-  - [ ] `StreamingStatement`
-- [ ] **Move functions**:
-  - [ ] `absurder_stmt_prepare_stream()`
-  - [ ] `absurder_stmt_fetch_next()`
-  - [ ] `absurder_stmt_close_stream()`
-- [ ] **Update** `src/ffi/mod.rs` to re-export
-- [ ] **Run tests**: Ensure all existing tests pass
-- [ ] **Commit**: "refactor: extract ffi/streaming module"
+### Phase 6: Extract FFI Streaming Module ✅
+- [✓] **Write test**: Verify streaming functions work after extraction
+- [✓] **Create** `src/ffi/streaming.rs` (211 lines)
+- [✓] **Move structs**:
+  - [✓] `StreamingStatement` (already in registry)
+- [✓] **Move functions**:
+  - [✓] `absurder_stmt_prepare_stream()`
+  - [✓] `absurder_stmt_fetch_next()`
+  - [✓] `absurder_stmt_stream_close()`
+- [✓] **Update** `src/ffi/mod.rs` to include streaming module
+- [✓] **Run tests**: All 60 tests passing (56 original + 4 new)
+- [✓] **Fix test isolation**: Added DROP TABLE IF EXISTS to all new tests
+- [✓] **Commit**: "refactor: extract ffi/streaming module"
 
 ### Phase 7: Extract FFI Export/Import Module
 - [ ] **Write test**: Verify export/import functions work after extraction

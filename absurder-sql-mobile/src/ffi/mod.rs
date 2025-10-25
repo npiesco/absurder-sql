@@ -6,3 +6,4 @@
 pub mod core;
 pub mod transactions;
 pub mod prepared_statements;
+pub mod streaming;
