@@ -30,7 +30,8 @@ test-results/
 # TRANSACTION_SUPPORT.md
 WASM-TEST.md
 BLOG.md
+PERSONAL.md
 
 # npm pack test artifacts
 package/
-*.tgzpkg/
+*.tgz
