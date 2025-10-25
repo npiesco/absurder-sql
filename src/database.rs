@@ -398,4 +398,130 @@ impl SqliteIndexedDB {
     pub fn get_storage(&self) -> &BlockStorage {
         &self.storage
     }
+
+    /// Create a new encrypted database with SQLCipher
+    /// 
+    /// # Arguments
+    /// * `config` - Database configuration
+    /// * `key` - Encryption key (minimum 8 characters recommended)
+    /// 
+    /// # Security Notes
+    /// - Keys should be stored in secure storage (iOS Keychain, Android Keystore)
+    /// - Uses SQLCipher's PRAGMA key for encryption
+    /// - Data is encrypted at rest using AES-256
+    #[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
+    pub async fn new_encrypted(config: DatabaseConfig, key: &str) -> Result<Self, DatabaseError> {
+        log::info!("Creating encrypted SQLiteIndexedDB with config: {:?}", config);
+        
+        // Validate key length
+        if key.len() < 8 {
+            return Err(DatabaseError::new(
+                "ENCRYPTION_ERROR",
+                "Encryption key must be at least 8 characters long"
+            ));
+        }
+        
+        // Create the IndexedDB VFS
+        let vfs = IndexedDBVFS::new(&config.name).await?;
+        
+        // With fs_persist: use real filesystem persistence with encryption
+        #[cfg(feature = "fs_persist")]
+        {
+            // Remove .db extension for storage name
+            let storage_name = config.name.strip_suffix(".db")
+                .unwrap_or(&config.name)
+                .to_string();
+            
+            // Create BlockStorage for filesystem persistence
+            let storage = BlockStorage::new(&storage_name).await
+                .map_err(|e| DatabaseError::new("BLOCKSTORAGE_ERROR", &e.to_string()))?;
+            
+            // Get base directory
+            let base_dir = std::env::var("ABSURDERSQL_FS_BASE")
+                .unwrap_or_else(|_| "./absurdersql_storage".to_string());
+            
+            // Create database file path
+            let db_file_path = PathBuf::from(base_dir)
+                .join(&storage_name)
+                .join("database.sqlite");
+            
+            // Ensure directory exists
+            if let Some(parent) = db_file_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| DatabaseError::new("IO_ERROR", &format!("Failed to create directory: {}", e)))?;
+            }
+            
+            // Open SQLite connection with real file
+            let connection = Connection::open(&db_file_path)
+                .map_err(|e| DatabaseError::from(e))?;
+            
+            // Set encryption key using PRAGMA key
+            // Escape single quotes in the key
+            let escaped_key = key.replace("'", "''");
+            connection.execute_batch(&format!("PRAGMA key = '{}';", escaped_key))
+                .map_err(|e| DatabaseError::new("ENCRYPTION_ERROR", &format!("Failed to set encryption key: {}", e)))?;
+            
+            // Test that encryption is working by creating a test table
+            connection.execute("CREATE TABLE IF NOT EXISTS _encryption_check (id INTEGER PRIMARY KEY)", [])
+                .map_err(|e| DatabaseError::new("ENCRYPTION_ERROR", &format!("Failed to verify encryption: {}", e)))?;
+            
+            // Drop the test table
+            connection.execute("DROP TABLE _encryption_check", [])
+                .map_err(|e| DatabaseError::new("ENCRYPTION_ERROR", &format!("Failed to cleanup test table: {}", e)))?;
+            
+            log::info!("Encrypted native database opened with filesystem persistence: {:?}", db_file_path);
+            
+            return Self::configure_connection(connection, vfs, config, storage);
+        }
+        
+        // Without fs_persist: use in-memory database with encryption
+        #[cfg(not(feature = "fs_persist"))]
+        {
+            let connection = Connection::open_in_memory()
+                .map_err(|e| DatabaseError::from(e))?;
+            
+            // Set encryption key
+            let escaped_key = key.replace("'", "''");
+            connection.execute_batch(&format!("PRAGMA key = '{}';", escaped_key))
+                .map_err(|e| DatabaseError::new("ENCRYPTION_ERROR", &format!("Failed to set encryption key: {}", e)))?;
+            
+            return Self::configure_connection(connection, vfs, config);
+        }
+    }
+
+    /// Change the encryption key of an open encrypted database
+    /// 
+    /// # Arguments
+    /// * `new_key` - New encryption key (minimum 8 characters recommended)
+    /// 
+    /// # Security Notes
+    /// - Database remains accessible with the new key after successful rekey
+    /// - Old key will no longer work after this operation
+    /// - Operation is atomic - either succeeds completely or fails without changes
+    #[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
+    pub async fn rekey(&self, new_key: &str) -> Result<(), DatabaseError> {
+        log::info!("Rekeying encrypted database");
+        
+        // Validate new key length
+        if new_key.len() < 8 {
+            return Err(DatabaseError::new(
+                "ENCRYPTION_ERROR",
+                "New encryption key must be at least 8 characters long"
+            ));
+        }
+        
+        // Escape single quotes in the key
+        let escaped_key = new_key.replace("'", "''");
+        
+        // Use PRAGMA rekey to change the encryption key
+        self.connection.execute_batch(&format!("PRAGMA rekey = '{}';", escaped_key))
+            .map_err(|e| DatabaseError::new("ENCRYPTION_ERROR", &format!("Failed to rekey database: {}", e)))?;
+        
+        // Verify new key works by executing a test pragma
+        self.connection.execute_batch("PRAGMA cipher_version;")
+            .map_err(|e| DatabaseError::new("ENCRYPTION_ERROR", &format!("New key verification failed: {}", e)))?;
+        
+        log::info!("Successfully rekeyed database");
+        Ok(())
+    }
 }

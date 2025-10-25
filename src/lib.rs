@@ -1,6 +1,13 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+// Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
+#[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
+extern crate rusqlite_sqlcipher as rusqlite;
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "encryption"), feature = "bundled-sqlite"))]
+extern crate rusqlite;
+
 // Enable better panic messages and memory allocation
 #[cfg(feature = "console_error_panic_hook")]
 pub use console_error_panic_hook::set_once as set_panic_hook;
@@ -41,9 +48,13 @@ pub mod telemetry;
 // Re-export main public API
 #[cfg(not(target_arch = "wasm32"))]
 pub use database::SqliteIndexedDB;
+
+// Type alias for native platforms
+#[cfg(not(target_arch = "wasm32"))]
+pub type Database = SqliteIndexedDB;
+
 pub use types::DatabaseConfig;
 pub use types::{QueryResult, ColumnValue, DatabaseError, TransactionOptions, Row};
-
 
 // WASM Database implementation using sqlite-wasm-rs
 #[cfg(target_arch = "wasm32")]

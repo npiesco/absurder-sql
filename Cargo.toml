@@ -98,12 +98,15 @@ opentelemetry-prometheus = "0.14"
 
 
 [features]
-default = ["console_error_panic_hook", "console_log"]
+default = ["console_error_panic_hook", "console_log", "bundled-sqlite"]
 fs_persist = []
 telemetry = ["prometheus", "opentelemetry", "opentelemetry_sdk", "opentelemetry-prometheus"]
+bundled-sqlite = ["rusqlite"]
+encryption = ["rusqlite-sqlcipher"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rusqlite = { version = "0.30", features = ["bundled", "vtab", "backup"] }
+rusqlite = { version = "0.30", features = ["bundled", "vtab", "backup"], optional = true }
+rusqlite-sqlcipher = { package = "rusqlite", version = "0.30", features = ["bundled-sqlcipher", "vtab", "backup"], optional = true }
 tokio = { version = "1.0", features = ["full"] }
 # OpenTelemetry OTLP exporter (native only - requires network) - OPTIONAL
 opentelemetry-otlp = { version = "0.14", optional = true }

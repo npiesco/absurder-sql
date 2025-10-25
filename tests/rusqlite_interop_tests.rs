@@ -5,6 +5,13 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+// Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
+#[cfg(feature = "encryption")]
+use rusqlite_sqlcipher as rusqlite;
+
+#[cfg(not(feature = "encryption"))]
+use rusqlite;
+
 use absurder_sql::storage::export::validate_sqlite_file;
 use absurder_sql::storage::import::import_database_from_bytes;
 use absurder_sql::storage::vfs_sync::with_global_storage;
