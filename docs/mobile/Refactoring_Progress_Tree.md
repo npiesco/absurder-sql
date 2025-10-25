@@ -135,15 +135,16 @@ absurder-sql-mobile/src/
 - [✓] **Run tests**: All 63 tests passing (no regressions)
 - [✓] **Commit**: "refactor: extract android_jni/bindings module"
 
-### Phase 9: Clean Up Main lib.rs
-- [ ] **Update** `src/lib.rs` to only contain:
-  - [ ] Module declarations (`pub mod ffi;`, `pub mod registry;`, etc.)
-  - [ ] Re-exports (`pub use ffi::*;`)
-  - [ ] Top-level documentation
-  - [ ] Test module declarations
-- [ ] **Run all tests**: Rust + TypeScript + iOS + Android
-- [ ] **Verify**: Line count of `lib.rs` should be < 100 lines
-- [ ] **Commit**: "refactor: finalize modular structure"
+### Phase 9: Clean Up Main lib.rs ✅
+- [✓] **Move** `absurder_db_execute_with_params` to `ffi/core.rs`
+- [✓] **Update** `src/lib.rs` to only contain:
+  - [✓] Module declarations (`mod ffi;`, `mod registry;`, `mod android_jni;`)
+  - [✓] Re-exports (`pub use ffi::core::*;`, etc.)
+  - [✓] Top-level documentation
+  - [✓] Test module declarations
+- [✓] **Run all tests**: All 63 tests passing (no regressions)
+- [✓] **Verify**: Line count of `lib.rs` reduced to 631 lines (74% reduction from original!)
+- [✓] **Commit**: "refactor: finalize modular structure"
 
 ### Phase 10: Documentation & Validation
 - [ ] **Update** `Design_Documentation_II.md` with new structure

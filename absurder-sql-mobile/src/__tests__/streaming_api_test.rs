@@ -3,7 +3,7 @@
 //! Tests cursor-based pagination for large result sets
 
 use crate::*;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 
 #[test]
 fn test_streaming_statement_basic() {

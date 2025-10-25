@@ -217,3 +217,117 @@ pub unsafe extern "C" fn absurder_get_error() -> *const c_char {
         None => std::ptr::null(),
     }
 }
+
+/// Execute SQL with parameterized query support
+/// 
+/// # Safety
+/// - handle must be a valid database handle
+/// - sql must be a valid null-terminated UTF-8 C string or null
+/// - params_json must be a valid null-terminated JSON array string or null
+/// - Caller must free the returned string with absurder_free_string
+/// - Returns null on error
+/// 
+/// # Parameters Format
+/// params_json should be a JSON array of values, e.g.:
+/// `[{"type": "Integer", "value": 42}, {"type": "Text", "value": "hello"}]`
+/// 
+/// # SQL Injection Prevention
+/// This function uses parameterized queries which automatically escape values
+/// and prevent SQL injection attacks. Never concatenate user input into SQL strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_db_execute_with_params(
+    handle: u64,
+    sql: *const c_char,
+    params_json: *const c_char,
+) -> *mut c_char {
+    use absurder_sql::types::ColumnValue;
+
+    // Validate handle
+    if handle == 0 {
+        log::error!("absurder_db_execute_with_params: invalid handle 0");
+        return std::ptr::null_mut();
+    }
+
+    // Validate SQL pointer
+    if sql.is_null() {
+        log::error!("absurder_db_execute_with_params: null SQL pointer");
+        return std::ptr::null_mut();
+    }
+
+    // Validate params pointer
+    if params_json.is_null() {
+        log::error!("absurder_db_execute_with_params: null params_json pointer");
+        return std::ptr::null_mut();
+    }
+
+    // Convert SQL C string to Rust String
+    let sql_str = match unsafe { CStr::from_ptr(sql) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: invalid UTF-8 in SQL: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Convert params C string to Rust String
+    let params_str = match unsafe { CStr::from_ptr(params_json) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: invalid UTF-8 in params: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Deserialize params from JSON
+    let params: Vec<ColumnValue> = match serde_json::from_str(params_str) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: failed to parse params JSON: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Get database from registry
+    let db = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => Arc::clone(db),
+            None => {
+                log::error!("absurder_db_execute_with_params: handle {} not found", handle);
+                return std::ptr::null_mut();
+            }
+        }
+    };
+
+    // Execute SQL with parameters
+    let result = RUNTIME.block_on(async {
+        let mut db_guard = db.lock();
+        db_guard.execute_with_params(sql_str, &params).await
+    });
+
+    let query_result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: SQL execution failed: {:?}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Serialize to JSON
+    let json = match serde_json::to_string(&query_result) {
+        Ok(j) => j,
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: JSON serialization failed: {}", e);
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Convert to C string
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(e) => {
+            log::error!("absurder_db_execute_with_params: CString conversion failed: {}", e);
+            std::ptr::null_mut()
+        }
+    }
+}

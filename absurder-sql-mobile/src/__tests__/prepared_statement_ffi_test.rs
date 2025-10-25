@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use std::ffi::CString;
+    use std::ffi::{CStr, CString};
 
     #[test]
     fn test_prepare_and_execute_select() {
