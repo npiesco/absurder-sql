@@ -2,6 +2,13 @@
 //!
 //! Tests for importing SQLite .db files into IndexedDB storage.
 
+// Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
+#[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
+use rusqlite_sqlcipher as rusqlite;
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "encryption")))]
+use rusqlite;
+
 // ============================================================================
 // CORE IMPORT TESTS
 // ============================================================================
