@@ -22,4 +22,14 @@ extern int32_t absurder_db_execute_batch(uint64_t handle, const char* statements
 extern void absurder_db_close(uint64_t handle);
 extern void absurder_free_string(char* s);
 
+// Streaming API
+extern uint64_t absurder_stmt_prepare_stream(uint64_t db_handle, const char* sql);
+extern char* absurder_stmt_fetch_next(uint64_t stream_handle, int32_t batch_size);
+extern int32_t absurder_stmt_stream_close(uint64_t stream_handle);
+
+// Prepared statements
+extern uint64_t absurder_db_prepare(uint64_t db_handle, const char* sql);
+extern char* absurder_stmt_execute(uint64_t stmt_handle, const char* params_json);
+extern int32_t absurder_stmt_finalize(uint64_t stmt_handle);
+
 #endif /* AbsurderSQL_Bridging_Header_h */

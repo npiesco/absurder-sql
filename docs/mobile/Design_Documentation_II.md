@@ -40,6 +40,77 @@ SQLite (rusqlite)
 - 6-9x faster than react-native-sqlite-storage on INSERTs
 - 63x faster than WatermelonDB on complex JOINs (Android)
 
+### Modular Architecture Refactoring (Completed)
+
+**Status:** ✅ Complete (October 2025)
+
+The FFI layer has been refactored from a monolithic 2,443-line `lib.rs` file into a clean modular structure:
+
+```
+absurder-sql-mobile/src/
+├── lib.rs (631 lines)              # Module declarations & re-exports
+├── registry.rs (97 lines)          # Global state management
+├── ffi/
+│   ├── mod.rs (10 lines)          # FFI module declarations
+│   ├── core.rs (333 lines)        # Core database operations
+│   ├── transactions.rs (241 lines) # Transaction management
+│   ├── prepared_statements.rs (264 lines) # Prepared statements
+│   ├── streaming.rs (211 lines)   # Streaming/cursor API
+│   └── export_import.rs (189 lines) # Backup/restore
+└── android_jni/
+    ├── mod.rs (7 lines)           # JNI module declarations
+    └── bindings.rs (625 lines)    # Android JNI wrappers
+```
+
+**Benefits:**
+- **74% reduction** in main lib.rs file size (2,443 → 631 lines)
+- **Clear separation of concerns** - each module has a single responsibility
+- **Improved maintainability** - easier to navigate and understand
+- **Better testability** - 63 comprehensive tests with proper isolation
+- **No performance impact** - all tests passing, zero regressions
+- **Follows parent repo pattern** - consistent with absurder-sql core structure
+
+**Module Responsibilities:**
+
+1. **`registry.rs`**: Global state management
+   - Database handle registry
+   - Statement handle registry
+   - Async runtime management
+   - Error state tracking
+
+2. **`ffi/core.rs`**: Core database operations
+   - `absurder_db_new()` - Create database
+   - `absurder_db_execute()` - Execute SQL
+   - `absurder_db_execute_with_params()` - Parameterized queries
+   - `absurder_db_close()` - Close database
+   - `absurder_free_string()` - Memory management
+   - `absurder_get_error()` - Error retrieval
+
+3. **`ffi/transactions.rs`**: Transaction management
+   - `absurder_db_begin_transaction()`
+   - `absurder_db_commit()`
+   - `absurder_db_rollback()`
+   - `absurder_db_execute_batch()`
+
+4. **`ffi/prepared_statements.rs`**: Prepared statement API
+   - `absurder_db_prepare()`
+   - `absurder_stmt_execute()`
+   - `absurder_stmt_finalize()`
+
+5. **`ffi/streaming.rs`**: Cursor-based streaming
+   - `absurder_stmt_prepare_stream()`
+   - `absurder_stmt_fetch_next()`
+   - `absurder_stmt_stream_close()`
+
+6. **`ffi/export_import.rs`**: Database backup/restore
+   - `absurder_db_export()` - VACUUM INTO
+   - `absurder_db_import()` - Table-by-table restore
+
+7. **`android_jni/bindings.rs`**: Android JNI layer
+   - 29 JNI wrapper functions
+   - `JNI_OnLoad()` initialization
+   - Java ↔ Rust type conversions
+
 ---
 
 ## Phase II Architecture

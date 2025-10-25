@@ -272,6 +272,116 @@ RCT_EXPORT_METHOD(executeBatch:(nonnull NSNumber *)handle
     }
 }
 
+// Prepare statement
+RCT_EXPORT_METHOD(prepare:(nonnull NSNumber *)handle
+                  sql:(NSString *)sql
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    const char *cSql = [sql UTF8String];
+    
+    NSLog(@"[AbsurderSQL] prepare called with handle: %llu, sql: %@", dbHandle, sql);
+    
+    uint64_t stmtHandle = absurder_db_prepare(dbHandle, cSql);
+    
+    if (stmtHandle == 0) {
+        const char *error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to prepare statement";
+        NSLog(@"[AbsurderSQL] prepare failed: %@", errorMsg);
+        reject(@"PREPARE_ERROR", errorMsg, nil);
+    } else {
+        NSLog(@"[AbsurderSQL] prepare succeeded with statement handle: %llu", stmtHandle);
+        resolve(@(stmtHandle));
+    }
+}
+
+// Execute prepared statement
+RCT_EXPORT_METHOD(stmtExecute:(nonnull NSNumber *)stmtHandle
+                  params:(NSArray *)params
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t stmt = [stmtHandle unsignedLongLongValue];
+    
+    NSLog(@"[AbsurderSQL] stmtExecute called with statement handle: %llu", stmt);
+    
+    // Convert params array to ColumnValue format: [{"type": "Integer", "value": 1}, {"type": "Text", "value": "hello"}]
+    NSMutableArray *columnValues = [NSMutableArray arrayWithCapacity:params.count];
+    for (id param in params) {
+        if ([param isKindOfClass:[NSNumber class]]) {
+            NSNumber *num = (NSNumber *)param;
+            const char *type = [num objCType];
+            
+            // Check if it's a floating point number
+            if (strcmp(type, @encode(float)) == 0 || strcmp(type, @encode(double)) == 0) {
+                [columnValues addObject:@{@"type": @"Real", @"value": num}];
+            } else {
+                [columnValues addObject:@{@"type": @"Integer", @"value": num}];
+            }
+        } else if ([param isKindOfClass:[NSString class]]) {
+            [columnValues addObject:@{@"type": @"Text", @"value": param}];
+        } else if ([param isKindOfClass:[NSNull class]]) {
+            [columnValues addObject:@{@"type": @"Null"}];
+        } else {
+            // Default to text representation
+            [columnValues addObject:@{@"type": @"Text", @"value": [param description]}];
+        }
+    }
+    
+    // Convert to JSON
+    NSError *jsonError = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:columnValues options:0 error:&jsonError];
+    
+    if (jsonError) {
+        NSString *errorMsg = [NSString stringWithFormat:@"Failed to serialize params: %@", jsonError.localizedDescription];
+        NSLog(@"[AbsurderSQL] stmtExecute failed: %@", errorMsg);
+        reject(@"PARAM_ERROR", errorMsg, nil);
+        return;
+    }
+    
+    NSString *paramsJson = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    const char *cParams = [paramsJson UTF8String];
+    
+    NSLog(@"[AbsurderSQL] stmtExecute params JSON: %@", paramsJson);
+    
+    char *resultJson = absurder_stmt_execute(stmt, cParams);
+    
+    if (resultJson == NULL) {
+        const char *error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to execute statement";
+        NSLog(@"[AbsurderSQL] stmtExecute failed: %@", errorMsg);
+        reject(@"EXECUTE_ERROR", errorMsg, nil);
+    } else {
+        NSString *result = [NSString stringWithUTF8String:resultJson];
+        absurder_free_string(resultJson);
+        NSLog(@"[AbsurderSQL] stmtExecute succeeded");
+        resolve(result);
+    }
+}
+
+// Finalize prepared statement
+RCT_EXPORT_METHOD(stmtFinalize:(nonnull NSNumber *)stmtHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t stmt = [stmtHandle unsignedLongLongValue];
+    
+    NSLog(@"[AbsurderSQL] stmtFinalize called with statement handle: %llu", stmt);
+    
+    int32_t result = absurder_stmt_finalize(stmt);
+    
+    if (result != 0) {
+        const char *error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to finalize statement";
+        NSLog(@"[AbsurderSQL] stmtFinalize failed: %@", errorMsg);
+        reject(@"FINALIZE_ERROR", errorMsg, nil);
+    } else {
+        NSLog(@"[AbsurderSQL] stmtFinalize succeeded");
+        resolve(@(result));
+    }
+}
+
 // Prepare streaming statement
 RCT_EXPORT_METHOD(prepareStream:(nonnull NSNumber *)handle
                   sql:(NSString *)sql
