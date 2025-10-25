@@ -774,6 +774,7 @@ The library provides a robust SQLite implementation for WebAssembly environments
 - **Async Operations**: All database operations are async-compatible for seamless integration with browser event loops
 - **Type Safety**: Comprehensive `ColumnValue` enum supporting all SQLite data types (NULL, INTEGER, REAL, TEXT, BLOB, BIGINT, DATE)
 - **JavaScript Interop**: Complete `wasm-bindgen` exports with `WasmColumnValue` wrapper for seamless JS integration
+- **Database Encryption** (Native): Optional SQLCipher integration with AES-256 encryption for secure data at rest (`--features encryption`)
 
 ## Multi-Tab Coordination
 

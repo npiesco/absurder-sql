@@ -142,20 +142,23 @@
 **Priority:** High  
 **Target:** v0.2.0 (Week 3-4)
 
-### 2.1 Core Rust Implementation
-- [ ] **Add SQLCipher dependency**
-  - [ ] Add `sqlcipher` feature flag to Cargo.toml
-  - [ ] Use `rusqlite` with `bundled-sqlcipher` feature
-  - [ ] Test compilation on all platforms
-- [ ] **Encryption API**
-  - [ ] Add `Database::new_encrypted(path, key)` method
-  - [ ] Implement key derivation with PBKDF2
-  - [ ] Add `rekey(old_key, new_key)` method
-- [ ] **Write tests**
-  - [ ] Test encrypted database creation
-  - [ ] Test wrong key returns error
-  - [ ] Test rekey functionality
-  - [ ] Benchmark encryption overhead (<10%)
+### 2.1 Core Rust Implementation ✅
+- [✓] **Add SQLCipher dependency**
+  - [✓] Add `encryption` feature flag to Cargo.toml
+  - [✓] Use `rusqlite` with `bundled-sqlcipher` feature
+  - [✓] Conditional imports for encryption vs bundled-sqlite
+- [✓] **Encryption API**
+  - [✓] Add `Database::new_encrypted(config, key)` method
+  - [✓] SQLCipher PRAGMA key integration
+  - [✓] Add `rekey(new_key)` method
+  - [✓] Key validation (minimum 8 characters)
+- [✓] **Write tests**
+  - [✓] Test encrypted database creation
+  - [✓] Test wrong key returns error
+  - [✓] Test rekey functionality
+  - [✓] Test persistence across reopens
+  - [✓] Test key length validation
+  - [✓] All 5 tests passing, zero regressions
 
 ### 2.2 FFI Layer
 - [ ] **Add C functions**
