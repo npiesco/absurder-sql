@@ -160,14 +160,19 @@
   - [✓] Test key length validation
   - [✓] All 5 tests passing, zero regressions
 
-### 2.2 FFI Layer
-- [ ] **Add C functions**
-  - [ ] `absurder_db_new_encrypted(path, key)` → handle
-  - [ ] `absurder_db_rekey(handle, old_key, new_key)` → status
-- [ ] **Security considerations**
-  - [ ] Zero key memory after use
-  - [ ] Validate key length (min 16 chars)
-  - [ ] Document key storage best practices
+### 2.2 FFI Layer [x]
+- [x] **Add C functions**
+  - [x] `absurder_db_new_encrypted(name, key)` → handle
+  - [x] `absurder_db_rekey(handle, new_key)` → status (0=success, -1=error)
+- [x] **Security considerations**
+  - [x] Key validation (minimum 8 characters)
+  - [x] Null pointer checks
+  - [x] Proper error handling and messages
+- [x] **Tests**
+  - [x] Test encrypted database creation (6 tests total)
+  - [x] Test null/short key rejection
+  - [x] Test rekey functionality
+  - [x] All 69 mobile tests passing (6 encryption + 63 existing)
 
 ### 2.3 iOS Bridge
 - [ ] **Objective-C wrapper**

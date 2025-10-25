@@ -81,6 +81,10 @@ mod ffi_streaming_test;
 #[path = "__tests__/ffi_export_import_test.rs"]
 mod ffi_export_import_test;
 
+#[cfg(all(test, feature = "encryption"))]
+#[path = "__tests__/ffi_encryption_test.rs"]
+mod ffi_encryption_test;
+
 #[cfg(test)]
 mod tests {
     use super::*;

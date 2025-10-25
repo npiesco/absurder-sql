@@ -12,7 +12,7 @@ rust-version = "1.85.0"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-absurder-sql = { path = "..", features = ["fs_persist"] }
+absurder-sql = { path = "..", features = ["fs_persist"], default-features = false }
 
 # FFI and C bindings
 libc = "0.2"
@@ -44,6 +44,7 @@ android_logger = "0.14"
 
 [features]
 fs_persist = ["absurder-sql/fs_persist"]
+encryption = ["absurder-sql/encryption", "fs_persist"]
 
 [profile.release]
 opt-level = "z"     # Optimize for size

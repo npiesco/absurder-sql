@@ -34,7 +34,6 @@ BLOG.md
 # npm pack test artifacts
 package/
 *.tgz
-pkg/
 
 # Mobile build artifacts
 absurder-sql-mobile/build/
