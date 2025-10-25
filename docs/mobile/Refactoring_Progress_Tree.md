@@ -114,15 +114,15 @@ absurder-sql-mobile/src/
 - [✓] **Fix test isolation**: Added DROP TABLE IF EXISTS to all new tests
 - [✓] **Commit**: "refactor: extract ffi/streaming module"
 
-### Phase 7: Extract FFI Export/Import Module
-- [ ] **Write test**: Verify export/import functions work after extraction
-- [ ] **Create** `src/ffi/export_import.rs`
-- [ ] **Move functions**:
-  - [ ] `absurder_db_export()`
-  - [ ] `absurder_db_import()`
-- [ ] **Update** `src/ffi/mod.rs` to re-export
-- [ ] **Run tests**: Ensure all existing tests pass
-- [ ] **Commit**: "refactor: extract ffi/export_import module"
+### Phase 7: Extract FFI Export/Import Module ✅
+- [✓] **Write test**: Verify export/import functions work after extraction
+- [✓] **Create** `src/ffi/export_import.rs` (189 lines)
+- [✓] **Move functions**:
+  - [✓] `absurder_db_export()`
+  - [✓] `absurder_db_import()`
+- [✓] **Update** `src/ffi/mod.rs` to include export_import module
+- [✓] **Run tests**: All 63 tests passing (60 original + 3 new)
+- [✓] **Commit**: "refactor: extract ffi/export_import module"
 
 ### Phase 8: Extract Android JNI Module
 - [ ] **Write test**: Verify JNI bindings work after extraction
