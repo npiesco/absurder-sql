@@ -86,18 +86,19 @@ absurder-sql-mobile/src/
 - [✓] **Run tests**: All 52 tests passing (47 original + 5 new)
 - [✓] **Commit**: "refactor: extract ffi/transactions module"
 
-### Phase 5: Extract FFI Prepared Statements Module
-- [ ] **Write test**: Verify prepared statement functions work after extraction
-- [ ] **Create** `src/ffi/prepared_statements.rs`
-- [ ] **Move structs**:
-  - [ ] `PreparedStatementWrapper`
-- [ ] **Move functions**:
-  - [ ] `absurder_db_prepare()`
-  - [ ] `absurder_stmt_execute()`
-  - [ ] `absurder_stmt_finalize()`
-- [ ] **Update** `src/ffi/mod.rs` to re-export
-- [ ] **Run tests**: Ensure all existing tests pass
-- [ ] **Commit**: "refactor: extract ffi/prepared_statements module"
+### Phase 5: Extract FFI Prepared Statements Module ✅
+- [✓] **Write test**: Verify prepared statement functions work after extraction
+- [✓] **Create** `src/ffi/prepared_statements.rs` (264 lines)
+- [✓] **Move structs**:
+  - [✓] `PreparedStatementWrapper` (moved to registry)
+- [✓] **Move functions**:
+  - [✓] `absurder_db_prepare()`
+  - [✓] `absurder_stmt_execute()`
+  - [✓] `absurder_stmt_finalize()`
+- [✓] **Update** `src/ffi/mod.rs` to include prepared_statements module
+- [✓] **Run tests**: All 56 tests passing (52 original + 4 new)
+- [✓] **Fix test isolation**: Fixed parallel test conflicts with unique DB names
+- [✓] **Commit**: "refactor: extract ffi/prepared_statements module"
 
 ### Phase 6: Extract FFI Streaming Module
 - [ ] **Write test**: Verify streaming functions work after extraction

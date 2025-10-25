@@ -13,7 +13,7 @@ fn test_ffi_core_module_exists() {
 #[test]
 fn test_db_new_accessible() {
     // Verify absurder_db_new can be called through ffi::core
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_core_new.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     assert!(handle > 0, "Should create valid database handle");
@@ -25,7 +25,7 @@ fn test_db_new_accessible() {
 #[test]
 fn test_db_execute_accessible() {
     // Verify absurder_db_execute can be called through ffi::core
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_core_execute.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     let sql = CString::new("SELECT 1").unwrap();
@@ -43,7 +43,7 @@ fn test_db_execute_accessible() {
 #[test]
 fn test_db_close_accessible() {
     // Verify absurder_db_close can be called through ffi::core
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_core_close.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     unsafe { crate::ffi::core::absurder_db_close(handle) };
@@ -55,15 +55,15 @@ fn test_db_close_accessible() {
 #[test]
 fn test_free_string_accessible() {
     // Verify absurder_free_string can be called through ffi::core
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_core_free.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     let sql = CString::new("SELECT 1").unwrap();
     let result = unsafe { crate::ffi::core::absurder_db_execute(handle, sql.as_ptr()) };
     
     unsafe {
-        crate::ffi::core::absurder_free_string(result);
         crate::ffi::core::absurder_db_close(handle);
+        crate::ffi::core::absurder_free_string(result);
     }
     
     assert!(true, "Free string should work");

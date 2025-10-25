@@ -13,7 +13,7 @@ fn test_ffi_transactions_module_exists() {
 #[test]
 fn test_begin_transaction_accessible() {
     // Verify absurder_db_begin_transaction can be called through ffi::transactions
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_tx_begin.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     let result = unsafe { crate::ffi::transactions::absurder_db_begin_transaction(handle) };
@@ -27,7 +27,7 @@ fn test_begin_transaction_accessible() {
 #[test]
 fn test_commit_accessible() {
     // Verify absurder_db_commit can be called through ffi::transactions
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_tx_commit.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     unsafe { crate::ffi::transactions::absurder_db_begin_transaction(handle) };
@@ -42,7 +42,7 @@ fn test_commit_accessible() {
 #[test]
 fn test_rollback_accessible() {
     // Verify absurder_db_rollback can be called through ffi::transactions
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_tx_rollback.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
     unsafe { crate::ffi::transactions::absurder_db_begin_transaction(handle) };
@@ -57,10 +57,10 @@ fn test_rollback_accessible() {
 #[test]
 fn test_execute_batch_accessible() {
     // Verify absurder_db_execute_batch can be called through ffi::transactions
-    let name = CString::new("test_db").unwrap();
+    let name = CString::new("test_tx_batch.db").unwrap();
     let handle = unsafe { crate::ffi::core::absurder_db_new(name.as_ptr()) };
     
-    let batch_json = CString::new(r#"["CREATE TABLE test (id INTEGER)", "INSERT INTO test VALUES (1)"]"#).unwrap();
+    let batch_json = CString::new(r#"["CREATE TABLE batch_test (id INTEGER)", "INSERT INTO batch_test VALUES (1)"]"#).unwrap();
     let result = unsafe { crate::ffi::transactions::absurder_db_execute_batch(handle, batch_json.as_ptr()) };
     
     assert_eq!(result, 0, "Should execute batch successfully");
