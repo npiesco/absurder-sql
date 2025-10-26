@@ -1,10 +1,188 @@
 # Design Documentation II
 ## AbsurderSQL Mobile: Phase II Architecture
 
-**Version:** 2.0  
-**Last Updated:** October 24, 2025  
-**Status:** Phase I Complete, Phase II Design  
-**Target Release:** v0.2.0-mobile
+**Version:** 2.1  
+**Last Updated:** October 25, 2025  
+**Status:** Phase II Complete, UniFFI Migration Planning  
+**Target Release:** v0.2.0-mobile (current), v0.3.0 (UniFFI)
+
+---
+
+## UniFFI Migration Analysis (Planned for v0.3.0)
+
+### Overview
+[UniFFI for React Native](https://github.com/jhugman/uniffi-bindgen-react-native) is a Mozilla tool that auto-generates TypeScript, JSI C++, iOS, and Android bindings from annotated Rust code. Released December 2024, it's production-ready and offers significant advantages over our current manual FFI approach.
+
+### What Would Be Deleted/Replaced
+
+**Total: ~3,835 lines of manual glue code replaced by UniFFI annotations**
+
+#### 1. Rust FFI Layer (1,434 lines → ~200 lines of UniFFI macros)
+- `src/ffi/core.rs` (333 lines) - 20 extern "C" functions
+- `src/ffi/encryption.rs` (183 lines)
+- `src/ffi/export_import.rs` (189 lines)
+- `src/ffi/prepared_statements.rs` (264 lines)
+- `src/ffi/streaming.rs` (211 lines)
+- `src/ffi/transactions.rs` (241 lines)
+- `src/ffi/mod.rs` (13 lines)
+
+**Replace with:** UniFFI proc macros (`#[uniffi::export]`)
+
+#### 2. Android JNI Bindings (747 lines → auto-generated)
+- `src/android_jni/bindings.rs` (740 lines) - Manual JNI wrappers
+- `src/android_jni/mod.rs` (7 lines)
+- `android/src/main/kotlin/com/npiesco/absurdersql/AbsurderSQLModule.kt` (390 lines)
+
+**Replace with:** UniFFI auto-generated Kotlin bindings + Turbo Module
+
+#### 3. iOS Objective-C Bridge (616 lines → auto-generated)
+- `ios/AbsurderSQLBridge.m` (616 lines) - Manual Objective-C bridge
+- `ios/AbsurderSQLBridge.h` (minimal)
+- `ios/AbsurderSQL-Bridging-Header.h` (manual FFI declarations)
+
+**Replace with:** UniFFI auto-generated Swift bindings + Turbo Module
+
+#### 4. TypeScript API (648 lines → mostly preserved, simplified)
+- `src/index.ts` (648 lines) - Current: Manual NativeModules wrapper
+- **After UniFFI:** Auto-generated TypeScript + manual high-level API
+
+### What Would Be Added
+
+#### New Dependencies
+```toml
+[dependencies]
+uniffi = { version = "0.28", features = ["bindgen"] }
+```
+
+#### Build Configuration
+- `uniffi.toml` - UniFFI configuration
+- Updated `Cargo.toml` with UniFFI features
+- `uniffi-bindgen` in build process
+
+#### Generated Code (Auto-created)
+- TypeScript bindings with JSI
+- C++ JSI bridge layer
+- Kotlin bindings (replaces JNI)
+- Swift bindings (replaces Objective-C)
+- Turbo Module registration
+
+### Architecture Comparison
+
+**Current (Phase II):**
+```
+TypeScript (648 lines manual)
+    ↓
+NativeModules Bridge (2-5ms overhead)
+    ↓
+iOS: Objective-C (616 lines) ←→ Android: Kotlin+JNI (1,137 lines)
+    ↓                                ↓
+C FFI (1,434 lines)      ←←←←←←←←←←←↓
+    ↓
+Rust Core (absurder-sql)
+```
+
+**After UniFFI Migration:**
+```
+TypeScript (auto-generated + ~200 lines high-level API)
+    ↓
+JSI C++ (auto-generated, <1ms overhead)
+    ↓
+iOS: Swift ←→ Android: Kotlin (both auto-generated)
+    ↓              ↓
+Rust Core (annotated with #[uniffi::export])
+```
+
+### Benefits of UniFFI
+
+#### Code Reduction
+- **-3,835 lines** of manual glue code
+- **+~200 lines** of UniFFI annotations
+- **Net: -3,635 lines (-95% glue code)**
+
+#### Performance
+- **<1ms bridge overhead** (vs current 2-5ms)
+- **Zero-copy** data transfer with JSI ArrayBuffer
+- Direct TypeScript ↔ Rust communication
+
+#### Developer Experience
+- **Single source of truth** - annotate Rust once
+- **Type safety** across all layers
+- **Automatic TypeScript types** from Rust
+- **Built-in async/await** support
+- **Callbacks** from Rust to TypeScript
+
+#### Maintainability
+- No manual synchronization of APIs across layers
+- Compiler-verified type safety
+- Breaking changes caught at compile time
+- Consistent API across platforms
+
+#### Production Ready
+- Used in Firefox, Matrix SDK, ChessTiles
+- Mozilla-backed, actively maintained
+- React Native 0.74+ (New Architecture) support
+- Backwards compatible fallback available
+
+### Migration Strategy
+
+**Phase 1: Preparation (Week 1)**
+- Add UniFFI dependency
+- Create `uniffi.toml` configuration
+- Add UniFFI annotations to core Rust functions
+- Keep existing FFI as fallback
+
+**Phase 2: iOS Migration (Week 2)**
+- Generate Swift bindings
+- Replace Objective-C bridge with generated code
+- Test all features on iOS simulator
+- Validate performance improvements
+
+**Phase 3: Android Migration (Week 3)**
+- Generate Kotlin bindings
+- Replace JNI/Kotlin bridge with generated code
+- Test all features on Android emulator
+- Validate performance improvements
+
+**Phase 4: TypeScript Layer (Week 4)**
+- Integrate auto-generated TypeScript
+- Add high-level API wrapper
+- Update React Native integration
+- Test Turbo Module functionality
+
+**Phase 5: Testing & Validation (Week 5)**
+- Run full test suite (87 tests)
+- Performance benchmarking
+- Physical device testing
+- Documentation updates
+
+**Phase 6: Deprecation (Week 6)**
+- Remove old FFI/bridge code
+- Clean up build configuration
+- Release v0.3.0
+
+### Risk Mitigation
+
+**Risks:**
+1. UniFFI learning curve
+2. Breaking changes in migration
+3. Potential compatibility issues
+4. Build system complexity
+
+**Mitigations:**
+1. Keep old FFI code until migration complete
+2. Comprehensive testing at each phase
+3. Phased rollout (iOS → Android → TypeScript)
+4. Detailed documentation and examples
+5. Community support via Matrix channel
+
+### Success Criteria
+
+- ✅ All 87 tests passing
+- ✅ Zero regressions in functionality
+- ✅ <1ms bridge overhead measured
+- ✅ <200 lines of manual glue code
+- ✅ Type safety across all layers
+- ✅ Performance improvement documented
 
 ---
 

@@ -77,6 +77,10 @@ mod ffi_prepared_statements_test;
 #[path = "__tests__/ffi_streaming_test.rs"]
 mod ffi_streaming_test;
 
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_integration_test.rs"]
+mod uniffi_integration_test;
+
 #[cfg(test)]
 #[path = "__tests__/ffi_export_import_test.rs"]
 mod ffi_export_import_test;

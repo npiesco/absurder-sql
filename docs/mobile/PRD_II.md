@@ -164,33 +164,73 @@ await db.migrate(migrations);
 ### Feature 4: React Native New Architecture (Turbo Modules)
 
 **Priority:** Medium  
-**Target Release:** v0.2.1
+**Target Release:** v0.3.0 (was v0.2.1)  
+**Implementation:** UniFFI for React Native
 
 #### Problem Statement
-Current bridge-based architecture has serialization overhead (~2-5ms per call). New Architecture with JSI enables zero-copy data transfer.
+Current bridge-based architecture has serialization overhead (~2-5ms per call). New Architecture with JSI enables zero-copy data transfer. Additionally, we maintain ~3,835 lines of manual glue code across FFI (1,434 lines), Android JNI (747 lines), iOS Objective-C (616 lines), and TypeScript (648 lines).
 
 #### Solution
-Implement Turbo Native Module:
+Use [UniFFI for React Native](https://github.com/jhugman/uniffi-bindgen-react-native) to auto-generate all bindings from annotated Rust code:
 
-```cpp
-// C++ JSI bindings
-class AbsurderSQLModule : public facebook::jsi::HostObject {
-  jsi::Value execute(jsi::Runtime& rt, const jsi::Value* args) {
-    // Direct memory access, no JSON serialization
-  }
-};
+```rust
+// Annotate existing Rust functions with UniFFI
+#[uniffi::export]
+pub async fn execute_query(handle: u64, sql: String) -> Result<QueryResult> {
+    // Existing Rust implementation
+}
+
+// UniFFI auto-generates:
+// - TypeScript types and JSI bindings
+// - C++ JSI bridge layer
+// - Kotlin bindings (Android)
+// - Swift bindings (iOS)
+// - Turbo Module registration
 ```
 
 #### Success Criteria
 - <1ms bridge overhead (vs current 2-5ms)
 - Zero-copy for large result sets
-- Backward compatible with old architecture
-- Support React Native 0.74+
+- -95% reduction in manual glue code (3,835 → ~200 lines)
+- Type safety across all layers
+- Support React Native 0.74+ (New Architecture)
+- All 87 tests passing with zero regressions
 
 #### Technical Design
-- Create `TurboAbsurderSQL.cpp` with JSI bindings
-- Use `jsi::ArrayBuffer` for zero-copy data transfer
-- Keep existing bridge as fallback for RN <0.74
+
+**Code Reduction:**
+- Replace 1,434 lines of Rust FFI with ~200 lines of UniFFI annotations
+- Replace 747 lines of Android JNI with auto-generated Kotlin
+- Replace 616 lines of iOS Objective-C with auto-generated Swift
+- Simplify 648 lines of TypeScript to auto-generated bindings + ~200 lines high-level API
+
+**Architecture:**
+```
+Before (Manual):                  After (UniFFI):
+TypeScript (648 lines)           TypeScript (auto-generated)
+    ↓                                ↓
+Bridge (2-5ms)                   JSI (<1ms, zero-copy)
+    ↓                                ↓
+iOS: Obj-C (616)  Android: JNI  iOS: Swift  Android: Kotlin
+    ↓              ↓ (747)           ↓         ↓ (auto-gen)
+C FFI (1,434 lines)               Rust (annotated)
+    ↓
+Rust Core
+```
+
+**Benefits:**
+- **Performance:** <1ms bridge overhead, zero-copy with JSI ArrayBuffer
+- **Maintainability:** Single source of truth (Rust), type safety across layers
+- **Developer Experience:** Breaking changes caught at compile time
+- **Production Ready:** Used in Firefox, Matrix SDK, maintained by Mozilla
+
+**Migration Strategy:**
+1. Week 1: Add UniFFI annotations, keep old FFI as fallback
+2. Week 2: iOS migration with Swift bindings
+3. Week 3: Android migration with Kotlin bindings
+4. Week 4: TypeScript integration with auto-generated types
+5. Week 5: Testing, benchmarking, documentation
+6. Week 6: Remove old code, release v0.3.0
 
 ---
 

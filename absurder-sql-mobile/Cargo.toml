@@ -14,7 +14,10 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 absurder-sql = { path = "..", features = ["fs_persist"], default-features = false }
 
-# FFI and C bindings
+# UniFFI for cross-platform bindings (React Native, WASM)
+uniffi = { version = "0.29", optional = true }
+
+# FFI and C bindings (legacy, will be replaced by UniFFI)
 libc = "0.2"
 
 # Async runtime
@@ -39,14 +42,19 @@ log = "0.4"
 jni = { version = "0.21", default-features = false }
 android_logger = "0.14"
 
+[build-dependencies]
+uniffi = { version = "0.29", features = ["build"], optional = true }
+
 [dev-dependencies]
 env_logger = "0.11"
 
 [features]
-default = ["fs_persist"]
+default = ["bundled-sqlite"]  # Changed: default to bundled-sqlite for better out-of-box experience
 fs_persist = ["absurder-sql/fs_persist"]
 bundled-sqlite = ["absurder-sql/bundled-sqlite", "fs_persist"]
 encryption = ["absurder-sql/encryption", "fs_persist"]
+# UniFFI feature for auto-generated bindings (opt-in during migration)
+uniffi-bindings = ["uniffi", "bundled-sqlite"]  # UniFFI tests need rusqlite available
 
 [profile.release]
 opt-level = "z"     # Optimize for size
