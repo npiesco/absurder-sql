@@ -35,6 +35,10 @@ class AbsurderSQLInstrumentationTest {
     private external fun nativeRollback(handle: Long): Int
     private external fun nativeClose(handle: Long)
     
+    // Encryption native method declarations
+    private external fun nativeCreateEncryptedDb(name: String, key: String): Long
+    private external fun nativeRekey(handle: Long, newKey: String): Int
+    
     private var testHandle: Long = 0
     
     @Before
@@ -316,5 +320,187 @@ class AbsurderSQLInstrumentationTest {
         val result = nativeExecute(testHandle, "SELECT COUNT(*) FROM concurrent")
         assertNotNull("SELECT should succeed", result)
         assertTrue("Should have 50 rows", result!!.contains("50"))
+    }
+    
+    // ============================================================
+    // Encryption Tests
+    // ============================================================
+    
+    @Test
+    fun testCreateEncryptedDatabase() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_encrypted.db"
+        
+        // Create encrypted database with valid key
+        val encHandle = nativeCreateEncryptedDb(dbPath, "test_key_12345678")
+        assertNotEquals("Should create encrypted database with valid key", 0L, encHandle)
+        
+        // Drop table if exists from previous test
+        nativeExecute(encHandle, "DROP TABLE IF EXISTS secure_data")
+        
+        // Execute SQL to verify it works
+        val createResult = nativeExecute(encHandle, "CREATE TABLE secure_data (id INTEGER, secret TEXT)")
+        assertNotNull("Should execute SQL on encrypted database", createResult)
+        assertTrue("Result should contain affectedRows", createResult!!.contains("affectedRows"))
+        
+        // Insert sensitive data
+        val insertResult = nativeExecute(encHandle, "INSERT INTO secure_data VALUES (1, 'confidential')")
+        assertNotNull("Should insert data into encrypted database", insertResult)
+        
+        // Query data
+        val selectResult = nativeExecute(encHandle, "SELECT * FROM secure_data")
+        assertNotNull("Should query encrypted database", selectResult)
+        assertTrue("Should retrieve encrypted data", selectResult!!.contains("confidential"))
+        
+        nativeClose(encHandle)
+    }
+    
+    @Test
+    fun testCreateEncryptedDatabaseWithShortKey() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_short_key.db"
+        
+        // Try to create encrypted database with short key (< 8 characters)
+        val handle = nativeCreateEncryptedDb(dbPath, "short")
+        assertEquals("Should fail with short encryption key", 0L, handle)
+    }
+    
+    @Test
+    fun testRekeyDatabase() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_rekey.db"
+        
+        // Create encrypted database
+        val encHandle = nativeCreateEncryptedDb(dbPath, "old_key_12345678")
+        assertNotEquals("Should create encrypted database", 0L, encHandle)
+        
+        // Drop and recreate table for clean test state
+        nativeExecute(encHandle, "DROP TABLE IF EXISTS rekey_test")
+        
+        // Create table and insert data
+        nativeExecute(encHandle, "CREATE TABLE rekey_test (id INTEGER, value TEXT)")
+        nativeExecute(encHandle, "INSERT INTO rekey_test VALUES (1, 'important_data')")
+        
+        // Rekey the database
+        val rekeyResult = nativeRekey(encHandle, "new_key_87654321")
+        assertEquals("Rekey should succeed", 0, rekeyResult)
+        
+        // Verify data still accessible after rekey
+        val selectResult = nativeExecute(encHandle, "SELECT * FROM rekey_test")
+        assertNotNull("Should query database after rekey", selectResult)
+        assertTrue("Data should be preserved after rekey", selectResult!!.contains("important_data"))
+        
+        nativeClose(encHandle)
+    }
+    
+    @Test
+    fun testRekeyWithInvalidHandle() {
+        // Try to rekey with invalid handle
+        val result = nativeRekey(999999L, "new_key_12345678")
+        assertNotEquals("Should fail with invalid handle", 0, result)
+    }
+    
+    @Test
+    fun testRekeyWithShortKey() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_rekey_short.db"
+        
+        // Create encrypted database
+        val encHandle = nativeCreateEncryptedDb(dbPath, "initial_key_12345678")
+        assertNotEquals("Should create encrypted database", 0L, encHandle)
+        
+        // Try to rekey with short key (< 8 characters)
+        val result = nativeRekey(encHandle, "short")
+        assertNotEquals("Should fail with short key", 0, result)
+        
+        nativeClose(encHandle)
+    }
+    
+    @Test
+    fun testEncryptedDatabasePersistence() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_persistence.db"
+        
+        // Create encrypted database and add data
+        val encHandle1 = nativeCreateEncryptedDb(dbPath, "persistent_key_12345678")
+        assertNotEquals("Should create encrypted database", 0L, encHandle1)
+        
+        // Drop and recreate table
+        nativeExecute(encHandle1, "DROP TABLE IF EXISTS persist_test")
+        nativeExecute(encHandle1, "CREATE TABLE persist_test (id INTEGER, data TEXT)")
+        nativeExecute(encHandle1, "INSERT INTO persist_test VALUES (42, 'persistent_value')")
+        
+        // Close database
+        nativeClose(encHandle1)
+        
+        // Reopen with same key
+        val encHandle2 = nativeCreateEncryptedDb(dbPath, "persistent_key_12345678")
+        assertNotEquals("Should reopen encrypted database", 0L, encHandle2)
+        
+        // Verify data persisted
+        val selectResult = nativeExecute(encHandle2, "SELECT * FROM persist_test")
+        assertNotNull("Should query reopened database", selectResult)
+        assertTrue("Data should persist after reopen", selectResult!!.contains("persistent_value"))
+        
+        nativeClose(encHandle2)
+    }
+    
+    @Test
+    fun testEncryptedDatabaseWithParameterizedQuery() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_encrypted_params.db"
+        
+        // Create encrypted database
+        val encHandle = nativeCreateEncryptedDb(dbPath, "params_key_12345678")
+        assertNotEquals("Should create encrypted database", 0L, encHandle)
+        
+        // Create table
+        nativeExecute(encHandle, "DROP TABLE IF EXISTS params_test")
+        nativeExecute(encHandle, "CREATE TABLE params_test (id INTEGER, name TEXT, value INTEGER)")
+        
+        // Test parameterized insert on encrypted database
+        val params = """[{"type":"Integer","value":1},{"type":"Text","value":"Alice"},{"type":"Integer","value":100}]"""
+        val insertResult = nativeExecuteWithParams(encHandle, "INSERT INTO params_test VALUES (?1, ?2, ?3)", params)
+        assertNotNull("Parameterized INSERT should succeed on encrypted database", insertResult)
+        
+        // Verify data
+        val selectResult = nativeExecute(encHandle, "SELECT * FROM params_test WHERE name = 'Alice'")
+        assertNotNull("Should query with condition", selectResult)
+        assertTrue("Should find inserted data", selectResult!!.contains("Alice"))
+        assertTrue("Should have correct value", selectResult.contains("100"))
+        
+        nativeClose(encHandle)
+    }
+    
+    @Test
+    fun testEncryptedDatabaseWithTransaction() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dbPath = "${context.filesDir.absolutePath}/test_encrypted_transaction.db"
+        
+        // Create encrypted database
+        val encHandle = nativeCreateEncryptedDb(dbPath, "transaction_key_12345678")
+        assertNotEquals("Should create encrypted database", 0L, encHandle)
+        
+        // Create table
+        nativeExecute(encHandle, "DROP TABLE IF EXISTS transaction_test")
+        nativeExecute(encHandle, "CREATE TABLE transaction_test (id INTEGER, value TEXT)")
+        
+        // Begin transaction
+        val beginResult = nativeBeginTransaction(encHandle)
+        assertEquals("Should begin transaction on encrypted database", 0, beginResult)
+        
+        // Insert data in transaction
+        nativeExecute(encHandle, "INSERT INTO transaction_test VALUES (1, 'transactional_data')")
+        
+        // Commit
+        val commitResult = nativeCommit(encHandle)
+        assertEquals("Should commit transaction", 0, commitResult)
+        
+        // Verify data persisted
+        val selectResult = nativeExecute(encHandle, "SELECT * FROM transaction_test")
+        assertNotNull("Should query after transaction", selectResult)
+        assertTrue("Committed data should persist", selectResult!!.contains("transactional_data"))
+        
+        nativeClose(encHandle)
     }
 }

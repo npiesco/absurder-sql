@@ -35,6 +35,10 @@ export default function AbsurderSQLTest() {
     { name: 'Database Export', status: 'pending' },
     { name: 'Database Import', status: 'pending' },
     { name: 'Close Database', status: 'pending' },
+    { name: 'Encrypted DB Creation', status: 'pending' },
+    { name: 'Encrypted Data Operations', status: 'pending' },
+    { name: 'Rekey Encryption', status: 'pending' },
+    { name: 'Encrypted DB Persistence', status: 'pending' },
   ]);
   const [running, setRunning] = useState(false);
   const [dbHandle, setDbHandle] = useState<number | null>(null);
@@ -262,6 +266,185 @@ export default function AbsurderSQLTest() {
         duration: duration9,
       });
       setDbHandle(null);
+
+      // Test 10: Encrypted Database Creation
+      updateTest(9, { status: 'running' });
+      const start10 = Date.now();
+      const timestamp = Date.now();
+      const encryptedDbPath = Platform.OS === 'ios'
+        ? `encrypted_test_${timestamp}.db`
+        : `/data/data/com.absurdersqltestapp/files/encrypted_test_${timestamp}.db`;
+      const encryptionKey = 'test-encryption-key-12345';
+      let encryptedHandle: number | null = null;
+
+      try {
+        encryptedHandle = await AbsurderSQL.createEncryptedDatabase(
+          encryptedDbPath,
+          encryptionKey
+        );
+        const duration10 = Date.now() - start10;
+
+        if (encryptedHandle && encryptedHandle !== 0) {
+          updateTest(9, {
+            status: 'passed',
+            message: `Encrypted DB created (Handle: ${encryptedHandle})`,
+            duration: duration10,
+          });
+        } else {
+          updateTest(9, {
+            status: 'failed',
+            message: 'Invalid handle returned for encrypted DB',
+            duration: duration10,
+          });
+          return;
+        }
+      } catch (error) {
+        const duration10 = Date.now() - start10;
+        updateTest(9, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+          duration: duration10,
+        });
+        return;
+      }
+
+      // Test 11: Encrypted Data Operations
+      updateTest(10, { status: 'running' });
+      const start11 = Date.now();
+      try {
+        // Drop and create table in encrypted database (CoRT pattern)
+        await AbsurderSQL.execute(
+          encryptedHandle,
+          'DROP TABLE IF EXISTS secrets'
+        );
+        await AbsurderSQL.execute(
+          encryptedHandle,
+          'CREATE TABLE secrets (id INTEGER PRIMARY KEY, secret TEXT)'
+        );
+        
+        // Insert sensitive data
+        await AbsurderSQL.execute(
+          encryptedHandle,
+          "INSERT INTO secrets VALUES (1, 'classified-data-1')"
+        );
+        await AbsurderSQL.execute(
+          encryptedHandle,
+          "INSERT INTO secrets VALUES (2, 'confidential-info-2')"
+        );
+        
+        // Query encrypted data
+        const secretResult = await AbsurderSQL.execute(
+          encryptedHandle,
+          'SELECT * FROM secrets WHERE id = 1'
+        );
+        const secretObj = JSON.parse(secretResult);
+        const duration11 = Date.now() - start11;
+
+        if (secretObj.rows && secretObj.rows.length === 1) {
+          updateTest(10, {
+            status: 'passed',
+            message: 'Encrypted data operations successful',
+            duration: duration11,
+          });
+        } else {
+          updateTest(10, {
+            status: 'failed',
+            message: 'Failed to query encrypted data',
+            duration: duration11,
+          });
+        }
+      } catch (error) {
+        const duration11 = Date.now() - start11;
+        updateTest(10, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+          duration: duration11,
+        });
+      }
+
+      // Test 12: Rekey Encryption
+      updateTest(11, { status: 'running' });
+      const start12 = Date.now();
+      try {
+        const newKey = 'new-encryption-key-67890';
+        await AbsurderSQL.rekey(encryptedHandle, newKey);
+        
+        // Verify data is still accessible after rekey
+        const verifyResult = await AbsurderSQL.execute(
+          encryptedHandle,
+          'SELECT COUNT(*) as count FROM secrets'
+        );
+        const verifyObj = JSON.parse(verifyResult);
+        const count = verifyObj.rows[0].values[0].value;
+        const duration12 = Date.now() - start12;
+
+        if (count === 2) {
+          updateTest(11, {
+            status: 'passed',
+            message: `Rekey successful, data preserved (${count} rows)`,
+            duration: duration12,
+          });
+        } else {
+          updateTest(11, {
+            status: 'failed',
+            message: 'Data lost after rekey',
+            duration: duration12,
+          });
+        }
+      } catch (error) {
+        const duration12 = Date.now() - start12;
+        updateTest(11, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+          duration: duration12,
+        });
+      }
+
+      // Test 13: Encrypted Database Persistence
+      updateTest(12, { status: 'running' });
+      const start13 = Date.now();
+      try {
+        // Close the encrypted database
+        await AbsurderSQL.close(encryptedHandle);
+        
+        // Reopen with the NEW key (after rekey)
+        const reopenedHandle = await AbsurderSQL.createEncryptedDatabase(
+          encryptedDbPath,
+          'new-encryption-key-67890'
+        );
+        
+        // Verify we can still access the data
+        const persistResult = await AbsurderSQL.execute(
+          reopenedHandle,
+          'SELECT * FROM secrets ORDER BY id'
+        );
+        const persistObj = JSON.parse(persistResult);
+        const duration13 = Date.now() - start13;
+
+        if (persistObj.rows && persistObj.rows.length === 2) {
+          updateTest(12, {
+            status: 'passed',
+            message: 'Encrypted DB persistence verified',
+            duration: duration13,
+          });
+        } else {
+          updateTest(12, {
+            status: 'failed',
+            message: 'Failed to reopen encrypted database',
+            duration: duration13,
+          });
+        }
+        
+        // Clean up
+        await AbsurderSQL.close(reopenedHandle);
+      } catch (error) {
+        const duration13 = Date.now() - start13;
+        updateTest(12, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+          duration: duration13,
+        });
+      }
     } catch (error) {
       const failedIndex = tests.findIndex((t) => t.status === 'running');
       if (failedIndex >= 0) {
@@ -315,18 +498,18 @@ export default function AbsurderSQLTest() {
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>Passed</Text>
           <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-            {passedCount}
+            {String(passedCount)}
           </Text>
         </View>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>Failed</Text>
           <Text style={[styles.statValue, { color: '#F44336' }]}>
-            {failedCount}
+            {String(failedCount)}
           </Text>
         </View>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>Total</Text>
-          <Text style={styles.statValue}>{tests.length}</Text>
+          <Text style={styles.statValue}>{String(tests.length)}</Text>
         </View>
       </View>
 
@@ -359,7 +542,7 @@ export default function AbsurderSQLTest() {
               </Text>
               <Text style={styles.testName}>{test.name}</Text>
               {test.duration && (
-                <Text style={styles.testDuration}>{test.duration}ms</Text>
+                <Text style={styles.testDuration}>{String(test.duration)}ms</Text>
               )}
             </View>
             {test.message && (
@@ -371,7 +554,7 @@ export default function AbsurderSQLTest() {
 
       {dbHandle && (
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Active Handle: {dbHandle}</Text>
+          <Text style={styles.footerText}>Active Handle: {String(dbHandle)}</Text>
         </View>
       )}
     </View>

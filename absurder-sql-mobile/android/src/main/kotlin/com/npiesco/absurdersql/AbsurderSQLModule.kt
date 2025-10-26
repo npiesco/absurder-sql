@@ -32,6 +32,23 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun createEncryptedDatabase(name: String, key: String, promise: Promise) {
+        try {
+            android.util.Log.i("AbsurderSQL", "createEncryptedDatabase called with name=$name")
+            dbHandle = nativeCreateEncryptedDb(name, key)
+            if (dbHandle == 0L) {
+                promise.reject("CREATE_ENCRYPTED_ERROR", "Failed to create encrypted database")
+            } else {
+                android.util.Log.i("AbsurderSQL", "Encrypted database created with handle=$dbHandle")
+                promise.resolve(dbHandle.toDouble())
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AbsurderSQL", "createEncryptedDatabase exception: ${e.message}", e)
+            promise.reject("CREATE_ENCRYPTED_ERROR", "Failed to create encrypted database: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
     fun execute(handle: Double, sql: String, promise: Promise) {
         try {
             val handleLong = handle.toLong()
@@ -183,6 +200,23 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             android.util.Log.e("AbsurderSQL", "executeBatch exception: ${e.message}")
             promise.reject("BATCH_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun rekey(handle: Double, newKey: String, promise: Promise) {
+        try {
+            android.util.Log.i("AbsurderSQL", "rekey called with handle=$handle")
+            val result = nativeRekey(handle.toLong(), newKey)
+            if (result == 0) {
+                android.util.Log.i("AbsurderSQL", "rekey succeeded")
+                promise.resolve(true)
+            } else {
+                promise.reject("REKEY_ERROR", "Failed to rekey database, result=$result")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AbsurderSQL", "rekey exception: ${e.message}", e)
+            promise.reject("REKEY_ERROR", "Failed to rekey: ${e.message}", e)
         }
     }
 
@@ -349,4 +383,8 @@ class AbsurderSQLModule(reactContext: ReactApplicationContext) :
     private external fun nativePrepareStream(handle: Long, sql: String): Long
     private external fun nativeFetchNext(streamHandle: Long, batchSize: Int): String?
     private external fun nativeCloseStream(streamHandle: Long): Int
+    
+    // Encryption native method declarations
+    private external fun nativeCreateEncryptedDb(name: String, key: String): Long
+    private external fun nativeRekey(handle: Long, newKey: String): Int
 }

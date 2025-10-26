@@ -97,7 +97,7 @@ pub unsafe extern "C" fn absurder_db_import(handle: u64, path: *const c_char) ->
     };
     drop(registry);
     // Use rusqlite to read the native SQLite export file
-    use rusqlite::Connection;
+    use absurder_sql::rusqlite::Connection;
     
     let result = RUNTIME.block_on(async {
         let mut dest_guard = db.lock();
@@ -149,15 +149,15 @@ pub unsafe extern "C" fn absurder_db_import(handle: u64, path: *const c_char) ->
                 for i in 0..column_count {
                     let value_str = match row.get_ref(i)
                         .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Failed to get column {}: {}", i, e)))? {
-                        rusqlite::types::ValueRef::Null => "NULL".to_string(),
-                        rusqlite::types::ValueRef::Integer(n) => n.to_string(),
-                        rusqlite::types::ValueRef::Real(r) => r.to_string(),
-                        rusqlite::types::ValueRef::Text(t) => {
-                            let text = std::str::from_utf8(t)
-                                .map_err(|e| DatabaseError::new("SQLITE_ERROR", &format!("Invalid UTF-8: {}", e)))?;
-                            format!("'{}'", text.replace("'", "''"))
-                        },
-                        rusqlite::types::ValueRef::Blob(_) => "NULL".to_string(), // TODO: handle blobs
+                        absurder_sql::rusqlite::types::ValueRef::Null => "NULL".to_string(),
+                        absurder_sql::rusqlite::types::ValueRef::Integer(n) => n.to_string(),
+                        absurder_sql::rusqlite::types::ValueRef::Real(r) => r.to_string(),
+                        absurder_sql::rusqlite::types::ValueRef::Text(t) => {
+                            let s = String::from_utf8_lossy(t);
+                            let escaped = s.replace("'", "''");
+                            format!("'{}'", escaped)
+                        }
+                        absurder_sql::rusqlite::types::ValueRef::Blob(_) => "NULL".to_string(), // TODO: handle blobs
                     };
                     values.push(value_str);
                 }

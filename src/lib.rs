@@ -2,11 +2,12 @@
 use wasm_bindgen::prelude::*;
 
 // Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
+// Make these public so child crates can use them
 #[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
-extern crate rusqlite_sqlcipher as rusqlite;
+pub extern crate rusqlite_sqlcipher as rusqlite;
 
 #[cfg(all(not(target_arch = "wasm32"), not(feature = "encryption"), feature = "bundled-sqlite"))]
-extern crate rusqlite;
+pub extern crate rusqlite;
 
 // Enable better panic messages and memory allocation
 #[cfg(feature = "console_error_panic_hook")]
@@ -55,6 +56,9 @@ pub type Database = SqliteIndexedDB;
 
 pub use types::DatabaseConfig;
 pub use types::{QueryResult, ColumnValue, DatabaseError, TransactionOptions, Row};
+
+// Re-export VFS
+pub use vfs::indexeddb_vfs::IndexedDBVFS;
 
 // WASM Database implementation using sqlite-wasm-rs
 #[cfg(target_arch = "wasm32")]

@@ -19,6 +19,8 @@ const mockStmtFinalize = jest.fn();
 const mockPrepareStream = jest.fn();
 const mockFetchNext = jest.fn();
 const mockCloseStream = jest.fn();
+const mockCreateEncryptedDatabase = jest.fn();
+const mockRekey = jest.fn();
 
 jest.mock('react-native', () => ({
   NativeModules: {
@@ -38,6 +40,8 @@ jest.mock('react-native', () => ({
       prepareStream: mockPrepareStream,
       fetchNext: mockFetchNext,
       closeStream: mockCloseStream,
+      createEncryptedDatabase: mockCreateEncryptedDatabase,
+      rekey: mockRekey,
     },
   },
   Platform: {
@@ -951,6 +955,208 @@ describe('AbsurderDatabase', () => {
         expect(rows.length).toBe(1000);
         expect(mockFetchNext).toHaveBeenCalledTimes(11); // 10 batches + 1 EOF check
         expect(mockCloseStream).toHaveBeenCalledWith(105);
+      });
+    });
+  });
+
+  describe('Encryption API', () => {
+    describe('openDatabase with encryption', () => {
+      it('should create encrypted database with encryption key', async () => {
+        mockCreateEncryptedDatabase.mockResolvedValue(42);
+
+        const db = await openDatabase({
+          name: 'secure.db',
+          encryption: { key: 'my-secure-password' },
+        });
+
+        expect(mockCreateEncryptedDatabase).toHaveBeenCalledWith(
+          'secure.db',
+          'my-secure-password'
+        );
+        expect(mockCreateDatabase).not.toHaveBeenCalled();
+        expect(db).toBeInstanceOf(AbsurderDatabase);
+      });
+
+      it('should create unencrypted database without encryption config', async () => {
+        mockCreateDatabase.mockResolvedValue(43);
+
+        const db = await openDatabase({ name: 'regular.db' });
+
+        expect(mockCreateDatabase).toHaveBeenCalledWith('regular.db');
+        expect(mockCreateEncryptedDatabase).not.toHaveBeenCalled();
+        expect(db).toBeInstanceOf(AbsurderDatabase);
+      });
+
+      it('should create unencrypted database with string config', async () => {
+        mockCreateDatabase.mockResolvedValue(44);
+
+        const db = await openDatabase('simple.db');
+
+        expect(mockCreateDatabase).toHaveBeenCalledWith('simple.db');
+        expect(mockCreateEncryptedDatabase).not.toHaveBeenCalled();
+      });
+
+      it('should propagate errors from encrypted database creation', async () => {
+        mockCreateEncryptedDatabase.mockRejectedValue(
+          new Error('Invalid encryption key: minimum 8 characters required')
+        );
+
+        await expect(
+          openDatabase({
+            name: 'secure.db',
+            encryption: { key: 'short' },
+          })
+        ).rejects.toThrow('Invalid encryption key: minimum 8 characters required');
+      });
+
+      it('should allow executing queries on encrypted database', async () => {
+        mockCreateEncryptedDatabase.mockResolvedValue(42);
+        mockExecute.mockResolvedValue(
+          JSON.stringify({
+            columns: ['secret'],
+            rows: [{ secret: 'classified' }],
+            rowsAffected: 1,
+          })
+        );
+
+        const db = await openDatabase({
+          name: 'secure.db',
+          encryption: { key: 'my-secure-password' },
+        });
+
+        const result = await db.execute('SELECT * FROM secrets');
+
+        expect(result.rows[0].secret).toBe('classified');
+        expect(mockExecute).toHaveBeenCalledWith(42, 'SELECT * FROM secrets');
+      });
+    });
+
+    describe('rekey()', () => {
+      let encryptedDb: AbsurderDatabase;
+
+      beforeEach(async () => {
+        mockCreateEncryptedDatabase.mockResolvedValue(42);
+        encryptedDb = await openDatabase({
+          name: 'encrypted.db',
+          encryption: { key: 'initial-password' },
+        });
+      });
+
+      it('should change encryption key with new key', async () => {
+        mockRekey.mockResolvedValue(undefined);
+
+        await encryptedDb.rekey('new-password');
+
+        expect(mockRekey).toHaveBeenCalledWith(42, 'new-password');
+      });
+
+      it('should throw error if database is not open', async () => {
+        const unopenedDb = new AbsurderDatabase('test.db');
+
+        await expect(unopenedDb.rekey('new-password')).rejects.toThrow(
+          'Database is not open'
+        );
+      });
+
+      it('should propagate rekey errors', async () => {
+        mockRekey.mockRejectedValue(
+          new Error('Rekey failed: invalid key length')
+        );
+
+        await expect(encryptedDb.rekey('short')).rejects.toThrow(
+          'Rekey failed: invalid key length'
+        );
+      });
+
+      it('should allow operations after successful rekey', async () => {
+        mockRekey.mockResolvedValue(undefined);
+        mockExecute.mockResolvedValue(
+          JSON.stringify({
+            columns: ['test'],
+            rows: [{ test: 'data' }],
+            rowsAffected: 1,
+          })
+        );
+
+        await encryptedDb.rekey('new-password-12345');
+        const result = await encryptedDb.execute('SELECT * FROM test');
+
+        expect(result.rows[0].test).toBe('data');
+      });
+    });
+
+    describe('Encrypted database lifecycle', () => {
+      it('should handle complete encrypted database workflow', async () => {
+        // Create encrypted database
+        mockCreateEncryptedDatabase.mockResolvedValue(50);
+        const db = await openDatabase({
+          name: 'workflow.db',
+          encryption: { key: 'initial-password' },
+        });
+
+        // Execute some operations
+        mockExecute.mockResolvedValue(
+          JSON.stringify({
+            columns: [],
+            rows: [],
+            rowsAffected: 1,
+          })
+        );
+        await db.execute('CREATE TABLE users (id INTEGER, name TEXT)');
+        await db.execute("INSERT INTO users VALUES (1, 'Alice')");
+
+        // Rekey
+        mockRekey.mockResolvedValue(undefined);
+        await db.rekey('new-password-12345');
+
+        // Continue operations
+        const queryResult = {
+          columns: ['id', 'name'],
+          rows: [{ id: 1, name: 'Alice' }],
+          rowsAffected: 0,
+        };
+        mockExecute.mockResolvedValue(JSON.stringify(queryResult));
+        const result = await db.execute('SELECT * FROM users');
+
+        // Close
+        mockClose.mockResolvedValue(undefined);
+        await db.close();
+
+        expect(mockCreateEncryptedDatabase).toHaveBeenCalledWith(
+          'workflow.db',
+          'initial-password'
+        );
+        expect(mockRekey).toHaveBeenCalledWith(50, 'new-password-12345');
+        expect(mockClose).toHaveBeenCalledWith(50);
+        expect(result.rows[0].name).toBe('Alice');
+      });
+    });
+
+    describe('Encryption config validation', () => {
+      it('should handle encryption config with key property', async () => {
+        mockCreateEncryptedDatabase.mockResolvedValue(60);
+
+        await openDatabase({
+          name: 'test.db',
+          encryption: { key: 'valid-password-123' },
+        });
+
+        expect(mockCreateEncryptedDatabase).toHaveBeenCalledWith(
+          'test.db',
+          'valid-password-123'
+        );
+      });
+
+      it('should create unencrypted database when encryption is undefined', async () => {
+        mockCreateDatabase.mockResolvedValue(61);
+
+        await openDatabase({
+          name: 'test.db',
+          encryption: undefined,
+        });
+
+        expect(mockCreateDatabase).toHaveBeenCalledWith('test.db');
+        expect(mockCreateEncryptedDatabase).not.toHaveBeenCalled();
       });
     });
   });

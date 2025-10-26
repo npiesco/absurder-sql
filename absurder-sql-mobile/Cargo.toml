@@ -34,16 +34,18 @@ thiserror = "1.0"
 # Logging
 log = "0.4"
 
-# SQLite for reading native export files
-rusqlite = { version = "0.30", features = ["bundled"] }
-
 # JNI for Android
 [target.'cfg(target_os = "android")'.dependencies]
 jni = { version = "0.21", default-features = false }
 android_logger = "0.14"
 
+[dev-dependencies]
+env_logger = "0.11"
+
 [features]
+default = ["fs_persist"]
 fs_persist = ["absurder-sql/fs_persist"]
+bundled-sqlite = ["absurder-sql/bundled-sqlite", "fs_persist"]
 encryption = ["absurder-sql/encryption", "fs_persist"]
 
 [profile.release]

@@ -46,6 +46,45 @@ RCT_EXPORT_METHOD(createDatabase:(NSString *)name
     }
 }
 
+// Create encrypted database
+RCT_EXPORT_METHOD(createEncryptedDatabase:(NSString *)name
+                  key:(NSString *)key
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    NSLog(@"[AbsurderSQL] createEncryptedDatabase called with name: %@", name);
+    
+    // If relative path, construct full path in Documents directory
+    NSString *fullPath = name;
+    if (![name hasPrefix:@"/"]) {
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documentsDirectory = [paths firstObject];
+        fullPath = [documentsDirectory stringByAppendingPathComponent:name];
+        NSLog(@"[AbsurderSQL] Converted relative path to: %@", fullPath);
+    }
+    
+    const char *cName = [fullPath UTF8String];
+    const char *cKey = [key UTF8String];
+    
+    NSLog(@"[AbsurderSQL] Calling absurder_db_new_encrypted with path: %s", cName);
+    
+    uint64_t handle = absurder_db_new_encrypted(cName, cKey);
+    
+    NSLog(@"[AbsurderSQL] absurder_db_new_encrypted returned handle: %llu", handle);
+    
+    if (handle == 0) {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : 
+                             [NSString stringWithFormat:@"Failed to create encrypted database at path: %@", fullPath];
+        NSLog(@"[AbsurderSQL] ERROR: %@", errorMsg);
+        reject(@"CREATE_ENCRYPTED_ERROR", errorMsg, nil);
+    } else {
+        self.dbHandle = handle;
+        NSLog(@"[AbsurderSQL] Encrypted database created successfully with handle: %llu", handle);
+        resolve(@(handle));
+    }
+}
+
 // Execute SQL
 RCT_EXPORT_METHOD(execute:(uint64_t)handle
                   sql:(NSString *)sql
@@ -461,6 +500,30 @@ RCT_EXPORT_METHOD(closeStream:(nonnull NSNumber *)streamHandle
     }
 }
 
+// Rekey encrypted database
+RCT_EXPORT_METHOD(rekey:(nonnull NSNumber *)handle
+                  newKey:(NSString *)newKey
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    const char *cNewKey = [newKey UTF8String];
+    
+    NSLog(@"[AbsurderSQL] rekey called with handle: %llu", dbHandle);
+    
+    int32_t result = absurder_db_rekey(dbHandle, cNewKey);
+    
+    if (result == 0) {
+        NSLog(@"[AbsurderSQL] rekey succeeded");
+        resolve(@(YES));
+    } else {
+        const char* error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to rekey database";
+        NSLog(@"[AbsurderSQL] rekey failed: %@", errorMsg);
+        reject(@"REKEY_ERROR", errorMsg, nil);
+    }
+}
+
 // Close database
 RCT_EXPORT_METHOD(close:(nonnull NSNumber *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -470,5 +533,84 @@ RCT_EXPORT_METHOD(close:(nonnull NSNumber *)handle
     absurder_db_close(dbHandle);
     resolve(@(YES));
 }
+
+// Create encrypted database (requires encryption feature)
+#ifdef ENCRYPTION_ENABLED
+RCT_EXPORT_METHOD(createEncryptedDatabase:(NSString *)name
+                  key:(NSString *)key
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    NSLog(@"[AbsurderSQL] createEncryptedDatabase called with name: %@", name);
+    
+    // Validate key
+    if (key == nil || [key length] < 8) {
+        NSString *errorMsg = @"Encryption key must be at least 8 characters long";
+        NSLog(@"[AbsurderSQL] ERROR: %@", errorMsg);
+        reject(@"INVALID_KEY", errorMsg, nil);
+        return;
+    }
+    
+    // If relative path, construct full path in Documents directory
+    NSString *fullPath = name;
+    if (![name hasPrefix:@"/"]) {
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documentsDirectory = [paths firstObject];
+        fullPath = [documentsDirectory stringByAppendingPathComponent:name];
+        NSLog(@"[AbsurderSQL] Converted relative path to: %@", fullPath);
+    }
+    
+    const char *cName = [fullPath UTF8String];
+    const char *cKey = [key UTF8String];
+    NSLog(@"[AbsurderSQL] Calling absurder_db_new_encrypted");
+    
+    uint64_t handle = absurder_db_new_encrypted(cName, cKey);
+    
+    NSLog(@"[AbsurderSQL] absurder_db_new_encrypted returned handle: %llu", handle);
+    
+    if (handle == 0) {
+        const char *error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to create encrypted database";
+        NSLog(@"[AbsurderSQL] ERROR: %@", errorMsg);
+        reject(@"CREATE_ENCRYPTED_ERROR", errorMsg, nil);
+    } else {
+        self.dbHandle = handle;
+        NSLog(@"[AbsurderSQL] Encrypted database created successfully with handle: %llu", handle);
+        resolve(@(handle));
+    }
+}
+
+// Rekey encrypted database (requires encryption feature)
+RCT_EXPORT_METHOD(rekey:(nonnull NSNumber *)handle
+                  newKey:(NSString *)newKey
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    NSLog(@"[AbsurderSQL] rekey called with handle: %llu", [handle unsignedLongLongValue]);
+    
+    // Validate new key
+    if (newKey == nil || [newKey length] < 8) {
+        NSString *errorMsg = @"New encryption key must be at least 8 characters long";
+        NSLog(@"[AbsurderSQL] ERROR: %@", errorMsg);
+        reject(@"INVALID_KEY", errorMsg, nil);
+        return;
+    }
+    
+    uint64_t dbHandle = [handle unsignedLongLongValue];
+    const char *cNewKey = [newKey UTF8String];
+    
+    int32_t result = absurder_db_rekey(dbHandle, cNewKey);
+    
+    if (result == 0) {
+        NSLog(@"[AbsurderSQL] rekey succeeded");
+        resolve(@(YES));
+    } else {
+        const char *error = absurder_get_error();
+        NSString *errorMsg = error ? [NSString stringWithUTF8String:error] : @"Failed to rekey database";
+        NSLog(@"[AbsurderSQL] rekey failed: %@", errorMsg);
+        reject(@"REKEY_ERROR", errorMsg, nil);
+    }
+}
+#endif // ENCRYPTION_ENABLED
 
 @end

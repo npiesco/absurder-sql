@@ -60,7 +60,7 @@ def build_ios():
         print(f"{Colors.YELLOW}{description} ({target})...{Colors.END}")
         
         exit_code, output = run_command(
-            ["cargo", "build", "--release", "--features", "fs_persist", f"--target={target}"],
+            ["cargo", "build", "--release", "--features", "fs_persist,encryption", f"--target={target}"],
             cwd=project_dir
         )
         

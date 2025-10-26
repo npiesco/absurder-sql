@@ -17,6 +17,9 @@ use crate::{
     absurder_stmt_prepare_stream, absurder_stmt_fetch_next, absurder_stmt_stream_close,
 };
 
+#[cfg(feature = "encryption")]
+use crate::ffi::encryption::{absurder_db_new_encrypted, absurder_db_rekey};
+
 /// Called when the native library is loaded
 #[unsafe(no_mangle)]
 pub extern "system" fn JNI_OnLoad(_vm: *mut JavaVM, _reserved: *mut c_void) -> JInt {
@@ -622,4 +625,116 @@ pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTe
     params: JString,
 ) -> jstring {
     Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeExecuteWithParams(env, _class, handle, sql, params)
+}
+
+// ============================================================
+// Encryption JNI Functions
+// ============================================================
+
+/// JNI: Create encrypted database
+#[cfg(feature = "encryption")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCreateEncryptedDb(
+    mut env: JNIEnv,
+    _class: JClass,
+    name: JString,
+    key: JString,
+) -> jlong {
+    // Convert name JString to Rust String
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            log::error!("JNI nativeCreateEncryptedDb: Failed to get name string: {:?}", e);
+            return 0;
+        }
+    };
+
+    // Convert key JString to Rust String
+    let key_str: String = match env.get_string(&key) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            log::error!("JNI nativeCreateEncryptedDb: Failed to get key string: {:?}", e);
+            return 0;
+        }
+    };
+
+    // Convert to C strings
+    let name_cstr = match CString::new(name_str) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("JNI nativeCreateEncryptedDb: Name CString conversion failed: {}", e);
+            return 0;
+        }
+    };
+
+    let key_cstr = match CString::new(key_str) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("JNI nativeCreateEncryptedDb: Key CString conversion failed: {}", e);
+            return 0;
+        }
+    };
+
+    // Call FFI function
+    let handle = unsafe { absurder_db_new_encrypted(name_cstr.as_ptr(), key_cstr.as_ptr()) };
+    
+    log::info!("JNI nativeCreateEncryptedDb: created encrypted database with handle {}", handle);
+    handle as jlong
+}
+
+/// JNI: Rekey encrypted database
+#[cfg(feature = "encryption")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeRekey(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    new_key: JString,
+) -> jint {
+    // Convert new_key JString to Rust String
+    let key_str: String = match env.get_string(&new_key) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            log::error!("JNI nativeRekey: Failed to get key string: {:?}", e);
+            return -1;
+        }
+    };
+
+    // Convert to C string
+    let key_cstr = match CString::new(key_str) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("JNI nativeRekey: Key CString conversion failed: {}", e);
+            return -1;
+        }
+    };
+
+    // Call FFI function
+    let result = unsafe { absurder_db_rekey(handle as u64, key_cstr.as_ptr()) };
+    
+    log::info!("JNI nativeRekey: rekey result={}", result);
+    result
+}
+
+// Test class wrappers for encryption functions
+#[cfg(feature = "encryption")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeCreateEncryptedDb(
+    env: JNIEnv,
+    _class: JClass,
+    name: JString,
+    key: JString,
+) -> jlong {
+    Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeCreateEncryptedDb(env, _class, name, key)
+}
+
+#[cfg(feature = "encryption")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_npiesco_absurdersql_AbsurderSQLInstrumentationTest_nativeRekey(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    new_key: JString,
+) -> jint {
+    Java_com_npiesco_absurdersql_AbsurderSQLModule_nativeRekey(env, _class, handle, new_key)
 }

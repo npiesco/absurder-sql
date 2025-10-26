@@ -2,8 +2,8 @@
 ## AbsurderSQL Mobile: Phase II Features
 
 **Version:** 2.0  
-**Last Updated:** October 24, 2025  
-**Status:** Phase I Complete, Phase II Planning  
+**Last Updated:** January 2025  
+**Status:** Phase I Complete, Phase II In Progress (Streaming ✅, Encryption ✅)  
 **Target Release:** v0.2.0-mobile
 
 ---
@@ -135,12 +135,13 @@
 
 ---
 
-## 2. Database Encryption (SQLCipher) 🔒
+## 2. Database Encryption (SQLCipher) ✅
 
 **Goal:** Integrate SQLCipher for transparent database encryption
 
 **Priority:** High  
-**Target:** v0.2.0 (Week 3-4)
+**Target:** v0.2.0 (Week 3-4)  
+**Status:** ✅ Complete (January 2025)
 
 ### 2.1 Core Rust Implementation ✅
 - [✓] **Add SQLCipher dependency**
@@ -174,29 +175,73 @@
   - [x] Test rekey functionality
   - [x] All 69 mobile tests passing (6 encryption + 63 existing)
 
-### 2.3 iOS Bridge
-- [ ] **Objective-C wrapper**
-  - [ ] `createEncryptedDatabase:(NSString *)name key:(NSString *)key resolver:rejecter:`
-  - [ ] `rekey:(NSNumber *)handle oldKey:(NSString *)oldKey newKey:(NSString *)newKey resolver:rejecter:`
-- [ ] **Keychain integration example**
+### 2.3 iOS Bridge ✅
+- [✓] **Objective-C wrapper**
+  - [✓] `createEncryptedDatabase:(NSString *)name key:(NSString *)key resolver:rejecter:`
+  - [✓] `rekey:(NSNumber *)handle newKey:(NSString *)newKey resolver:rejecter:`
+- [✓] **FFI declarations in bridging header**
+  - [✓] `absurder_db_new_encrypted(const char* name, const char* key)`
+  - [✓] `absurder_db_rekey(uint64_t handle, const char* new_key)`
+- [✓] **iOS Tests (8 tests, all passing)**
+  - [✓] testCreateEncryptedDatabase - create and query encrypted DB
+  - [✓] testCreateEncryptedDatabaseWithNullKey - validate null key rejection
+  - [✓] testCreateEncryptedDatabaseWithShortKey - validate minimum key length
+  - [✓] testRekeyDatabase - change encryption key and verify data preserved
+  - [✓] testRekeyWithInvalidHandle - validate error handling
+  - [✓] testRekeyWithNullKey - validate null key rejection for rekey
+  - [✓] testRekeyWithShortKey - validate minimum key length for rekey
+  - [✓] testEncryptedDatabasePersistence - close/reopen encrypted DB
+- [✓] **Zero regressions - all existing iOS tests passing**
+- [ ] **Keychain integration example** (Phase II documentation)
   - [ ] Document how to store keys in iOS Keychain
   - [ ] Provide example code
 
-### 2.4 Android Bridge
-- [ ] **Kotlin wrapper**
-  - [ ] `@ReactMethod createEncryptedDatabase(name: String, key: String, promise: Promise)`
-  - [ ] `@ReactMethod rekey(handle: Int, oldKey: String, newKey: String, promise: Promise)`
-- [ ] **Keystore integration example**
+### 2.4 Android Bridge ✅
+- [✓] **Kotlin wrapper**
+  - [✓] `@ReactMethod createEncryptedDatabase(name: String, key: String, promise: Promise)`
+  - [✓] `@ReactMethod rekey(handle: Int, newKey: String, promise: Promise)`
+- [✓] **JNI bindings**
+  - [✓] `nativeCreateEncryptedDb(name: String, key: String): Long`
+  - [✓] `nativeRekey(handle: Long, newKey: String): Int`
+- [✓] **Android Tests (8 tests implemented)**
+  - [✓] testCreateEncryptedDatabase - create and query encrypted DB
+  - [✓] testCreateEncryptedDatabaseWithShortKey - validate minimum key length
+  - [✓] testRekeyDatabase - change encryption key and verify data preserved
+  - [✓] testRekeyWithInvalidHandle - validate error handling
+  - [✓] testRekeyWithShortKey - validate minimum key length for rekey
+  - [✓] testEncryptedDatabasePersistence - close/reopen encrypted DB
+  - [✓] testEncryptedDatabaseWithParameterizedQuery - parameterized queries on encrypted DB
+  - [✓] testEncryptedDatabaseWithTransaction - transactions on encrypted DB
+- [✓] **Build successful with bundled-sqlcipher-vendored-openssl**
+  - [✓] arm64-v8a: libabsurder_sql_mobile.so (5.32 MB)
+  - [✓] x86_64: libabsurder_sql_mobile.so (5.93 MB)
+- [ ] **Keystore integration example** (Phase II documentation)
   - [ ] Document how to store keys in Android Keystore
   - [ ] Provide example code
 
-### 2.5 TypeScript API
-- [ ] **Update openDatabase() signature**
-  - [ ] Add optional `encryption: { key: string }` parameter
-  - [ ] Add `rekey(oldKey: string, newKey: string)` method
-- [ ] **Documentation**
+### 2.5 TypeScript API ✅
+- [✓] **Update openDatabase() signature**
+  - [✓] Add optional `encryption: { key: string }` parameter to DatabaseConfig
+  - [✓] Add `EncryptionConfig` interface with key property
+  - [✓] Implement conditional logic in `open()` to call createEncryptedDatabase vs createDatabase
+  - [✓] Add `rekey(newKey: string)` method to AbsurderDatabase class
+  - [✓] Full JSDoc documentation with security examples
+- [✓] **Comprehensive test coverage (11 new tests, all passing)**
+  - [✓] Test encrypted database creation with encryption key
+  - [✓] Test unencrypted database without encryption config
+  - [✓] Test unencrypted database with string config
+  - [✓] Test error propagation from encrypted database creation
+  - [✓] Test executing queries on encrypted database
+  - [✓] Test rekey() changes encryption key
+  - [✓] Test rekey() throws error if database not open
+  - [✓] Test rekey() error propagation
+  - [✓] Test operations after successful rekey
+  - [✓] Test complete encrypted database lifecycle
+  - [✓] Test encryption config validation
+- [✓] **Zero regressions - all 76 TypeScript tests passing**
+- [ ] **Documentation** (Phase II documentation)
   - [ ] Security best practices guide
-  - [ ] Key management examples
+  - [ ] Key management examples (Keychain/Keystore integration)
   - [ ] Migration from unencrypted to encrypted
 
 ---

@@ -91,6 +91,17 @@ export class PreparedStatement {
 }
 
 /**
+ * Encryption configuration for database
+ */
+export interface EncryptionConfig {
+  /**
+   * Encryption key for the database
+   * Minimum 8 characters required
+   */
+  key: string;
+}
+
+/**
  * Database configuration options
  */
 export interface DatabaseConfig {
@@ -100,6 +111,11 @@ export interface DatabaseConfig {
   pageSize?: number;
   autoVacuum?: boolean;
   journalMode?: 'MEMORY' | 'WAL' | 'DELETE';
+  /**
+   * Optional encryption configuration
+   * When provided, creates an encrypted database using SQLCipher
+   */
+  encryption?: EncryptionConfig;
 }
 
 /**
@@ -121,9 +137,11 @@ export interface StreamOptions {
 export class AbsurderDatabase {
   private handle: number | null = null;
   private readonly name: string;
+  private config: DatabaseConfig | string;
 
   constructor(config: DatabaseConfig | string) {
     this.name = typeof config === 'string' ? config : config.name;
+    this.config = config;
   }
 
   /**
@@ -134,7 +152,19 @@ export class AbsurderDatabase {
       throw new Error('Database is already open');
     }
 
-    this.handle = await AbsurderSQLNative.createDatabase(this.name);
+    // Check if encryption is requested
+    const encryption = typeof this.config === 'object' ? this.config.encryption : undefined;
+    
+    if (encryption && encryption.key) {
+      // Create encrypted database
+      this.handle = await AbsurderSQLNative.createEncryptedDatabase(
+        this.name,
+        encryption.key
+      );
+    } else {
+      // Create regular unencrypted database
+      this.handle = await AbsurderSQLNative.createDatabase(this.name);
+    }
   }
 
   /**
@@ -414,6 +444,36 @@ export class AbsurderDatabase {
         await AbsurderSQLNative.closeStream(streamHandle);
       }
     }
+  }
+
+  /**
+   * Change the encryption key of an open encrypted database
+   * 
+   * This method allows you to change the encryption key of an already encrypted database.
+   * The database must be open when calling this method.
+   * 
+   * @param newKey The new encryption key (minimum 8 characters)
+   * @returns Promise that resolves when rekey operation completes
+   * @throws Error if database is not open or rekey fails
+   * 
+   * @example
+   * const db = await openDatabase({
+   *   name: 'secure.db',
+   *   encryption: { key: 'old-password' }
+   * });
+   * 
+   * // Change the encryption key
+   * await db.rekey('new-password-123');
+   * 
+   * // Database is now encrypted with new key
+   * await db.close();
+   */
+  async rekey(newKey: string): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await AbsurderSQLNative.rekey(this.handle, newKey);
   }
 
   /**

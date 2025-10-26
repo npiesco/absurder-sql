@@ -421,37 +421,40 @@ impl SqliteIndexedDB {
             ));
         }
         
-        // Create the IndexedDB VFS
-        let vfs = IndexedDBVFS::new(&config.name).await?;
+        // For encrypted databases, VFS and BlockStorage use separate paths
+        // to avoid conflicting with the native SQLite .db file
+        let vfs_name = format!("{}_vfs_metadata", config.name);
+        let vfs = IndexedDBVFS::new(&vfs_name).await?;
         
         // With fs_persist: use real filesystem persistence with encryption
         #[cfg(feature = "fs_persist")]
         {
-            // Remove .db extension for storage name
-            let storage_name = config.name.strip_suffix(".db")
-                .unwrap_or(&config.name)
-                .to_string();
+            // Storage name for VFS metadata (not the actual db file)
+            let storage_name = format!("{}_vfs_storage", 
+                config.name.strip_suffix(".db").unwrap_or(&config.name));
             
-            // Create BlockStorage for filesystem persistence
+            // Create BlockStorage for VFS metadata persistence
             let storage = BlockStorage::new(&storage_name).await
                 .map_err(|e| DatabaseError::new("BLOCKSTORAGE_ERROR", &e.to_string()))?;
             
-            // Get base directory
-            let base_dir = std::env::var("ABSURDERSQL_FS_BASE")
-                .unwrap_or_else(|_| "./absurdersql_storage".to_string());
+            // Use config.name directly as the SQLite file path
+            let db_file_path = PathBuf::from(&config.name);
             
-            // Create database file path
-            let db_file_path = PathBuf::from(base_dir)
-                .join(&storage_name)
-                .join("database.sqlite");
-            
-            // Ensure directory exists
+            // Ensure parent directory exists for the db file
             if let Some(parent) = db_file_path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| DatabaseError::new("IO_ERROR", &format!("Failed to create directory: {}", e)))?;
             }
             
-            // Open SQLite connection with real file
+            // Clean up old VFS directories if they exist at the db file path
+            // This fixes conflicts from previous VFS-based implementations
+            // Note: Don't remove existing .db files - those are valid encrypted databases to reopen
+            if db_file_path.exists() && db_file_path.is_dir() {
+                std::fs::remove_dir_all(&db_file_path)
+                    .map_err(|e| DatabaseError::new("IO_ERROR", &format!("Failed to remove existing VFS directory: {}", e)))?;
+            }
+            
+            // Open SQLite connection with encrypted file
             let connection = Connection::open(&db_file_path)
                 .map_err(|e| DatabaseError::from(e))?;
             

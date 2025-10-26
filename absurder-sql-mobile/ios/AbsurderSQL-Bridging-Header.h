@@ -32,4 +32,8 @@ extern uint64_t absurder_db_prepare(uint64_t db_handle, const char* sql);
 extern char* absurder_stmt_execute(uint64_t stmt_handle, const char* params_json);
 extern int32_t absurder_stmt_finalize(uint64_t stmt_handle);
 
+// Encryption (SQLCipher)
+extern uint64_t absurder_db_new_encrypted(const char* name, const char* key);
+extern int32_t absurder_db_rekey(uint64_t handle, const char* new_key);
+
 #endif /* AbsurderSQL_Bridging_Header_h */

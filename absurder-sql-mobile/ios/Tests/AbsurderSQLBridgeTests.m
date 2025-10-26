@@ -21,6 +21,10 @@ extern void absurder_db_close(uint64_t handle);
 extern void absurder_free_string(char* s);
 extern const char* absurder_get_error(void);
 
+// Encryption functions
+extern uint64_t absurder_db_new_encrypted(const char* name, const char* key);
+extern int32_t absurder_db_rekey(uint64_t handle, const char* new_key);
+
 @interface AbsurderSQLBridgeTests : XCTestCase
 @property (nonatomic, assign) uint64_t testHandle;
 @end
@@ -309,6 +313,163 @@ extern const char* absurder_get_error(void);
     // Verify handles are invalidated
     const char* result = absurder_db_execute(handles[0], "SELECT 1");
     XCTAssertEqual(result, NULL, @"Closed handle should be invalid");
+}
+
+#pragma mark - Encryption Tests
+
+- (void)testCreateEncryptedDatabase {
+    // Create encrypted database with valid key
+    uint64_t encHandle = absurder_db_new_encrypted("test_encrypted.db", "test_key_12345678");
+    XCTAssertNotEqual(encHandle, 0, @"Should create encrypted database with valid key");
+    
+    // Drop table if exists from previous test
+    absurder_free_string((char*)absurder_db_execute(encHandle, "DROP TABLE IF EXISTS secure_data"));
+    
+    // Execute SQL to verify it works
+    const char* createResult = absurder_db_execute(encHandle, "CREATE TABLE secure_data (id INTEGER, secret TEXT)");
+    XCTAssertNotEqual(createResult, NULL, @"Should execute SQL on encrypted database");
+    absurder_free_string((char*)createResult);
+    
+    // Insert sensitive data
+    const char* insertResult = absurder_db_execute(encHandle, "INSERT INTO secure_data VALUES (1, 'confidential')");
+    XCTAssertNotEqual(insertResult, NULL, @"Should insert data into encrypted database");
+    absurder_free_string((char*)insertResult);
+    
+    // Query data
+    const char* selectResult = absurder_db_execute(encHandle, "SELECT * FROM secure_data");
+    XCTAssertNotEqual(selectResult, NULL, @"Should query encrypted database");
+    NSString *resultStr = [NSString stringWithUTF8String:selectResult];
+    XCTAssertTrue([resultStr containsString:@"confidential"], @"Should retrieve encrypted data");
+    absurder_free_string((char*)selectResult);
+    
+    absurder_db_close(encHandle);
+}
+
+- (void)testCreateEncryptedDatabaseWithNullKey {
+    // Try to create encrypted database with null key
+    uint64_t handle = absurder_db_new_encrypted("test_null_key.db", NULL);
+    XCTAssertEqual(handle, 0, @"Should fail with null encryption key");
+    
+    // Check error message
+    const char* error = absurder_get_error();
+    XCTAssertNotEqual(error, NULL, @"Should have error message for null key");
+    NSString *errorStr = [NSString stringWithUTF8String:error];
+    XCTAssertTrue([errorStr containsString:@"key"] || [errorStr containsString:@"null"], 
+                  @"Error should mention key issue");
+}
+
+- (void)testCreateEncryptedDatabaseWithShortKey {
+    // Try to create encrypted database with short key (< 8 characters)
+    uint64_t handle = absurder_db_new_encrypted("test_short_key.db", "short");
+    XCTAssertEqual(handle, 0, @"Should fail with short encryption key");
+    
+    // Check error message
+    const char* error = absurder_get_error();
+    XCTAssertNotEqual(error, NULL, @"Should have error message for short key");
+    NSString *errorStr = [NSString stringWithUTF8String:error];
+    XCTAssertTrue([errorStr containsString:@"8 characters"] || [errorStr containsString:@"too short"], 
+                  @"Error should mention minimum key length");
+}
+
+- (void)testRekeyDatabase {
+    // Create encrypted database
+    uint64_t encHandle = absurder_db_new_encrypted("test_rekey.db", "old_key_12345678");
+    XCTAssertNotEqual(encHandle, 0, @"Should create encrypted database");
+    
+    // Drop and recreate table for clean test state
+    absurder_free_string((char*)absurder_db_execute(encHandle, "DROP TABLE IF EXISTS rekey_test"));
+    
+    // Create table and insert data
+    absurder_free_string((char*)absurder_db_execute(encHandle, "CREATE TABLE rekey_test (id INTEGER, value TEXT)"));
+    absurder_free_string((char*)absurder_db_execute(encHandle, "INSERT INTO rekey_test VALUES (1, 'important_data')"));
+    
+    // Rekey the database
+    int32_t rekeyResult = absurder_db_rekey(encHandle, "new_key_87654321");
+    XCTAssertEqual(rekeyResult, 0, @"Rekey should succeed");
+    
+    // Verify data still accessible after rekey
+    const char* selectResult = absurder_db_execute(encHandle, "SELECT * FROM rekey_test");
+    XCTAssertNotEqual(selectResult, NULL, @"Should query database after rekey");
+    NSString *resultStr = [NSString stringWithUTF8String:selectResult];
+    XCTAssertTrue([resultStr containsString:@"important_data"], @"Data should be preserved after rekey");
+    absurder_free_string((char*)selectResult);
+    
+    absurder_db_close(encHandle);
+}
+
+- (void)testRekeyWithInvalidHandle {
+    // Try to rekey with invalid handle
+    int32_t result = absurder_db_rekey(999999, "new_key_12345678");
+    XCTAssertNotEqual(result, 0, @"Should fail with invalid handle");
+    
+    // Check error message
+    const char* error = absurder_get_error();
+    XCTAssertNotEqual(error, NULL, @"Should have error message");
+    NSString *errorStr = [NSString stringWithUTF8String:error];
+    XCTAssertTrue([errorStr containsString:@"Invalid"] || [errorStr containsString:@"handle"], 
+                  @"Error should mention invalid handle");
+}
+
+- (void)testRekeyWithNullKey {
+    // Create encrypted database
+    uint64_t encHandle = absurder_db_new_encrypted("test_rekey_null.db", "initial_key_12345678");
+    XCTAssertNotEqual(encHandle, 0, @"Should create encrypted database");
+    
+    // Try to rekey with null key
+    int32_t result = absurder_db_rekey(encHandle, NULL);
+    XCTAssertNotEqual(result, 0, @"Should fail with null key");
+    
+    // Check error message
+    const char* error = absurder_get_error();
+    XCTAssertNotEqual(error, NULL, @"Should have error message");
+    
+    absurder_db_close(encHandle);
+}
+
+- (void)testRekeyWithShortKey {
+    // Create encrypted database
+    uint64_t encHandle = absurder_db_new_encrypted("test_rekey_short.db", "initial_key_12345678");
+    XCTAssertNotEqual(encHandle, 0, @"Should create encrypted database");
+    
+    // Try to rekey with short key (< 8 characters)
+    int32_t result = absurder_db_rekey(encHandle, "short");
+    XCTAssertNotEqual(result, 0, @"Should fail with short key");
+    
+    // Check error message
+    const char* error = absurder_get_error();
+    XCTAssertNotEqual(error, NULL, @"Should have error message");
+    NSString *errorStr = [NSString stringWithUTF8String:error];
+    XCTAssertTrue([errorStr containsString:@"8 characters"] || [errorStr containsString:@"too short"], 
+                  @"Error should mention minimum key length");
+    
+    absurder_db_close(encHandle);
+}
+
+- (void)testEncryptedDatabasePersistence {
+    // Create encrypted database and add data
+    uint64_t encHandle1 = absurder_db_new_encrypted("test_persistence.db", "persistent_key_12345678");
+    XCTAssertNotEqual(encHandle1, 0, @"Should create encrypted database");
+    
+    // Drop and recreate table
+    absurder_free_string((char*)absurder_db_execute(encHandle1, "DROP TABLE IF EXISTS persist_test"));
+    absurder_free_string((char*)absurder_db_execute(encHandle1, "CREATE TABLE persist_test (id INTEGER, data TEXT)"));
+    absurder_free_string((char*)absurder_db_execute(encHandle1, "INSERT INTO persist_test VALUES (42, 'persistent_value')"));
+    
+    // Close database
+    absurder_db_close(encHandle1);
+    
+    // Reopen with same key
+    uint64_t encHandle2 = absurder_db_new_encrypted("test_persistence.db", "persistent_key_12345678");
+    XCTAssertNotEqual(encHandle2, 0, @"Should reopen encrypted database");
+    
+    // Verify data persisted
+    const char* selectResult = absurder_db_execute(encHandle2, "SELECT * FROM persist_test");
+    XCTAssertNotEqual(selectResult, NULL, @"Should query reopened database");
+    NSString *resultStr = [NSString stringWithUTF8String:selectResult];
+    XCTAssertTrue([resultStr containsString:@"persistent_value"], @"Data should persist after reopen");
+    absurder_free_string((char*)selectResult);
+    
+    absurder_db_close(encHandle2);
 }
 
 @end
