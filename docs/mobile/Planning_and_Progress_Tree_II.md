@@ -388,17 +388,19 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [✓] Implemented `create_database()`, `close_database()`, `get_uniffi_version()`
   - [✓] Implemented `execute()` for SQL query execution
   - [✓] Implemented `execute_with_params()` for parameterized queries with SQL injection prevention
+  - [✓] Implemented `begin_transaction()`, `commit()`, `rollback()` for transaction support
 - [✓] **Keep existing FFI as fallback**
   - [✓] Feature flag `uniffi-bindings` controls UniFFI (opt-in)
   - [✓] Legacy FFI always available (backward compatible)
   - [✓] Both can coexist during migration
 - [✓] **Testing & Validation**
   - [✓] Created comprehensive UniFFI tests with serial_test for race-free execution
-  - [✓] 3 integration tests, 3 execute tests, 4 execute_with_params tests
-  - [✓] All 73 tests passing (63 existing FFI + 10 new UniFFI)
+  - [✓] 3 integration tests, 3 execute tests, 4 execute_with_params tests, 4 transaction tests
+  - [✓] All 77 tests passing (63 existing FFI + 14 new UniFFI)
   - [✓] Zero regressions verified
   - [✓] UniFFI compiles successfully with proc-macro approach
   - [✓] SQL injection prevention validated
+  - [✓] Transaction atomicity validated (commit/rollback)
 
 ### 4.2 Phase 2: iOS Migration (Week 2)
 - [ ] **Generate Swift bindings**
