@@ -130,6 +130,25 @@ export interface StreamOptions {
 }
 
 /**
+ * Schema migration definition
+ */
+export interface Migration {
+  /**
+   * Migration version number
+   * Must be sequential and unique
+   */
+  version: number;
+  /**
+   * SQL to apply the migration (forward)
+   */
+  up: string;
+  /**
+   * SQL to rollback the migration (backward)
+   */
+  down: string;
+}
+
+/**
  * AbsurderSQL Database class
  * 
  * Provides a high-performance SQLite database with filesystem persistence
@@ -474,6 +493,128 @@ export class AbsurderDatabase {
     }
 
     await AbsurderSQLNative.rekey(this.handle, newKey);
+  }
+
+  /**
+   * Apply schema migrations to the database
+   * 
+   * Migrations are applied in order by version number. Only pending migrations
+   * (versions higher than current database version) are executed.
+   * All migrations are wrapped in a transaction for atomicity.
+   * 
+   * @param migrations Array of migration definitions sorted by version
+   * @returns Promise that resolves when all migrations are applied
+   * @throws Error if database is not open, migrations are not sorted, or any migration fails
+   * 
+   * @example
+   * const migrations = [
+   *   {
+   *     version: 1,
+   *     up: 'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)',
+   *     down: 'DROP TABLE users',
+   *   },
+   *   {
+   *     version: 2,
+   *     up: 'ALTER TABLE users ADD COLUMN email TEXT',
+   *     down: 'ALTER TABLE users DROP COLUMN email',
+   *   },
+   * ];
+   * 
+   * await db.migrate(migrations);
+   */
+  async migrate(migrations: Migration[]): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    // Validate migrations are sorted by version
+    for (let i = 1; i < migrations.length; i++) {
+      if (migrations[i].version <= migrations[i - 1].version) {
+        throw new Error('Migrations must be sorted by version');
+      }
+    }
+
+    // Ensure _migrations table exists
+    await this.ensureMigrationsTable();
+
+    // Get current database version
+    const currentVersion = await this.getDatabaseVersion();
+
+    // Filter pending migrations
+    const pendingMigrations = migrations.filter(m => m.version > currentVersion);
+
+    // No migrations to apply
+    if (pendingMigrations.length === 0) {
+      return;
+    }
+
+    // Apply pending migrations in a transaction
+    await this.beginTransaction();
+    try {
+      for (const migration of pendingMigrations) {
+        // Apply the migration
+        await this.execute(migration.up);
+        
+        // Record the migration in _migrations table
+        await this.execute(
+          `INSERT INTO _migrations (version, applied_at) VALUES (${migration.version}, datetime('now'))`
+        );
+      }
+      await this.commit();
+    } catch (error) {
+      await this.rollback();
+      throw error;
+    }
+  }
+
+  /**
+   * Get the current schema version from the _migrations table
+   * 
+   * @returns Promise resolving to current version number (0 if no migrations applied)
+   * @throws Error if database is not open
+   * 
+   * @example
+   * const version = await db.getDatabaseVersion();
+   * console.log(`Current schema version: ${version}`);
+   */
+  async getDatabaseVersion(): Promise<number> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    await this.ensureMigrationsTable();
+
+    const result = await this.execute(
+      'SELECT version FROM _migrations ORDER BY version DESC LIMIT 1'
+    );
+
+    if (result.rows.length === 0) {
+      return 0;
+    }
+
+    return result.rows[0].version;
+  }
+
+  /**
+   * Ensure _migrations table exists
+   * @private
+   */
+  private async ensureMigrationsTable(): Promise<void> {
+    if (this.handle === null) {
+      throw new Error('Database is not open');
+    }
+
+    // Check if _migrations table exists
+    const tableCheck = await this.execute(
+      "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='_migrations'"
+    );
+
+    if (tableCheck.rows.length === 0 || tableCheck.rows[0].count === 0) {
+      // Create _migrations table
+      await this.execute(
+        'CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, applied_at TEXT)'
+      );
+    }
   }
 
   /**
