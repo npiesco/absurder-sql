@@ -106,7 +106,7 @@ encryption = ["rusqlite-sqlcipher"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = { version = "0.30", features = ["bundled", "vtab", "backup"], optional = true }
-rusqlite-sqlcipher = { package = "rusqlite", version = "0.30", features = ["bundled-sqlcipher", "vtab", "backup"], optional = true }
+rusqlite-sqlcipher = { package = "rusqlite", version = "0.30", features = ["bundled-sqlcipher-vendored-openssl", "vtab", "backup"], optional = true }
 tokio = { version = "1.0", features = ["full"] }
 # OpenTelemetry OTLP exporter (native only - requires network) - OPTIONAL
 opentelemetry-otlp = { version = "0.14", optional = true }
