@@ -13,12 +13,5 @@ pub mod core;
 pub mod types;
 
 // Re-export for convenience
-#[cfg(feature = "uniffi-bindings")]
 pub use core::*;
-#[cfg(feature = "uniffi-bindings")]
 pub use types::*;
-
-// Generate the UniFFI scaffolding
-// This is the entry point for UniFFI code generation
-#[cfg(feature = "uniffi-bindings")]
-uniffi::setup_scaffolding!();

@@ -5,8 +5,10 @@
 
 #[cfg(test)]
 mod uniffi_integration_tests {
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_uniffi_dependency_available() {
         // This test will fail until we add uniffi dependency
         // When UniFFI is added, this should compile
@@ -24,6 +26,7 @@ mod uniffi_integration_tests {
     }
 
     #[test]
+    #[serial]
     fn test_uniffi_annotations_present() {
         // This test validates that at least some core functions are annotated
         // We'll check that the module compiles with UniFFI features
@@ -41,6 +44,7 @@ mod uniffi_integration_tests {
     }
 
     #[test]
+    #[serial]
     fn test_existing_ffi_still_works() {
         // Validate that existing FFI functions still compile
         // This ensures we maintain backward compatibility during migration

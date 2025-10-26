@@ -7,6 +7,14 @@ mod registry;
 mod ffi;
 mod android_jni;
 
+// UniFFI API (opt-in with uniffi-bindings feature)
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_api;
+
+// UniFFI scaffolding generation (must be at crate root for 0.29+)
+#[cfg(feature = "uniffi-bindings")]
+uniffi::setup_scaffolding!();
+
 // Re-export core FFI functions
 pub use ffi::core::{
     absurder_db_new,
@@ -80,6 +88,10 @@ mod ffi_streaming_test;
 #[cfg(all(test, feature = "uniffi-bindings"))]
 #[path = "__tests__/uniffi_integration_test.rs"]
 mod uniffi_integration_test;
+
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_execute_test.rs"]
+mod uniffi_execute_test;
 
 #[cfg(test)]
 #[path = "__tests__/ffi_export_import_test.rs"]
