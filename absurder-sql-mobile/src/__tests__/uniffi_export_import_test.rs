@@ -22,6 +22,7 @@ mod uniffi_export_import_tests {
         let handle = create_database(config).expect("Failed to create database");
         
         // Create table and insert data
+        execute(handle, "DROP TABLE IF EXISTS users".to_string()).ok();
         execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)".to_string())
             .expect("Failed to create table");
         execute(handle, "INSERT INTO users (name) VALUES ('Alice')".to_string())
@@ -57,6 +58,7 @@ mod uniffi_export_import_tests {
         let source_handle = create_database(source_config).expect("Failed to create source database");
         
         // Create table and insert data
+        execute(source_handle, "DROP TABLE IF EXISTS products".to_string()).ok();
         execute(source_handle, "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)".to_string())
             .expect("Failed to create table");
         execute(source_handle, "INSERT INTO products (name, price) VALUES ('Widget', 9.99)".to_string())
@@ -106,6 +108,7 @@ mod uniffi_export_import_tests {
         let original_handle = create_database(original_config).expect("Failed to create database");
         
         // Create schema and data
+        execute(original_handle, "DROP TABLE IF EXISTS items".to_string()).ok();
         execute(original_handle, "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)".to_string())
             .expect("Failed to create table");
         for i in 0..100 {

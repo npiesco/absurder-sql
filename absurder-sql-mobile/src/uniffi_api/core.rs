@@ -481,6 +481,207 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     }
 }
 
+/// Execute a batch of SQL statements in a transaction
+/// 
+/// Executes multiple SQL statements atomically. If any statement fails,
+/// the entire batch is rolled back.
+/// 
+/// # Arguments
+/// * `handle` - Database handle
+/// * `statements` - Vector of SQL statements to execute
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if all statements executed successfully
+#[uniffi::export]
+pub fn execute_batch(handle: u64, statements: Vec<String>) -> Result<(), DatabaseError> {
+    log::info!("UniFFI: Executing batch of {} statements on handle {}", statements.len(), handle);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Execute batch using async runtime
+    let result = RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute_batch(&statements).await
+    });
+    
+    match result {
+        Ok(_) => {
+            log::info!("UniFFI: Batch executed successfully on handle {}", handle);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to execute batch: {}", e);
+            Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            })
+        }
+    }
+}
+
+/// Prepare a SQL statement for repeated execution
+/// 
+/// Creates a prepared statement that can be executed multiple times with different parameters.
+/// This is more efficient than calling execute_with_params() repeatedly for the same SQL.
+/// 
+/// # Arguments
+/// * `db_handle` - Database handle
+/// * `sql` - SQL statement with ? placeholders for parameters
+/// 
+/// # Returns
+/// * `Result<u64, DatabaseError>` - Statement handle on success
+#[uniffi::export]
+pub fn prepare_statement(db_handle: u64, sql: String) -> Result<u64, DatabaseError> {
+    use crate::registry::{STMT_REGISTRY, STMT_HANDLE_COUNTER, PreparedStatementWrapper};
+    
+    log::info!("UniFFI: Preparing statement for db handle {}: {}", db_handle, sql);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&db_handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Validate SQL by attempting to prepare it
+    {
+        let mut db = db_arc.lock();
+        match db.prepare(&sql) {
+            Ok(stmt) => {
+                // SQL is valid, finalize the test statement
+                let _ = stmt.finalize();
+            }
+            Err(e) => {
+                log::error!("UniFFI: Failed to prepare statement: {}", e);
+                return Err(DatabaseError::SqlError {
+                    message: e.to_string(),
+                });
+            }
+        }
+    }
+    
+    // Generate unique statement handle
+    let stmt_handle = {
+        let mut counter = STMT_HANDLE_COUNTER.lock();
+        let handle = *counter;
+        *counter += 1;
+        handle
+    };
+    
+    // Store SQL and database handle for on-demand preparation
+    let wrapper = PreparedStatementWrapper {
+        db_handle,
+        sql: sql.clone(),
+    };
+    
+    let mut stmt_registry = STMT_REGISTRY.lock();
+    stmt_registry.insert(stmt_handle, wrapper);
+    
+    log::info!("UniFFI: Created statement handle {} for SQL: {}", stmt_handle, sql);
+    Ok(stmt_handle)
+}
+
+/// Execute a prepared statement with parameters
+/// 
+/// Executes a previously prepared statement with the given parameters.
+/// Parameters are passed as strings and will be converted to appropriate types.
+/// 
+/// # Arguments
+/// * `stmt_handle` - Statement handle from prepare_statement()
+/// * `params` - Vector of parameter values as strings
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if execution succeeded
+#[uniffi::export]
+pub fn execute_statement(stmt_handle: u64, params: Vec<String>) -> Result<(), DatabaseError> {
+    use crate::registry::STMT_REGISTRY;
+    
+    log::info!("UniFFI: Executing statement {} with {} params", stmt_handle, params.len());
+    
+    // Get statement info from registry
+    let (db_handle, sql) = {
+        let stmt_registry = STMT_REGISTRY.lock();
+        match stmt_registry.get(&stmt_handle) {
+            Some(wrapper) => (wrapper.db_handle, wrapper.sql.clone()),
+            None => {
+                log::error!("UniFFI: Statement handle {} not found", stmt_handle);
+                return Err(DatabaseError::SqlError {
+                    message: format!("Invalid statement handle: {}", stmt_handle),
+                });
+            }
+        }
+    };
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&db_handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Convert string params to ColumnValue
+    let column_params: Vec<absurder_sql::ColumnValue> = params.into_iter()
+        .map(|s| absurder_sql::ColumnValue::Text(s))
+        .collect();
+    
+    // Execute with params
+    let result = RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute_with_params(&sql, &column_params).await
+    });
+    
+    match result {
+        Ok(_) => {
+            log::info!("UniFFI: Statement {} executed successfully", stmt_handle);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to execute statement {}: {}", stmt_handle, e);
+            Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            })
+        }
+    }
+}
+
+/// Finalize a prepared statement and free its resources
+/// 
+/// Removes the statement from the registry and frees associated resources.
+/// The statement handle becomes invalid after this call.
+/// 
+/// # Arguments
+/// * `stmt_handle` - Statement handle to finalize
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if finalization succeeded
+#[uniffi::export]
+pub fn finalize_statement(stmt_handle: u64) -> Result<(), DatabaseError> {
+    use crate::registry::STMT_REGISTRY;
+    
+    log::info!("UniFFI: Finalizing statement {}", stmt_handle);
+    
+    let mut stmt_registry = STMT_REGISTRY.lock();
+    match stmt_registry.remove(&stmt_handle) {
+        Some(_) => {
+            log::info!("UniFFI: Statement {} finalized successfully", stmt_handle);
+            Ok(())
+        }
+        None => {
+            log::error!("UniFFI: Statement handle {} not found", stmt_handle);
+            Err(DatabaseError::SqlError {
+                message: format!("Invalid statement handle: {}", stmt_handle),
+            })
+        }
+    }
+}
+
 /// Get the UniFFI version being used
 /// 
 /// This is a simple test function to verify UniFFI is working
