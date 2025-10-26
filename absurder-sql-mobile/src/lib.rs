@@ -101,6 +101,10 @@ mod uniffi_execute_params_test;
 #[path = "__tests__/uniffi_transactions_test.rs"]
 mod uniffi_transactions_test;
 
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_export_import_test.rs"]
+mod uniffi_export_import_test;
+
 #[cfg(test)]
 #[path = "__tests__/ffi_export_import_test.rs"]
 mod ffi_export_import_test;

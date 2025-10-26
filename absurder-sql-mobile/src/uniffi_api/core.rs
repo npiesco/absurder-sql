@@ -300,6 +300,187 @@ pub fn rollback(handle: u64) -> Result<(), DatabaseError> {
     }
 }
 
+/// Export database to file using VACUUM INTO
+/// 
+/// Creates a backup of the database at the specified path.
+/// If the file already exists, it will be overwritten.
+/// 
+/// # Arguments
+/// * `handle` - Database handle
+/// * `path` - File path where the backup will be created
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if export succeeded
+#[uniffi::export]
+pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
+    log::info!("UniFFI: Exporting database handle {} to {}", handle, path);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Delete export file if it exists (VACUUM INTO fails if file exists)
+    if let Ok(canonical_path) = std::path::Path::new(&path).canonicalize() {
+        let _ = std::fs::remove_file(canonical_path);
+    } else {
+        // If canonicalize fails, try to delete anyway
+        let _ = std::fs::remove_file(&path);
+    }
+    
+    // Escape single quotes in path for SQL
+    let escaped_path = path.replace("'", "''");
+    let export_sql = format!("VACUUM INTO '{}'", escaped_path);
+    
+    // Execute export using async runtime
+    let result = RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute(&export_sql).await
+    });
+    
+    match result {
+        Ok(_) => {
+            log::info!("UniFFI: Database exported successfully to {}", path);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to export database: {}", e);
+            Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            })
+        }
+    }
+}
+
+/// Import database from file
+/// 
+/// Restores a database from a backup file created by export_database.
+/// This will copy all tables and data from the backup into the current database.
+/// 
+/// # Arguments
+/// * `handle` - Database handle
+/// * `path` - File path of the backup to import
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if import succeeded
+#[uniffi::export]
+pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
+    log::info!("UniFFI: Importing database from {} to handle {}", path, handle);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Verify the import file exists
+    if !std::path::Path::new(&path).exists() {
+        let error_msg = format!("Import file does not exist: {}", path);
+        log::error!("UniFFI: {}", error_msg);
+        return Err(DatabaseError::SqlError {
+            message: error_msg,
+        });
+    }
+    
+    use absurder_sql::rusqlite::Connection;
+    
+    // Execute import using async runtime
+    let result = RUNTIME.block_on(async {
+        let mut dest_guard = db_arc.lock();
+        
+        // Open the export file as a native SQLite connection
+        let source_conn = Connection::open(&path)
+            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to open export file: {}", e)))?;
+        
+        // Get list of tables
+        let mut stmt = source_conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to query tables: {}", e)))?;
+        
+        let table_names: Vec<String> = stmt.query_map([], |row| row.get(0))
+            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to get table names: {}", e)))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to collect table names: {}", e)))?;
+        
+        for table_name in table_names {
+            log::info!("UniFFI: Importing table: {}", table_name);
+            
+            // Get CREATE TABLE statement
+            let create_sql: String = source_conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                [&table_name],
+                |row| row.get(0)
+            ).map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to get schema for {}: {}", table_name, e)))?;
+            
+            // Drop and recreate table in destination
+            let _ = dest_guard.execute(&format!("DROP TABLE IF EXISTS {}", table_name)).await;
+            dest_guard.execute(&create_sql).await?;
+            
+            // Get all data from source table
+            let mut data_stmt = source_conn.prepare(&format!("SELECT * FROM {}", table_name))
+                .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to select from {}: {}", table_name, e)))?;
+            
+            let column_count = data_stmt.column_count();
+            let mut rows = data_stmt.query([])
+                .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to query {}: {}", table_name, e)))?;
+            
+            // Begin transaction for bulk insert
+            dest_guard.execute("BEGIN TRANSACTION").await?;
+            
+            let mut row_count = 0;
+            while let Some(row) = rows.next()
+                .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to fetch row from {}: {}", table_name, e)))? {
+                
+                // Build INSERT VALUES string
+                let mut values = Vec::new();
+                for i in 0..column_count {
+                    let value_str = match row.get_ref(i)
+                        .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to get column {}: {}", i, e)))? {
+                        absurder_sql::rusqlite::types::ValueRef::Null => "NULL".to_string(),
+                        absurder_sql::rusqlite::types::ValueRef::Integer(n) => n.to_string(),
+                        absurder_sql::rusqlite::types::ValueRef::Real(r) => r.to_string(),
+                        absurder_sql::rusqlite::types::ValueRef::Text(t) => {
+                            let text = String::from_utf8_lossy(t);
+                            format!("'{}'", text.replace("'", "''"))
+                        }
+                        absurder_sql::rusqlite::types::ValueRef::Blob(b) => {
+                            format!("X'{}'", b.iter().map(|byte| format!("{:02x}", byte)).collect::<String>())
+                        }
+                    };
+                    values.push(value_str);
+                }
+                
+                let insert_sql = format!("INSERT INTO {} VALUES ({})", table_name, values.join(", "));
+                dest_guard.execute(&insert_sql).await?;
+                row_count += 1;
+            }
+            
+            // Commit transaction
+            dest_guard.execute("COMMIT").await?;
+            log::info!("UniFFI: Imported {} rows into table {}", row_count, table_name);
+        }
+        
+        Ok::<(), absurder_sql::DatabaseError>(())
+    });
+    
+    match result {
+        Ok(_) => {
+            log::info!("UniFFI: Database imported successfully from {}", path);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to import database: {}", e);
+            Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            })
+        }
+    }
+}
+
 /// Get the UniFFI version being used
 /// 
 /// This is a simple test function to verify UniFFI is working
