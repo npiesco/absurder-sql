@@ -5,7 +5,7 @@
 
 use super::types::{DatabaseConfig, DatabaseError, QueryResult};
 use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
-use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig};
+use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig, ColumnValue};
 use std::sync::Arc;
 use parking_lot::Mutex;
 
@@ -116,6 +116,63 @@ pub fn close_database(handle: u64) -> Result<(), DatabaseError> {
         Ok(())
     } else {
         Err(DatabaseError::DatabaseClosed)
+    }
+}
+
+/// Execute SQL query with parameters on a database
+/// 
+/// This function provides parameterized query execution to prevent SQL injection.
+/// Parameters are passed as a vector of strings and bound to ? placeholders in the SQL.
+/// 
+/// # Arguments
+/// * `handle` - Database handle
+/// * `sql` - SQL query with ? placeholders for parameters
+/// * `params` - Vector of parameter values as strings
+/// 
+/// # Returns
+/// * `QueryResult` - Query results with columns and rows
+#[uniffi::export]
+pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Result<QueryResult, DatabaseError> {
+    log::info!("UniFFI: Executing SQL with {} params on handle {}: {}", params.len(), handle, sql);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Convert string params to ColumnValue
+    let column_params: Vec<ColumnValue> = params.into_iter()
+        .map(|s| ColumnValue::Text(s))
+        .collect();
+    
+    // Execute parameterized query using async runtime
+    let result = RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute_with_params(&sql, &column_params).await
+    });
+    
+    match result {
+        Ok(query_result) => {
+            // Convert to QueryResult
+            let rows_json: Vec<String> = query_result.rows.iter()
+                .map(|row| serde_json::to_string(row).unwrap_or_default())
+                .collect();
+            
+            Ok(QueryResult {
+                columns: query_result.columns,
+                rows: rows_json,
+                rows_affected: query_result.affected_rows as u64,
+            })
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to execute SQL with params: {}", e);
+            Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            })
+        }
     }
 }
 
