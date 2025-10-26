@@ -392,14 +392,15 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [✓] Implemented `export_database()` and `import_database()` for backup/restore
   - [✓] Implemented `execute_batch()` for bulk SQL operations
   - [✓] Implemented `prepare_statement()`, `execute_statement()`, `finalize_statement()` for prepared statements
+  - [✓] Implemented `prepare_stream()`, `fetch_next()`, `close_stream()` for cursor-based streaming
 - [✓] **Keep existing FFI as fallback**
   - [✓] Feature flag `uniffi-bindings` controls UniFFI (opt-in)
   - [✓] Legacy FFI always available (backward compatible)
   - [✓] Both can coexist during migration
 - [✓] **Testing & Validation**
   - [✓] Created comprehensive UniFFI tests with serial_test for race-free execution
-  - [✓] 3 integration, 3 execute, 4 execute_with_params, 4 transaction, 6 export/import, 6 batch, 9 prepared statement tests
-  - [✓] All 98 tests passing (63 existing FFI + 35 new UniFFI)
+  - [✓] 3 integration, 3 execute, 4 execute_with_params, 4 transaction, 6 export/import, 6 batch, 9 prepared, 10 streaming tests
+  - [✓] All 108 tests passing (63 existing FFI + 45 new UniFFI)
   - [✓] Zero regressions verified
   - [✓] UniFFI compiles successfully with proc-macro approach
   - [✓] SQL injection prevention validated
@@ -407,6 +408,7 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [✓] Database backup/restore round-trip validated
   - [✓] Batch operations with proper DROP TABLE IF EXISTS cleanup
   - [✓] Prepared statement reuse and finalization validated
+  - [✓] Cursor-based streaming with LIMIT/OFFSET pagination validated
 
 ### 4.2 Phase 2: iOS Migration (Week 2)
 - [ ] **Generate Swift bindings**

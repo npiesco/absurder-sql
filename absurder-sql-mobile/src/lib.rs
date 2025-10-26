@@ -113,6 +113,10 @@ mod uniffi_batch_test;
 #[path = "__tests__/uniffi_prepared_statements_test.rs"]
 mod uniffi_prepared_statements_test;
 
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_streaming_test.rs"]
+mod uniffi_streaming_test;
+
 #[cfg(test)]
 #[path = "__tests__/ffi_export_import_test.rs"]
 mod ffi_export_import_test;

@@ -682,6 +682,193 @@ pub fn finalize_statement(stmt_handle: u64) -> Result<(), DatabaseError> {
     }
 }
 
+/// Prepare a streaming statement for cursor-based iteration
+/// 
+/// Creates a streaming statement that can fetch results in batches,
+/// avoiding memory issues with large result sets.
+/// 
+/// # Arguments
+/// * `db_handle` - Database handle
+/// * `sql` - SQL SELECT statement
+/// 
+/// # Returns
+/// * `Result<u64, DatabaseError>` - Stream handle on success
+#[uniffi::export]
+pub fn prepare_stream(db_handle: u64, sql: String) -> Result<u64, DatabaseError> {
+    use crate::registry::{STREAM_REGISTRY, STREAM_HANDLE_COUNTER, StreamingStatement};
+    
+    log::info!("UniFFI: Preparing stream for db handle {}: {}", db_handle, sql);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&db_handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Validate SQL by attempting to execute with LIMIT 0
+    // This ensures the SQL is valid before we store it
+    {
+        let validation_sql = format!("{} LIMIT 0", sql);
+        let result = RUNTIME.block_on(async {
+            let mut db = db_arc.lock();
+            db.execute(&validation_sql).await
+        });
+        
+        if let Err(e) = result {
+            log::error!("UniFFI: Invalid SQL for stream: {}", e);
+            return Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            });
+        }
+    }
+    
+    // Generate unique stream handle
+    let stream_handle = {
+        let mut counter = STREAM_HANDLE_COUNTER.lock();
+        let handle = *counter;
+        *counter += 1;
+        handle
+    };
+    
+    // Create streaming statement
+    let stream = StreamingStatement {
+        db_handle,
+        sql: sql.clone(),
+        current_offset: 0,
+    };
+    
+    // Register stream
+    let mut stream_registry = STREAM_REGISTRY.lock();
+    stream_registry.insert(stream_handle, stream);
+    
+    log::info!("UniFFI: Created stream handle {} for SQL: {}", stream_handle, sql);
+    Ok(stream_handle)
+}
+
+/// Fetch next batch of rows from streaming statement
+/// 
+/// Fetches the next batch of rows from the stream using LIMIT/OFFSET pagination.
+/// Returns an empty result when no more rows are available.
+/// 
+/// # Arguments
+/// * `stream_handle` - Stream handle from prepare_stream()
+/// * `batch_size` - Number of rows to fetch (must be > 0)
+/// 
+/// # Returns
+/// * `Result<QueryResult, DatabaseError>` - Batch of rows
+#[uniffi::export]
+pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, DatabaseError> {
+    use crate::registry::STREAM_REGISTRY;
+    
+    log::info!("UniFFI: Fetching next {} rows from stream {}", batch_size, stream_handle);
+    
+    if batch_size <= 0 {
+        log::error!("UniFFI: Invalid batch size: {}", batch_size);
+        return Err(DatabaseError::SqlError {
+            message: format!("Batch size must be > 0, got {}", batch_size),
+        });
+    }
+    
+    // Get stream from registry and update offset
+    let (db_handle, sql, offset) = {
+        let mut stream_registry = STREAM_REGISTRY.lock();
+        match stream_registry.get_mut(&stream_handle) {
+            Some(stream) => {
+                let db_handle = stream.db_handle;
+                let sql = stream.sql.clone();
+                let offset = stream.current_offset;
+                
+                // Update offset for next fetch
+                stream.current_offset += batch_size as usize;
+                
+                (db_handle, sql, offset)
+            }
+            None => {
+                log::error!("UniFFI: Invalid stream handle: {}", stream_handle);
+                return Err(DatabaseError::SqlError {
+                    message: format!("Invalid stream handle: {}", stream_handle),
+                });
+            }
+        }
+    };
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&db_handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Build paginated query
+    let paginated_sql = format!("{} LIMIT {} OFFSET {}", sql, batch_size, offset);
+    
+    // Execute query
+    let result = RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute(&paginated_sql).await
+    });
+    
+    match result {
+        Ok(query_result) => {
+            log::info!("UniFFI: Fetched {} rows from stream {}", query_result.rows.len(), stream_handle);
+            
+            // Convert rows to JSON strings
+            let rows_json: Vec<String> = query_result.rows.iter()
+                .map(|row| serde_json::to_string(row).unwrap_or_default())
+                .collect();
+            
+            // Convert to UniFFI QueryResult
+            let uniffi_result = QueryResult {
+                columns: query_result.columns,
+                rows: rows_json,
+                rows_affected: query_result.affected_rows as u64,
+            };
+            
+            Ok(uniffi_result)
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to fetch from stream {}: {}", stream_handle, e);
+            Err(DatabaseError::SqlError {
+                message: e.to_string(),
+            })
+        }
+    }
+}
+
+/// Close a streaming statement and free its resources
+/// 
+/// Removes the stream from the registry and frees associated resources.
+/// The stream handle becomes invalid after this call.
+/// 
+/// # Arguments
+/// * `stream_handle` - Stream handle to close
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if close succeeded
+#[uniffi::export]
+pub fn close_stream(stream_handle: u64) -> Result<(), DatabaseError> {
+    use crate::registry::STREAM_REGISTRY;
+    
+    log::info!("UniFFI: Closing stream {}", stream_handle);
+    
+    let mut stream_registry = STREAM_REGISTRY.lock();
+    match stream_registry.remove(&stream_handle) {
+        Some(_) => {
+            log::info!("UniFFI: Stream {} closed successfully", stream_handle);
+            Ok(())
+        }
+        None => {
+            log::error!("UniFFI: Stream handle {} not found", stream_handle);
+            Err(DatabaseError::SqlError {
+                message: format!("Invalid stream handle: {}", stream_handle),
+            })
+        }
+    }
+}
+
 /// Get the UniFFI version being used
 /// 
 /// This is a simple test function to verify UniFFI is working
