@@ -117,6 +117,10 @@ mod uniffi_prepared_statements_test;
 #[path = "__tests__/uniffi_streaming_test.rs"]
 mod uniffi_streaming_test;
 
+#[cfg(all(test, feature = "uniffi-bindings", feature = "encryption"))]
+#[path = "__tests__/uniffi_encryption_test.rs"]
+mod uniffi_encryption_test;
+
 #[cfg(test)]
 #[path = "__tests__/ffi_export_import_test.rs"]
 mod ffi_export_import_test;
@@ -461,7 +465,9 @@ mod tests {
     #[test]
     fn test_transaction_rollback() {
         unsafe {
-            let name = CString::new("test_rollback.db").unwrap();
+            let thread_id = std::thread::current().id();
+            let db_name = format!("test_rollback_{:?}.db", thread_id);
+            let name = CString::new(db_name.clone()).unwrap();
             let handle = absurder_db_new(name.as_ptr());
             
             // Clean slate
@@ -496,6 +502,9 @@ mod tests {
             
             absurder_free_string(result);
             absurder_db_close(handle);
+            
+            // Cleanup: delete test database file
+            let _ = std::fs::remove_file(&db_name);
         }
     }
 

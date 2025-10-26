@@ -27,6 +27,9 @@ mod uniffi_transactions_tests {
         execute(handle, "INSERT INTO accounts (balance) VALUES (100.0)".to_string())
             .expect("Failed to insert");
         
+        // Commit the implicit transaction from INSERT before starting explicit transaction
+        commit(handle).ok();
+        
         // Begin transaction
         let begin_result = begin_transaction(handle);
         assert!(begin_result.is_ok(), "Begin transaction should succeed: {:?}", begin_result.err());
@@ -65,6 +68,9 @@ mod uniffi_transactions_tests {
         execute(handle, "INSERT INTO accounts (balance) VALUES (100.0)".to_string())
             .expect("Failed to insert");
         
+        // Commit the implicit transaction from INSERT before starting explicit transaction
+        commit(handle).ok();
+        
         // Begin transaction
         begin_transaction(handle).expect("Failed to begin transaction");
         
@@ -102,6 +108,9 @@ mod uniffi_transactions_tests {
             .expect("Failed to create table");
         execute(handle, "INSERT INTO products (stock) VALUES (50)".to_string())
             .expect("Failed to insert");
+        
+        // Commit the implicit transaction from INSERT before starting explicit transaction
+        commit(handle).ok();
         
         // Begin transaction
         begin_transaction(handle).expect("Failed to begin transaction");

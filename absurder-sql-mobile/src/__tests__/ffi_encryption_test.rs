@@ -9,12 +9,8 @@ use crate::ffi::encryption::{absurder_db_new_encrypted, absurder_db_rekey};
 use crate::ffi::core::{absurder_db_execute, absurder_db_close, absurder_get_error, absurder_free_string};
 
 fn unique_db_name(prefix: &str) -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{}_{}.db", prefix, timestamp)
+    let thread_id = std::thread::current().id();
+    format!("{}_{:?}.db", prefix, thread_id)
 }
 
 #[test]
@@ -41,6 +37,8 @@ fn test_ffi_create_encrypted_database() {
     // Cleanup
     unsafe { absurder_free_string(result) };
     unsafe { absurder_db_close(handle) };
+    
+    let _ = std::fs::remove_file(name.to_str().unwrap());
 }
 
 #[test]
@@ -120,6 +118,8 @@ fn test_ffi_rekey_database() {
     // Cleanup
     unsafe { absurder_free_string(result) };
     unsafe { absurder_db_close(handle) };
+    
+    let _ = std::fs::remove_file(name.to_str().unwrap());
 }
 
 #[test]
@@ -150,5 +150,7 @@ fn test_ffi_rekey_with_null_key() {
     
     // Cleanup
     unsafe { absurder_db_close(handle) };
+    
+    let _ = std::fs::remove_file(name.to_str().unwrap());
 }
 

@@ -869,6 +869,117 @@ pub fn close_stream(stream_handle: u64) -> Result<(), DatabaseError> {
     }
 }
 
+/// Create an encrypted database with SQLCipher
+/// 
+/// Creates a new encrypted database using AES-256 encryption.
+/// The encryption key must be at least 8 characters long.
+/// 
+/// # Arguments
+/// * `config` - Database configuration with name and encryption_key
+/// 
+/// # Returns
+/// * `Result<u64, DatabaseError>` - Database handle on success
+#[cfg(feature = "encryption")]
+#[uniffi::export]
+pub fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
+    log::info!("UniFFI: Creating encrypted database: {}", config.name);
+    
+    // Validate encryption key is provided
+    let key = config.encryption_key.as_ref()
+        .ok_or_else(|| DatabaseError::InvalidParameter {
+            message: "Encryption key is required for encrypted database".to_string(),
+        })?;
+    
+    // Validate key length (minimum 8 characters)
+    if key.len() < 8 {
+        log::error!("UniFFI: Encryption key too short: {} characters", key.len());
+        return Err(DatabaseError::InvalidParameter {
+            message: "Encryption key must be at least 8 characters long".to_string(),
+        });
+    }
+    
+    // Create core database config
+    let core_config = CoreDatabaseConfig {
+        name: config.name.clone(),
+        ..Default::default()
+    };
+    
+    // Create encrypted database using async runtime
+    let db_result = RUNTIME.block_on(async {
+        SqliteIndexedDB::new_encrypted(core_config, key).await
+    });
+    
+    match db_result {
+        Ok(db) => {
+            // Generate handle
+            let mut counter = HANDLE_COUNTER.lock();
+            *counter += 1;
+            let handle = *counter;
+            drop(counter);
+            
+            // Store in registry
+            DB_REGISTRY.lock().insert(handle, Arc::new(Mutex::new(db)));
+            
+            log::info!("UniFFI: Encrypted database created with handle: {}", handle);
+            Ok(handle)
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to create encrypted database: {}", e);
+            Err(DatabaseError::from(e))
+        }
+    }
+}
+
+/// Change the encryption key of an open encrypted database
+/// 
+/// Updates the encryption key for an encrypted database.
+/// The new key must be at least 8 characters long.
+/// 
+/// # Arguments
+/// * `handle` - Database handle
+/// * `new_key` - New encryption key
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if rekey succeeded
+#[cfg(feature = "encryption")]
+#[uniffi::export]
+pub fn rekey_database(handle: u64, new_key: String) -> Result<(), DatabaseError> {
+    log::info!("UniFFI: Rekeying database handle {}", handle);
+    
+    // Validate key length (minimum 8 characters)
+    if new_key.len() < 8 {
+        log::error!("UniFFI: New encryption key too short: {} characters", new_key.len());
+        return Err(DatabaseError::InvalidParameter {
+            message: "New encryption key must be at least 8 characters long".to_string(),
+        });
+    }
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Rekey the database
+    let result = RUNTIME.block_on(async {
+        let db = db_arc.lock();
+        db.rekey(&new_key).await
+    });
+    
+    match result {
+        Ok(()) => {
+            log::info!("UniFFI: Successfully rekeyed database handle {}", handle);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("UniFFI: Failed to rekey database: {}", e);
+            Err(DatabaseError::from(e))
+        }
+    }
+}
+
 /// Get the UniFFI version being used
 /// 
 /// This is a simple test function to verify UniFFI is working

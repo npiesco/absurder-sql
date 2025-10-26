@@ -393,14 +393,15 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [✓] Implemented `execute_batch()` for bulk SQL operations
   - [✓] Implemented `prepare_statement()`, `execute_statement()`, `finalize_statement()` for prepared statements
   - [✓] Implemented `prepare_stream()`, `fetch_next()`, `close_stream()` for cursor-based streaming
+  - [✓] Implemented `create_encrypted_database()`, `rekey_database()` for SQLCipher encryption
 - [✓] **Keep existing FFI as fallback**
   - [✓] Feature flag `uniffi-bindings` controls UniFFI (opt-in)
   - [✓] Legacy FFI always available (backward compatible)
   - [✓] Both can coexist during migration
 - [✓] **Testing & Validation**
   - [✓] Created comprehensive UniFFI tests with serial_test for race-free execution
-  - [✓] 3 integration, 3 execute, 4 execute_with_params, 4 transaction, 6 export/import, 6 batch, 9 prepared, 10 streaming tests
-  - [✓] All 108 tests passing (63 existing FFI + 45 new UniFFI)
+  - [✓] 3 integration, 3 execute, 4 execute_with_params, 4 transaction, 6 export/import, 6 batch, 9 prepared, 10 streaming, 8 encryption tests
+  - [✓] All 125 tests passing (72 existing FFI + 53 new UniFFI)
   - [✓] Zero regressions verified
   - [✓] UniFFI compiles successfully with proc-macro approach
   - [✓] SQL injection prevention validated
@@ -409,6 +410,7 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [✓] Batch operations with proper DROP TABLE IF EXISTS cleanup
   - [✓] Prepared statement reuse and finalization validated
   - [✓] Cursor-based streaming with LIMIT/OFFSET pagination validated
+  - [✓] AES-256 encryption with key validation (8+ chars) and rekey support validated
 
 ### 4.2 Phase 2: iOS Migration (Week 2)
 - [ ] **Generate Swift bindings**
