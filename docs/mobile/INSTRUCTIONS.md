@@ -84,6 +84,30 @@ close_database(handle).expect("Failed to close database");
 
 **Why**: Prevents handle leakage and ensures proper cleanup of resources.
 
+### 5. Always Delete Database Files After Tests
+
+**MANDATORY**: Every test that creates a database MUST delete the file after closing it.
+
+```rust
+let thread_id = std::thread::current().id();
+let config = DatabaseConfig {
+    name: format!("uniffi_test_{:?}.db", thread_id),
+    encryption_key: None,
+};
+
+let handle = create_database(config).expect("Failed to create database");
+
+// ... test operations ...
+
+close_database(handle).expect("Failed to close database");
+
+// Cleanup: delete test database file
+let db_path = format!("uniffi_test_{:?}.db", thread_id);
+let _ = std::fs::remove_file(&db_path);
+```
+
+**Why**: Prevents accumulation of test database files in the repository.
+
 ## Test Template
 
 Use this template for all new UniFFI tests:
@@ -111,6 +135,10 @@ fn test_my_feature() {
     
     // Always close
     close_database(handle).expect("Failed to close database");
+    
+    // Cleanup: delete test database file
+    let db_path = format!("uniffi_myfeature_{:?}.db", thread_id);
+    let _ = std::fs::remove_file(&db_path);
 }
 ```
 
@@ -145,6 +173,14 @@ let config = DatabaseConfig {
 let handle = create_database(config).expect("Failed to create database");
 // ... test operations ...
 // WRONG - missing close_database(handle)
+```
+
+### ❌ Not Deleting Database File
+```rust
+let handle = create_database(config).expect("Failed to create database");
+// ... test operations ...
+close_database(handle).expect("Failed to close database");
+// WRONG - missing std::fs::remove_file cleanup
 ```
 
 ## Batch Operations
@@ -182,9 +218,11 @@ Before submitting a test, verify:
 - [ ] Uses thread-based unique database name
 - [ ] Every CREATE TABLE has DROP TABLE IF EXISTS before it
 - [ ] Database handle is closed at end of test
+- [ ] Database file is deleted after closing (std::fs::remove_file)
 - [ ] Test passes when run alone
 - [ ] Test passes when run with all other tests
 - [ ] Test passes 3+ times in a row without failures
+- [ ] No .db files remain after running tests
 
 ## Reference Examples
 
@@ -198,9 +236,10 @@ See these files for correct patterns:
 ## Summary
 
 **The Golden Rules:**
-1. `#[serial]` on every test
+1. `#[serial]` on every database test
 2. `DROP TABLE IF EXISTS` before every `CREATE TABLE`
 3. Thread ID in every database name
 4. Close every database handle
+5. Delete every database file after closing
 
 Follow these rules religiously. No exceptions.

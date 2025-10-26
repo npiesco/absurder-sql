@@ -157,7 +157,13 @@ pub unsafe extern "C" fn absurder_db_import(handle: u64, path: *const c_char) ->
                             let escaped = s.replace("'", "''");
                             format!("'{}'", escaped)
                         }
-                        absurder_sql::rusqlite::types::ValueRef::Blob(_) => "NULL".to_string(), // TODO: handle blobs
+                        absurder_sql::rusqlite::types::ValueRef::Blob(b) => {
+                            // Encode blob as hex string using SQLite's X'...' syntax
+                            let hex: String = b.iter()
+                                .map(|byte| format!("{:02X}", byte))
+                                .collect();
+                            format!("X'{}'", hex)
+                        }
                     };
                     values.push(value_str);
                 }

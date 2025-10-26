@@ -178,4 +178,68 @@ mod uniffi_export_import_tests {
         
         close_database(handle).expect("Failed to close database");
     }
+
+    #[test]
+    #[serial]
+    fn test_export_import_with_blobs() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        
+        let thread_id = std::thread::current().id();
+        let config = DatabaseConfig {
+            name: format!("uniffi_blobs_{:?}.db", thread_id),
+            encryption_key: None,
+        };
+        
+        let handle = create_database(config).expect("Failed to create database");
+        
+        // Create table with BLOB column
+        execute(handle, "DROP TABLE IF EXISTS blob_test".to_string()).ok();
+        execute(handle, "CREATE TABLE blob_test (id INTEGER PRIMARY KEY, data BLOB)".to_string())
+            .expect("Failed to create table");
+        
+        // Insert blob data using SQLite's hex literal format
+        execute(handle, "INSERT INTO blob_test (data) VALUES (X'48656C6C6F')".to_string())
+            .expect("Failed to insert blob 1"); // "Hello" in hex
+        execute(handle, "INSERT INTO blob_test (data) VALUES (X'576F726C64')".to_string())
+            .expect("Failed to insert blob 2"); // "World" in hex
+        execute(handle, "INSERT INTO blob_test (data) VALUES (X'DEADBEEF')".to_string())
+            .expect("Failed to insert blob 3"); // Random bytes
+        
+        // Export database
+        let backup_path = format!("/tmp/uniffi_blob_backup_{:?}.db", thread_id);
+        export_database(handle, backup_path.clone())
+            .expect("Failed to export database with blobs");
+        
+        close_database(handle).expect("Failed to close original database");
+        
+        // Import to new database
+        let restored_config = DatabaseConfig {
+            name: format!("uniffi_blobs_restored_{:?}.db", thread_id),
+            encryption_key: None,
+        };
+        
+        let restored_handle = create_database(restored_config).expect("Failed to create restored database");
+        import_database(restored_handle, backup_path.clone())
+            .expect("Failed to import database with blobs");
+        
+        // Verify blob data is preserved
+        let result = execute(restored_handle, "SELECT hex(data) as hex_data FROM blob_test ORDER BY id".to_string())
+            .expect("Failed to query restored blobs");
+        
+        assert_eq!(result.rows.len(), 3, "Should have 3 blob rows");
+        
+        // Verify the hex values match what we inserted
+        assert!(result.rows[0].contains("48656C6C6F"), "First blob should be 'Hello' in hex");
+        assert!(result.rows[1].contains("576F726C64"), "Second blob should be 'World' in hex");
+        assert!(result.rows[2].contains("DEADBEEF"), "Third blob should be DEADBEEF");
+        
+        // Clean up
+        close_database(restored_handle).expect("Failed to close restored database");
+        std::fs::remove_file(backup_path).ok();
+        
+        let db_path1 = format!("uniffi_blobs_{:?}.db", thread_id);
+        let db_path2 = format!("uniffi_blobs_restored_{:?}.db", thread_id);
+        let _ = std::fs::remove_file(&db_path1);
+        let _ = std::fs::remove_file(&db_path2);
+    }
 }
