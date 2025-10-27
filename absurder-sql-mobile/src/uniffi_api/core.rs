@@ -19,20 +19,39 @@ use parking_lot::Mutex;
 /// 
 /// # Returns
 /// * `u64` - Database handle (0 indicates error)
-#[uniffi::export]
-pub fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
     log::info!("UniFFI: Creating database: {}", config.name);
+    
+    // Resolve path - if relative, make it relative to app documents directory
+    let resolved_path = if config.name.starts_with('/') {
+        config.name.clone()
+    } else {
+        // On iOS, use NSSearchPathForDirectoriesInDomains equivalent
+        #[cfg(target_os = "ios")]
+        {
+            use std::path::PathBuf;
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let docs = PathBuf::from(home).join("Documents").join(&config.name);
+            docs.to_string_lossy().to_string()
+        }
+        
+        #[cfg(not(target_os = "ios"))]
+        {
+            config.name.clone()
+        }
+    };
+    
+    log::info!("UniFFI: Resolved database path: {}", resolved_path);
     
     // Create core database config
     let core_config = CoreDatabaseConfig {
-        name: config.name.clone(),
+        name: resolved_path,
         ..Default::default()
     };
     
-    // Create database using async runtime
-    let db_result = RUNTIME.block_on(async {
-        SqliteIndexedDB::new(core_config).await
-    });
+    // Create database asynchronously - no blocking!
+    let db_result = SqliteIndexedDB::new(core_config).await;
     
     match db_result {
         Ok(db) => {
@@ -300,10 +319,78 @@ pub fn rollback(handle: u64) -> Result<(), DatabaseError> {
     }
 }
 
-/// Export database to file using VACUUM INTO
+/// Export database to file using VACUUM INTO (async, non-blocking)
 /// 
 /// Creates a backup of the database at the specified path.
-/// If the file already exists, it will be overwritten.
+/// This is an async function that won't block the calling thread.
+/// 
+/// # Arguments
+/// * `handle` - Database handle
+/// * `path` - File path where the backup will be created
+/// 
+/// # Returns
+/// * `Result<(), DatabaseError>` - Ok if export succeeded
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn export_database_async(handle: u64, path: String) -> Result<(), DatabaseError> {
+    log::info!("UniFFI: Async exporting database handle {} to {}", handle, path);
+    
+    // Resolve path - if relative, use iOS Documents directory
+    let resolved_path = if path.starts_with('/') {
+        path
+    } else {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            use std::path::PathBuf;
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let docs = PathBuf::from(home).join("Documents").join(&path);
+            docs.to_string_lossy().to_string()
+        }
+        
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            path
+        }
+    };
+    
+    log::info!("UniFFI: Resolved export path to: {}", resolved_path);
+    
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::DatabaseClosed)?
+            .clone()
+    };
+    
+    // Delete export file if it exists (VACUUM INTO fails if file exists)
+    if let Ok(canonical_path) = std::path::Path::new(&resolved_path).canonicalize() {
+        let _ = std::fs::remove_file(canonical_path);
+    } else {
+        // If canonicalize fails, try to delete anyway
+        let _ = std::fs::remove_file(&resolved_path);
+    }
+    
+    // Escape single quotes in path for SQL
+    let escaped_path = resolved_path.replace("'", "''");
+    let export_sql = format!("VACUUM INTO '{}'", escaped_path);
+    
+    // Execute export asynchronously
+    let mut db = db_arc.lock();
+    db.execute(&export_sql).await.map_err(|e| {
+        log::error!("UniFFI: Failed to export database: {}", e);
+        DatabaseError::SqlError {
+            message: e.to_string(),
+        }
+    })?;
+    
+    log::info!("UniFFI: Database exported successfully to {}", resolved_path);
+    Ok(())
+}
+
+/// Export database to file using VACUUM INTO (sync, blocking)
+/// 
+/// Creates a backup of the database at the specified path.
+/// This is a synchronous function - use export_database_async for non-blocking operation.
 /// 
 /// # Arguments
 /// * `handle` - Database handle
@@ -315,6 +402,26 @@ pub fn rollback(handle: u64) -> Result<(), DatabaseError> {
 pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Exporting database handle {} to {}", handle, path);
     
+    // Resolve path - if relative, use iOS Documents directory
+    let resolved_path = if path.starts_with('/') {
+        path
+    } else {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            use std::path::PathBuf;
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let docs = PathBuf::from(home).join("Documents").join(&path);
+            docs.to_string_lossy().to_string()
+        }
+        
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            path
+        }
+    };
+    
+    log::info!("UniFFI: Resolved export path to: {}", resolved_path);
+    
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
@@ -324,26 +431,26 @@ pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     };
     
     // Delete export file if it exists (VACUUM INTO fails if file exists)
-    if let Ok(canonical_path) = std::path::Path::new(&path).canonicalize() {
+    if let Ok(canonical_path) = std::path::Path::new(&resolved_path).canonicalize() {
         let _ = std::fs::remove_file(canonical_path);
     } else {
         // If canonicalize fails, try to delete anyway
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&resolved_path);
     }
     
     // Escape single quotes in path for SQL
-    let escaped_path = path.replace("'", "''");
+    let escaped_path = resolved_path.replace("'", "''");
     let export_sql = format!("VACUUM INTO '{}'", escaped_path);
     
     // Execute export using async runtime
-    let result = RUNTIME.block_on(async {
+    let result = RUNTIME.block_on(async move {
         let mut db = db_arc.lock();
         db.execute(&export_sql).await
     });
     
     match result {
         Ok(_) => {
-            log::info!("UniFFI: Database exported successfully to {}", path);
+            log::info!("UniFFI: Database exported successfully to {}", resolved_path);
             Ok(())
         }
         Err(e) => {
@@ -370,6 +477,26 @@ pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
 pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Importing database from {} to handle {}", path, handle);
     
+    // Resolve path - if relative, use iOS Documents directory
+    let resolved_path = if path.starts_with('/') {
+        path
+    } else {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            use std::path::PathBuf;
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let docs = PathBuf::from(home).join("Documents").join(&path);
+            docs.to_string_lossy().to_string()
+        }
+        
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            path
+        }
+    };
+    
+    log::info!("UniFFI: Resolved import path to: {}", resolved_path);
+    
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
@@ -379,8 +506,8 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     };
     
     // Verify the import file exists
-    if !std::path::Path::new(&path).exists() {
-        let error_msg = format!("Import file does not exist: {}", path);
+    if !std::path::Path::new(&resolved_path).exists() {
+        let error_msg = format!("Import file does not exist: {}", resolved_path);
         log::error!("UniFFI: {}", error_msg);
         return Err(DatabaseError::SqlError {
             message: error_msg,
@@ -394,7 +521,7 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
         let mut dest_guard = db_arc.lock();
         
         // Open the export file as a native SQLite connection
-        let source_conn = Connection::open(&path)
+        let source_conn = Connection::open(&resolved_path)
             .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to open export file: {}", e)))?;
         
         // Get list of tables
@@ -469,7 +596,7 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     
     match result {
         Ok(_) => {
-            log::info!("UniFFI: Database imported successfully from {}", path);
+            log::info!("UniFFI: Database imported successfully from {}", resolved_path);
             Ok(())
         }
         Err(e) => {
@@ -898,9 +1025,30 @@ pub fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Database
         });
     }
     
+    // Resolve path - if relative, make it relative to app documents directory
+    let resolved_path = if config.name.starts_with('/') {
+        config.name.clone()
+    } else {
+        // On iOS, use NSSearchPathForDirectoriesInDomains equivalent
+        #[cfg(target_os = "ios")]
+        {
+            use std::path::PathBuf;
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let docs = PathBuf::from(home).join("Documents").join(&config.name);
+            docs.to_string_lossy().to_string()
+        }
+        
+        #[cfg(not(target_os = "ios"))]
+        {
+            config.name.clone()
+        }
+    };
+    
+    log::info!("UniFFI: Resolved encrypted database path: {}", resolved_path);
+    
     // Create core database config
     let core_config = CoreDatabaseConfig {
-        name: config.name.clone(),
+        name: resolved_path,
         ..Default::default()
     };
     

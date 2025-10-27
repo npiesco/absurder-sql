@@ -106,6 +106,14 @@ mod uniffi_transactions_test;
 mod uniffi_export_import_test;
 
 #[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_create_async_test.rs"]
+mod uniffi_create_async_test;
+
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_create_async_proof.rs"]
+mod uniffi_create_async_proof;
+
+#[cfg(all(test, feature = "uniffi-bindings"))]
 #[path = "__tests__/uniffi_batch_test.rs"]
 mod uniffi_batch_test;
 
