@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod uniffi_encryption_tests {
     use crate::uniffi_api::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
 
     #[test]
@@ -18,7 +19,7 @@ mod uniffi_encryption_tests {
             encryption_key: Some("test_password_12345".to_string()),
         };
         
-        let handle = create_encrypted_database(config).expect("Failed to create encrypted database");
+        let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
         assert!(handle > 0, "Handle should be valid");
         
         // Verify we can execute queries
@@ -49,7 +50,7 @@ mod uniffi_encryption_tests {
             encryption_key: None,
         };
         
-        let result = create_encrypted_database(config);
+        let result = RUNTIME.block_on(async { create_encrypted_database(config).await });
         assert!(result.is_err(), "Should fail without encryption key");
     }
 
@@ -62,7 +63,7 @@ mod uniffi_encryption_tests {
             encryption_key: Some("short".to_string()),
         };
         
-        let result = create_encrypted_database(config);
+        let result = RUNTIME.block_on(async { create_encrypted_database(config).await });
         assert!(result.is_err(), "Should fail with short key");
     }
 
@@ -77,7 +78,7 @@ mod uniffi_encryption_tests {
             encryption_key: Some("original_password_123".to_string()),
         };
         
-        let handle = create_encrypted_database(config).expect("Failed to create encrypted database");
+        let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
         
         // Create table and insert data
         execute(handle, "DROP TABLE IF EXISTS users".to_string()).ok();
@@ -120,7 +121,7 @@ mod uniffi_encryption_tests {
             encryption_key: Some("original_pass_123".to_string()),
         };
         
-        let handle = create_encrypted_database(config).expect("Failed to create encrypted database");
+        let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
         
         let result = rekey_database(handle, "short".to_string());
         assert!(result.is_err(), "Should fail with short key");
@@ -144,7 +145,7 @@ mod uniffi_encryption_tests {
             name: format!("uniffi_enc1_{:?}.db", thread_id),
             encryption_key: Some("password_one_123".to_string()),
         };
-        let handle1 = create_encrypted_database(config1).expect("Failed to create db1");
+        let handle1 = RUNTIME.block_on(async { create_encrypted_database(config1).await }).expect("Failed to create db1");
         
         execute(handle1, "DROP TABLE IF EXISTS data1".to_string()).ok();
         execute(handle1, "CREATE TABLE data1 (value TEXT)".to_string()).expect("Failed to create table");
@@ -155,7 +156,7 @@ mod uniffi_encryption_tests {
             name: format!("uniffi_enc2_{:?}.db", thread_id),
             encryption_key: Some("password_two_456".to_string()),
         };
-        let handle2 = create_encrypted_database(config2).expect("Failed to create db2");
+        let handle2 = RUNTIME.block_on(async { create_encrypted_database(config2).await }).expect("Failed to create db2");
         
         execute(handle2, "DROP TABLE IF EXISTS data2".to_string()).ok();
         execute(handle2, "CREATE TABLE data2 (value TEXT)".to_string()).expect("Failed to create table");
@@ -189,7 +190,7 @@ mod uniffi_encryption_tests {
             encryption_key: Some("transaction_key_123".to_string()),
         };
         
-        let handle = create_encrypted_database(config).expect("Failed to create encrypted database");
+        let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
         
         execute(handle, "DROP TABLE IF EXISTS items".to_string()).ok();
         execute(handle, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)".to_string())

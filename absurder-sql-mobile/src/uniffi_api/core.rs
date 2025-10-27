@@ -1007,8 +1007,8 @@ pub fn close_stream(stream_handle: u64) -> Result<(), DatabaseError> {
 /// # Returns
 /// * `Result<u64, DatabaseError>` - Database handle on success
 #[cfg(feature = "encryption")]
-#[uniffi::export]
-pub fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
     log::info!("UniFFI: Creating encrypted database: {}", config.name);
     
     // Validate encryption key is provided
@@ -1052,10 +1052,8 @@ pub fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Database
         ..Default::default()
     };
     
-    // Create encrypted database using async runtime
-    let db_result = RUNTIME.block_on(async {
-        SqliteIndexedDB::new_encrypted(core_config, key).await
-    });
+    // Create encrypted database asynchronously - no blocking!
+    let db_result = SqliteIndexedDB::new_encrypted(core_config, key).await;
     
     match db_result {
         Ok(db) => {

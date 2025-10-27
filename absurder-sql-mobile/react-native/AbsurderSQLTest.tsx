@@ -13,9 +13,7 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
-import { NativeModules } from 'react-native';
-
-const { AbsurderSQL } = NativeModules;
+import { AbsurderDatabase } from 'absurder-sql-mobile';
 
 interface TestResult {
   name: string;
@@ -41,7 +39,7 @@ export default function AbsurderSQLTest() {
     { name: 'Encrypted DB Persistence', status: 'pending' },
   ]);
   const [running, setRunning] = useState(false);
-  const [dbHandle, setDbHandle] = useState<number | null>(null);
+  const [db, setDb] = useState<AbsurderDatabase | null>(null);
 
   const updateTest = (index: number, updates: Partial<TestResult>) => {
     setTests((prev) =>
@@ -51,44 +49,28 @@ export default function AbsurderSQLTest() {
 
   const runTests = async () => {
     setRunning(true);
-    let handle: number | null = null;
+    let database: AbsurderDatabase | null = null;
 
     try {
       // Test 1: Database Creation
       updateTest(0, { status: 'running' });
       const start1 = Date.now();
-      const dbPath = Platform.OS === 'ios' 
-        ? 'test_rn.db'  // iOS uses relative path in Documents directory
-        : '/data/data/com.absurdersqltestapp/files/test_rn.db';
-      handle = await AbsurderSQL.createDatabase(dbPath);
+      database = new AbsurderDatabase('test_rn.db');
+      await database.open();
       const duration1 = Date.now() - start1;
 
-      if (handle && handle !== 0) {
-        setDbHandle(handle);
-        updateTest(0, {
-          status: 'passed',
-          message: `Handle: ${handle}`,
-          duration: duration1,
-        });
-      } else {
-        updateTest(0, {
-          status: 'failed',
-          message: 'Invalid handle returned',
-          duration: duration1,
-        });
-        setRunning(false);
-        return;
-      }
+      setDb(database);
+      updateTest(0, {
+        status: 'passed',
+        message: 'Database opened successfully',
+        duration: duration1,
+      });
 
       // Test 2: Create Table
       updateTest(1, { status: 'running' });
       const start2 = Date.now();
-      const createResult = await AbsurderSQL.execute(
-        handle,
-        'DROP TABLE IF EXISTS users'
-      );
-      await AbsurderSQL.execute(
-        handle,
+      await database.execute('DROP TABLE IF EXISTS users');
+      await database.execute(
         'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)'
       );
       const duration2 = Date.now() - start2;
@@ -101,14 +83,8 @@ export default function AbsurderSQLTest() {
       // Test 3: Insert Data
       updateTest(2, { status: 'running' });
       const start3 = Date.now();
-      await AbsurderSQL.execute(
-        handle,
-        "INSERT INTO users VALUES (1, 'Alice', 30)"
-      );
-      await AbsurderSQL.execute(
-        handle,
-        "INSERT INTO users VALUES (2, 'Bob', 25)"
-      );
+      await database.execute("INSERT INTO users VALUES (1, 'Alice', 30)");
+      await database.execute("INSERT INTO users VALUES (2, 'Bob', 25)");
       const duration3 = Date.now() - start3;
       updateTest(2, {
         status: 'passed',
@@ -119,12 +95,8 @@ export default function AbsurderSQLTest() {
       // Test 4: Select Data
       updateTest(3, { status: 'running' });
       const start4 = Date.now();
-      const selectResult = await AbsurderSQL.execute(
-        handle,
-        'SELECT * FROM users'
-      );
+      const resultObj = await database.execute('SELECT * FROM users');
       const duration4 = Date.now() - start4;
-      const resultObj = JSON.parse(selectResult);
 
       if (resultObj.rows && resultObj.rows.length === 2) {
         updateTest(3, {
@@ -143,103 +115,62 @@ export default function AbsurderSQLTest() {
       // Test 5: Transaction Commit
       updateTest(4, { status: 'running' });
       const start5 = Date.now();
-      await AbsurderSQL.beginTransaction(handle);
-      await AbsurderSQL.execute(
-        handle,
-        "INSERT INTO users VALUES (3, 'Charlie', 35)"
-      );
-      const commitResult = await AbsurderSQL.commit(handle);
+      await database.transaction(async () => {
+        await database!.execute("INSERT INTO users VALUES (3, 'Charlie', 35)");
+      });
+      const verifyResult = await database.execute('SELECT COUNT(*) as count FROM users');
       const duration5 = Date.now() - start5;
-
-      if (commitResult === true) {
-        const verifyResult = await AbsurderSQL.execute(
-          handle,
-          'SELECT COUNT(*) as count FROM users'
-        );
-        const parsed = JSON.parse(verifyResult);
-        const count = parsed.rows[0].values[0].value;
-        updateTest(4, {
-          status: count === 3 ? 'passed' : 'failed',
-          message: `Commit successful, count: ${count}`,
-          duration: duration5,
-        });
-      } else {
-        updateTest(4, {
-          status: 'failed',
-          message: 'Commit failed',
-          duration: duration5,
-        });
-      }
+      const count = verifyResult.rows[0].count;
+      updateTest(4, {
+        status: count === 3 ? 'passed' : 'failed',
+        message: `Commit successful, count: ${count}`,
+        duration: duration5,
+      });
 
       // Test 6: Transaction Rollback
       updateTest(5, { status: 'running' });
       const start6 = Date.now();
-      await AbsurderSQL.beginTransaction(handle);
-      await AbsurderSQL.execute(
-        handle,
-        "INSERT INTO users VALUES (4, 'David', 40)"
-      );
-      const rollbackResult = await AbsurderSQL.rollback(handle);
-      const duration6 = Date.now() - start6;
-
-      if (rollbackResult === true) {
-        const verifyResult = await AbsurderSQL.execute(
-          handle,
-          'SELECT COUNT(*) as count FROM users'
-        );
-        const count = JSON.parse(verifyResult).rows[0].values[0].value;
-        updateTest(5, {
-          status: count === 3 ? 'passed' : 'failed',
-          message: `Rollback successful, count: ${count}`,
-          duration: duration6,
+      try {
+        await database.transaction(async () => {
+          await database!.execute("INSERT INTO users VALUES (4, 'David', 40)");
+          throw new Error('Intentional rollback');
         });
-      } else {
-        updateTest(5, {
-          status: 'failed',
-          message: 'Rollback failed',
-          duration: duration6,
-        });
+      } catch {
+        // Expected rollback
       }
+      const rollbackVerify = await database.execute('SELECT COUNT(*) as count FROM users');
+      const duration6 = Date.now() - start6;
+      const rollbackCount = rollbackVerify.rows[0].count;
+      updateTest(5, {
+        status: rollbackCount === 3 ? 'passed' : 'failed',
+        message: `Rollback successful, count: ${rollbackCount}`,
+        duration: duration6,
+      });
 
       // Test 7: Database Export
       updateTest(6, { status: 'running' });
       const start7 = Date.now();
-      const exportPath = Platform.OS === 'ios'
-        ? 'test_export.db'
-        : '/data/data/com.absurdersqltestapp/files/test_export.db';
-      const exportResult = await AbsurderSQL.exportToFile(handle, exportPath);
+      const exportPath = 'test_export.db';
+      await database.exportToFile(exportPath);
       const duration7 = Date.now() - start7;
-
-      if (exportResult === true) {
-        updateTest(6, {
-          status: 'passed',
-          message: 'Export successful',
-          duration: duration7,
-        });
-      } else {
-        updateTest(6, {
-          status: 'passed',
-          duration: duration7,
-        });
-      }
+      updateTest(6, {
+        status: 'passed',
+        message: 'Export successful',
+        duration: duration7,
+      });
 
       // Test 8: Database Import
       updateTest(7, { status: 'running' });
-      // Close current database and create a new empty one
-      await AbsurderSQL.close(handle);
-      const importDbPath = Platform.OS === 'ios'
-        ? 'test_import.db'
-        : '/data/data/com.absurdersqltestapp/files/test_import.db';
-      handle = await AbsurderSQL.createDatabase(importDbPath);
+      await database.close();
+      const importDb = new AbsurderDatabase('test_import.db');
+      await importDb.open();
       
       const start8 = Date.now();
-      await AbsurderSQL.importFromFile(handle, exportPath);
+      await importDb.importFromFile(exportPath);
       const duration8 = Date.now() - start8;
       
-      // Verify import worked by selecting data
-      const importCheck = await AbsurderSQL.execute(handle, 'SELECT COUNT(*) as count FROM users');
-      const importCheckResult = JSON.parse(importCheck);
-      const rowCount = importCheckResult.rows[0].values[0].value;
+      const importCheck = await importDb.execute('SELECT COUNT(*) as count FROM users');
+      const rowCount = importCheck.rows[0].count;
       
       if (rowCount === 3) {
         updateTest(7, {
@@ -254,50 +185,40 @@ export default function AbsurderSQLTest() {
           duration: duration8,
         });
       }
+      database = importDb;
 
       // Test 9: Close Database
       updateTest(8, { status: 'running' });
       const start9 = Date.now();
-      await AbsurderSQL.close(handle);
+      await database.close();
       const duration9 = Date.now() - start9;
       updateTest(8, {
         status: 'passed',
         message: 'Database closed',
         duration: duration9,
       });
-      setDbHandle(null);
+      setDb(null);
 
       // Test 10: Encrypted Database Creation
       updateTest(9, { status: 'running' });
       const start10 = Date.now();
       const timestamp = Date.now();
-      const encryptedDbPath = Platform.OS === 'ios'
-        ? `encrypted_test_${timestamp}.db`
-        : `/data/data/com.absurdersqltestapp/files/encrypted_test_${timestamp}.db`;
       const encryptionKey = 'test-encryption-key-12345';
-      let encryptedHandle: number | null = null;
+      let encryptedDb: AbsurderDatabase;
 
       try {
-        encryptedHandle = await AbsurderSQL.createEncryptedDatabase(
-          encryptedDbPath,
-          encryptionKey
-        );
+        encryptedDb = new AbsurderDatabase({
+          name: `encrypted_test_${timestamp}.db`,
+          encryption: { key: encryptionKey }
+        });
+        await encryptedDb.open();
         const duration10 = Date.now() - start10;
 
-        if (encryptedHandle && encryptedHandle !== 0) {
-          updateTest(9, {
-            status: 'passed',
-            message: `Encrypted DB created (Handle: ${encryptedHandle})`,
-            duration: duration10,
-          });
-        } else {
-          updateTest(9, {
-            status: 'failed',
-            message: 'Invalid handle returned for encrypted DB',
-            duration: duration10,
-          });
-          return;
-        }
+        updateTest(9, {
+          status: 'passed',
+          message: 'Encrypted DB created',
+          duration: duration10,
+        });
       } catch (error) {
         const duration10 = Date.now() - start10;
         updateTest(9, {
@@ -312,35 +233,20 @@ export default function AbsurderSQLTest() {
       updateTest(10, { status: 'running' });
       const start11 = Date.now();
       try {
-        // Drop and create table in encrypted database (CoRT pattern)
-        await AbsurderSQL.execute(
-          encryptedHandle,
-          'DROP TABLE IF EXISTS secrets'
-        );
-        await AbsurderSQL.execute(
-          encryptedHandle,
+        await encryptedDb.execute('DROP TABLE IF EXISTS secrets');
+        await encryptedDb.execute(
           'CREATE TABLE secrets (id INTEGER PRIMARY KEY, secret TEXT)'
         );
         
-        // Insert sensitive data
-        await AbsurderSQL.execute(
-          encryptedHandle,
-          "INSERT INTO secrets VALUES (1, 'classified-data-1')"
-        );
-        await AbsurderSQL.execute(
-          encryptedHandle,
-          "INSERT INTO secrets VALUES (2, 'confidential-info-2')"
-        );
+        await encryptedDb.execute("INSERT INTO secrets VALUES (1, 'classified-data-1')");
+        await encryptedDb.execute("INSERT INTO secrets VALUES (2, 'confidential-info-2')");
         
-        // Query encrypted data
-        const secretResult = await AbsurderSQL.execute(
-          encryptedHandle,
+        const secretResult = await encryptedDb.execute(
           'SELECT * FROM secrets WHERE id = 1'
         );
-        const secretObj = JSON.parse(secretResult);
         const duration11 = Date.now() - start11;
 
-        if (secretObj.rows && secretObj.rows.length === 1) {
+        if (secretResult.rows && secretResult.rows.length === 1) {
           updateTest(10, {
             status: 'passed',
             message: 'Encrypted data operations successful',
@@ -367,15 +273,12 @@ export default function AbsurderSQLTest() {
       const start12 = Date.now();
       try {
         const newKey = 'new-encryption-key-67890';
-        await AbsurderSQL.rekey(encryptedHandle, newKey);
+        await encryptedDb.rekey(newKey);
         
-        // Verify data is still accessible after rekey
-        const verifyResult = await AbsurderSQL.execute(
-          encryptedHandle,
+        const verifyResult = await encryptedDb.execute(
           'SELECT COUNT(*) as count FROM secrets'
         );
-        const verifyObj = JSON.parse(verifyResult);
-        const count = verifyObj.rows[0].values[0].value;
+        const count = verifyResult.rows[0].count;
         const duration12 = Date.now() - start12;
 
         if (count === 2) {
@@ -404,24 +307,20 @@ export default function AbsurderSQLTest() {
       updateTest(12, { status: 'running' });
       const start13 = Date.now();
       try {
-        // Close the encrypted database
-        await AbsurderSQL.close(encryptedHandle);
+        await encryptedDb.close();
         
-        // Reopen with the NEW key (after rekey)
-        const reopenedHandle = await AbsurderSQL.createEncryptedDatabase(
-          encryptedDbPath,
-          'new-encryption-key-67890'
-        );
+        const reopenedDb = new AbsurderDatabase({
+          name: `encrypted_test_${timestamp}.db`,
+          encryption: { key: 'new-encryption-key-67890' }
+        });
+        await reopenedDb.open();
         
-        // Verify we can still access the data
-        const persistResult = await AbsurderSQL.execute(
-          reopenedHandle,
+        const persistResult = await reopenedDb.execute(
           'SELECT * FROM secrets ORDER BY id'
         );
-        const persistObj = JSON.parse(persistResult);
         const duration13 = Date.now() - start13;
 
-        if (persistObj.rows && persistObj.rows.length === 2) {
+        if (persistResult.rows && persistResult.rows.length === 2) {
           updateTest(12, {
             status: 'passed',
             message: 'Encrypted DB persistence verified',
@@ -435,8 +334,7 @@ export default function AbsurderSQLTest() {
           });
         }
         
-        // Clean up
-        await AbsurderSQL.close(reopenedHandle);
+        await reopenedDb.close();
       } catch (error) {
         const duration13 = Date.now() - start13;
         updateTest(12, {
@@ -541,9 +439,9 @@ export default function AbsurderSQLTest() {
                 {getStatusIcon(test.status)}
               </Text>
               <Text style={styles.testName}>{test.name}</Text>
-              {test.duration && (
-                <Text style={styles.testDuration}>{String(test.duration)}ms</Text>
-              )}
+              {test.duration ? (
+                <Text style={styles.testDuration}>{test.duration}ms</Text>
+              ) : null}
             </View>
             {test.message && (
               <Text style={styles.testMessage}>{test.message}</Text>
@@ -552,9 +450,9 @@ export default function AbsurderSQLTest() {
         ))}
       </ScrollView>
 
-      {dbHandle && (
+      {db && (
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Active Handle: {String(dbHandle)}</Text>
+          <Text style={styles.footerText}>Database Active</Text>
         </View>
       )}
     </View>

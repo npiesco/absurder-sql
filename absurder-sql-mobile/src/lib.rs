@@ -129,6 +129,10 @@ mod uniffi_streaming_test;
 #[path = "__tests__/uniffi_encryption_test.rs"]
 mod uniffi_encryption_test;
 
+#[cfg(all(test, feature = "uniffi-bindings", feature = "encryption"))]
+#[path = "__tests__/uniffi_encryption_blocking_test.rs"]
+mod uniffi_encryption_blocking_test;
+
 #[cfg(test)]
 #[path = "__tests__/ffi_export_import_test.rs"]
 mod ffi_export_import_test;
