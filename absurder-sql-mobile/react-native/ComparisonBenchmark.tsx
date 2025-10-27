@@ -12,12 +12,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  NativeModules,
 } from 'react-native';
 import SQLite from 'react-native-sqlite-storage';
 import {Database, Model, Q} from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 import {appSchema, tableSchema} from '@nozbe/watermelondb';
+import * as AbsurderSQLModule from 'absurder-sql-mobile';
 
 // WatermelonDB Models (without decorators)
 class TestData extends Model {
@@ -35,7 +35,49 @@ class Order extends Model {
   };
 }
 
-const {AbsurderSQL} = NativeModules;
+// Create AbsurderSQL API wrapper that matches the old API
+const AbsurderSQL = {
+  createDatabase: async (path: string) => {
+    return await AbsurderSQLModule.createDatabase({name: path, encryptionKey: undefined});
+  },
+  execute: async (handle: bigint, sql: string) => {
+    return AbsurderSQLModule.execute(handle, sql);
+  },
+  executeBatch: async (handle: bigint, statements: string[]) => {
+    return AbsurderSQLModule.executeBatch(handle, statements);
+  },
+  beginTransaction: async (handle: bigint) => {
+    return AbsurderSQLModule.beginTransaction(handle);
+  },
+  commit: async (handle: bigint) => {
+    return AbsurderSQLModule.commit(handle);
+  },
+  rollback: async (handle: bigint) => {
+    return AbsurderSQLModule.rollback(handle);
+  },
+  close: async (handle: bigint) => {
+    return AbsurderSQLModule.closeDatabase(handle);
+  },
+  prepare: async (handle: bigint, sql: string) => {
+    return AbsurderSQLModule.prepareStatement(handle, sql);
+  },
+  stmtExecute: async (stmtHandle: bigint, params: any[]) => {
+    return AbsurderSQLModule.executeStatement(stmtHandle, params.map(String));
+  },
+  stmtFinalize: async (stmtHandle: bigint) => {
+    return AbsurderSQLModule.finalizeStatement(stmtHandle);
+  },
+  prepareStream: async (handle: bigint, sql: string) => {
+    return AbsurderSQLModule.prepareStream(handle, sql);
+  },
+  fetchNext: async (streamHandle: bigint, batchSize: number) => {
+    const result = AbsurderSQLModule.fetchNext(streamHandle, batchSize);
+    return JSON.stringify(result.rows.map((rowJson: string) => JSON.parse(rowJson)));
+  },
+  closeStream: async (streamHandle: bigint) => {
+    return AbsurderSQLModule.closeStream(streamHandle);
+  },
+};
 
 // Enable SQLite debug mode
 SQLite.DEBUG(true);

@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod uniffi_export_import_tests {
     use crate::uniffi_api::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
     use std::path::PathBuf;
 
@@ -19,7 +20,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table and insert data
         execute(handle, "DROP TABLE IF EXISTS users".to_string()).ok();
@@ -55,7 +56,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let source_handle = create_database(source_config).expect("Failed to create source database");
+        let source_handle = RUNTIME.block_on(async { create_database(source_config).await }).expect("Failed to create source database");
         
         // Create table and insert data
         execute(source_handle, "DROP TABLE IF EXISTS products".to_string()).ok();
@@ -78,7 +79,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let target_handle = create_database(target_config).expect("Failed to create target database");
+        let target_handle = RUNTIME.block_on(async { create_database(target_config).await }).expect("Failed to create target database");
         
         // Import from backup
         let import_result = import_database(target_handle, backup_path.clone());
@@ -105,7 +106,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let original_handle = create_database(original_config).expect("Failed to create database");
+        let original_handle = RUNTIME.block_on(async { create_database(original_config).await }).expect("Failed to create database");
         
         // Create schema and data
         execute(original_handle, "DROP TABLE IF EXISTS items".to_string()).ok();
@@ -133,7 +134,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let restored_handle = create_database(restored_config).expect("Failed to create restored database");
+        let restored_handle = RUNTIME.block_on(async { create_database(restored_config).await }).expect("Failed to create restored database");
         import_database(restored_handle, backup_path.clone())
             .expect("Failed to import");
         
@@ -171,7 +172,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         let result = import_database(handle, "/tmp/nonexistent_file_12345.db".to_string());
         assert!(result.is_err(), "Import of nonexistent file should fail");
@@ -190,7 +191,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table with BLOB column
         execute(handle, "DROP TABLE IF EXISTS blob_test".to_string()).ok();
@@ -218,7 +219,7 @@ mod uniffi_export_import_tests {
             encryption_key: None,
         };
         
-        let restored_handle = create_database(restored_config).expect("Failed to create restored database");
+        let restored_handle = RUNTIME.block_on(async { create_database(restored_config).await }).expect("Failed to create restored database");
         import_database(restored_handle, backup_path.clone())
             .expect("Failed to import database with blobs");
         

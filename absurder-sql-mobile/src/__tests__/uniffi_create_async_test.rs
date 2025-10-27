@@ -2,6 +2,7 @@
 mod uniffi_create_async_tests {
     use crate::uniffi_api::core::*;
     use crate::uniffi_api::types::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
     use std::time::Instant;
 
@@ -19,13 +20,12 @@ mod uniffi_create_async_tests {
         };
         
         let start = Instant::now();
-        let result = create_database(config.clone());
+        let result = RUNTIME.block_on(async { create_database(config.clone()).await });
         let duration = start.elapsed();
         
         println!("create_database took {:?}", duration);
         
-        // Should complete very quickly since it's just a handle allocation
-        // If it's blocking on async work, it will take longer
+        // Should complete relatively quickly even though it's async
         assert!(result.is_ok(), "Database creation should succeed");
         
         // Clean up
@@ -33,10 +33,9 @@ mod uniffi_create_async_tests {
             close_database(handle).ok();
         }
         
-        // If this test shows the function takes a long time (>100ms),
-        // it indicates the function is blocking on async work
-        if duration.as_millis() > 100 {
-            println!("WARNING: create_database is blocking! Duration: {:?}", duration);
+        // Async version might take a bit longer than pure sync but should still be reasonable
+        if duration.as_millis() > 1000 {
+            println!("WARNING: create_database is taking too long! Duration: {:?}", duration);
         }
     }
 }

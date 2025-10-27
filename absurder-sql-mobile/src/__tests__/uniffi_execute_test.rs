@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod uniffi_execute_tests {
     use crate::uniffi_api::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
 
     #[test]
@@ -18,7 +19,7 @@ mod uniffi_execute_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config.clone())
+        let handle = RUNTIME.block_on(async { create_database(config.clone()).await })
             .unwrap_or_else(|e| panic!("Failed to create database {}: {:?}", config.name, e));
         assert!(handle > 0, "Database handle should be non-zero");
         
@@ -54,7 +55,7 @@ mod uniffi_execute_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Try invalid SQL
         let result = execute(handle, "INVALID SQL STATEMENT".to_string());

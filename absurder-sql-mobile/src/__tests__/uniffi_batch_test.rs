@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod uniffi_batch_tests {
     use crate::uniffi_api::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
 
     #[test]
@@ -18,7 +19,7 @@ mod uniffi_batch_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table
         execute(handle, "DROP TABLE IF EXISTS items".to_string()).ok();
@@ -54,7 +55,7 @@ mod uniffi_batch_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Execute batch with mixed operations
         let statements = vec![
@@ -85,7 +86,7 @@ mod uniffi_batch_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table
         execute(handle, "DROP TABLE IF EXISTS products".to_string()).ok();
@@ -127,7 +128,7 @@ mod uniffi_batch_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         let statements: Vec<String> = vec![];
         let result = execute_batch(handle, statements);
@@ -153,7 +154,7 @@ mod uniffi_batch_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         let statements = vec![
             "DROP TABLE IF EXISTS test".to_string(),

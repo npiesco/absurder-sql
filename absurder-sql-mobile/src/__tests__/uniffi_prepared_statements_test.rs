@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod uniffi_prepared_statements_tests {
     use crate::uniffi_api::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
 
     #[test]
@@ -18,7 +19,7 @@ mod uniffi_prepared_statements_tests {
             encryption_key: None,
         };
         
-        let db_handle = create_database(config).expect("Failed to create database");
+        let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table
         execute(db_handle, "DROP TABLE IF EXISTS test".to_string()).ok();
@@ -45,7 +46,7 @@ mod uniffi_prepared_statements_tests {
             encryption_key: None,
         };
         
-        let db_handle = create_database(config).expect("Failed to create database");
+        let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table
         execute(db_handle, "DROP TABLE IF EXISTS users".to_string()).ok();
@@ -78,7 +79,7 @@ mod uniffi_prepared_statements_tests {
             encryption_key: None,
         };
         
-        let db_handle = create_database(config).expect("Failed to create database");
+        let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create and populate table
         execute(db_handle, "DROP TABLE IF EXISTS products".to_string()).ok();
@@ -110,7 +111,7 @@ mod uniffi_prepared_statements_tests {
             encryption_key: None,
         };
         
-        let db_handle = create_database(config).expect("Failed to create database");
+        let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Create table
         execute(db_handle, "DROP TABLE IF EXISTS items".to_string()).ok();
@@ -146,7 +147,7 @@ mod uniffi_prepared_statements_tests {
             encryption_key: None,
         };
         
-        let db_handle = create_database(config).expect("Failed to create database");
+        let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         let result = prepare_statement(db_handle, "INVALID SQL STATEMENT".to_string());
         assert!(result.is_err(), "Invalid SQL should fail to prepare");
@@ -185,7 +186,7 @@ mod uniffi_prepared_statements_tests {
             encryption_key: None,
         };
         
-        let db_handle = create_database(config).expect("Failed to create database");
+        let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         execute(db_handle, "DROP TABLE IF EXISTS test".to_string()).ok();
         execute(db_handle, "CREATE TABLE test (id INTEGER)".to_string())

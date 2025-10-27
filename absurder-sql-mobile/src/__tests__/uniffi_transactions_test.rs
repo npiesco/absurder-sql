@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod uniffi_transactions_tests {
     use crate::uniffi_api::*;
+    use crate::registry::RUNTIME;
     use serial_test::serial;
 
     #[test]
@@ -18,7 +19,7 @@ mod uniffi_transactions_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Setup table
         execute(handle, "DROP TABLE IF EXISTS accounts".to_string()).ok();
@@ -59,7 +60,7 @@ mod uniffi_transactions_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Setup table
         execute(handle, "DROP TABLE IF EXISTS accounts".to_string()).ok();
@@ -100,7 +101,7 @@ mod uniffi_transactions_tests {
             encryption_key: None,
         };
         
-        let handle = create_database(config).expect("Failed to create database");
+        let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
         
         // Setup
         execute(handle, "DROP TABLE IF EXISTS products".to_string()).ok();
