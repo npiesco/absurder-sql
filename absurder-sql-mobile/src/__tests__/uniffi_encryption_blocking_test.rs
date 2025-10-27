@@ -33,6 +33,10 @@ mod uniffi_encryption_blocking_tests {
             close_database(handle).ok();
         }
         
+        // Cleanup: delete test database file
+        let db_path = format!("encrypted_async_test_{:?}.db", thread_id);
+        let _ = std::fs::remove_file(&db_path);
+        
         // Async version should complete reasonably quickly (not blocking JS thread)
         println!("✅ Async create_encrypted_database completed in {:?}", duration);
     }
@@ -77,6 +81,10 @@ mod uniffi_encryption_blocking_tests {
         if let Ok(db) = result {
             drop(db);
         }
+        
+        // Cleanup: delete test database file
+        let db_path = format!("encrypted_async_proof_{:?}.db", thread_id);
+        let _ = std::fs::remove_file(&db_path);
         
         println!("✅ Async version works and doesn't block");
     }

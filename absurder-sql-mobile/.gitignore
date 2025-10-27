@@ -1,2 +1,17 @@
 .env
 *.hprof
+
+# UniFFI Bindgen React Native generated files
+cpp/
+android/generated/
+ios/generated/
+src/generated/
+*.a
+*.dylib
+*.so
+
+# Test database files
+*.db
+*.db-shm
+*.db-wal
+absurdersql_storage/
