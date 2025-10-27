@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD) - Phase II
 ## AbsurderSQL Mobile: React Native FFI Integration
 
-**Version:** 2.0  
-**Last Updated:** October 24, 2025  
-**Status:** Phase I Complete, Phase II Planning  
-**Target Release:** v0.2.0-mobile
+**Version:** 2.1  
+**Last Updated:** October 26, 2025  
+**Status:** Phase 4.1 COMPLETE (UniFFI Core), Phase 4.2 IN PROGRESS (iOS Bindings)  
+**Target Release:** v0.3.0 (UniFFI Migration)
 
 ---
 
@@ -22,6 +22,21 @@ Phase I (v0.1.0) successfully delivered core AbsurderSQL functionality to React 
 - ✅ TypeScript API with full type safety
 - ✅ 8/8 React Native integration tests passing
 - ✅ Performance: 6-9x faster than react-native-sqlite-storage on INSERTs
+
+**Phase 4.1 UniFFI Core (COMPLETE - October 26, 2025):**
+- ✅ All 19 UniFFI functions implemented with #[uniffi::export]
+- ✅ Feature 1 (Streaming Results) - COMPLETE
+- ✅ Feature 2 (Database Encryption) - COMPLETE  
+- ✅ 126/126 tests passing (72 FFI + 54 UniFFI)
+- ✅ Zero regressions, zero TODOs
+- ✅ Production-grade error handling
+- ✅ BLOB support in export/import
+
+**Phase 4.2 iOS Bindings (IN PROGRESS):**
+- 🔄 Generate Swift bindings with uniffi-bindgen-react-native
+- ⏳ Replace Objective-C bridge (616 lines → auto-generated)
+- ⏳ Test on iOS simulator
+- ⏳ Create Turbo Module registration
 
 ---
 

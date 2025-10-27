@@ -29,7 +29,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-import { AbsurderDatabase, Migration } from '../index';
+import { AbsurderDatabase, Migration } from '../main';
 
 describe('Schema Migrations', () => {
   let db: AbsurderDatabase;

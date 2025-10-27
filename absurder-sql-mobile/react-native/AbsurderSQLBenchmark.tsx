@@ -7,8 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  NativeModules,
 } from 'react-native';
+import { AbsurderDatabase } from 'absurder-sql-mobile';
 
 // Declare global types for memory tracking
 declare const global: {
@@ -19,8 +19,6 @@ declare const global: {
     };
   };
 };
-
-const { AbsurderSQL } = NativeModules;
 
 interface BenchmarkResult {
   name: string;
@@ -91,7 +89,7 @@ export default function AbsurderSQLBenchmark() {
   ]);
 
   const [running, setRunning] = useState(false);
-  const [dbHandle, setDbHandle] = useState<number | null>(null);
+  const [db, setDb] = useState<AbsurderDatabase | null>(null);
 
   const updateBenchmark = (
     index: number,
@@ -105,27 +103,25 @@ export default function AbsurderSQLBenchmark() {
   const runBenchmarks = async () => {
     console.log('[Benchmark] Starting benchmark suite');
     setRunning(true);
-    let handle: number | null = null;
+    let database: AbsurderDatabase | null = null;
 
     try {
       // Setup: Create database
       console.log('[Benchmark] Creating database');
-      const dbPath = Platform.OS === 'ios' 
-        ? 'benchmark.db'  // iOS uses relative path in Documents directory
-        : '/data/data/com.absurdersqltestapp/files/benchmark.db';
-      handle = await AbsurderSQL.createDatabase(dbPath);
-      console.log('[Benchmark] Database created with handle:', handle);
-      setDbHandle(handle);
+      database = new AbsurderDatabase('benchmark.db');
+      await database.open();
+      console.log('[Benchmark] Database opened');
+      setDb(database);
 
       // Benchmark 1: Simple SELECT (1 row)
       console.log('[Benchmark 1] Simple SELECT (1 row) - Starting');
       updateBenchmark(0, {status: 'running'});
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS users');
-      await AbsurderSQL.execute(handle, 'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)');
-      await AbsurderSQL.execute(handle, "INSERT INTO users VALUES (1, 'Test User', 25)");
+      await database.execute('DROP TABLE IF EXISTS users');
+      await database.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)');
+      await database.execute("INSERT INTO users VALUES (1, 'Test User', 25)");
       
       const start1 = Date.now();
-      await AbsurderSQL.execute(handle, 'SELECT * FROM users WHERE id = 1');
+      await database.execute('SELECT * FROM users WHERE id = 1');
       const duration1 = Date.now() - start1;
       console.log(`[Benchmark 1] Completed in ${duration1}ms (requirement: < 5ms)`);
       
@@ -140,17 +136,16 @@ export default function AbsurderSQLBenchmark() {
       updateBenchmark(1, {status: 'running'});
       
       // Insert 100 rows
-      await AbsurderSQL.beginTransaction(handle);
-      for (let i = 2; i <= 101; i++) {
-        await AbsurderSQL.execute(
-          handle,
-          `INSERT INTO users VALUES (${i}, 'User ${i}', ${20 + (i % 50)})`,
-        );
-      }
-      await AbsurderSQL.commit(handle);
+      await database.transaction(async () => {
+        for (let i = 2; i <= 101; i++) {
+          await database!.execute(
+            `INSERT INTO users VALUES (${i}, 'User ${i}', ${20 + (i % 50)})`,
+          );
+        }
+      });
 
       const start2 = Date.now();
-      await AbsurderSQL.execute(handle, 'SELECT * FROM users');
+      await database.execute('SELECT * FROM users');
       const duration2 = Date.now() - start2;
       console.log(`[Benchmark 2] Completed in ${duration2}ms (requirement: < 10ms)`);
       
@@ -163,18 +158,17 @@ export default function AbsurderSQLBenchmark() {
       // Benchmark 3: Bulk INSERT (1000 rows)
       updateBenchmark(2, {status: 'running'});
       
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS bulk_test');
-      await AbsurderSQL.execute(handle, 'CREATE TABLE bulk_test (id INTEGER PRIMARY KEY, data TEXT, value INTEGER)');
+      await database.execute('DROP TABLE IF EXISTS bulk_test');
+      await database.execute('CREATE TABLE bulk_test (id INTEGER PRIMARY KEY, data TEXT, value INTEGER)');
       
       const start3 = Date.now();
-      await AbsurderSQL.beginTransaction(handle);
-      for (let i = 1; i <= 1000; i++) {
-        await AbsurderSQL.execute(
-          handle,
-          `INSERT INTO bulk_test VALUES (${i}, 'data_${i}', ${i * 10})`,
-        );
-      }
-      await AbsurderSQL.commit(handle);
+      await database.transaction(async () => {
+        for (let i = 1; i <= 1000; i++) {
+          await database!.execute(
+            `INSERT INTO bulk_test VALUES (${i}, 'data_${i}', ${i * 10})`,
+          );
+        }
+      });
       const duration3 = Date.now() - start3;
       
       updateBenchmark(2, {
@@ -186,20 +180,18 @@ export default function AbsurderSQLBenchmark() {
       // Benchmark 4: Complex JOIN query
       updateBenchmark(3, {status: 'running'});
       
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS orders');
-      await AbsurderSQL.execute(handle, 'CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount INTEGER)');
-      await AbsurderSQL.beginTransaction(handle);
-      for (let i = 1; i <= 100; i++) {
-        await AbsurderSQL.execute(
-          handle,
-          `INSERT INTO orders VALUES (${i}, ${(i % 101) + 1}, ${i * 100})`,
-        );
-      }
-      await AbsurderSQL.commit(handle);
+      await database.execute('DROP TABLE IF EXISTS orders');
+      await database.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount INTEGER)');
+      await database.transaction(async () => {
+        for (let i = 1; i <= 100; i++) {
+          await database!.execute(
+            `INSERT INTO orders VALUES (${i}, ${(i % 101) + 1}, ${i * 100})`,
+          );
+        }
+      });
 
       const start4 = Date.now();
-      await AbsurderSQL.execute(
-        handle,
+      await database.execute(
         'SELECT users.name, COUNT(orders.id) as order_count, SUM(orders.amount) as total FROM users LEFT JOIN orders ON users.id = orders.user_id GROUP BY users.id',
       );
       const duration4 = Date.now() - start4;
@@ -214,31 +206,29 @@ export default function AbsurderSQLBenchmark() {
       console.log('[Benchmark 5] Stream 5000 rows - Starting');
       updateBenchmark(4, {status: 'running'});
       
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS stream_test');
-      await AbsurderSQL.execute(handle, 'CREATE TABLE stream_test (id INTEGER PRIMARY KEY, data TEXT)');
-      await AbsurderSQL.beginTransaction(handle);
-      for (let i = 1; i <= 5000; i++) {
-        await AbsurderSQL.execute(
-          handle,
-          `INSERT INTO stream_test VALUES (${i}, 'data_${i}')`,
-        );
-      }
-      await AbsurderSQL.commit(handle);
+      await database.execute('DROP TABLE IF EXISTS stream_test');
+      await database.execute('CREATE TABLE stream_test (id INTEGER PRIMARY KEY, data TEXT)');
+      await database.transaction(async () => {
+        for (let i = 1; i <= 5000; i++) {
+          await database!.execute(
+            `INSERT INTO stream_test VALUES (${i}, 'data_${i}')`,
+          );
+        }
+      });
 
       const start5 = Date.now();
-      const streamHandle = await AbsurderSQL.prepareStream(handle, 'SELECT * FROM stream_test');
+      const streamHandle = await database.prepareStream('SELECT * FROM stream_test');
       let rowCount = 0;
       let batchCount = 0;
       
       while (true) {
-        const batchJson = await AbsurderSQL.fetchNext(streamHandle, 100);
-        const batch = JSON.parse(batchJson);
+        const batch = await database.fetchNext(streamHandle, 100);
         if (batch.length === 0) break;
         rowCount += batch.length;
         batchCount++;
       }
       
-      await AbsurderSQL.closeStream(streamHandle);
+      await database.closeStream(streamHandle);
       const duration5 = Date.now() - start5;
       console.log(`[Benchmark 5] Streamed ${rowCount} rows in ${batchCount} batches, ${duration5}ms`);
       
@@ -248,29 +238,27 @@ export default function AbsurderSQLBenchmark() {
         details: `${duration5}ms for ${rowCount} rows in ${batchCount} batches (requirement: < 100ms)`,
       });
 
-      // Benchmark 6: Stream vs Execute (5000 rows)
+      // Benchmark 6: Stream vs Execute
       console.log('[Benchmark 6] Stream vs Execute comparison - Starting');
       updateBenchmark(5, {status: 'running'});
       
       // Test regular execute
       const startExecute = Date.now();
-      const executeResult = await AbsurderSQL.execute(handle, 'SELECT * FROM stream_test');
-      const executeData = JSON.parse(executeResult);
+      const executeResult = await database.execute('SELECT * FROM stream_test');
       const durationExecute = Date.now() - startExecute;
       
       // Test streaming
       const startStream = Date.now();
-      const streamHandle2 = await AbsurderSQL.prepareStream(handle, 'SELECT * FROM stream_test');
+      const streamHandle2 = await database.prepareStream('SELECT * FROM stream_test');
       let streamRowCount = 0;
       
       while (true) {
-        const batchJson = await AbsurderSQL.fetchNext(streamHandle2, 100);
-        const batch = JSON.parse(batchJson);
+        const batch = await database.fetchNext(streamHandle2, 100);
         if (batch.length === 0) break;
         streamRowCount += batch.length;
       }
       
-      await AbsurderSQL.closeStream(streamHandle2);
+      await database.closeStream(streamHandle2);
       const durationStream = Date.now() - startStream;
       
       const faster = durationStream < durationExecute ? 'Stream' : 'Execute';
@@ -278,7 +266,7 @@ export default function AbsurderSQLBenchmark() {
         ? (durationExecute / durationStream).toFixed(2)
         : (durationStream / durationExecute).toFixed(2);
       
-      console.log(`[Benchmark 6] Execute: ${durationExecute}ms (${executeData.rows.length} rows), Stream: ${durationStream}ms (${streamRowCount} rows)`);
+      console.log(`[Benchmark 6] Execute: ${durationExecute}ms (${executeResult.rows.length} rows), Stream: ${durationStream}ms (${streamRowCount} rows)`);
       console.log(`[Benchmark 6] ${faster} is ${speedup}x faster`);
       
       updateBenchmark(5, {
@@ -292,43 +280,41 @@ export default function AbsurderSQLBenchmark() {
       updateBenchmark(6, {status: 'running'});
       
       // Setup: Create large dataset
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS large_stream_test');
-      await AbsurderSQL.execute(handle, 'CREATE TABLE large_stream_test (id INTEGER PRIMARY KEY, data TEXT, value INTEGER)');
+      await database.execute('DROP TABLE IF EXISTS large_stream_test');
+      await database.execute('CREATE TABLE large_stream_test (id INTEGER PRIMARY KEY, data TEXT, value INTEGER)');
       
       console.log('[Benchmark 7] Inserting 50K rows...');
-      await AbsurderSQL.beginTransaction(handle);
-      for (let i = 1; i <= 50000; i++) {
-        await AbsurderSQL.execute(
-          handle,
-          `INSERT INTO large_stream_test VALUES (${i}, 'data_${i}', ${i * 10})`,
-        );
-      }
-      await AbsurderSQL.commit(handle);
+      await database.transaction(async () => {
+        for (let i = 1; i <= 50000; i++) {
+          await database!.execute(
+            `INSERT INTO large_stream_test VALUES (${i}, 'data_${i}', ${i * 10})`,
+          );
+        }
+      });
       console.log('[Benchmark 7] 50K rows inserted');
 
       // First: Test execute to measure actual memory usage
       console.log('[Benchmark 7] Testing execute (all 50K rows at once)...');
       const startExecute50k = Date.now();
-      const executeResult50k = await AbsurderSQL.execute(handle, 'SELECT * FROM large_stream_test');
+      const executeResult50k = await database.execute('SELECT * FROM large_stream_test');
       const durationExecute50k = Date.now() - startExecute50k;
-      const executeMemoryKB = (executeResult50k.length / 1024).toFixed(1);
+      const executeMemoryKB = (JSON.stringify(executeResult50k.rows).length / 1024).toFixed(1);
       console.log(`[Benchmark 7] Execute: ${durationExecute50k}ms, Memory: ${executeMemoryKB}KB`);
 
       // Second: Test streaming to measure batch memory usage
       console.log('[Benchmark 7] Testing streaming (100 rows per batch)...');
       const start7 = Date.now();
-      const streamHandle3 = await AbsurderSQL.prepareStream(handle, 'SELECT * FROM large_stream_test');
+      const streamHandle3 = await database.prepareStream('SELECT * FROM large_stream_test');
       let largeRowCount = 0;
       let batchCount7 = 0;
       let peakBatchSize = 0;
       
       while (true) {
-        const batchJson = await AbsurderSQL.fetchNext(streamHandle3, 100);
-        const batch = JSON.parse(batchJson);
+        const batch = await database.fetchNext(streamHandle3, 100);
         if (batch.length === 0) break;
         
-        // Track peak batch memory (actual JSON size)
-        const batchMemoryKB = (batchJson.length / 1024);
+        // Track peak batch memory
+        const batchMemoryKB = (JSON.stringify(batch).length / 1024);
         if (batchMemoryKB > peakBatchSize) {
           peakBatchSize = batchMemoryKB;
         }
@@ -342,7 +328,7 @@ export default function AbsurderSQLBenchmark() {
         }
       }
       
-      await AbsurderSQL.closeStream(streamHandle3);
+      await database.closeStream(streamHandle3);
       const duration7 = Date.now() - start7;
       
       // Calculate actual memory savings
@@ -360,29 +346,26 @@ export default function AbsurderSQLBenchmark() {
 
       // Cleanup: Drop the large table to speed up subsequent benchmarks
       console.log('[Benchmark 7] Cleaning up large_stream_test table...');
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS large_stream_test');
+      await database.execute('DROP TABLE IF EXISTS large_stream_test');
 
       // Benchmark 8: Export 1MB database
       updateBenchmark(7, {status: 'running'});
       
       // Create large dataset
-      await AbsurderSQL.execute(handle, 'DROP TABLE IF EXISTS large_data');
-      await AbsurderSQL.execute(handle, 'CREATE TABLE large_data (id INTEGER PRIMARY KEY, data TEXT)');
-      await AbsurderSQL.beginTransaction(handle);
-      const largeString = 'x'.repeat(1000); // 1KB per row
-      for (let i = 1; i <= 1000; i++) {
-        await AbsurderSQL.execute(
-          handle,
-          `INSERT INTO large_data VALUES (${i}, '${largeString}')`,
-        );
-      }
-      await AbsurderSQL.commit(handle);
+      await database.execute('DROP TABLE IF EXISTS large_data');
+      await database.execute('CREATE TABLE large_data (id INTEGER PRIMARY KEY, data TEXT)');
+      await database.transaction(async () => {
+        const largeString = 'x'.repeat(1000); // 1KB per row
+        for (let i = 1; i <= 1000; i++) {
+          await database!.execute(
+            `INSERT INTO large_data VALUES (${i}, '${largeString}')`,
+          );
+        }
+      });
 
-      const exportPath = Platform.OS === 'ios'
-        ? 'benchmark_export.db'
-        : '/data/data/com.absurdersqltestapp/files/benchmark_export.db';
+      const exportPath = 'benchmark_export.db';
       const start8 = Date.now();
-      await AbsurderSQL.exportToFile(handle, exportPath);
+      await database.exportToFile(exportPath);
       const duration8 = Date.now() - start8;
       
       updateBenchmark(7, {
@@ -395,14 +378,12 @@ export default function AbsurderSQLBenchmark() {
       updateBenchmark(8, {status: 'running'});
       
       // Close and create new database
-      await AbsurderSQL.close(handle);
-      const importDbPath = Platform.OS === 'ios'
-        ? 'benchmark_import.db'
-        : '/data/data/com.absurdersqltestapp/files/benchmark_import.db';
-      handle = await AbsurderSQL.createDatabase(importDbPath);
+      await database.close();
+      database = new AbsurderDatabase('benchmark_import.db');
+      await database.open();
 
       const start9 = Date.now();
-      await AbsurderSQL.importFromFile(handle, exportPath);
+      await database.importFromFile(exportPath);
       const duration9 = Date.now() - start9;
       
       updateBenchmark(8, {
@@ -421,9 +402,9 @@ export default function AbsurderSQLBenchmark() {
         });
       }
     } finally {
-      if (handle !== null) {
+      if (database !== null) {
         try {
-          await AbsurderSQL.close(handle);
+          await database.close();
         } catch (e) {
           console.error('Failed to close database:', e);
         }
@@ -473,9 +454,9 @@ export default function AbsurderSQLBenchmark() {
                 <ActivityIndicator size="small" color="#2196F3" />
               )}
             </View>
-            {benchmark.duration > 0 && (
+            {benchmark.details && (
               <View style={styles.benchmarkDetails}>
-                <Text style={styles.detailText}>{benchmark.details}</Text>
+                <Text style={styles.detailText}>{String(benchmark.details)}</Text>
               </View>
             )}
             <View

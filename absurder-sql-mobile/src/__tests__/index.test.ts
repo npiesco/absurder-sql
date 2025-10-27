@@ -49,7 +49,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-import { AbsurderDatabase, openDatabase, QueryResult } from '../index';
+import { AbsurderDatabase, openDatabase, QueryResult } from '../main';
 
 describe('AbsurderDatabase', () => {
   let db: AbsurderDatabase;
@@ -100,7 +100,13 @@ describe('AbsurderDatabase', () => {
   });
 
   describe('execute()', () => {
-    const mockResult: QueryResult = {
+    const mockUniffiResult = {
+      columns: ['id', 'name'],
+      rows: [JSON.stringify({ values: [{ value: 1 }, { value: 'Alice' }] })],
+      rowsAffected: BigInt(1),
+    };
+    
+    const expectedResult = {
       columns: ['id', 'name'],
       rows: [{ id: 1, name: 'Alice' }],
       rowsAffected: 1,
@@ -112,12 +118,12 @@ describe('AbsurderDatabase', () => {
     });
 
     it('should execute SQL and return parsed result', async () => {
-      mockExecute.mockResolvedValue(JSON.stringify(mockResult));
+      mockExecute.mockResolvedValue(mockUniffiResult);
 
       const result = await db.execute('SELECT * FROM users');
 
-      expect(mockExecute).toHaveBeenCalledWith(42, 'SELECT * FROM users');
-      expect(result).toEqual(mockResult);
+      expect(mockExecute).toHaveBeenCalledWith(BigInt(42), 'SELECT * FROM users');
+      expect(result).toEqual(expectedResult);
     });
 
     it('should throw error if database is not open', async () => {
@@ -144,9 +150,15 @@ describe('AbsurderDatabase', () => {
   });
 
   describe('executeWithParams()', () => {
-    const mockResult: QueryResult = {
+    const mockUniffiResult = {
       columns: ['id', 'name'],
-      rows: [{ id: 1, name: 'Bob' }],
+      rows: [JSON.stringify({ values: [{ value: 1 }, { value: 'Alice' }] })],
+      rowsAffected: BigInt(1),
+    };
+    
+    const expectedResult = {
+      columns: ['id', 'name'],
+      rows: [{ id: 1, name: 'Alice' }],
       rowsAffected: 1,
     };
 
@@ -156,9 +168,7 @@ describe('AbsurderDatabase', () => {
     });
 
     it('should execute parameterized query', async () => {
-      mockExecuteWithParams.mockResolvedValue(
-        JSON.stringify(mockResult)
-      );
+      mockExecuteWithParams.mockResolvedValue(mockUniffiResult);
 
       const result = await db.executeWithParams(
         'SELECT * FROM users WHERE id = ?',
@@ -166,11 +176,11 @@ describe('AbsurderDatabase', () => {
       );
 
       expect(mockExecuteWithParams).toHaveBeenCalledWith(
-        42,
+        BigInt(42),
         'SELECT * FROM users WHERE id = ?',
-        [1]
+        ['1']
       );
-      expect(result).toEqual(mockResult);
+      expect(result).toEqual(expectedResult);
     });
 
     it('should throw error if database is not open', async () => {
@@ -182,23 +192,19 @@ describe('AbsurderDatabase', () => {
     });
 
     it('should handle empty params array', async () => {
-      mockExecuteWithParams.mockResolvedValue(
-        JSON.stringify(mockResult)
-      );
+      mockExecuteWithParams.mockResolvedValue(mockUniffiResult);
 
       await db.executeWithParams('SELECT * FROM users', []);
 
       expect(mockExecuteWithParams).toHaveBeenCalledWith(
-        42,
+        BigInt(42),
         'SELECT * FROM users',
         []
       );
     });
 
     it('should handle multiple parameters', async () => {
-      mockExecuteWithParams.mockResolvedValue(
-        JSON.stringify(mockResult)
-      );
+      mockExecuteWithParams.mockResolvedValue(mockUniffiResult);
 
       await db.executeWithParams(
         'INSERT INTO users VALUES (?, ?, ?)',
@@ -206,9 +212,9 @@ describe('AbsurderDatabase', () => {
       );
 
       expect(mockExecuteWithParams).toHaveBeenCalledWith(
-        42,
+        BigInt(42),
         'INSERT INTO users VALUES (?, ?, ?)',
-        [1, 'Alice', 30]
+        ['1', 'Alice', '30']
       );
     });
   });
@@ -220,16 +226,16 @@ describe('AbsurderDatabase', () => {
     });
 
     it('should return only rows from execute result', async () => {
-      const mockResult: QueryResult = {
+      const mockUniffiResult = {
         columns: ['id', 'name'],
         rows: [
-          { id: 1, name: 'Alice' },
-          { id: 2, name: 'Bob' },
+          JSON.stringify({ values: [{ value: 1 }, { value: 'Alice' }] }),
+          JSON.stringify({ values: [{ value: 2 }, { value: 'Bob' }] }),
         ],
-        rowsAffected: 2,
+        rowsAffected: BigInt(2),
       };
 
-      mockExecute.mockResolvedValue(JSON.stringify(mockResult));
+      mockExecute.mockResolvedValue(mockUniffiResult);
 
       const rows = await db.query('SELECT * FROM users');
 
@@ -242,13 +248,13 @@ describe('AbsurderDatabase', () => {
     });
 
     it('should return empty array for no results', async () => {
-      const mockResult: QueryResult = {
+      const mockUniffiResult = {
         columns: [],
         rows: [],
-        rowsAffected: 0,
+        rowsAffected: BigInt(0),
       };
 
-      mockExecute.mockResolvedValue(JSON.stringify(mockResult));
+      mockExecute.mockResolvedValue(mockUniffiResult);
 
       const rows = await db.query('SELECT * FROM empty_table');
 
@@ -525,16 +531,15 @@ describe('AbsurderDatabase', () => {
     });
 
     it('should handle very large result sets', async () => {
-      const largeResult: QueryResult = {
+      const mockUniffiResult = {
         columns: ['id', 'data'],
-        rows: Array.from({ length: 10000 }, (_, i) => ({
-          id: i,
-          data: `row_${i}`,
-        })),
-        rowsAffected: 10000,
+        rows: Array.from({ length: 10000 }, (_, i) => 
+          JSON.stringify({ values: [{ value: i }, { value: `row_${i}` }] })
+        ),
+        rowsAffected: BigInt(10000),
       };
 
-      mockExecute.mockResolvedValue(JSON.stringify(largeResult));
+      mockExecute.mockResolvedValue(mockUniffiResult);
 
       const result = await db.execute('SELECT * FROM large_table');
 
@@ -629,31 +634,31 @@ describe('AbsurderDatabase', () => {
     });
 
     describe('PreparedStatement.execute()', () => {
-      const mockResult: QueryResult = {
+      const mockUniffiResult = {
         columns: ['id', 'name'],
-        rows: [{ id: 1, name: 'Alice' }],
-        rowsAffected: 1,
+        rows: [JSON.stringify({ values: [{ value: 1 }, { value: 'Alice' }] })],
+        rowsAffected: BigInt(1),
       };
 
       it('should execute statement with parameters', async () => {
-        mockPrepare.mockResolvedValue(100);
-        mockStmtExecute.mockResolvedValue(JSON.stringify(mockResult));
+        mockPrepare.mockResolvedValue(BigInt(100));
+        mockStmtExecute.mockResolvedValue(mockUniffiResult);
 
         const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
         const result = await stmt.execute([1]);
 
-        expect(mockStmtExecute).toHaveBeenCalledWith(100, [1]);
-        expect(result).toEqual(mockResult);
+        expect(mockStmtExecute).toHaveBeenCalledWith(BigInt(100), ['1']);
+        expect(result.rows).toEqual([{ id: 1, name: 'Alice' }]);
       });
 
       it('should reuse statement for multiple executions', async () => {
-        mockPrepare.mockResolvedValue(100);
-        const result1 = { columns: ['id'], rows: [{ id: 1 }], rowsAffected: 1 };
-        const result2 = { columns: ['id'], rows: [{ id: 2 }], rowsAffected: 1 };
+        mockPrepare.mockResolvedValue(BigInt(100));
+        const result1 = { columns: ['id'], rows: [JSON.stringify({ values: [{ value: 1 }] })], rowsAffected: BigInt(1) };
+        const result2 = { columns: ['id'], rows: [JSON.stringify({ values: [{ value: 2 }] })], rowsAffected: BigInt(1) };
         
         mockStmtExecute
-          .mockResolvedValueOnce(JSON.stringify(result1))
-          .mockResolvedValueOnce(JSON.stringify(result2));
+          .mockResolvedValueOnce(result1)
+          .mockResolvedValueOnce(result2);
 
         const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
         const r1 = await stmt.execute([1]);
@@ -661,38 +666,36 @@ describe('AbsurderDatabase', () => {
 
         expect(mockPrepare).toHaveBeenCalledTimes(1);
         expect(mockStmtExecute).toHaveBeenCalledTimes(2);
-        expect(mockStmtExecute).toHaveBeenNthCalledWith(1, 100, [1]);
-        expect(mockStmtExecute).toHaveBeenNthCalledWith(2, 100, [2]);
+        expect(mockStmtExecute).toHaveBeenNthCalledWith(1, BigInt(100), ['1']);
+        expect(mockStmtExecute).toHaveBeenNthCalledWith(2, BigInt(100), ['2']);
         expect(r1.rows[0].id).toBe(1);
         expect(r2.rows[0].id).toBe(2);
       });
 
       it('should handle empty parameters', async () => {
-        mockPrepare.mockResolvedValue(100);
+        mockPrepare.mockResolvedValue(BigInt(100));
         mockStmtExecute.mockResolvedValue(
-          JSON.stringify({ columns: [], rows: [], rowsAffected: 0 })
+          { columns: [], rows: [], rowsAffected: BigInt(0) }
         );
 
         const stmt = await db.prepare('SELECT * FROM users');
         await stmt.execute([]);
 
-        expect(mockStmtExecute).toHaveBeenCalledWith(100, []);
+        expect(mockStmtExecute).toHaveBeenCalledWith(BigInt(100), []);
       });
 
       it('should handle multiple parameters', async () => {
-        mockPrepare.mockResolvedValue(100);
-        mockStmtExecute.mockResolvedValue(
-          JSON.stringify(mockResult)
-        );
+        mockPrepare.mockResolvedValue(BigInt(100));
+        mockStmtExecute.mockResolvedValue(mockUniffiResult);
 
         const stmt = await db.prepare('INSERT INTO users VALUES (?, ?, ?)');
         await stmt.execute([1, 'Alice', 25]);
 
-        expect(mockStmtExecute).toHaveBeenCalledWith(100, [1, 'Alice', 25]);
+        expect(mockStmtExecute).toHaveBeenCalledWith(BigInt(100), ['1', 'Alice', '25']);
       });
 
       it('should propagate execution errors', async () => {
-        mockPrepare.mockResolvedValue(100);
+        mockPrepare.mockResolvedValue(BigInt(100));
         mockStmtExecute.mockRejectedValue(
           new Error('Execution failed: no such table')
         );
@@ -760,14 +763,14 @@ describe('AbsurderDatabase', () => {
 
     describe('PreparedStatement lifecycle', () => {
       it('should handle prepare-execute-finalize sequence', async () => {
-        const mockResult: QueryResult = {
+        const mockUniffiResult = {
           columns: ['count'],
-          rows: [{ count: 5 }],
-          rowsAffected: 0,
+          rows: [JSON.stringify({ values: [{ value: 5 }] })],
+          rowsAffected: BigInt(0),
         };
 
-        mockPrepare.mockResolvedValue(100);
-        mockStmtExecute.mockResolvedValue(JSON.stringify(mockResult));
+        mockPrepare.mockResolvedValue(BigInt(100));
+        mockStmtExecute.mockResolvedValue(mockUniffiResult);
         mockStmtFinalize.mockResolvedValue(undefined);
 
         // Prepare
@@ -787,14 +790,14 @@ describe('AbsurderDatabase', () => {
       });
 
       it('should handle concurrent statement executions', async () => {
-        const mockResult: QueryResult = {
+        const mockUniffiResult = {
           columns: ['id'],
-          rows: [{ id: 1 }],
-          rowsAffected: 0,
+          rows: [JSON.stringify({ values: [{ value: 1 }] })],
+          rowsAffected: BigInt(0),
         };
 
-        mockPrepare.mockResolvedValue(100);
-        mockStmtExecute.mockResolvedValue(JSON.stringify(mockResult));
+        mockPrepare.mockResolvedValue(BigInt(100));
+        mockStmtExecute.mockResolvedValue(mockUniffiResult);
 
         const stmt = await db.prepare('SELECT * FROM users WHERE id = ?');
 
