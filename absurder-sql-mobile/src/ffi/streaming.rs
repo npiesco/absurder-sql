@@ -65,7 +65,7 @@ pub unsafe extern "C" fn absurder_stmt_prepare_stream(
     let stream = StreamingStatement {
         db_handle,
         sql: sql_str,
-        current_offset: 0,
+        last_rowid: 0, // Assumes rowids start >= 1 (SQLite default)
     };
 
     // Register stream
@@ -111,11 +111,8 @@ pub unsafe extern "C" fn absurder_stmt_fetch_next(
 
     let db_handle = stream.db_handle;
     let sql = stream.sql.clone();
-    let offset = stream.current_offset;
+    let last_rowid = stream.last_rowid;
     let limit = batch_size as usize;
-
-    // Update offset for next fetch
-    stream.current_offset += limit;
     drop(stream_registry);
 
     // Get database
@@ -131,8 +128,49 @@ pub unsafe extern "C" fn absurder_stmt_fetch_next(
     };
     drop(db_registry);
 
-    // Build paginated query
-    let paginated_sql = format!("{} LIMIT {} OFFSET {}", sql, limit, offset);
+    // Build cursor-based paginated query
+    // Inject rowid selection into original query, then apply cursor filtering
+    // We need to extract table name from the query to access rowid
+    let paginated_sql = if last_rowid == 0 {
+        // First fetch: add rowid to selection
+        // Replace "SELECT *" or "SELECT" with "SELECT *, rowid as _rowid"
+        let with_rowid = if sql.trim().to_uppercase().starts_with("SELECT *") {
+            sql.replacen("SELECT *", "SELECT *, rowid as _rowid", 1)
+        } else if sql.trim().to_uppercase().starts_with("SELECT") {
+            let parts: Vec<&str> = sql.splitn(2, " FROM ").collect();
+            if parts.len() == 2 {
+                format!("{}, rowid as _rowid FROM {}", parts[0], parts[1])
+            } else {
+                sql.to_string()
+            }
+        } else {
+            sql.to_string()
+        };
+        format!("{} LIMIT {}", with_rowid, limit)
+    } else {
+        // Subsequent fetches: add rowid and cursor condition
+        let with_rowid = if sql.trim().to_uppercase().starts_with("SELECT *") {
+            sql.replacen("SELECT *", "SELECT *, rowid as _rowid", 1)
+        } else if sql.trim().to_uppercase().starts_with("SELECT") {
+            let parts: Vec<&str> = sql.splitn(2, " FROM ").collect();
+            if parts.len() == 2 {
+                format!("{}, rowid as _rowid FROM {}", parts[0], parts[1])
+            } else {
+                sql.to_string()
+            }
+        } else {
+            sql.to_string()
+        };
+        // Add WHERE clause for cursor
+        if with_rowid.to_uppercase().contains(" WHERE ") {
+            format!("{} AND rowid > {} LIMIT {}", with_rowid, last_rowid, limit)
+        } else if with_rowid.to_uppercase().contains(" ORDER BY") {
+            let parts: Vec<&str> = with_rowid.splitn(2, " ORDER BY ").collect();
+            format!("{} WHERE rowid > {} ORDER BY {} LIMIT {}", parts[0], last_rowid, parts[1], limit)
+        } else {
+            format!("{} WHERE rowid > {} LIMIT {}", with_rowid, last_rowid, limit)
+        }
+    };
 
     // Execute query
     let result = RUNTIME.block_on(async {
@@ -142,6 +180,23 @@ pub unsafe extern "C" fn absurder_stmt_fetch_next(
 
     match result {
         Ok(query_result) => {
+            // Update last_rowid by extracting max _rowid from results
+            if !query_result.rows.is_empty() {
+                // Find _rowid column index
+                if let Some(rowid_idx) = query_result.columns.iter().position(|c| c == "_rowid") {
+                    if let Some(last_row) = query_result.rows.last() {
+                        if let Some(rowid_value) = last_row.values.get(rowid_idx) {
+                            if let absurder_sql::ColumnValue::Integer(rowid) = rowid_value {
+                                let mut stream_registry = STREAM_REGISTRY.lock();
+                                if let Some(stream) = stream_registry.get_mut(&stream_handle) {
+                                    stream.last_rowid = *rowid;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             // Serialize QueryResult to JSON then parse to extract rows
             let result_json = match serde_json::to_string(&query_result) {
                 Ok(j) => j,

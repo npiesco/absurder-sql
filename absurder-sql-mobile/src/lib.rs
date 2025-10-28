@@ -66,6 +66,10 @@ mod prepared_statement_ffi_test;
 mod streaming_api_test;
 
 #[cfg(test)]
+#[path = "__tests__/cursor_rowid_zero_test.rs"]
+mod cursor_rowid_zero_test;
+
+#[cfg(test)]
 #[path = "__tests__/registry_test.rs"]
 mod registry_test;
 

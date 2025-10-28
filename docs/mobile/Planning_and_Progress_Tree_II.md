@@ -1,16 +1,16 @@
 # Planning and Progress Tree II
 ## AbsurderSQL Mobile: Phase II Features
 
-**Version:** 2.3  
-**Last Updated:** October 26, 2025  
-**Status:** Phases 4.1-4.4 COMPLETE ✅ | Ready for Testing 🔄  
-**Completed:** UniFFI Core + iOS + Android + TypeScript (19 functions, 126 tests, full bindings) ✅  
-**Target Release:** v0.3.0 (UniFFI Migration)  
-**Next:** Testing & Validation → Legacy Code Removal
+**Version:** 2.4  
+**Last Updated:** October 27, 2025  
+**Status:** Phase 4.1 COMPLETE ✅ | Performance Optimization IN PROGRESS 🔄  
+**Completed:** UniFFI Core (19 functions, 126 tests) + Mobile Config Optimization ✅  
+**Target Release:** v0.3.0 (UniFFI Migration + Performance)  
+**Next:** Streaming Optimization → Index Helpers → iOS Bindings
 
 ---
 
-## 🎯 NEXT STEPS: Phase 4.2 - iOS Binding Generation
+## 🎯 CURRENT: Performance Optimization (October 27, 2025)
 
 **What Was Just Completed (Phase 4.1):**
 - ✅ All 19 UniFFI functions implemented with `#[uniffi::export]`
@@ -20,7 +20,30 @@
 - ✅ BLOB support in export/import
 - ✅ Zero regressions, zero TODOs, production-grade code
 
-**What's Next (Phase 4.2 - Starting Now):**
+**Performance Optimization Roadmap (IN PROGRESS):**
+
+### ✅ Step 1: Mobile-Optimized Database Config (COMPLETE)
+- [x] Add `DatabaseConfig::mobile_optimized()` to `src/types.rs`
+- [x] WAL mode, 20K cache, auto_vacuum
+- [x] 4 new tests in `tests/mobile_optimized_config_test.rs`
+- [x] All tests passing (cargo test, wasm-pack test)
+
+### 🔄 Step 2: Fix Streaming O(n²) Complexity (NEXT)
+- [ ] Update `StreamingStatement` in `absurder-sql-mobile/src/registry.rs`
+  - [ ] Add `last_rowid: i64` field
+- [ ] Modify `fetch_next()` in `absurder-sql-mobile/src/uniffi_api/core.rs`
+  - [ ] Replace `OFFSET` with `WHERE rowid > last_rowid`
+  - [ ] Track and update `last_rowid` on each fetch
+- [ ] Add regression test for cursor-based streaming
+- [ ] Benchmark improvement (expect 50-90% reduction in large query time)
+
+### ⏸️ Step 3: Index Creation Helpers (PLANNED)
+- [ ] Add `create_index()` function to core
+- [ ] Expose via UniFFI
+- [ ] Add benchmark showing JOIN improvement
+- [ ] Document index best practices
+
+**What's Next (Phase 4.2 - After Performance Work):**
 
 ### Step 1: Install uniffi-bindgen-react-native
 ```bash

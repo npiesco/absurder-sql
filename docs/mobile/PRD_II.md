@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD) - Phase II
 ## AbsurderSQL Mobile: React Native FFI Integration
 
-**Version:** 2.1  
-**Last Updated:** October 26, 2025  
-**Status:** Phase 4.1 COMPLETE (UniFFI Core), Phase 4.2 IN PROGRESS (iOS Bindings)  
-**Target Release:** v0.3.0 (UniFFI Migration)
+**Version:** 2.2  
+**Last Updated:** October 27, 2025  
+**Status:** Phase 4.1 COMPLETE (UniFFI Core), Performance Optimization IN PROGRESS  
+**Target Release:** v0.3.0 (UniFFI Migration + Performance)
 
 ---
 
@@ -32,8 +32,18 @@ Phase I (v0.1.0) successfully delivered core AbsurderSQL functionality to React 
 - ✅ Production-grade error handling
 - ✅ BLOB support in export/import
 
-**Phase 4.2 iOS Bindings (IN PROGRESS):**
-- 🔄 Generate Swift bindings with uniffi-bindgen-react-native
+**Performance Optimization (IN PROGRESS - October 27, 2025):**
+- ✅ Step 1: Mobile-optimized `DatabaseConfig` with WAL mode (COMPLETE)
+  - WAL mode for better concurrency
+  - 20K cache pages (~80MB) vs 10K default
+  - 4 new tests, all passing
+- 🔄 Step 2: Fix streaming O(n²) complexity (NEXT)
+  - Replace OFFSET with cursor-based pagination
+  - Expected 50-90% improvement on large queries
+- ⏳ Step 3: Index creation helpers for JOIN optimization
+
+**Phase 4.2 iOS Bindings (DEFERRED):**
+- ⏳ Generate Swift bindings with uniffi-bindgen-react-native
 - ⏳ Replace Objective-C bridge (616 lines → auto-generated)
 - ⏳ Test on iOS simulator
 - ⏳ Create Turbo Module registration

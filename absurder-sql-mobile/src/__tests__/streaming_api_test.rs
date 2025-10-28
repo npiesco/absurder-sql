@@ -25,8 +25,8 @@ fn test_streaming_statement_basic() {
     assert!(!create_result.is_null(), "Failed to create table");
     unsafe { absurder_free_string(create_result) };
 
-    // Insert 1000 rows
-    for i in 0..1000 {
+    // Insert 1000 rows (starting from 1 to match SQLite default rowid behavior)
+    for i in 1..=1000 {
         let insert_sql = CString::new(format!("INSERT INTO test_stream VALUES ({}, 'value{}')", i, i)).unwrap();
         let result = unsafe { absurder_db_execute(handle, insert_sql.as_ptr()) };
         assert!(!result.is_null(), "Failed to insert row {}", i);
@@ -86,8 +86,8 @@ fn test_streaming_statement_early_break() {
     assert!(!create_result.is_null());
     unsafe { absurder_free_string(create_result) };
 
-    // Insert 1000 rows
-    for i in 0..1000 {
+    // Insert 1000 rows (starting from 1 to match SQLite default rowid behavior)
+    for i in 1..=1000 {
         let insert_sql = CString::new(format!("INSERT INTO test_stream VALUES ({}, 'value{}')", i, i)).unwrap();
         let result = unsafe { absurder_db_execute(handle, insert_sql.as_ptr()) };
         assert!(!result.is_null());
@@ -196,8 +196,8 @@ fn test_streaming_statement_configurable_batch_size() {
     assert!(!create_result.is_null());
     unsafe { absurder_free_string(create_result) };
 
-    // Insert 500 rows
-    for i in 0..500 {
+    // Insert 500 rows (starting from 1 to match SQLite default rowid behavior)
+    for i in 1..=500 {
         let insert_sql = CString::new(format!("INSERT INTO test_stream VALUES ({}, 'value{}')", i, i)).unwrap();
         let result = unsafe { absurder_db_execute(handle, insert_sql.as_ptr()) };
         assert!(!result.is_null());

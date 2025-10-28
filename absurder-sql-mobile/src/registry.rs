@@ -26,10 +26,12 @@ pub struct PreparedStatementWrapper {
 
 /// Streaming statement wrapper for cursor-based iteration
 /// Stores the database handle and prepared SQL for on-demand execution
+/// Uses rowid-based cursor pagination for O(n) complexity instead of O(n²) OFFSET
+/// Note: Assumes rowids start >= 1 (SQLite default with AUTOINCREMENT)
 pub struct StreamingStatement {
     pub db_handle: u64,
     pub sql: String,
-    pub current_offset: usize,
+    pub last_rowid: i64,
 }
 
 /// Global database registry

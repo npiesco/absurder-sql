@@ -4,10 +4,14 @@
 /// using the #[uniffi::export] macro.
 
 use super::types::{DatabaseConfig, DatabaseError, QueryResult};
-use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME, ANDROID_DATA_DIR};
+use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
+#[cfg(target_os = "android")]
+use crate::registry::ANDROID_DATA_DIR;
 use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig, ColumnValue};
 use std::sync::Arc;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+use std::path::PathBuf;
 use parking_lot::Mutex;
 
 /// Resolve database path to an absolute path appropriate for the platform
@@ -852,7 +856,7 @@ pub fn prepare_stream(db_handle: u64, sql: String) -> Result<u64, DatabaseError>
     let stream = StreamingStatement {
         db_handle,
         sql: sql.clone(),
-        current_offset: 0,
+        last_rowid: 0, // Assumes rowids start >= 1 (SQLite default)
     };
     
     // Register stream
@@ -865,7 +869,8 @@ pub fn prepare_stream(db_handle: u64, sql: String) -> Result<u64, DatabaseError>
 
 /// Fetch next batch of rows from streaming statement
 /// 
-/// Fetches the next batch of rows from the stream using LIMIT/OFFSET pagination.
+/// Fetches the next batch of rows from the stream using cursor-based pagination (WHERE rowid > last_rowid).
+/// This provides O(n) complexity instead of O(n²) OFFSET pagination.
 /// Returns an empty result when no more rows are available.
 /// 
 /// # Arguments
@@ -887,19 +892,16 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
         });
     }
     
-    // Get stream from registry and update offset
-    let (db_handle, sql, offset) = {
-        let mut stream_registry = STREAM_REGISTRY.lock();
-        match stream_registry.get_mut(&stream_handle) {
+    // Get stream from registry
+    let (db_handle, sql, last_rowid) = {
+        let stream_registry = STREAM_REGISTRY.lock();
+        match stream_registry.get(&stream_handle) {
             Some(stream) => {
                 let db_handle = stream.db_handle;
                 let sql = stream.sql.clone();
-                let offset = stream.current_offset;
+                let last_rowid = stream.last_rowid;
                 
-                // Update offset for next fetch
-                stream.current_offset += batch_size as usize;
-                
-                (db_handle, sql, offset)
+                (db_handle, sql, last_rowid)
             }
             None => {
                 log::error!("UniFFI: Invalid stream handle: {}", stream_handle);
@@ -918,8 +920,47 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
             .clone()
     };
     
-    // Build paginated query
-    let paginated_sql = format!("{} LIMIT {} OFFSET {}", sql, batch_size, offset);
+    // Build cursor-based paginated query
+    // Inject rowid selection into original query, then apply cursor filtering
+    let paginated_sql = if last_rowid == 0 {
+        // First fetch: add rowid to selection
+        let with_rowid = if sql.trim().to_uppercase().starts_with("SELECT *") {
+            sql.replacen("SELECT *", "SELECT *, rowid as _rowid", 1)
+        } else if sql.trim().to_uppercase().starts_with("SELECT") {
+            let parts: Vec<&str> = sql.splitn(2, " FROM ").collect();
+            if parts.len() == 2 {
+                format!("{}, rowid as _rowid FROM {}", parts[0], parts[1])
+            } else {
+                sql.to_string()
+            }
+        } else {
+            sql.to_string()
+        };
+        format!("{} LIMIT {}", with_rowid, batch_size)
+    } else {
+        // Subsequent fetches: add rowid and cursor condition
+        let with_rowid = if sql.trim().to_uppercase().starts_with("SELECT *") {
+            sql.replacen("SELECT *", "SELECT *, rowid as _rowid", 1)
+        } else if sql.trim().to_uppercase().starts_with("SELECT") {
+            let parts: Vec<&str> = sql.splitn(2, " FROM ").collect();
+            if parts.len() == 2 {
+                format!("{}, rowid as _rowid FROM {}", parts[0], parts[1])
+            } else {
+                sql.to_string()
+            }
+        } else {
+            sql.to_string()
+        };
+        // Add WHERE clause for cursor
+        if with_rowid.to_uppercase().contains(" WHERE ") {
+            format!("{} AND rowid > {} LIMIT {}", with_rowid, last_rowid, batch_size)
+        } else if with_rowid.to_uppercase().contains(" ORDER BY") {
+            let parts: Vec<&str> = with_rowid.splitn(2, " ORDER BY ").collect();
+            format!("{} WHERE rowid > {} ORDER BY {} LIMIT {}", parts[0], last_rowid, parts[1], batch_size)
+        } else {
+            format!("{} WHERE rowid > {} LIMIT {}", with_rowid, last_rowid, batch_size)
+        }
+    };
     
     // Execute query
     let result = RUNTIME.block_on(async {
@@ -930,6 +971,24 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
     match result {
         Ok(query_result) => {
             log::info!("UniFFI: Fetched {} rows from stream {}", query_result.rows.len(), stream_handle);
+            
+            // Update last_rowid by extracting max _rowid from results
+            if !query_result.rows.is_empty() {
+                // Find _rowid column index
+                if let Some(rowid_idx) = query_result.columns.iter().position(|c| c == "_rowid") {
+                    if let Some(last_row) = query_result.rows.last() {
+                        if let Some(rowid_value) = last_row.values.get(rowid_idx) {
+                            use absurder_sql::ColumnValue;
+                            if let ColumnValue::Integer(rowid) = rowid_value {
+                                let mut stream_registry = STREAM_REGISTRY.lock();
+                                if let Some(stream) = stream_registry.get_mut(&stream_handle) {
+                                    stream.last_rowid = *rowid;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             // Convert rows to JSON strings
             let rows_json: Vec<String> = query_result.rows.iter()

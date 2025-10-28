@@ -1,10 +1,10 @@
 # Design Documentation II
 ## AbsurderSQL Mobile: Phase II Architecture
 
-**Version:** 2.2  
-**Last Updated:** October 26, 2025  
-**Status:** Phase 4.1 COMPLETE (UniFFI Core), Phase 4.2 IN PROGRESS (iOS Bindings)  
-**Target Release:** v0.3.0 (UniFFI Migration)
+**Version:** 2.3  
+**Last Updated:** October 27, 2025  
+**Status:** Phase 4.1 COMPLETE (UniFFI Core), Performance Optimization IN PROGRESS  
+**Target Release:** v0.3.0 (UniFFI Migration + Performance)
 
 ---
 
@@ -35,6 +35,79 @@
 - ✅ Zero regressions from existing FFI tests
 - ✅ Production-grade error handling throughout
 - ✅ Proper resource cleanup and memory management
+
+---
+
+## 🚧 Performance Optimization (IN PROGRESS - October 27, 2025)
+
+**Objective:** Improve mobile database performance through core optimizations
+
+**Status:** Step 1/3 COMPLETE
+
+### Performance Analysis
+
+**Platform Differences Observed:**
+- **Android:** 6.61x faster than react-native-sqlite-storage on INSERTs
+- **iOS:** 4.36x faster than react-native-sqlite-storage on INSERTs
+- **Gap:** Android performs ~50% better than iOS relative to competitors
+
+**Root Causes:**
+1. **Android Advantages:**
+   - Newer/faster JSI implementation
+   - Direct native file system access (`/data/data/`)
+   - System SQLite potentially better configured
+
+2. **iOS Challenges:**
+   - Higher JSI->Native transition costs
+   - File system sandboxing overhead
+   - Competitor libraries more iOS-optimized
+
+### Optimization Roadmap
+
+#### ✅ Step 1: Mobile-Optimized Database Config (COMPLETE)
+**File:** `src/types.rs`
+**Change:** Added `DatabaseConfig::mobile_optimized()` constructor
+
+**Optimizations:**
+- WAL mode (`journal_mode=WAL`) for better concurrency and crash recovery
+- 20K cache pages (~80MB) vs 10K default for improved read performance
+- Auto vacuum enabled for size management
+
+**Testing:** 4 new tests in `tests/mobile_optimized_config_test.rs`
+
+#### 🔄 Step 2: Fix Streaming O(n²) Complexity (PLANNED)
+**Problem:** Current implementation uses `LIMIT/OFFSET` pagination
+- Fetching 5000 rows in batches of 100 = 50 queries
+- Each query scans from start: Batch 1 scans 0 rows, Batch 50 scans 4900 rows
+- **Complexity:** O(n²) instead of O(n)
+
+**Solution:** Cursor-based pagination with rowid tracking
+```rust
+// Current (O(n²)):
+format!("{} LIMIT {} OFFSET {}", sql, batch_size, offset)
+
+// Planned (O(n)):
+format!("{} WHERE rowid > {} LIMIT {}", sql, last_rowid, batch_size)
+```
+
+**Files to modify:**
+- `absurder-sql-mobile/src/registry.rs` - Add `last_rowid` to `StreamingStatement`
+- `absurder-sql-mobile/src/uniffi_api/core.rs` - Update `fetch_next()` logic
+
+#### 🔄 Step 3: Index Creation Helpers (PLANNED)
+**Problem:** Complex JOINs lack proper indexes on foreign keys
+
+**Solution:** Add index creation API for mobile
+```rust
+// Planned API
+pub fn create_index(
+    db_handle: u64, 
+    table: String, 
+    columns: Vec<String>
+) -> Result<(), DatabaseError>
+```
+
+**Benefit:** Improves JOIN performance, especially for WatermelonDB comparisons
 
 ### What's Next: Phase 4.2 - iOS Binding Generation
 
