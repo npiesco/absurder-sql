@@ -1175,3 +1175,71 @@ pub fn rekey_database(handle: u64, new_key: String) -> Result<(), DatabaseError>
 pub fn get_uniffi_version() -> String {
     "0.29".to_string()
 }
+
+/// Create an index on a table for improved query performance
+/// 
+/// # Arguments
+/// * `handle` - Database handle from create_database()
+/// * `table` - Table name
+/// * `columns` - Comma-separated column names (e.g., "email" or "user_id,product_id")
+/// 
+/// # Returns
+/// * Ok(()) on success
+/// * Err(DatabaseError) on failure
+/// 
+/// # Index Naming
+/// Automatically generates index name as `idx_{table}_{columns}` where columns are joined with underscores
+/// 
+/// # Examples
+/// - Single column: `create_index(handle, "users", "email")` creates `idx_users_email`
+/// - Multiple columns: `create_index(handle, "orders", "user_id,product_id")` creates `idx_orders_user_id_product_id`
+#[uniffi::export]
+pub fn create_index(
+    handle: u64,
+    table: String,
+    columns: String,
+) -> Result<(), DatabaseError> {
+    // Validate inputs
+    if table.is_empty() {
+        return Err(DatabaseError::InvalidParameter {
+            message: "Table name cannot be empty".to_string(),
+        });
+    }
+
+    if columns.is_empty() {
+        return Err(DatabaseError::InvalidParameter {
+            message: "Column names cannot be empty".to_string(),
+        });
+    }
+
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        registry.get(&handle)
+            .ok_or(DatabaseError::NotFound {
+                message: format!("Database handle {} not found", handle),
+            })?
+            .clone()
+    };
+
+    // Generate index name: idx_{table}_{col1}_{col2}
+    let columns_normalized = columns.replace(",", "_").replace(" ", "");
+    let index_name = format!("idx_{}_{}", table, columns_normalized);
+
+    // Build CREATE INDEX SQL
+    let sql = format!(
+        "CREATE INDEX IF NOT EXISTS {} ON {} ({})",
+        index_name, table, columns
+    );
+
+    log::info!("UniFFI: Creating index: {}", sql);
+
+    // Execute CREATE INDEX
+    RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute(&sql).await
+    })?;
+
+    log::info!("UniFFI: Successfully created index: {}", index_name);
+    Ok(())
+}

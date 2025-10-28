@@ -75,6 +75,10 @@ mod cursor_rowid_zero_test;
 mod index_helpers_test;
 
 #[cfg(test)]
+#[path = "__tests__/uniffi_index_helpers_test.rs"]
+mod uniffi_index_helpers_test;
+
+#[cfg(test)]
 #[path = "__tests__/registry_test.rs"]
 mod registry_test;
 
