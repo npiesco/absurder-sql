@@ -107,8 +107,8 @@ export default function ComparisonBenchmark() {
     setRunning(true);
 
     const tests = [
-      {name: '1000 INSERTs (transaction)', count: 1000},
-      {name: '5000 INSERTs (transaction)', count: 5000},
+      {name: '5000 INSERTs (individual calls)', count: 5000},
+      {name: '5000 INSERTs (batched)', count: 5000},
       {name: '100 SELECT queries', count: 100},
       {name: '100 SELECTs (PreparedStatement)', count: 100},
       {name: 'Stream 5000 rows (batch 100)', count: 5000},
@@ -141,20 +141,20 @@ export default function ComparisonBenchmark() {
     try {
       let resultIndex = 0;
 
-      // Test 1: 1000 INSERTs (no transaction)
-      console.log('[Comparison] Test 1: 1000 INSERTs (no transaction)');
+      // Test 1: 5000 INSERTs (individual calls)
+      console.log('[Comparison] Test 1: 5000 INSERTs (individual calls)');
       updateResult(resultIndex, {status: 'running'});
-      const absurderTime1 = await benchmarkAbsurderInserts(1000);
+      const absurderTime1 = await benchmarkAbsurderInserts(5000);
       updateResult(resultIndex, {duration: absurderTime1, status: 'pass'});
       resultIndex++;
 
       updateResult(resultIndex, {status: 'running'});
-      const rnssTime1 = await benchmarkRNSSInserts(1000);
+      const rnssTime1 = await benchmarkRNSSInserts(5000);
       updateResult(resultIndex, {duration: rnssTime1, status: 'pass'});
       resultIndex++;
 
       updateResult(resultIndex, {status: 'running'});
-      const watermelonTime1 = await benchmarkWatermelonInserts(1000);
+      const watermelonTime1 = await benchmarkWatermelonInserts(5000);
       updateResult(resultIndex, {duration: watermelonTime1, status: watermelonTime1 > 0 ? 'pass' : 'fail'});
 
       // Mark winner among all three
@@ -170,8 +170,8 @@ export default function ComparisonBenchmark() {
       }
       resultIndex++;
 
-      // Test 2: 5000 INSERTs in transaction
-      console.log('[Comparison] Test 2: 5000 INSERTs (with transaction)');
+      // Test 2: 5000 INSERTs (batched)
+      console.log('[Comparison] Test 2: 5000 INSERTs (batched)');
       updateResult(resultIndex, {status: 'running'});
       const absurderTime2 = await benchmarkAbsurderTransactionInserts(5000);
       updateResult(resultIndex, {duration: absurderTime2, status: 'pass'});
@@ -360,7 +360,7 @@ export default function ComparisonBenchmark() {
     );
 
     const start = Date.now();
-    // Use transaction for individual INSERTs to make it fair vs RNSS
+    // Individual calls - transaction wrapping for fairness but each insert is a separate bridge call
     await AbsurderSQL.beginTransaction(handle);
     for (let i = 0; i < count; i++) {
       await AbsurderSQL.execute(
@@ -372,7 +372,7 @@ export default function ComparisonBenchmark() {
     const duration = Date.now() - start;
 
     await AbsurderSQL.close(handle);
-    console.log(`[AbsurderSQL] ${count} INSERTs: ${duration}ms`);
+    console.log(`[AbsurderSQL] ${count} INSERTs (individual calls): ${duration}ms`);
     return duration;
   };
 
@@ -573,16 +573,19 @@ export default function ComparisonBenchmark() {
     );
 
     const start = Date.now();
-    for (let i = 0; i < count; i++) {
-      await db.executeSql(
-        `INSERT INTO test_data VALUES (?, ?)`,
-        [i, `test_value_${i}`],
-      );
-    }
+    // Individual calls - each insert is a separate bridge call (wrapped in transaction for consistency)
+    await db.transaction(tx => {
+      for (let i = 0; i < count; i++) {
+        tx.executeSql(
+          `INSERT INTO test_data VALUES (?, ?)`,
+          [i, `test_value_${i}`],
+        );
+      }
+    });
     const duration = Date.now() - start;
 
     await db.close();
-    console.log(`[RNSS] ${count} INSERTs: ${duration}ms`);
+    console.log(`[RNSS] ${count} INSERTs (individual calls): ${duration}ms`);
     return duration;
   };
 
@@ -802,15 +805,18 @@ export default function ComparisonBenchmark() {
       });
 
       const start = Date.now();
-      // Insert records one by one (no batch optimization)
+      // Individual calls - simulate what other libraries do (transaction wrapper, individual executions)
+      const sqls: Array<[string, any[]]> = [];
       for (let i = 0; i < count; i++) {
-        await database.adapter.unsafeExecute({
-          sqls: [[`INSERT INTO test_data (value) VALUES (?)`, [`test_value_${i}`]]],
-        });
+        sqls.push([`INSERT INTO test_data (value) VALUES (?)`, [`test_value_${i}`]]);
+      }
+      // Execute one by one to match the pattern of individual bridge calls
+      for (const sql of sqls) {
+        await database.adapter.unsafeExecute({sqls: [sql]});
       }
       const duration = Date.now() - start;
 
-      console.log(`[WatermelonDB] ${count} INSERTs: ${duration}ms`);
+      console.log(`[WatermelonDB] ${count} INSERTs (individual calls): ${duration}ms`);
       return duration;
     } catch (error) {
       console.error('[WatermelonDB] Insert benchmark error:', error);
