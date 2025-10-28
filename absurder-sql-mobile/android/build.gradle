@@ -51,7 +51,7 @@ def supportsNamespace() {
 
 android {
   if (supportsNamespace()) {
-    namespace "com.absurdersql"
+    namespace "com.absurdersqlmobile"
 
     sourceSets {
       main {
@@ -139,6 +139,6 @@ if (isNewArchitectureEnabled()) {
   react {
     jsRootDir = file("../src/")
     libraryName = "AbsurderSql"
-    codegenJavaPackageName = "com.absurdersql"
+    codegenJavaPackageName = "com.absurdersqlmobile"
   }
 }

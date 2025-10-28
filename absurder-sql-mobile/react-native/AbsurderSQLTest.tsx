@@ -48,15 +48,20 @@ export default function AbsurderSQLTest() {
   };
 
   const runTests = async () => {
+    console.log('[TEST] runTests started');
     setRunning(true);
     let database: AbsurderDatabase | null = null;
 
     try {
       // Test 1: Database Creation
+      console.log('[TEST] Starting Database Creation test');
       updateTest(0, { status: 'running' });
       const start1 = Date.now();
+      console.log('[TEST] Creating AbsurderDatabase instance');
       database = new AbsurderDatabase('test_rn.db');
+      console.log('[TEST] Database instance created, calling open()');
       await database.open();
+      console.log('[TEST] Database opened successfully');
       const duration1 = Date.now() - start1;
 
       setDb(database);
@@ -200,6 +205,7 @@ export default function AbsurderSQLTest() {
       setDb(null);
 
       // Test 10: Encrypted Database Creation
+      console.log('[TEST] Starting Encrypted Database Creation test');
       updateTest(9, { status: 'running' });
       const start10 = Date.now();
       const timestamp = Date.now();
@@ -207,11 +213,18 @@ export default function AbsurderSQLTest() {
       let encryptedDb: AbsurderDatabase;
 
       try {
+        const dbName = `encrypted_test_${timestamp}.db`;
+        console.log('[TEST] Creating encrypted database with name:', dbName);
+        console.log('[TEST] Encryption key:', encryptionKey);
+        console.log('[TEST] Full config:', JSON.stringify({ name: dbName, encryption: { key: encryptionKey } }));
+        
         encryptedDb = new AbsurderDatabase({
-          name: `encrypted_test_${timestamp}.db`,
+          name: dbName,
           encryption: { key: encryptionKey }
         });
+        console.log('[TEST] Encrypted database instance created, calling open()');
         await encryptedDb.open();
+        console.log('[TEST] Encrypted database opened successfully');
         const duration10 = Date.now() - start10;
 
         updateTest(9, {
@@ -220,6 +233,8 @@ export default function AbsurderSQLTest() {
           duration: duration10,
         });
       } catch (error) {
+        console.error('[TEST] Encrypted DB creation error:', error);
+        console.error('[TEST] Error details:', JSON.stringify(error, null, 2));
         const duration10 = Date.now() - start10;
         updateTest(9, {
           status: 'failed',
@@ -344,6 +359,7 @@ export default function AbsurderSQLTest() {
         });
       }
     } catch (error) {
+      console.error('[TEST] Error in runTests:', error);
       const failedIndex = tests.findIndex((t) => t.status === 'running');
       if (failedIndex >= 0) {
         updateTest(failedIndex, {
@@ -352,6 +368,7 @@ export default function AbsurderSQLTest() {
         });
       }
     } finally {
+      console.log('[TEST] runTests finished');
       setRunning(false);
     }
   };

@@ -4,10 +4,51 @@
 /// using the #[uniffi::export] macro.
 
 use super::types::{DatabaseConfig, DatabaseError, QueryResult};
-use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
+use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME, ANDROID_DATA_DIR};
 use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig, ColumnValue};
 use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use parking_lot::Mutex;
+
+/// Resolve database path to an absolute path appropriate for the platform
+/// 
+/// - Android: Resolves relative paths to /data/data/{package}/files/databases/
+/// - iOS: Resolves relative paths to ~/Documents/
+/// - Other: Returns path as-is (may be relative)
+pub fn resolve_db_path(path: &str) -> String {
+    // If already absolute, return as-is
+    if path.starts_with('/') {
+        return path.to_string();
+    }
+    
+    // Platform-specific resolution for relative paths
+    #[cfg(target_os = "android")]
+    {
+        let android_dir = ANDROID_DATA_DIR.lock();
+        if let Some(ref base_dir) = *android_dir {
+            let databases_dir = PathBuf::from(base_dir).join("databases");
+            let full_path = databases_dir.join(path);
+            return full_path.to_string_lossy().to_string();
+        } else {
+            log::warn!("Android data directory not set! Relative path will not be resolved: {}", path);
+            log::warn!("Call AbsurderSqlInitializer.initialize() before creating databases");
+            return path.to_string();
+        }
+    }
+    
+    #[cfg(target_os = "ios")]
+    {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let docs = PathBuf::from(home).join("Documents").join(path);
+        return docs.to_string_lossy().to_string();
+    }
+    
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        // Desktop platforms: keep relative paths as-is
+        path.to_string()
+    }
+}
 
 /// Create a new database and return a handle
 /// 
@@ -23,26 +64,20 @@ use parking_lot::Mutex;
 pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
     log::info!("UniFFI: Creating database: {}", config.name);
     
-    // Resolve path - if relative, make it relative to app documents directory
-    let resolved_path = if config.name.starts_with('/') {
-        config.name.clone()
-    } else {
-        // On iOS, use NSSearchPathForDirectoriesInDomains equivalent
-        #[cfg(target_os = "ios")]
-        {
-            use std::path::PathBuf;
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let docs = PathBuf::from(home).join("Documents").join(&config.name);
-            docs.to_string_lossy().to_string()
-        }
-        
-        #[cfg(not(target_os = "ios"))]
-        {
-            config.name.clone()
-        }
-    };
+    // Resolve path using platform-specific logic
+    let resolved_path = resolve_db_path(&config.name);
     
     log::info!("UniFFI: Resolved database path: {}", resolved_path);
+    
+    // Ensure parent directory exists (especially for Android databases directory)
+    if let Some(parent) = Path::new(&resolved_path).parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            log::error!("Failed to create parent directory {:?}: {}", parent, e);
+            return Err(DatabaseError::SqlError {
+                message: format!("Failed to create directory: {}", e),
+            });
+        }
+    }
     
     // Create core database config
     let core_config = CoreDatabaseConfig {
@@ -334,23 +369,8 @@ pub fn rollback(handle: u64) -> Result<(), DatabaseError> {
 pub async fn export_database_async(handle: u64, path: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Async exporting database handle {} to {}", handle, path);
     
-    // Resolve path - if relative, use iOS Documents directory
-    let resolved_path = if path.starts_with('/') {
-        path
-    } else {
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
-        {
-            use std::path::PathBuf;
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let docs = PathBuf::from(home).join("Documents").join(&path);
-            docs.to_string_lossy().to_string()
-        }
-        
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-        {
-            path
-        }
-    };
+    // Resolve path using platform-specific logic
+    let resolved_path = resolve_db_path(&path);
     
     log::info!("UniFFI: Resolved export path to: {}", resolved_path);
     
@@ -402,23 +422,8 @@ pub async fn export_database_async(handle: u64, path: String) -> Result<(), Data
 pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Exporting database handle {} to {}", handle, path);
     
-    // Resolve path - if relative, use iOS Documents directory
-    let resolved_path = if path.starts_with('/') {
-        path
-    } else {
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
-        {
-            use std::path::PathBuf;
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let docs = PathBuf::from(home).join("Documents").join(&path);
-            docs.to_string_lossy().to_string()
-        }
-        
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-        {
-            path
-        }
-    };
+    // Resolve path using platform-specific logic
+    let resolved_path = resolve_db_path(&path);
     
     log::info!("UniFFI: Resolved export path to: {}", resolved_path);
     
@@ -477,24 +482,8 @@ pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
 pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Importing database from {} to handle {}", path, handle);
     
-    // Resolve path - if relative, use iOS Documents directory
-    let resolved_path = if path.starts_with('/') {
-        path
-    } else {
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
-        {
-            use std::path::PathBuf;
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let docs = PathBuf::from(home).join("Documents").join(&path);
-            docs.to_string_lossy().to_string()
-        }
-        
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-        {
-            path
-        }
-    };
-    
+    // Resolve path using platform-specific logic
+    let resolved_path = resolve_db_path(&path);
     log::info!("UniFFI: Resolved import path to: {}", resolved_path);
     
     // Get database from registry
@@ -1025,26 +1014,20 @@ pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Da
         });
     }
     
-    // Resolve path - if relative, make it relative to app documents directory
-    let resolved_path = if config.name.starts_with('/') {
-        config.name.clone()
-    } else {
-        // On iOS, use NSSearchPathForDirectoriesInDomains equivalent
-        #[cfg(target_os = "ios")]
-        {
-            use std::path::PathBuf;
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let docs = PathBuf::from(home).join("Documents").join(&config.name);
-            docs.to_string_lossy().to_string()
-        }
-        
-        #[cfg(not(target_os = "ios"))]
-        {
-            config.name.clone()
-        }
-    };
+    // Resolve path using platform-specific logic
+    let resolved_path = resolve_db_path(&config.name);
     
     log::info!("UniFFI: Resolved encrypted database path: {}", resolved_path);
+    
+    // Ensure parent directory exists (especially for Android databases directory)
+    if let Some(parent) = Path::new(&resolved_path).parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            log::error!("Failed to create parent directory {:?}: {}", parent, e);
+            return Err(DatabaseError::SqlError {
+                message: format!("Failed to create directory: {}", e),
+            });
+        }
+    }
     
     // Create core database config
     let core_config = CoreDatabaseConfig {

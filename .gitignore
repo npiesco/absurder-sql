@@ -40,12 +40,21 @@ absurder-sql-mobile/build/
 absurder-sql-mobile/lib/
 absurder-sql-mobile/test_json_output.rs
 
+# React Native
+absurder-sql-mobile/react-native/android/app/src/main/assets/index.android.bundle
+absurder-sql-mobile/react-native/android/app/src/main/res/drawable-*
+absurder-sql-mobile/react-native/android/app/src/main/res/raw/
+
 # Android
 absurder-sql-mobile/android/.gradle/
 absurder-sql-mobile/android/build/
+absurder-sql-mobile/android/.cxx/
 absurder-sql-mobile/android/local.properties
 absurder-sql-mobile/android/gradle.properties
 absurder-sql-mobile/android/src/main/jniLibs/
+absurder-sql-mobile/android/cpp-adapter.cpp
+absurder-sql-mobile/android/cpp-initializer.cpp
+absurder-sql-mobile/android/CMakeLists.txt
 
 # iOS
 absurder-sql-mobile/ios/Pods/

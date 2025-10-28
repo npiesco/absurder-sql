@@ -71,6 +71,36 @@ pub static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("Failed to create Tokio runtime")
 });
 
+/// Android data directory path (set during initialization)
+/// On Android, this is typically "/data/data/{package}/files"
+pub static ANDROID_DATA_DIR: Lazy<Mutex<Option<String>>> = Lazy::new(|| {
+    Mutex::new(None)
+});
+
+/// Set the Android data directory path
+/// This function is called from JNI during app initialization
+#[unsafe(no_mangle)]
+pub extern "C" fn absurdersql_set_android_data_directory(path: *const std::os::raw::c_char) -> bool {
+    if path.is_null() {
+        log::error!("absurdersql_set_android_data_directory: received null path");
+        return false;
+    }
+    
+    let c_str = unsafe { std::ffi::CStr::from_ptr(path) };
+    match c_str.to_str() {
+        Ok(path_str) => {
+            let mut dir = ANDROID_DATA_DIR.lock();
+            *dir = Some(path_str.to_string());
+            log::info!("Android data directory set to: {}", path_str);
+            true
+        }
+        Err(e) => {
+            log::error!("Failed to convert Android data directory path to string: {}", e);
+            false
+        }
+    }
+}
+
 // Thread-local storage for the last error message
 // This allows each thread to have its own error state without requiring synchronization
 thread_local! {

@@ -3,7 +3,7 @@
  * Integration testing for AbsurderSQL mobile library
  */
 
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   StatusBar,
   StyleSheet,
@@ -11,6 +11,8 @@ import {
   View,
   TouchableOpacity,
   Text,
+  Platform,
+  NativeModules,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 
@@ -18,9 +20,39 @@ import AbsurderSQLTest from './AbsurderSQLTest';
 import AbsurderSQLBenchmark from './AbsurderSQLBenchmark';
 import ComparisonBenchmark from './ComparisonBenchmark';
 
+const {AbsurderSqlInitializer} = NativeModules;
+
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
   const [screen, setScreen] = useState<'tests' | 'benchmarks' | 'comparison'>('tests');
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    // Initialize Android paths
+    if (Platform.OS === 'android' && AbsurderSqlInitializer) {
+      console.log('[APP] Initializing Android data directory...');
+      AbsurderSqlInitializer.initialize()
+        .then(() => {
+          console.log('[APP] Android initialization successful');
+          setInitialized(true);
+        })
+        .catch((error: Error) => {
+          console.error('[APP] Android initialization failed:', error);
+          setInitialized(true); // Continue anyway to show error in UI
+        });
+    } else {
+      // iOS or other platforms don't need explicit initialization
+      setInitialized(true);
+    }
+  }, []);
+
+  if (!initialized) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.loadingText}>Initializing...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -69,6 +101,13 @@ function App(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingText: {
+    flex: 1,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    fontSize: 16,
+    color: '#666',
   },
   nav: {
     flexDirection: 'row',

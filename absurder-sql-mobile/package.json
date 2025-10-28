@@ -10,9 +10,10 @@
     "test": "jest",
     "prepare": "tsc",
     "ubrn:ios": "ubrn build ios --and-generate",
-    "ubrn:android": "ubrn build android --and-generate",
+    "ubrn:android": "ubrn build android --and-generate && python3 scripts/fix_cpp_adapter.py",
     "ubrn:bindings": "ubrn generate --all-platforms",
-    "ubrn:clean": "rm -rfv cpp/ android/generated/ ios/generated/ src/generated/"
+    "ubrn:clean": "rm -rfv cpp/ android/generated/ ios/generated/ src/generated/",
+    "fix:cpp-adapter": "python3 scripts/fix_cpp_adapter.py"
   },
   "keywords": [
     "sqlite",
@@ -36,7 +37,7 @@
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "com.absurdersql"
+      "javaPackageName": "com.absurdersqlmobile"
     },
     "ios": {}
   },

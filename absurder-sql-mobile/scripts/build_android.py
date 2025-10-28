@@ -63,13 +63,16 @@ def build_android():
     
     # Configuration
     project_dir = Path(__file__).parent.parent
-    lib_name = "libabsurder_sql_mobile.so"
+    lib_name = "libabsurder_sql_mobile.a"
     jnilibs_dir = project_dir / "android" / "src" / "main" / "jniLibs"
     
     # Target architectures mapping: Rust target -> Android ABI
     targets = [
         ("aarch64-linux-android", "arm64-v8a", "📱 ARM64"),
         ("x86_64-linux-android", "x86_64", "💻 x86_64 emulator"),
+        # Note: armv7 and x86 disabled due to OpenSSL build issues
+        # ("armv7-linux-androideabi", "armeabi-v7a", "📱 ARMv7"),
+        # ("i686-linux-android", "x86", "💻 x86 emulator"),
     ]
     
     # Clean jniLibs directory
@@ -82,7 +85,7 @@ def build_android():
         print(f"{Colors.YELLOW}{description} ({rust_target} -> {android_abi})...{Colors.END}")
         
         exit_code, output = run_command(
-            ["cargo", "build", "--release", "--no-default-features", "--features", "fs_persist,encryption", f"--target={rust_target}"],
+            ["cargo", "build", "--release", "--no-default-features", "--features", "uniffi-bindings", f"--target={rust_target}"],
             cwd=project_dir
         )
         
