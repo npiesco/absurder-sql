@@ -331,3 +331,115 @@ pub unsafe extern "C" fn absurder_db_execute_with_params(
         }
     }
 }
+
+/// Create an index on a table for improved query performance
+/// 
+/// # Arguments
+/// * `handle` - Database handle returned from `absurder_db_new()`
+/// * `table` - Table name (null-terminated C string)
+/// * `columns` - Comma-separated column names (null-terminated C string), e.g., "email" or "user_id,product_id"
+/// 
+/// # Returns
+/// * 0 on success
+/// * -1 on error (check `absurder_get_error()` for details)
+/// 
+/// # Index Naming
+/// Automatically generates index name as `idx_{table}_{columns}` where columns are joined with underscores
+/// 
+/// # Examples
+/// Single column: `absurder_create_index(handle, "users", "email")` creates `idx_users_email`
+/// Multiple columns: `absurder_create_index(handle, "orders", "user_id,product_id")` creates `idx_orders_user_id_product_id`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn absurder_create_index(
+    handle: u64,
+    table: *const c_char,
+    columns: *const c_char,
+) -> i32 {
+    // Validate inputs
+    if handle == 0 {
+        let err = "Invalid database handle: 0";
+        log::error!("absurder_create_index: {}", err);
+        set_last_error(err.to_string());
+        return -1;
+    }
+
+    if table.is_null() {
+        let err = "Table name pointer is null";
+        log::error!("absurder_create_index: {}", err);
+        set_last_error(err.to_string());
+        return -1;
+    }
+
+    if columns.is_null() {
+        let err = "Columns pointer is null";
+        log::error!("absurder_create_index: {}", err);
+        set_last_error(err.to_string());
+        return -1;
+    }
+
+    // Convert C strings to Rust strings
+    let table_str = match unsafe { CStr::from_ptr(table) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            let err = format!("Invalid UTF-8 in table name: {}", e);
+            log::error!("absurder_create_index: {}", err);
+            set_last_error(err);
+            return -1;
+        }
+    };
+
+    let columns_str = match unsafe { CStr::from_ptr(columns) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            let err = format!("Invalid UTF-8 in columns: {}", e);
+            log::error!("absurder_create_index: {}", err);
+            set_last_error(err);
+            return -1;
+        }
+    };
+
+    // Generate index name: idx_{table}_{col1}_{col2}
+    let columns_normalized = columns_str.replace(",", "_").replace(" ", "");
+    let index_name = format!("idx_{}_{}", table_str, columns_normalized);
+
+    // Build CREATE INDEX SQL
+    let sql = format!(
+        "CREATE INDEX IF NOT EXISTS {} ON {} ({})",
+        index_name, table_str, columns_str
+    );
+
+    log::info!("Creating index: {}", sql);
+
+    // Get database from registry
+    let db_arc = {
+        let registry = DB_REGISTRY.lock();
+        match registry.get(&handle) {
+            Some(db) => db.clone(),
+            None => {
+                let err = format!("Database handle {} not found", handle);
+                log::error!("absurder_create_index: {}", err);
+                set_last_error(err);
+                return -1;
+            }
+        }
+    };
+
+    // Execute CREATE INDEX
+    let result = RUNTIME.block_on(async {
+        let mut db = db_arc.lock();
+        db.execute(&sql).await
+    });
+
+    match result {
+        Ok(_) => {
+            log::info!("Successfully created index: {}", index_name);
+            0
+        }
+        Err(e) => {
+            let err = format!("Failed to create index: {}", e);
+            log::error!("absurder_create_index: {}", err);
+            set_last_error(err);
+            -1
+        }
+    }
+}

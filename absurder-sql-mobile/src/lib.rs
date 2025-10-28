@@ -23,6 +23,7 @@ pub use ffi::core::{
     absurder_db_close,
     absurder_free_string,
     absurder_get_error,
+    absurder_create_index,
 };
 
 // Re-export transaction FFI functions
@@ -68,6 +69,10 @@ mod streaming_api_test;
 #[cfg(test)]
 #[path = "__tests__/cursor_rowid_zero_test.rs"]
 mod cursor_rowid_zero_test;
+
+#[cfg(test)]
+#[path = "__tests__/index_helpers_test.rs"]
+mod index_helpers_test;
 
 #[cfg(test)]
 #[path = "__tests__/registry_test.rs"]
