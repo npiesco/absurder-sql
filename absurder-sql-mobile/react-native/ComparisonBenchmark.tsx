@@ -107,7 +107,7 @@ export default function ComparisonBenchmark() {
     setRunning(true);
 
     const tests = [
-      {name: '5000 INSERTs (individual calls)', count: 5000},
+      {name: '1000 INSERTs (individual calls)', count: 1000},
       {name: '5000 INSERTs (batched)', count: 5000},
       {name: '100 SELECT queries', count: 100},
       {name: '100 SELECTs (PreparedStatement)', count: 100},
@@ -141,20 +141,20 @@ export default function ComparisonBenchmark() {
     try {
       let resultIndex = 0;
 
-      // Test 1: 5000 INSERTs (individual calls)
-      console.log('[Comparison] Test 1: 5000 INSERTs (individual calls)');
+      // Test 1: 1000 INSERTs (individual calls)
+      console.log('[Comparison] Test 1: 1000 INSERTs (individual calls)');
       updateResult(resultIndex, {status: 'running'});
-      const absurderTime1 = await benchmarkAbsurderInserts(5000);
+      const absurderTime1 = await benchmarkAbsurderInserts(1000);
       updateResult(resultIndex, {duration: absurderTime1, status: 'pass'});
       resultIndex++;
 
       updateResult(resultIndex, {status: 'running'});
-      const rnssTime1 = await benchmarkRNSSInserts(5000);
+      const rnssTime1 = await benchmarkRNSSInserts(1000);
       updateResult(resultIndex, {duration: rnssTime1, status: 'pass'});
       resultIndex++;
 
       updateResult(resultIndex, {status: 'running'});
-      const watermelonTime1 = await benchmarkWatermelonInserts(5000);
+      const watermelonTime1 = await benchmarkWatermelonInserts(1000);
       updateResult(resultIndex, {duration: watermelonTime1, status: watermelonTime1 > 0 ? 'pass' : 'fail'});
 
       // Mark winner among all three
