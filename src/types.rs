@@ -53,6 +53,37 @@ impl Default for DatabaseConfig {
         }
     }
 }
+
+impl DatabaseConfig {
+    /// Create mobile-optimized database configuration
+    /// 
+    /// Optimizations:
+    /// - WAL mode: Better concurrency, crash recovery, and write performance
+    /// - Larger cache: 20K pages (~80MB with 4KB pages) for better read performance
+    /// - 4KB pages: Optimal for mobile storage
+    /// - Auto vacuum: Keeps database size manageable
+    /// 
+    /// Use this for React Native, Flutter, or other mobile applications.
+    /// 
+    /// # Examples
+    /// ```
+    /// use absurder_sql::types::DatabaseConfig;
+    /// 
+    /// let config = DatabaseConfig::mobile_optimized("myapp.db");
+    /// assert_eq!(config.journal_mode, Some("WAL".to_string()));
+    /// ```
+    pub fn mobile_optimized(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: Some(1),
+            cache_size: Some(20_000), // ~80MB cache with 4KB pages
+            page_size: Some(4096),
+            auto_vacuum: Some(true),
+            journal_mode: Some("WAL".to_string()), // WAL for mobile performance
+            max_export_size_bytes: Some(2 * 1024 * 1024 * 1024),
+        }
+    }
+}
 // Query result types with proper TypeScript mapping
 #[derive(Tsify, Serialize, Deserialize, Debug)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
