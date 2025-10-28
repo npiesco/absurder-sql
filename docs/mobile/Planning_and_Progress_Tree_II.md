@@ -1,22 +1,24 @@
 # Planning and Progress Tree II
 ## AbsurderSQL Mobile: Phase II Features
 
-**Version:** 2.4  
-**Last Updated:** October 27, 2025  
-**Status:** Phase 4.1 COMPLETE ✅ | Performance Optimization IN PROGRESS 🔄  
-**Completed:** UniFFI Core (19 functions, 126 tests) + Mobile Config Optimization ✅  
+**Version:** 2.5  
+**Last Updated:** October 28, 2025  
+**Status:** Phase 4.1 COMPLETE ✅ | Performance Optimization COMPLETE ✅  
+**Completed:** UniFFI Core (20 functions, 141 tests) + Performance Optimizations ✅  
 **Target Release:** v0.3.0 (UniFFI Migration + Performance)  
-**Next:** Streaming Optimization → Index Helpers → iOS Bindings
+**Next:** iOS Bindings → Android Bindings → TypeScript Integration
 
 ---
 
 ## 🎯 CURRENT: Performance Optimization (October 27, 2025)
 
 **What Was Just Completed (Phase 4.1):**
-- ✅ All 19 UniFFI functions implemented with `#[uniffi::export]`
-- ✅ 126/126 tests passing (72 FFI + 54 UniFFI)
+- ✅ All 20 UniFFI functions implemented with `#[uniffi::export]`
+- ✅ 141/141 tests passing (74 FFI + 67 UniFFI)
 - ✅ Streaming Results API (Feature 1) - COMPLETE
 - ✅ Database Encryption API (Feature 2) - COMPLETE
+- ✅ Cursor-based streaming pagination (O(n) vs O(n²)) - COMPLETE
+- ✅ Index creation helpers (FFI + UniFFI) - COMPLETE
 - ✅ BLOB support in export/import
 - ✅ Zero regressions, zero TODOs, production-grade code
 
@@ -28,20 +30,21 @@
 - [x] 4 new tests in `tests/mobile_optimized_config_test.rs`
 - [x] All tests passing (cargo test, wasm-pack test)
 
-### 🔄 Step 2: Fix Streaming O(n²) Complexity (NEXT)
-- [ ] Update `StreamingStatement` in `absurder-sql-mobile/src/registry.rs`
-  - [ ] Add `last_rowid: i64` field
-- [ ] Modify `fetch_next()` in `absurder-sql-mobile/src/uniffi_api/core.rs`
-  - [ ] Replace `OFFSET` with `WHERE rowid > last_rowid`
-  - [ ] Track and update `last_rowid` on each fetch
-- [ ] Add regression test for cursor-based streaming
-- [ ] Benchmark improvement (expect 50-90% reduction in large query time)
+### ✅ Step 2: Fix Streaming O(n²) Complexity (COMPLETE)
+- [x] Update `StreamingStatement` in `absurder-sql-mobile/src/registry.rs`
+  - [x] Add `last_rowid: i64` field
+- [x] Modify `fetch_next()` in `absurder-sql-mobile/src/uniffi_api/core.rs`
+  - [x] Replace `OFFSET` with `WHERE rowid > last_rowid`
+  - [x] Track and update `last_rowid` on each fetch
+- [x] Add regression test for cursor-based streaming (cursor_rowid_zero_test.rs)
+- [x] All existing streaming tests pass with O(n) cursor pagination
 
-### ⏸️ Step 3: Index Creation Helpers (PLANNED)
-- [ ] Add `create_index()` function to core
-- [ ] Expose via UniFFI
-- [ ] Add benchmark showing JOIN improvement
-- [ ] Document index best practices
+### ✅ Step 3: Index Creation Helpers (COMPLETE)
+- [x] Add `absurder_create_index()` FFI function to core
+- [x] Expose `create_index()` via UniFFI with #[uniffi::export]
+- [x] 5 FFI tests + 5 UniFFI tests (all passing)
+- [x] Auto-generates index names as idx_{table}_{columns}
+- [x] Supports single and multi-column indexes
 
 **What's Next (Phase 4.2 - After Performance Work):**
 

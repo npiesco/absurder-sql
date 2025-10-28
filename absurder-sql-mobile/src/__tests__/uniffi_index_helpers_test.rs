@@ -1,9 +1,13 @@
+#[cfg(feature = "uniffi-bindings")]
 use serial_test::serial;
+#[cfg(feature = "uniffi-bindings")]
 use crate::uniffi_api::core::*;
+#[cfg(feature = "uniffi-bindings")]
 use crate::uniffi_api::types::*;
+#[cfg(feature = "uniffi-bindings")]
 use crate::registry::RUNTIME;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "uniffi-bindings"))]
 mod uniffi_index_helpers_tests {
     use super::*;
     use std::thread;

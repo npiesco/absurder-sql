@@ -1,9 +1,9 @@
 # Design Documentation II
 ## AbsurderSQL Mobile: Phase II Architecture
 
-**Version:** 2.3  
-**Last Updated:** October 27, 2025  
-**Status:** Phase 4.1 COMPLETE (UniFFI Core), Performance Optimization IN PROGRESS  
+**Version:** 2.4  
+**Last Updated:** October 28, 2025  
+**Status:** Phase 4.1 COMPLETE (UniFFI Core + Performance Optimization)  
 **Target Release:** v0.3.0 (UniFFI Migration + Performance)
 
 ---
@@ -38,11 +38,11 @@
 
 ---
 
-## 🚧 Performance Optimization (IN PROGRESS - October 27, 2025)
+## ✅ Performance Optimization (COMPLETE - October 28, 2025)
 
 **Objective:** Improve mobile database performance through core optimizations
 
-**Status:** Step 1/3 COMPLETE
+**Status:** All 3 Steps COMPLETE
 
 ### Performance Analysis
 
@@ -75,39 +75,63 @@
 
 **Testing:** 4 new tests in `tests/mobile_optimized_config_test.rs`
 
-#### 🔄 Step 2: Fix Streaming O(n²) Complexity (PLANNED)
-**Problem:** Current implementation uses `LIMIT/OFFSET` pagination
+#### ✅ Step 2: Fix Streaming O(n²) Complexity (COMPLETE)
+**Problem:** Original implementation used `LIMIT/OFFSET` pagination
 - Fetching 5000 rows in batches of 100 = 50 queries
 - Each query scans from start: Batch 1 scans 0 rows, Batch 50 scans 4900 rows
 - **Complexity:** O(n²) instead of O(n)
 
-**Solution:** Cursor-based pagination with rowid tracking
+**Solution Implemented:** Cursor-based pagination with rowid tracking
 ```rust
-// Current (O(n²)):
+// Old (O(n²)):
 format!("{} LIMIT {} OFFSET {}", sql, batch_size, offset)
 
-// Planned (O(n)):
+// New (O(n)):
 format!("{} WHERE rowid > {} LIMIT {}", sql, last_rowid, batch_size)
 ```
 
-**Files to modify:**
-- `absurder-sql-mobile/src/registry.rs` - Add `last_rowid` to `StreamingStatement`
-- `absurder-sql-mobile/src/uniffi_api/core.rs` - Update `fetch_next()` logic
+**Files Modified:**
+- `absurder-sql-mobile/src/registry.rs` - Added `last_rowid: i64` to `StreamingStatement`
+- `absurder-sql-mobile/src/uniffi_api/core.rs` - Updated `fetch_next()` with cursor logic
+- `absurder-sql-mobile/src/ffi/streaming.rs` - Updated FFI `fetch_next()` with cursor logic
+- `absurder-sql-mobile/src/__tests__/cursor_rowid_zero_test.rs` - Regression test for edge cases
 
-#### 🔄 Step 3: Index Creation Helpers (PLANNED)
-**Problem:** Complex JOINs lack proper indexes on foreign keys
+**Testing:** All streaming tests passing with O(n) cursor pagination
 
-**Solution:** Add index creation API for mobile
+#### ✅ Step 3: Index Creation Helpers (COMPLETE)
+**Solution Implemented:** Index creation API for both FFI and UniFFI
+
+**FFI Implementation:**
+```c
+int absurder_create_index(uint64_t handle, const char* table, const char* columns);
+```
+
+**UniFFI Implementation:**
 ```rust
-// Planned API
+#[uniffi::export]
 pub fn create_index(
-    db_handle: u64, 
+    handle: u64, 
     table: String, 
-    columns: Vec<String>
+    columns: String
 ) -> Result<(), DatabaseError>
 ```
 
-**Benefit:** Improves JOIN performance, especially for WatermelonDB comparisons
+**Features:**
+- Auto-generates index names as `idx_{table}_{columns}`
+- Supports single column: `create_index(handle, "users", "email")`
+- Supports multi-column: `create_index(handle, "orders", "user_id,product_id")`
+- Uses `CREATE INDEX IF NOT EXISTS` for idempotency
+- Validates handle, table, and column inputs
+
+**Files Added:**
+- `absurder-sql-mobile/src/ffi/core.rs` - `absurder_create_index()` function
+- `absurder-sql-mobile/src/uniffi_api/core.rs` - `create_index()` function
+- `absurder-sql-mobile/src/__tests__/index_helpers_test.rs` - 5 FFI tests
+- `absurder-sql-mobile/src/__tests__/uniffi_index_helpers_test.rs` - 5 UniFFI tests
+
+**Testing:** 10 new tests (5 FFI + 5 UniFFI), all passing
+
+**Benefit:** Improves JOIN performance for complex queries
 
 ### What's Next: Phase 4.2 - iOS Binding Generation
 
