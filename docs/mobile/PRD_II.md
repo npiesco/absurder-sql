@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD) - Phase II
 ## AbsurderSQL Mobile: React Native FFI Integration
 
-**Version:** 2.3  
-**Last Updated:** October 28, 2025  
-**Status:** Phase 4.1 COMPLETE (UniFFI Core + Performance Optimization)  
-**Target Release:** v0.3.0 (UniFFI Migration + Performance)
+**Version:** 2.4  
+**Last Updated:** October 29, 2025  
+**Status:** Phase 4.1-4.2 COMPLETE (UniFFI Core + Android Encryption)  
+**Target Release:** v0.3.0 (UniFFI Migration + Encryption + Performance)
 
 ---
 
@@ -13,44 +13,48 @@
 Phase I (v0.1.0) successfully delivered core AbsurderSQL functionality to React Native with iOS and Android support. Phase II focuses on advanced features, performance optimizations, and developer experience improvements.
 
 **Phase I Achievements:**
-- ✅ Core CRUD operations (create, execute, query, close)
-- ✅ Export/import functionality
-- ✅ Transaction support (begin, commit, rollback)
-- ✅ PreparedStatement API
-- ✅ Comprehensive benchmarking vs competitors
-- ✅ iOS and Android native bridges
-- ✅ TypeScript API with full type safety
-- ✅ 8/8 React Native integration tests passing
-- ✅ Performance: 6-9x faster than react-native-sqlite-storage on INSERTs
+- [x] Core CRUD operations (create, execute, query, close)
+- [x] Export/import functionality
+- [x] Transaction support (begin, commit, rollback)
+- [x] PreparedStatement API
+- [x] Comprehensive benchmarking vs competitors
+- [x] iOS and Android native bridges
+- [x] TypeScript API with full type safety
+- [x] 8/8 React Native integration tests passing
+- [x] Performance: 6-9x faster than react-native-sqlite-storage on INSERTs
 
 **Phase 4.1 UniFFI Core (COMPLETE - October 26, 2025):**
-- ✅ All 19 UniFFI functions implemented with #[uniffi::export]
-- ✅ Feature 1 (Streaming Results) - COMPLETE
-- ✅ Feature 2 (Database Encryption) - COMPLETE  
-- ✅ 126/126 tests passing (72 FFI + 54 UniFFI)
-- ✅ Zero regressions, zero TODOs
-- ✅ Production-grade error handling
-- ✅ BLOB support in export/import
+- [x] All 20 UniFFI functions implemented with #[uniffi::export]
+- [x] Feature 1 (Streaming Results) - COMPLETE
+- [x] Feature 2 (Database Encryption) - COMPLETE  
+- [x] 141/141 tests passing (69 FFI + 72 UniFFI)
+- [x] Zero regressions, zero TODOs
+- [x] Production-grade error handling
+- [x] BLOB support in export/import
 
 **Performance Optimization (COMPLETE - October 28, 2025):**
-- ✅ Step 1: Mobile-optimized `DatabaseConfig` with WAL mode (COMPLETE)
+- [x] Step 1: Mobile-optimized `DatabaseConfig` with WAL mode (COMPLETE)
   - WAL mode for better concurrency
   - 20K cache pages (~80MB) vs 10K default
   - 4 new tests, all passing
-- ✅ Step 2: Fix streaming O(n²) complexity (COMPLETE)
+- [x] Step 2: Fix streaming O(n²) complexity (COMPLETE)
   - Replaced OFFSET with cursor-based pagination using `WHERE rowid > last_rowid`
   - O(n) complexity instead of O(n²)
   - All streaming tests passing with cursor logic
-- ✅ Step 3: Index creation helpers (COMPLETE)
+- [x] Step 3: Index creation helpers (COMPLETE)
   - FFI `absurder_create_index()` and UniFFI `create_index()` functions
   - Auto-generates index names, supports single and multi-column indexes
   - 10 new tests (5 FFI + 5 UniFFI), all passing
 
-**Phase 4.2 iOS Bindings (DEFERRED):**
-- ⏳ Generate Swift bindings with uniffi-bindgen-react-native
-- ⏳ Replace Objective-C bridge (616 lines → auto-generated)
-- ⏳ Test on iOS simulator
-- ⏳ Create Turbo Module registration
+**Phase 4.2 Android SQLCipher Encryption (COMPLETE - October 29, 2025):**
+- [x] Built OpenSSL 1.1.1w with no-asm and -fPIC for all Android ABIs
+- [x] Built SQLCipher 4.6.0 with -fPIC for arm64-v8a, armeabi-v7a, x86, x86_64
+- [x] Added pre-built static libraries to `android/src/main/jni/sqlcipher-libs/`
+- [x] Updated `build.rs` to configure Android builds with pre-built libraries
+- [x] Added `.cargo/config.toml` with PIC flags and library search paths
+- [x] Removed android_jni bindings (747 lines) - replaced by UniFFI
+- [x] Verified builds and deployments on both Android and iOS
+- [x] iOS uses `encryption-ios` feature with bundled SQLCipher + CommonCrypto
 
 ---
 
@@ -197,7 +201,7 @@ await db.migrate(migrations);
 **Implementation:** UniFFI for React Native
 
 #### Problem Statement
-Current bridge-based architecture has serialization overhead (~2-5ms per call). New Architecture with JSI enables zero-copy data transfer. Additionally, we maintain ~3,835 lines of manual glue code across FFI (1,434 lines), Android JNI (747 lines), iOS Objective-C (616 lines), and TypeScript (648 lines).
+Current bridge-based architecture has serialization overhead (~2-5ms per call). New Architecture with JSI enables zero-copy data transfer. Additionally, we ~~maintain~~ **maintained** ~3,835 lines of manual glue code across FFI (1,434 lines), ~~Android JNI (747 lines)~~ **[REMOVED]**, iOS Objective-C (616 lines), and TypeScript (648 lines).
 
 #### Solution
 Use [UniFFI for React Native](https://github.com/jhugman/uniffi-bindgen-react-native) to auto-generate all bindings from annotated Rust code:

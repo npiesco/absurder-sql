@@ -96,10 +96,10 @@ AbsurderSQL provides a native streaming API for memory-efficient processing of l
 - **Memory Efficiency**: Streaming uses constant memory (11.4KB) regardless of result set size
 - **Speed Trade-off**: Streaming is 4-8x slower due to multiple queries (LIMIT/OFFSET overhead)
 - **Use Cases**: 
-  - ✅ Large datasets (50K+ rows) where memory is constrained
-  - ✅ Incremental processing (display rows as they arrive)
-  - ✅ Early break scenarios (don't need all rows)
-  - ❌ Small datasets (<10K rows) where speed matters more than memory
+  - [x] Large datasets (50K+ rows) where memory is constrained
+  - [x] Incremental processing (display rows as they arrive)
+  - [x] Early break scenarios (don't need all rows)
+  - [ ] Small datasets (<10K rows) where speed matters more than memory
 
 **vs react-native-sqlite-storage:**
 - AbsurderSQL: Native `executeStream()` API with automatic cursor management

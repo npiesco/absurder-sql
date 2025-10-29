@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::cell::RefCell;
 use parking_lot::Mutex;
 use once_cell::sync::Lazy;
 use absurder_sql::SqliteIndexedDB;
@@ -103,27 +102,3 @@ pub extern "C" fn absurdersql_set_android_data_directory(path: *const std::os::r
     }
 }
 
-// Thread-local storage for the last error message
-// This allows each thread to have its own error state without requiring synchronization
-thread_local! {
-    static LAST_ERROR: RefCell<Option<String>> = RefCell::new(None);
-}
-
-/// Set the last error message for this thread
-pub fn set_last_error(msg: String) {
-    LAST_ERROR.with(|e| {
-        *e.borrow_mut() = Some(msg);
-    });
-}
-
-/// Clear the last error message for this thread
-pub fn clear_last_error() {
-    LAST_ERROR.with(|e| {
-        *e.borrow_mut() = None;
-    });
-}
-
-/// Get the last error message for this thread (for internal use)
-pub fn get_last_error_internal() -> Option<String> {
-    LAST_ERROR.with(|e| e.borrow().clone())
-}

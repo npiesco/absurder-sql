@@ -1,37 +1,42 @@
 # Planning and Progress Tree II
 ## AbsurderSQL Mobile: Phase II Features
 
-**Version:** 2.6  
-**Last Updated:** October 28, 2025  
-**Status:** Phase 4.1-4.4 COMPLETE ✅ | Performance Optimization COMPLETE ✅  
-**Completed:** UniFFI Core + iOS/Android/TypeScript Integration + Performance Optimizations ✅  
-**Test Results:** 141 Rust tests + 13 React Native integration tests (all passing) ✅  
-**Target Release:** v0.3.0 (UniFFI Migration + Performance)  
+**Version:** 2.7  
+**Last Updated:** October 29, 2025  
+**Status:** Phase 4.1-4.4 COMPLETE [x] | Android Encryption COMPLETE [x]  
+**Completed:** UniFFI Core + iOS/Android/TypeScript Integration + Android SQLCipher Encryption [x]  
+**Test Results:** 141 Rust tests (69 FFI + 72 UniFFI) + 13 React Native integration tests (all passing) [x]  
+**Target Release:** v0.3.0 (UniFFI Migration + Encryption + Performance)  
 **Next:** Physical Device Testing → Performance Benchmarking → Production Release
 
 ---
 
-## 🎯 CURRENT STATUS: Phase 4 COMPLETE (October 28, 2025)
+## >>> CURRENT STATUS: Phase 4 COMPLETE (October 29, 2025)
 
 **What Was Just Completed (Phases 4.1-4.4):**
-- ✅ **Phase 4.1**: All 20 UniFFI functions implemented with `#[uniffi::export]`
-- ✅ **Phase 4.2**: iOS bindings generated and tested (13/13 tests passing)
-- ✅ **Phase 4.3**: Android bindings generated and tested (13/13 tests passing)
-- ✅ **Phase 4.4**: TypeScript integration complete with wrapper API
-- ✅ **Performance**: Cursor-based streaming O(n), index creation helpers, mobile config
-- ✅ **Testing**: 141 Rust tests + 13 React Native integration tests (all passing)
-- ✅ **Features**: Streaming, Encryption, Migrations, BLOB support
-- ✅ Zero regressions, zero TODOs, production-grade code
+- [x] **Phase 4.1**: All 20 UniFFI functions implemented with `#[uniffi::export]`
+- [x] **Phase 4.2**: Android SQLCipher encryption with pre-built PIC libraries
+  - Built OpenSSL 1.1.1w with no-asm and -fPIC for all Android ABIs
+  - Built SQLCipher 4.6.0 with -fPIC for arm64-v8a, armeabi-v7a, x86, x86_64
+  - Added `.cargo/config.toml` with PIC flags and library search paths
+  - Removed android_jni bindings (747 lines) - replaced by UniFFI
+  - Verified builds and deployments on both Android and iOS
+- [x] **Phase 4.3**: iOS bindings generated and tested (13/13 tests passing)
+- [x] **Phase 4.4**: TypeScript integration complete with wrapper API
+- [x] **Performance**: Cursor-based streaming O(n), index creation helpers, mobile config
+- [x] **Testing**: 141 Rust tests (69 FFI + 72 UniFFI) + 13 React Native integration tests
+- [x] **Features**: Streaming, Encryption (Android + iOS), Migrations, BLOB support
+- [x] Zero regressions, zero TODOs, production-grade code
 
 **Performance Optimization Roadmap (COMPLETE):**
 
-### ✅ Step 1: Mobile-Optimized Database Config (COMPLETE)
+### [x] Step 1: Mobile-Optimized Database Config (COMPLETE)
 - [x] Add `DatabaseConfig::mobile_optimized()` to `src/types.rs`
 - [x] WAL mode, 20K cache, auto_vacuum
 - [x] 4 new tests in `tests/mobile_optimized_config_test.rs`
 - [x] All tests passing (cargo test, wasm-pack test)
 
-### ✅ Step 2: Fix Streaming O(n²) Complexity (COMPLETE)
+### [x] Step 2: Fix Streaming O(n²) Complexity (COMPLETE)
 - [x] Update `StreamingStatement` in `absurder-sql-mobile/src/registry.rs`
   - [x] Add `last_rowid: i64` field
 - [x] Modify `fetch_next()` in `absurder-sql-mobile/src/uniffi_api/core.rs`
@@ -40,7 +45,7 @@
 - [x] Add regression test for cursor-based streaming (cursor_rowid_zero_test.rs)
 - [x] All existing streaming tests pass with O(n) cursor pagination
 
-### ✅ Step 3: Index Creation Helpers (COMPLETE)
+### [x] Step 3: Index Creation Helpers (COMPLETE)
 - [x] Add `absurder_create_index()` FFI function to core
 - [x] Expose `create_index()` via UniFFI with #[uniffi::export]
 - [x] 5 FFI tests + 5 UniFFI tests (all passing)
@@ -83,21 +88,21 @@ uniffi-bindgen-react-native \
 
 ---
 
-## Phase I Summary (v0.1.0) - COMPLETE ✅
+## Phase I Summary (v0.1.0) - COMPLETE [x]
 
 ### What Was Delivered
-- ✅ Core FFI layer (Rust → C → iOS/Android)
-- ✅ iOS native bridge (Objective-C)
-- ✅ Android native bridge (Kotlin + JNI)
-- ✅ TypeScript API with full type safety
-- ✅ CRUD operations (create, execute, query, close)
-- ✅ Export/import functionality
-- ✅ Transaction support (begin, commit, rollback)
-- ✅ PreparedStatement API
-- ✅ executeBatch() for bulk operations
-- ✅ 8/8 React Native integration tests passing
-- ✅ Comprehensive benchmarking (see MOBILE_BENCHMARK.md)
-- ✅ Example React Native app
+- [x] Core FFI layer (Rust → C → iOS/Android)
+- [x] iOS native bridge (Objective-C)
+- [x] Android native bridge (Kotlin + JNI)
+- [x] TypeScript API with full type safety
+- [x] CRUD operations (create, execute, query, close)
+- [x] Export/import functionality
+- [x] Transaction support (begin, commit, rollback)
+- [x] PreparedStatement API
+- [x] executeBatch() for bulk operations
+- [x] 8/8 React Native integration tests passing
+- [x] Comprehensive benchmarking (see MOBILE_BENCHMARK.md)
+- [x] Example React Native app
 
 ### Performance Achievements
 - **Android**: 6.61x faster than react-native-sqlite-storage on INSERTs
@@ -113,23 +118,23 @@ uniffi-bindgen-react-native \
 
 ---
 
-## Phase II Summary (v0.2.0) - COMPLETE ✅
+## Phase II Summary (v0.2.0) - COMPLETE [x]
 
 ### What Was Delivered
-- ✅ **Streaming Results API** - Cursor-based pagination for large datasets
+- [x] **Streaming Results API** - Cursor-based pagination for large datasets
   - AsyncIterator interface for row-by-row processing
   - Configurable batch sizes (default 100 rows)
   - Automatic cleanup on iterator break
   - 9 comprehensive tests (all passing)
   - Validated on iOS and Android
-- ✅ **Database Encryption (SQLCipher)** - Transparent 256-bit AES encryption
+- [x] **Database Encryption (SQLCipher)** - Transparent 256-bit AES encryption
   - createEncryptedDatabase() with key parameter
   - rekey() for changing encryption keys
   - iOS and Android native bridge implementations
   - 8 iOS tests + 8 Android tests + 11 TypeScript tests (all passing)
   - 13/13 React Native integration tests passing on iOS and Android
   - Bundled SQLCipher with vendored OpenSSL
-- ✅ **Schema Migrations** - Automated version tracking and rollback
+- [x] **Schema Migrations** - Automated version tracking and rollback
   - Migration interface with version, up, down fields
   - migrate() method with transaction-based atomic migrations
   - getDatabaseVersion() to query schema version
@@ -159,123 +164,123 @@ uniffi-bindgen-react-native \
 **Legend:**
 - **[ ]** Not started
 - **[~]** In progress
-- **[✓]** Complete
+- **[x]** Complete
 - **[!]** Blocked
 - **[?]** Needs review
 
 ---
 
-## 1. Streaming Results API ✅
+## 1. Streaming Results API [x]
 
 **Goal:** Enable cursor-based pagination for large result sets without loading all data into memory
 
 **Priority:** High  
 **Target:** v0.1.9 (Week 1-2)  
-**Status:** ✅ Complete (October 24, 2025)
+**Status:** [x] Complete (October 24, 2025)
 
 ### 1.1 Core Rust Implementation
-- [✓] **Design streaming API**
-  - [✓] Define `StreamingStatement` struct wrapping database handle and SQL
-  - [✓] Implement `fetch_next(batch_size: usize)` method using LIMIT/OFFSET
-  - [✓] Add cleanup on drop via registry removal
-  - [✓] Handle EOF gracefully (return empty array)
-- [✓] **Write tests**
-  - [✓] Test 1000 row query with batching (test_streaming_statement_basic)
-  - [✓] Test early break/cleanup (test_streaming_statement_early_break)
-  - [✓] Test batch size configuration (test_streaming_statement_configurable_batch_size)
-  - [✓] Test empty result set (test_streaming_statement_empty_result)
-  - [✓] Test invalid handle (test_streaming_statement_invalid_handle)
-- [✓] **Implement in absurder-sql-mobile**
-  - [✓] Add `StreamingStatement` struct with db_handle, sql, current_offset
-  - [✓] Return handle to streaming statement
-  - [✓] Track active streams in STREAM_REGISTRY
+- [x] **Design streaming API**
+  - [x] Define `StreamingStatement` struct wrapping database handle and SQL
+  - [x] Implement `fetch_next(batch_size: usize)` method using LIMIT/OFFSET
+  - [x] Add cleanup on drop via registry removal
+  - [x] Handle EOF gracefully (return empty array)
+- [x] **Write tests**
+  - [x] Test 1000 row query with batching (test_streaming_statement_basic)
+  - [x] Test early break/cleanup (test_streaming_statement_early_break)
+  - [x] Test batch size configuration (test_streaming_statement_configurable_batch_size)
+  - [x] Test empty result set (test_streaming_statement_empty_result)
+  - [x] Test invalid handle (test_streaming_statement_invalid_handle)
+- [x] **Implement in absurder-sql-mobile**
+  - [x] Add `StreamingStatement` struct with db_handle, sql, current_offset
+  - [x] Return handle to streaming statement
+  - [x] Track active streams in STREAM_REGISTRY
 
 ### 1.2 FFI Layer
-- [✓] **Add C functions**
-  - [✓] `absurder_stmt_prepare_stream(handle, sql)` → stream_handle
-  - [✓] `absurder_stmt_fetch_next(stream_handle, batch_size)` → JSON array
-  - [✓] `absurder_stmt_stream_close(stream_handle)` → status
-- [✓] **Memory management**
-  - [✓] Track stream handles in HashMap (STREAM_REGISTRY)
-  - [✓] Manual cleanup via absurder_stmt_stream_close
-  - [✓] Prevent use-after-free (validated in tests)
+- [x] **Add C functions**
+  - [x] `absurder_stmt_prepare_stream(handle, sql)` → stream_handle
+  - [x] `absurder_stmt_fetch_next(stream_handle, batch_size)` → JSON array
+  - [x] `absurder_stmt_stream_close(stream_handle)` → status
+- [x] **Memory management**
+  - [x] Track stream handles in HashMap (STREAM_REGISTRY)
+  - [x] Manual cleanup via absurder_stmt_stream_close
+  - [x] Prevent use-after-free (validated in tests)
 
 ### 1.3 iOS Bridge
-- [✓] **Objective-C wrapper**
-  - [✓] `prepareStream:(NSString *)sql resolver:rejecter:`
-  - [✓] `fetchNext:(NSNumber *)streamHandle batchSize:(NSNumber *)size resolver:rejecter:`
-  - [✓] `closeStream:(NSNumber *)streamHandle resolver:rejecter:`
-- [✓] **Background thread execution**
-  - [✓] Use dispatch_async for fetch operations
-  - [✓] Avoid blocking main thread
+- [x] **Objective-C wrapper**
+  - [x] `prepareStream:(NSString *)sql resolver:rejecter:`
+  - [x] `fetchNext:(NSNumber *)streamHandle batchSize:(NSNumber *)size resolver:rejecter:`
+  - [x] `closeStream:(NSNumber *)streamHandle resolver:rejecter:`
+- [x] **Background thread execution**
+  - [x] Use dispatch_async for fetch operations
+  - [x] Avoid blocking main thread
 
 ### 1.4 Android Bridge
-- [✓] **Kotlin wrapper**
-  - [✓] `@ReactMethod prepareStream(sql: String, promise: Promise)`
-  - [✓] `@ReactMethod fetchNext(streamHandle: Int, batchSize: Int, promise: Promise)`
-  - [✓] `@ReactMethod closeStream(streamHandle: Int, promise: Promise)`
-- [✓] **JNI bindings**
-  - [✓] `Java_..._nativePrepareStream`
-  - [✓] `Java_..._nativeFetchNext`
-  - [✓] `Java_..._nativeCloseStream`
+- [x] **Kotlin wrapper**
+  - [x] `@ReactMethod prepareStream(sql: String, promise: Promise)`
+  - [x] `@ReactMethod fetchNext(streamHandle: Int, batchSize: Int, promise: Promise)`
+  - [x] `@ReactMethod closeStream(streamHandle: Int, promise: Promise)`
+- [x] **JNI bindings**
+  - [x] `Java_..._nativePrepareStream`
+  - [x] `Java_..._nativeFetchNext`
+  - [x] `Java_..._nativeCloseStream`
 
 ### 1.5 TypeScript API
-- [✓] **AsyncIterator implementation**
-  - [✓] `async function* executeStream(sql: string, options?: StreamOptions): AsyncIterable<Record<string, any>>`
-  - [✓] Configurable batch size (default 100)
-  - [✓] Automatic cleanup on break/return (finally block)
-- [✓] **Type definitions**
-  - [✓] `StreamOptions` interface
-  - [✓] JSDoc with usage examples
-- [✓] **Tests**
-  - [✓] Test streaming in batches
-  - [✓] Test configurable batch size
-  - [✓] Test early break cleanup
-  - [✓] Test empty result set
-  - [✓] Test error handling during streaming
-  - [✓] Test large result sets (1000 rows simulated)
+- [x] **AsyncIterator implementation**
+  - [x] `async function* executeStream(sql: string, options?: StreamOptions): AsyncIterable<Record<string, any>>`
+  - [x] Configurable batch size (default 100)
+  - [x] Automatic cleanup on break/return (finally block)
+- [x] **Type definitions**
+  - [x] `StreamOptions` interface
+  - [x] JSDoc with usage examples
+- [x] **Tests**
+  - [x] Test streaming in batches
+  - [x] Test configurable batch size
+  - [x] Test early break cleanup
+  - [x] Test empty result set
+  - [x] Test error handling during streaming
+  - [x] Test large result sets (1000 rows simulated)
 
 ### 1.6 Benchmarks & Performance Analysis
-- [✓] **AbsurderSQL Benchmarks**
-  - [✓] Stream 5000 rows (batch 100)
-  - [✓] Stream vs Execute comparison (5000 rows)
-  - [✓] Stream 50K rows with memory tracking
+- [x] **AbsurderSQL Benchmarks**
+  - [x] Stream 5000 rows (batch 100)
+  - [x] Stream vs Execute comparison (5000 rows)
+  - [x] Stream 50K rows with memory tracking
   - **Results**: 498x memory savings (11.4KB vs 5,680KB), 8x slower (527ms vs 66ms)
-- [✓] **Comparison Benchmarks**
-  - [✓] Added streaming test across all 3 libraries (5000 rows)
-  - [✓] Apples-to-apples LIMIT/OFFSET pagination
-- [✓] **Key Findings**
+- [x] **Comparison Benchmarks**
+  - [x] Added streaming test across all 3 libraries (5000 rows)
+  - [x] Apples-to-apples LIMIT/OFFSET pagination
+- [x] **Key Findings**
   - Streaming trades speed for memory efficiency
   - Best for: 50K+ rows, memory-constrained devices, incremental processing
   - Use execute for: <10K rows, need all data at once, speed critical
 
 ---
 
-## 2. Database Encryption (SQLCipher) ✅
+## 2. Database Encryption (SQLCipher) [x]
 
 **Goal:** Integrate SQLCipher for transparent database encryption
 
 **Priority:** High  
 **Target:** v0.2.0 (Week 3-4)  
-**Status:** ✅ Complete (January 2025)
+**Status:** [x] Complete (January 2025)
 
-### 2.1 Core Rust Implementation ✅
-- [✓] **Add SQLCipher dependency**
-  - [✓] Add `encryption` feature flag to Cargo.toml
-  - [✓] Use `rusqlite` with `bundled-sqlcipher` feature
-  - [✓] Conditional imports for encryption vs bundled-sqlite
-- [✓] **Encryption API**
-  - [✓] Add `Database::new_encrypted(config, key)` method
-  - [✓] SQLCipher PRAGMA key integration
-  - [✓] Add `rekey(new_key)` method
-  - [✓] Key validation (minimum 8 characters)
-- [✓] **Write tests**
-  - [✓] Test encrypted database creation
-  - [✓] Test wrong key returns error
-  - [✓] Test rekey functionality
-  - [✓] Test persistence across reopens
-  - [✓] Test key length validation
-  - [✓] All 5 tests passing, zero regressions
+### 2.1 Core Rust Implementation [x]
+- [x] **Add SQLCipher dependency**
+  - [x] Add `encryption` feature flag to Cargo.toml
+  - [x] Use `rusqlite` with `bundled-sqlcipher` feature
+  - [x] Conditional imports for encryption vs bundled-sqlite
+- [x] **Encryption API**
+  - [x] Add `Database::new_encrypted(config, key)` method
+  - [x] SQLCipher PRAGMA key integration
+  - [x] Add `rekey(new_key)` method
+  - [x] Key validation (minimum 8 characters)
+- [x] **Write tests**
+  - [x] Test encrypted database creation
+  - [x] Test wrong key returns error
+  - [x] Test rekey functionality
+  - [x] Test persistence across reopens
+  - [x] Test key length validation
+  - [x] All 5 tests passing, zero regressions
 
 ### 2.2 FFI Layer [x]
 - [x] **Add C functions**
@@ -291,84 +296,84 @@ uniffi-bindgen-react-native \
   - [x] Test rekey functionality
   - [x] All 69 mobile tests passing (6 encryption + 63 existing)
 
-### 2.3 iOS Bridge ✅
-- [✓] **Objective-C wrapper**
-  - [✓] `createEncryptedDatabase:(NSString *)name key:(NSString *)key resolver:rejecter:`
-  - [✓] `rekey:(NSNumber *)handle newKey:(NSString *)newKey resolver:rejecter:`
-- [✓] **FFI declarations in bridging header**
-  - [✓] `absurder_db_new_encrypted(const char* name, const char* key)`
-  - [✓] `absurder_db_rekey(uint64_t handle, const char* new_key)`
-- [✓] **iOS Tests (8 tests, all passing)**
-  - [✓] testCreateEncryptedDatabase - create and query encrypted DB
-  - [✓] testCreateEncryptedDatabaseWithNullKey - validate null key rejection
-  - [✓] testCreateEncryptedDatabaseWithShortKey - validate minimum key length
-  - [✓] testRekeyDatabase - change encryption key and verify data preserved
-  - [✓] testRekeyWithInvalidHandle - validate error handling
-  - [✓] testRekeyWithNullKey - validate null key rejection for rekey
-  - [✓] testRekeyWithShortKey - validate minimum key length for rekey
-  - [✓] testEncryptedDatabasePersistence - close/reopen encrypted DB
-- [✓] **Zero regressions - all existing iOS tests passing**
+### 2.3 iOS Bridge [x]
+- [x] **Objective-C wrapper**
+  - [x] `createEncryptedDatabase:(NSString *)name key:(NSString *)key resolver:rejecter:`
+  - [x] `rekey:(NSNumber *)handle newKey:(NSString *)newKey resolver:rejecter:`
+- [x] **FFI declarations in bridging header**
+  - [x] `absurder_db_new_encrypted(const char* name, const char* key)`
+  - [x] `absurder_db_rekey(uint64_t handle, const char* new_key)`
+- [x] **iOS Tests (8 tests, all passing)**
+  - [x] testCreateEncryptedDatabase - create and query encrypted DB
+  - [x] testCreateEncryptedDatabaseWithNullKey - validate null key rejection
+  - [x] testCreateEncryptedDatabaseWithShortKey - validate minimum key length
+  - [x] testRekeyDatabase - change encryption key and verify data preserved
+  - [x] testRekeyWithInvalidHandle - validate error handling
+  - [x] testRekeyWithNullKey - validate null key rejection for rekey
+  - [x] testRekeyWithShortKey - validate minimum key length for rekey
+  - [x] testEncryptedDatabasePersistence - close/reopen encrypted DB
+- [x] **Zero regressions - all existing iOS tests passing**
 - [ ] **Keychain integration example** (Phase II documentation)
   - [ ] Document how to store keys in iOS Keychain
   - [ ] Provide example code
 
-### 2.4 Android Bridge ✅
-- [✓] **Kotlin wrapper**
-  - [✓] `@ReactMethod createEncryptedDatabase(name: String, key: String, promise: Promise)`
-  - [✓] `@ReactMethod rekey(handle: Int, newKey: String, promise: Promise)`
-- [✓] **JNI bindings**
-  - [✓] `nativeCreateEncryptedDb(name: String, key: String): Long`
-  - [✓] `nativeRekey(handle: Long, newKey: String): Int`
-- [✓] **Android Tests (8 tests implemented)**
-  - [✓] testCreateEncryptedDatabase - create and query encrypted DB
-  - [✓] testCreateEncryptedDatabaseWithShortKey - validate minimum key length
-  - [✓] testRekeyDatabase - change encryption key and verify data preserved
-  - [✓] testRekeyWithInvalidHandle - validate error handling
-  - [✓] testRekeyWithShortKey - validate minimum key length for rekey
-  - [✓] testEncryptedDatabasePersistence - close/reopen encrypted DB
-  - [✓] testEncryptedDatabaseWithParameterizedQuery - parameterized queries on encrypted DB
-  - [✓] testEncryptedDatabaseWithTransaction - transactions on encrypted DB
-- [✓] **Build successful with bundled-sqlcipher-vendored-openssl**
-  - [✓] arm64-v8a: libabsurder_sql_mobile.so (5.32 MB)
-  - [✓] x86_64: libabsurder_sql_mobile.so (5.93 MB)
+### 2.4 Android Bridge [x]
+- [x] **Kotlin wrapper**
+  - [x] `@ReactMethod createEncryptedDatabase(name: String, key: String, promise: Promise)`
+  - [x] `@ReactMethod rekey(handle: Int, newKey: String, promise: Promise)`
+- [x] **JNI bindings**
+  - [x] `nativeCreateEncryptedDb(name: String, key: String): Long`
+  - [x] `nativeRekey(handle: Long, newKey: String): Int`
+- [x] **Android Tests (8 tests implemented)**
+  - [x] testCreateEncryptedDatabase - create and query encrypted DB
+  - [x] testCreateEncryptedDatabaseWithShortKey - validate minimum key length
+  - [x] testRekeyDatabase - change encryption key and verify data preserved
+  - [x] testRekeyWithInvalidHandle - validate error handling
+  - [x] testRekeyWithShortKey - validate minimum key length for rekey
+  - [x] testEncryptedDatabasePersistence - close/reopen encrypted DB
+  - [x] testEncryptedDatabaseWithParameterizedQuery - parameterized queries on encrypted DB
+  - [x] testEncryptedDatabaseWithTransaction - transactions on encrypted DB
+- [x] **Build successful with bundled-sqlcipher-vendored-openssl**
+  - [x] arm64-v8a: libabsurder_sql_mobile.so (5.32 MB)
+  - [x] x86_64: libabsurder_sql_mobile.so (5.93 MB)
 - [ ] **Keystore integration example** (Phase II documentation)
   - [ ] Document how to store keys in Android Keystore
   - [ ] Provide example code
 
-### 2.5 TypeScript API ✅
-- [✓] **Update openDatabase() signature**
-  - [✓] Add optional `encryption: { key: string }` parameter to DatabaseConfig
-  - [✓] Add `EncryptionConfig` interface with key property
-  - [✓] Implement conditional logic in `open()` to call createEncryptedDatabase vs createDatabase
-  - [✓] Add `rekey(newKey: string)` method to AbsurderDatabase class
-  - [✓] Full JSDoc documentation with security examples
-- [✓] **Comprehensive test coverage (11 new tests, all passing)**
-  - [✓] Test encrypted database creation with encryption key
-  - [✓] Test unencrypted database without encryption config
-  - [✓] Test unencrypted database with string config
-  - [✓] Test error propagation from encrypted database creation
-  - [✓] Test executing queries on encrypted database
-  - [✓] Test rekey() changes encryption key
-  - [✓] Test rekey() throws error if database not open
-  - [✓] Test rekey() error propagation
-  - [✓] Test operations after successful rekey
-  - [✓] Test complete encrypted database lifecycle
-  - [✓] Test encryption config validation
-- [✓] **Zero regressions - all 76 TypeScript tests passing**
+### 2.5 TypeScript API [x]
+- [x] **Update openDatabase() signature**
+  - [x] Add optional `encryption: { key: string }` parameter to DatabaseConfig
+  - [x] Add `EncryptionConfig` interface with key property
+  - [x] Implement conditional logic in `open()` to call createEncryptedDatabase vs createDatabase
+  - [x] Add `rekey(newKey: string)` method to AbsurderDatabase class
+  - [x] Full JSDoc documentation with security examples
+- [x] **Comprehensive test coverage (11 new tests, all passing)**
+  - [x] Test encrypted database creation with encryption key
+  - [x] Test unencrypted database without encryption config
+  - [x] Test unencrypted database with string config
+  - [x] Test error propagation from encrypted database creation
+  - [x] Test executing queries on encrypted database
+  - [x] Test rekey() changes encryption key
+  - [x] Test rekey() throws error if database not open
+  - [x] Test rekey() error propagation
+  - [x] Test operations after successful rekey
+  - [x] Test complete encrypted database lifecycle
+  - [x] Test encryption config validation
+- [x] **Zero regressions - all 76 TypeScript tests passing**
 
-### 2.6 React Native Integration Tests ✅
-- [✓] **Android emulator testing** (13/13 tests passing)
-  - [✓] Test 10: Encrypted DB Creation
-  - [✓] Test 11: Encrypted Data Operations
-  - [✓] Test 12: Rekey Encryption
-  - [✓] Test 13: Encrypted DB Persistence
-  - [✓] All 9 base tests passing alongside encryption tests
-  - [✓] Unique database names with timestamps to avoid conflicts
-  - [✓] DROP TABLE IF EXISTS pattern for idempotent tests
-- [✓] **iOS simulator testing** (13/13 tests passing)
-  - [✓] All encryption tests passing on iPhone 16 simulator
-  - [✓] Encryption works seamlessly on iOS
-  - [✓] Zero regressions from base functionality
+### 2.6 React Native Integration Tests [x]
+- [x] **Android emulator testing** (13/13 tests passing)
+  - [x] Test 10: Encrypted DB Creation
+  - [x] Test 11: Encrypted Data Operations
+  - [x] Test 12: Rekey Encryption
+  - [x] Test 13: Encrypted DB Persistence
+  - [x] All 9 base tests passing alongside encryption tests
+  - [x] Unique database names with timestamps to avoid conflicts
+  - [x] DROP TABLE IF EXISTS pattern for idempotent tests
+- [x] **iOS simulator testing** (13/13 tests passing)
+  - [x] All encryption tests passing on iPhone 16 simulator
+  - [x] Encryption works seamlessly on iOS
+  - [x] Zero regressions from base functionality
 
 ### 2.7 Documentation 📝
 - [ ] **Security best practices guide** (deferred to post-v0.2.0)
@@ -378,46 +383,46 @@ uniffi-bindgen-react-native \
 
 ---
 
-## 3. Schema Migrations 📦 ✅
+## 3. Schema Migrations 📦 [x]
 
 **Goal:** Automated migration framework with version tracking
 
 **Priority:** Medium  
 **Target:** v0.2.0 (Week 5-6)  
-**Status:** ✅ Complete (October 25, 2025)
+**Status:** [x] Complete (October 25, 2025)
 
-### 3.1 TypeScript Implementation ✅
-- [✓] **Migration interface**
-  - [✓] Define `Migration` type: `{ version: number, up: string, down: string }`
-  - [✓] Create `_migrations` table for version tracking
-  - [✓] Implement `migrate(migrations: Migration[])` function
-  - [✓] Implement `getDatabaseVersion()` to query current schema version
-- [✓] **Migration engine**
-  - [✓] Sort migrations by version
-  - [✓] Check current version from `_migrations` table
-  - [✓] Apply pending migrations in transaction
-  - [✓] Rollback on error
-  - [✓] Skip already applied migrations
-  - [✓] Validate migrations are sorted
+### 3.1 TypeScript Implementation [x]
+- [x] **Migration interface**
+  - [x] Define `Migration` type: `{ version: number, up: string, down: string }`
+  - [x] Create `_migrations` table for version tracking
+  - [x] Implement `migrate(migrations: Migration[])` function
+  - [x] Implement `getDatabaseVersion()` to query current schema version
+- [x] **Migration engine**
+  - [x] Sort migrations by version
+  - [x] Check current version from `_migrations` table
+  - [x] Apply pending migrations in transaction
+  - [x] Rollback on error
+  - [x] Skip already applied migrations
+  - [x] Validate migrations are sorted
 - [ ] **Advanced features** (deferred to v0.2.1)
   - [ ] Dry-run mode (validate without applying)
   - [ ] Force re-run specific version
   - [ ] Export current schema
 
-### 3.2 Testing ✅
-- [✓] **Unit tests** (11 tests, all passing)
-  - [✓] Test migration interface validation
-  - [✓] Test _migrations table creation on first run
-  - [✓] Test applying pending migrations in order
-  - [✓] Test skipping already applied migrations
-  - [✓] Test rollback on migration failure
-  - [✓] Test validation of sorted migrations
-  - [✓] Test error when database not open
-  - [✓] Test handling empty migrations array
-  - [✓] Test getDatabaseVersion() returns current version
-  - [✓] Test getDatabaseVersion() returns 0 if no migrations
-  - [✓] Test getDatabaseVersion() error when not open
-- [✓] **Zero regressions** - all 87 tests passing (76 existing + 11 new)
+### 3.2 Testing [x]
+- [x] **Unit tests** (11 tests, all passing)
+  - [x] Test migration interface validation
+  - [x] Test _migrations table creation on first run
+  - [x] Test applying pending migrations in order
+  - [x] Test skipping already applied migrations
+  - [x] Test rollback on migration failure
+  - [x] Test validation of sorted migrations
+  - [x] Test error when database not open
+  - [x] Test handling empty migrations array
+  - [x] Test getDatabaseVersion() returns current version
+  - [x] Test getDatabaseVersion() returns 0 if no migrations
+  - [x] Test getDatabaseVersion() error when not open
+- [x] **Zero regressions** - all 87 tests passing (76 existing + 11 new)
 
 ### 3.3 Documentation
 - [ ] **Migration guide** (deferred to post-v0.2.0)
@@ -444,121 +449,121 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
 - **Current:** 1,434 lines FFI + 747 lines Android JNI + 616 lines iOS Obj-C + 648 lines TypeScript
 - **After:** ~200 lines of UniFFI annotations + auto-generated bindings
 
-### 4.1 Phase 1: UniFFI Core Implementation (Week 1-2) ✅ COMPLETE - October 26, 2025
-- [✓] **Add UniFFI dependency**
-  - [✓] Add `uniffi = { version = "0.29" }` to Cargo.toml
-  - [✓] Create `build.rs` for UniFFI 0.29 proc-macro approach (no UDL needed)
-  - [✓] Add `uniffi-bindings` feature flag
-- [✓] **Fix rusqlite dependency conflicts**
-  - [✓] Changed from package aliases to single rusqlite with feature flags
-  - [✓] `bundled-sqlite` → `rusqlite/bundled`
-  - [✓] `encryption` → `rusqlite/bundled-sqlcipher-vendored-openssl`
-  - [✓] Both features now work without conflicts
-- [✓] **Create UniFFI API module**
-  - [✓] Created `src/uniffi_api/mod.rs` with `setup_scaffolding!()`
-  - [✓] Created `src/uniffi_api/types.rs` with QueryResult, DatabaseConfig, DatabaseError
-  - [✓] Created `src/uniffi_api/core.rs` with `#[uniffi::export]` functions
-  - [✓] Implemented `create_database()`, `close_database()`, `get_uniffi_version()`
-  - [✓] Implemented `execute()` for SQL query execution
-  - [✓] Implemented `execute_with_params()` for parameterized queries with SQL injection prevention
-  - [✓] Implemented `begin_transaction()`, `commit()`, `rollback()` for transaction support
-  - [✓] Implemented `export_database()` and `import_database()` for backup/restore
-  - [✓] Implemented `execute_batch()` for bulk SQL operations
-  - [✓] Implemented `prepare_statement()`, `execute_statement()`, `finalize_statement()` for prepared statements
-  - [✓] Implemented `prepare_stream()`, `fetch_next()`, `close_stream()` for cursor-based streaming
-  - [✓] Implemented `create_encrypted_database()`, `rekey_database()` for SQLCipher encryption
-  - [✓] Implemented `create_index()` for query optimization with index creation
-- [✓] **Keep existing FFI as fallback**
-  - [✓] Feature flag `uniffi-bindings` controls UniFFI (opt-in)
-  - [✓] Legacy FFI always available (backward compatible)
-  - [✓] Both can coexist during migration
-- [✓] **Testing & Validation**
-  - [✓] Created comprehensive UniFFI tests with serial_test for race-free execution
-  - [✓] 3 integration, 3 execute, 4 execute_with_params, 4 transaction, 7 export/import, 6 batch, 9 prepared, 10 streaming, 8 encryption, 5 index tests
-  - [✓] All 141 tests passing (69 FFI + 72 UniFFI) with uniffi-bindings feature
-  - [✓] Zero regressions verified
-  - [✓] UniFFI compiles successfully with proc-macro approach
-  - [✓] SQL injection prevention validated
-  - [✓] Transaction atomicity validated (commit/rollback)
-  - [✓] Database backup/restore round-trip validated (including BLOB support)
-  - [✓] Batch operations with proper DROP TABLE IF EXISTS cleanup
-  - [✓] Prepared statement reuse and finalization validated
-  - [✓] Cursor-based streaming with LIMIT/OFFSET pagination validated
-  - [✓] AES-256 encryption with key validation (8+ chars) and rekey support validated
-  - [✓] BLOB data correctly encoded as hex (X'...') in export/import operations
-  - [✓] All tests clean up database files (zero .db files after tests)
-- [✓] **Release Build**
-  - [✓] Built with `--features uniffi-bindings,encryption,fs_persist`
-  - [✓] `target/release/libabsurder_sql_mobile.dylib` ready for binding generation
-  - [✓] All optimizations enabled (LTO, size optimization, stripped symbols)
+### 4.1 Phase 1: UniFFI Core Implementation (Week 1-2) [x] COMPLETE - October 26, 2025
+- [x] **Add UniFFI dependency**
+  - [x] Add `uniffi = { version = "0.29" }` to Cargo.toml
+  - [x] Create `build.rs` for UniFFI 0.29 proc-macro approach (no UDL needed)
+  - [x] Add `uniffi-bindings` feature flag
+- [x] **Fix rusqlite dependency conflicts**
+  - [x] Changed from package aliases to single rusqlite with feature flags
+  - [x] `bundled-sqlite` → `rusqlite/bundled`
+  - [x] `encryption` → `rusqlite/bundled-sqlcipher-vendored-openssl`
+  - [x] Both features now work without conflicts
+- [x] **Create UniFFI API module**
+  - [x] Created `src/uniffi_api/mod.rs` with `setup_scaffolding!()`
+  - [x] Created `src/uniffi_api/types.rs` with QueryResult, DatabaseConfig, DatabaseError
+  - [x] Created `src/uniffi_api/core.rs` with `#[uniffi::export]` functions
+  - [x] Implemented `create_database()`, `close_database()`, `get_uniffi_version()`
+  - [x] Implemented `execute()` for SQL query execution
+  - [x] Implemented `execute_with_params()` for parameterized queries with SQL injection prevention
+  - [x] Implemented `begin_transaction()`, `commit()`, `rollback()` for transaction support
+  - [x] Implemented `export_database()` and `import_database()` for backup/restore
+  - [x] Implemented `execute_batch()` for bulk SQL operations
+  - [x] Implemented `prepare_statement()`, `execute_statement()`, `finalize_statement()` for prepared statements
+  - [x] Implemented `prepare_stream()`, `fetch_next()`, `close_stream()` for cursor-based streaming
+  - [x] Implemented `create_encrypted_database()`, `rekey_database()` for SQLCipher encryption
+  - [x] Implemented `create_index()` for query optimization with index creation
+- [x] **Keep existing FFI as fallback**
+  - [x] Feature flag `uniffi-bindings` controls UniFFI (opt-in)
+  - [x] Legacy FFI always available (backward compatible)
+  - [x] Both can coexist during migration
+- [x] **Testing & Validation**
+  - [x] Created comprehensive UniFFI tests with serial_test for race-free execution
+  - [x] 3 integration, 3 execute, 4 execute_with_params, 4 transaction, 7 export/import, 6 batch, 9 prepared, 10 streaming, 8 encryption, 5 index tests
+  - [x] All 141 tests passing (69 FFI + 72 UniFFI) with uniffi-bindings feature
+  - [x] Zero regressions verified
+  - [x] UniFFI compiles successfully with proc-macro approach
+  - [x] SQL injection prevention validated
+  - [x] Transaction atomicity validated (commit/rollback)
+  - [x] Database backup/restore round-trip validated (including BLOB support)
+  - [x] Batch operations with proper DROP TABLE IF EXISTS cleanup
+  - [x] Prepared statement reuse and finalization validated
+  - [x] Cursor-based streaming with LIMIT/OFFSET pagination validated
+  - [x] AES-256 encryption with key validation (8+ chars) and rekey support validated
+  - [x] BLOB data correctly encoded as hex (X'...') in export/import operations
+  - [x] All tests clean up database files (zero .db files after tests)
+- [x] **Release Build**
+  - [x] Built with `--features uniffi-bindings,encryption,fs_persist`
+  - [x] `target/release/libabsurder_sql_mobile.dylib` ready for binding generation
+  - [x] All optimizations enabled (LTO, size optimization, stripped symbols)
 
 **Phase 4.1 Result:** All Rust/UniFFI TDD work complete. Ready for platform binding generation.
 
 ---
 
-### 4.2 Phase 2: iOS Migration (Week 2-3) ✅ COMPLETE - October 27, 2025
-- [✓] **Generate Swift bindings**
-  - [✓] Install `uniffi-bindgen-react-native` CLI tool (v0.29.3-1)
-  - [✓] Run `uniffi-bindgen-react-native` for iOS with IPHONEOS_DEPLOYMENT_TARGET=13.0
-  - [✓] Generated TypeScript bindings (src/generated/)
-  - [✓] Generated C++ JSI bridge (cpp/generated/)
-  - [✓] Generated iOS XCFramework
-- [✓] **UniFFI-generated iOS bridge in place**
-  - [✓] `AbsurderSql.h` and `AbsurderSql.mm` generated (replaces old Objective-C bridge)
-  - [✓] Turbo Module registration with JSI integration
-  - [✓] Xcode project configured with UniFFI bindings
-  - [✓] XCFramework linked and working
-- [✓] **Testing & Validation**
-  - [✓] Run all iOS tests on simulator
-  - [✓] Test all Phase II features (Streaming, Encryption, Migrations)
-  - [✓] 13/13 React Native integration tests passing
+### 4.2 Phase 2: iOS Migration (Week 2-3) [x] COMPLETE - October 27, 2025
+- [x] **Generate Swift bindings**
+  - [x] Install `uniffi-bindgen-react-native` CLI tool (v0.29.3-1)
+  - [x] Run `uniffi-bindgen-react-native` for iOS with IPHONEOS_DEPLOYMENT_TARGET=13.0
+  - [x] Generated TypeScript bindings (src/generated/)
+  - [x] Generated C++ JSI bridge (cpp/generated/)
+  - [x] Generated iOS XCFramework
+- [x] **UniFFI-generated iOS bridge in place**
+  - [x] `AbsurderSql.h` and `AbsurderSql.mm` generated (replaces old Objective-C bridge)
+  - [x] Turbo Module registration with JSI integration
+  - [x] Xcode project configured with UniFFI bindings
+  - [x] XCFramework linked and working
+- [x] **Testing & Validation**
+  - [x] Run all iOS tests on simulator
+  - [x] Test all Phase II features (Streaming, Encryption, Migrations)
+  - [x] 13/13 React Native integration tests passing
   - [ ] Measure bridge overhead (<1ms target) - deferred
   - [ ] Test on physical iPhone device - deferred
 
-### 4.3 Phase 3: Android Migration (Week 3) ✅ COMPLETE - October 27, 2025
-- [✓] **Generate Android bindings**
-  - [✓] Run `uniffi-bindgen-react-native` for Android
-  - [✓] Generated static libraries for all 4 architectures (arm64-v8a, armeabi-v7a, x86, x86_64)
-  - [✓] Total: 761 MB of optimized libraries with SQLCipher support
-  - [✓] Generated C++ JSI adapter and CMakeLists.txt
-- [✓] **UniFFI-generated Android bridge in place**
-  - [✓] `AbsurderSqlModule.kt` generated (Turbo Module with JSI)
-  - [✓] Gradle configuration updated
-  - [✓] Native library loading working
-  - [✓] Legacy `android_jni/bindings.rs` (740 lines) still exists but unused by UniFFI path
-- [✓] **Testing & Validation**
-  - [✓] Run all Android tests on emulator
-  - [✓] Test all Phase II features (Streaming, Encryption, Migrations)
-  - [✓] 13/13 React Native integration tests passing
+### 4.3 Phase 3: Android Migration (Week 3) [x] COMPLETE - October 27, 2025
+- [x] **Generate Android bindings**
+  - [x] Run `uniffi-bindgen-react-native` for Android
+  - [x] Generated static libraries for all 4 architectures (arm64-v8a, armeabi-v7a, x86, x86_64)
+  - [x] Total: 761 MB of optimized libraries with SQLCipher support
+  - [x] Generated C++ JSI adapter and CMakeLists.txt
+- [x] **UniFFI-generated Android bridge in place**
+  - [x] `AbsurderSqlModule.kt` generated (Turbo Module with JSI)
+  - [x] Gradle configuration updated
+  - [x] Native library loading working
+  - [x] Legacy `android_jni/bindings.rs` (740 lines) still exists but unused by UniFFI path
+- [x] **Testing & Validation**
+  - [x] Run all Android tests on emulator
+  - [x] Test all Phase II features (Streaming, Encryption, Migrations)
+  - [x] 13/13 React Native integration tests passing
   - [ ] Measure bridge overhead (<1ms target) - deferred
   - [ ] Test on physical Android device - deferred
 
-### 4.4 Phase 4: TypeScript Integration (Week 4) ✅ COMPLETE - October 27, 2025
-- [✓] **Generate TypeScript bindings**
-  - [✓] Generated automatically with iOS/Android builds
-  - [✓] TypeScript types in `src/generated/absurder_sql_mobile.ts`
-  - [✓] C++ JSI bridge in `cpp/generated/`
-- [✓] **Create high-level API wrapper**
-  - [✓] Created `src/AbsurderDatabase.ts` wrapper class
-  - [✓] Wrapped all 20 UniFFI functions with ergonomic API
-  - [✓] Maintained existing AbsurderDatabase class interface
-  - [✓] Preserved PreparedStatement and streaming APIs
-  - [✓] Migration support with version tracking
-- [✓] **React Native integration complete**
-  - [✓] Turbo Module registration working on iOS and Android
-  - [✓] 13/13 integration tests passing (`AbsurderSQLTest.tsx`)
-  - [✓] Example React Native app updated and tested
-- [✓] **Testing complete**
-  - [✓] All Rust tests passing (141 tests: 69 FFI + 72 UniFFI)
-  - [✓] All React Native tests passing (13/13 on iOS and Android)
-  - [✓] Zero regressions validated
-  - [✓] Tested on both iOS simulator and Android emulator
+### 4.4 Phase 4: TypeScript Integration (Week 4) [x] COMPLETE - October 27, 2025
+- [x] **Generate TypeScript bindings**
+  - [x] Generated automatically with iOS/Android builds
+  - [x] TypeScript types in `src/generated/absurder_sql_mobile.ts`
+  - [x] C++ JSI bridge in `cpp/generated/`
+- [x] **Create high-level API wrapper**
+  - [x] Created `src/AbsurderDatabase.ts` wrapper class
+  - [x] Wrapped all 20 UniFFI functions with ergonomic API
+  - [x] Maintained existing AbsurderDatabase class interface
+  - [x] Preserved PreparedStatement and streaming APIs
+  - [x] Migration support with version tracking
+- [x] **React Native integration complete**
+  - [x] Turbo Module registration working on iOS and Android
+  - [x] 13/13 integration tests passing (`AbsurderSQLTest.tsx`)
+  - [x] Example React Native app updated and tested
+- [x] **Testing complete**
+  - [x] All Rust tests passing (141 tests: 69 FFI + 72 UniFFI)
+  - [x] All React Native tests passing (13/13 on iOS and Android)
+  - [x] Zero regressions validated
+  - [x] Tested on both iOS simulator and Android emulator
 
 ### 4.5 Phase 5: Performance & Validation (Week 5) - PARTIALLY COMPLETE
-- [✓] **Comprehensive testing**
-  - [✓] All 141 Rust tests passing (69 FFI + 72 UniFFI)
-  - [✓] 13/13 React Native integration tests passing on iOS simulator
-  - [✓] 13/13 React Native integration tests passing on Android emulator
+- [x] **Comprehensive testing**
+  - [x] All 141 Rust tests passing (69 FFI + 72 UniFFI)
+  - [x] 13/13 React Native integration tests passing on iOS simulator
+  - [x] 13/13 React Native integration tests passing on Android emulator
   - [ ] Physical device testing (iPhone + Android phone) - deferred
 - [ ] **Performance benchmarking** (deferred)
   - [ ] Measure bridge overhead (target <1ms)
@@ -566,9 +571,9 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [ ] Zero-copy data transfer validation
   - [ ] Memory usage comparison
   - [ ] Update MOBILE_BENCHMARK.md with UniFFI results
-- [✓] **Documentation**
-  - [✓] Update Design_Documentation_II.md with performance optimizations
-  - [✓] Update Planning_and_Progress_Tree_II.md with current status
+- [x] **Documentation**
+  - [x] Update Design_Documentation_II.md with performance optimizations
+  - [x] Update Planning_and_Progress_Tree_II.md with current status
   - [ ] Update README with UniFFI architecture - deferred
   - [ ] Document migration process - deferred
   - [ ] Add troubleshooting guide - deferred
@@ -593,15 +598,15 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
   - [ ] Tag GitHub release
 
 ### Success Criteria
-- ✅ All 141 Rust tests passing with zero regressions (69 FFI + 72 UniFFI)
-- ✅ 13/13 React Native integration tests passing on iOS and Android
-- ⏳ <1ms bridge overhead measurement - deferred to physical device testing
-- ✅ UniFFI bindings generated and working (replaced manual bridge code)
-- ✅ Type safety verified across all layers (Rust → TypeScript)
-- ⏳ Zero-copy data transfer validated - deferred to performance benchmarking
-- ✅ Performance optimizations complete (O(n) streaming, index helpers, mobile config)
-- ✅ Production-ready on iOS simulator and Android emulator
-- ⏳ Physical device testing - deferred
+- [x] All 141 Rust tests passing with zero regressions (69 FFI + 72 UniFFI)
+- [x] 13/13 React Native integration tests passing on iOS and Android
+- [~] <1ms bridge overhead measurement - deferred to physical device testing
+- [x] UniFFI bindings generated and working (replaced manual bridge code)
+- [x] Type safety verified across all layers (Rust → TypeScript)
+- [~] Zero-copy data transfer validated - deferred to performance benchmarking
+- [x] Performance optimizations complete (O(n) streaming, index helpers, mobile config)
+- [x] Production-ready on iOS simulator and Android emulator
+- [~] Physical device testing - deferred
 
 ---
 
@@ -765,9 +770,9 @@ Replace 3,835 lines of manual glue code with UniFFI auto-generation:
    - Mitigation: Use cloud device farms (BrowserStack, AWS Device Farm)
 
 ### Resolved Risks
-- ✅ FFI memory safety (Phase I - comprehensive testing)
-- ✅ Platform-specific bugs (Phase I - simulator testing)
-- ✅ Performance vs competitors (Phase I - benchmarking complete)
+- [x] FFI memory safety (Phase I - comprehensive testing)
+- [x] Platform-specific bugs (Phase I - simulator testing)
+- [x] Performance vs competitors (Phase I - benchmarking complete)
 
 ---
 

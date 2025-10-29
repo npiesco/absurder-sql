@@ -1,14 +1,14 @@
 # Design Documentation II
 ## AbsurderSQL Mobile: Phase II Architecture
 
-**Version:** 2.4  
-**Last Updated:** October 28, 2025  
-**Status:** Phase 4.1 COMPLETE (UniFFI Core + Performance Optimization)  
-**Target Release:** v0.3.0 (UniFFI Migration + Performance)
+**Version:** 2.5  
+**Last Updated:** October 29, 2025  
+**Status:** Phase 4.2 COMPLETE (UniFFI + Android SQLCipher Encryption)  
+**Target Release:** v0.3.0 (UniFFI Migration + Encryption + Performance)
 
 ---
 
-## ✅ Phase 4.1 COMPLETE: UniFFI Core Implementation
+## [x] Phase 4.1 COMPLETE: UniFFI Core Implementation
 
 **Completed:** October 26, 2025  
 **Duration:** 2 weeks  
@@ -17,28 +17,30 @@
 ### Accomplishments
 
 #### Rust Implementation
-- ✅ 19 UniFFI exported functions with `#[uniffi::export]` macro
-- ✅ Full parity with existing 18 FFI functions
-- ✅ Added `create_encrypted_database()` and `rekey_database()` for SQLCipher
-- ✅ All functions use proper error handling with `Result<T, DatabaseError>`
-- ✅ Zero `unwrap()`/`panic!()` calls in production code
+- [x] 20 UniFFI exported functions with `#[uniffi::export]` macro
+- [x] Full parity with existing FFI functions
+- [x] Added `create_encrypted_database()` and `rekey_database()` for SQLCipher
+- [x] Added `create_index()` helper for performance optimization
+- [x] All functions use proper error handling with `Result<T, DatabaseError>`
+- [x] Zero `unwrap()`/`panic!()` calls in production code
 
 #### Test Coverage
-- ✅ 126 tests passing (72 FFI + 54 UniFFI)
-- ✅ 7 test modules with comprehensive coverage
-- ✅ All tests follow INSTRUCTIONS.md patterns (serial, unique names, cleanup)
-- ✅ Zero database files left behind after test runs
-- ✅ BLOB support validated in export/import
+- [x] 141 tests passing (69 FFI + 72 UniFFI)
+- [x] 9 test modules with comprehensive coverage
+- [x] All tests follow INSTRUCTIONS.md patterns (serial, unique names, cleanup)
+- [x] Zero database files left behind after test runs
+- [x] BLOB support validated in export/import
+- [x] Encryption tests passing on both Android and iOS
 
 #### Code Quality
-- ✅ Zero TODOs/FIXMEs remaining
-- ✅ Zero regressions from existing FFI tests
-- ✅ Production-grade error handling throughout
-- ✅ Proper resource cleanup and memory management
+- [x] Zero TODOs/FIXMEs remaining
+- [x] Zero regressions from existing FFI tests
+- [x] Production-grade error handling throughout
+- [x] Proper resource cleanup and memory management
 
 ---
 
-## ✅ Performance Optimization (COMPLETE - October 28, 2025)
+## [x] Performance Optimization (COMPLETE - October 28, 2025)
 
 **Objective:** Improve mobile database performance through core optimizations
 
@@ -64,7 +66,7 @@
 
 ### Optimization Roadmap
 
-#### ✅ Step 1: Mobile-Optimized Database Config (COMPLETE)
+#### [x] Step 1: Mobile-Optimized Database Config (COMPLETE)
 **File:** `src/types.rs`
 **Change:** Added `DatabaseConfig::mobile_optimized()` constructor
 
@@ -75,7 +77,7 @@
 
 **Testing:** 4 new tests in `tests/mobile_optimized_config_test.rs`
 
-#### ✅ Step 2: Fix Streaming O(n²) Complexity (COMPLETE)
+#### [x] Step 2: Fix Streaming O(n²) Complexity (COMPLETE)
 **Problem:** Original implementation used `LIMIT/OFFSET` pagination
 - Fetching 5000 rows in batches of 100 = 50 queries
 - Each query scans from start: Batch 1 scans 0 rows, Batch 50 scans 4900 rows
@@ -98,7 +100,7 @@ format!("{} WHERE rowid > {} LIMIT {}", sql, last_rowid, batch_size)
 
 **Testing:** All streaming tests passing with O(n) cursor pagination
 
-#### ✅ Step 3: Index Creation Helpers (COMPLETE)
+#### [x] Step 3: Index Creation Helpers (COMPLETE)
 **Solution Implemented:** Index creation API for both FFI and UniFFI
 
 **FFI Implementation:**
@@ -133,19 +135,90 @@ pub fn create_index(
 
 **Benefit:** Improves JOIN performance for complex queries
 
-### What's Next: Phase 4.2 - iOS Binding Generation
+---
 
-**Objective:** Generate Swift bindings and replace Objective-C bridge
+## [x] Phase 4.2 COMPLETE: Android SQLCipher Encryption
 
-**Steps:**
-1. Install `uniffi-bindgen-react-native` CLI tool
-2. Run binding generator for iOS platform
-3. Review generated Swift code
-4. Create Turbo Module registration
-5. Test on iOS simulator
-6. Replace legacy Objective-C bridge (616 lines)
+**Completed:** October 29, 2025  
+**Duration:** 1 day  
+**Result:** Android encryption working with pre-built SQLCipher libraries, iOS verified
 
-**Expected Timeline:** 3-5 days
+### Accomplishments
+
+#### Android SQLCipher Integration
+- [x] Built OpenSSL 1.1.1w with `no-asm` and `-fPIC` for all Android ABIs
+- [x] Built SQLCipher 4.6.0 with `-fPIC` for arm64-v8a, armeabi-v7a, x86, x86_64
+- [x] Added pre-built static libraries to `android/src/main/jni/sqlcipher-libs/`
+- [x] Updated `build.rs` to configure Android builds with pre-built libraries
+- [x] Added `.cargo/config.toml` with PIC flags and library search paths
+
+#### Platform Support
+- [x] **Android:** Uses pre-built SQLCipher + OpenSSL static libraries
+  - Feature: `encryption` with `rusqlite/sqlcipher`
+  - Libraries linked via `build.rs` environment variables
+- [x] **iOS:** Uses bundled SQLCipher with CommonCrypto
+  - Feature: `encryption-ios` (alias to `encryption-commoncrypto`)
+  - Feature: `encryption-commoncrypto` with `rusqlite/bundled-sqlcipher`
+  - No OpenSSL dependency - uses system CommonCrypto framework
+
+#### Code Cleanup
+- [x] Removed `android_jni/bindings.rs` (740 lines) - replaced by UniFFI
+- [x] Removed `android_jni/mod.rs` (7 lines)
+- [x] Removed Android test files using old JNI bindings
+- [x] Removed `scripts/build_android.py` and `scripts/build_ios.py` (obsolete)
+
+#### Deployment Verification
+- [x] Android APK built successfully with all architectures
+- [x] Installed and launched on Android emulator
+- [x] iOS app built successfully with encryption-ios feature
+- [x] Installed and launched on iPhone 16 simulator
+- [x] No regressions on either platform
+
+### Technical Details
+
+**Build Configuration:**
+```rust
+// Cargo.toml features
+encryption = ["rusqlite", "rusqlite/sqlcipher"]  // Android
+encryption-commoncrypto = ["rusqlite", "rusqlite/bundled-sqlcipher"]  // iOS/macOS
+encryption-ios = ["encryption-commoncrypto"]  // Alias for iOS
+```
+
+**Android Pre-built Libraries:**
+```
+android/src/main/jni/sqlcipher-libs/
+├── arm64-v8a/
+│   ├── libsqlcipher.a
+│   ├── libcrypto.a
+│   └── libssl.a
+├── armeabi-v7a/
+├── x86/
+├── x86_64/
+└── include/
+    ├── sqlite3.h
+    └── openssl/
+```
+
+**Rust Build Configuration:**
+```toml
+# .cargo/config.toml
+[target.aarch64-linux-android]
+linker = "aarch64-linux-android21-clang"
+ar = "llvm-ar"
+rustflags = ["-C", "relocation-model=pic", "-L", "native=absurder-sql-mobile/android/src/main/jni/sqlcipher-libs/arm64-v8a"]
+```
+
+### What's Next: Platform-Specific Optimizations
+
+**iOS Optimizations:**
+- Consider pre-building SQLCipher for iOS to reduce build times
+- Investigate Keychain integration for key management
+- Test on physical devices
+
+**Android Optimizations:**
+- Integrate Android Keystore for key storage
+- Test on physical devices with different ABIs
+- Performance benchmarking vs unencrypted builds
 
 ---
 
@@ -169,12 +242,12 @@ pub fn create_index(
 
 **Replace with:** UniFFI proc macros (`#[uniffi::export]`)
 
-#### 2. Android JNI Bindings (747 lines → auto-generated)
-- `src/android_jni/bindings.rs` (740 lines) - Manual JNI wrappers
-- `src/android_jni/mod.rs` (7 lines)
-- `android/src/main/kotlin/com/npiesco/absurdersql/AbsurderSQLModule.kt` (390 lines)
+#### 2. Android JNI Bindings ([x] REMOVED - October 29, 2025)
+- ~~`src/android_jni/bindings.rs` (740 lines)~~ - **DELETED**
+- ~~`src/android_jni/mod.rs` (7 lines)~~ - **DELETED**
+- `android/src/main/kotlin/com/npiesco/absurdersql/AbsurderSQLModule.kt` (minimal Turbo Module wrapper)
 
-**Replace with:** UniFFI auto-generated Kotlin bindings + Turbo Module
+**Status:** UniFFI auto-generated Kotlin bindings + Turbo Module **IN USE**
 
 #### 3. iOS Objective-C Bridge (616 lines → auto-generated)
 - `ios/AbsurderSQLBridge.m` (616 lines) - Manual Objective-C bridge
@@ -318,12 +391,12 @@ Rust Core (annotated with #[uniffi::export])
 
 ### Success Criteria
 
-- ✅ All 87 tests passing
-- ✅ Zero regressions in functionality
-- ✅ <1ms bridge overhead measured
-- ✅ <200 lines of manual glue code
-- ✅ Type safety across all layers
-- ✅ Performance improvement documented
+- [x] All 87 tests passing
+- [x] Zero regressions in functionality
+- [x] <1ms bridge overhead measured
+- [x] <200 lines of manual glue code
+- [x] Type safety across all layers
+- [x] Performance improvement documented
 
 ---
 
@@ -345,14 +418,14 @@ SQLite (rusqlite)
 ```
 
 **Key Components:**
-- ✅ FFI layer with handle-based API
-- ✅ iOS bridge (Objective-C + React Native)
-- ✅ Android bridge (Kotlin + JNI)
-- ✅ TypeScript API with full type safety
-- ✅ PreparedStatement API
-- ✅ Transaction support
-- ✅ Export/import functionality
-- ✅ Streaming API (cursor-based result iteration)
+- [x] FFI layer with handle-based API
+- [x] iOS bridge (Objective-C + React Native)
+- [x] Android bridge (Kotlin + JNI)
+- [x] TypeScript API with full type safety
+- [x] PreparedStatement API
+- [x] Transaction support
+- [x] Export/import functionality
+- [x] Streaming API (cursor-based result iteration)
 
 **Performance Results:**
 - See [MOBILE_BENCHMARK.md](./MOBILE_BENCHMARK.md) for complete results
@@ -361,24 +434,24 @@ SQLite (rusqlite)
 
 ### Modular Architecture Refactoring (Completed)
 
-**Status:** ✅ Complete (October 2025)
+**Status:** [x] Complete (October 2025)
 
 The FFI layer has been refactored from a monolithic 2,443-line `lib.rs` file into a clean modular structure:
 
 ```
 absurder-sql-mobile/src/
-├── lib.rs (631 lines)              # Module declarations & re-exports
-├── registry.rs (97 lines)          # Global state management
-├── ffi/
-│   ├── mod.rs (10 lines)          # FFI module declarations
-│   ├── core.rs (333 lines)        # Core database operations
-│   ├── transactions.rs (241 lines) # Transaction management
-│   ├── prepared_statements.rs (264 lines) # Prepared statements
-│   ├── streaming.rs (211 lines)   # Streaming/cursor API
-│   └── export_import.rs (189 lines) # Backup/restore
-└── android_jni/
-    ├── mod.rs (7 lines)           # JNI module declarations
-    └── bindings.rs (625 lines)    # Android JNI wrappers
+├── lib.rs (minimal)                # Module declarations & re-exports
+├── registry.rs                     # Global state management
+├── ffi/                            # Legacy FFI (kept for compatibility)
+│   ├── mod.rs                     # FFI module declarations
+│   ├── core.rs                    # Core database operations
+│   ├── encryption.rs              # Encryption operations
+│   ├── transactions.rs            # Transaction management
+│   ├── prepared_statements.rs     # Prepared statements
+│   ├── streaming.rs               # Streaming/cursor API
+│   └── export_import.rs           # Backup/restore
+└── uniffi_api/                     # UniFFI bindings (current)
+    └── core.rs                    # All UniFFI exported functions
 ```
 
 **Benefits:**
@@ -425,10 +498,14 @@ absurder-sql-mobile/src/
    - `absurder_db_export()` - VACUUM INTO
    - `absurder_db_import()` - Table-by-table restore
 
-7. **`android_jni/bindings.rs`**: Android JNI layer
-   - 29 JNI wrapper functions
-   - `JNI_OnLoad()` initialization
-   - Java ↔ Rust type conversions
+7. **`ffi/encryption.rs`**: Encryption operations
+   - `absurder_db_new_encrypted()` - Create encrypted database
+   - `absurder_db_rekey()` - Change encryption key
+
+8. **`uniffi_api/core.rs`**: UniFFI exported functions
+   - 20 exported functions with `#[uniffi::export]`
+   - Auto-generates TypeScript, Swift, and Kotlin bindings
+   - Replaces manual FFI/JNI/Objective-C bridge code
 
 ---
 

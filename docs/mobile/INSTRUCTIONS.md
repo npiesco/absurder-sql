@@ -40,12 +40,12 @@ fn test_pure_logic() {
 **MANDATORY**: Every `CREATE TABLE` statement MUST be preceded by `DROP TABLE IF EXISTS`.
 
 ```rust
-// ✅ CORRECT
+// [x] CORRECT
 execute(handle, "DROP TABLE IF EXISTS users".to_string()).ok();
 execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)".to_string())
     .expect("Failed to create table");
 
-// ❌ WRONG - Will cause test interference
+// [ ] WRONG - Will cause test interference
 execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)".to_string())
     .expect("Failed to create table");
 ```
@@ -144,7 +144,7 @@ fn test_my_feature() {
 
 ## Common Mistakes to Avoid
 
-### ❌ Missing Serial Annotation
+### [ ] Missing Serial Annotation
 ```rust
 #[test]  // WRONG - no #[serial]
 fn test_something() {
@@ -152,14 +152,14 @@ fn test_something() {
 }
 ```
 
-### ❌ Missing DROP TABLE
+### [ ] Missing DROP TABLE
 ```rust
 // WRONG - no DROP TABLE IF EXISTS
 execute(handle, "CREATE TABLE test (id INTEGER)".to_string())
     .expect("Failed to create table");
 ```
 
-### ❌ Shared Database Names
+### [ ] Shared Database Names
 ```rust
 // WRONG - all tests use same database
 let config = DatabaseConfig {
@@ -168,14 +168,14 @@ let config = DatabaseConfig {
 };
 ```
 
-### ❌ Not Closing Database
+### [ ] Not Closing Database
 ```rust
 let handle = create_database(config).expect("Failed to create database");
 // ... test operations ...
 // WRONG - missing close_database(handle)
 ```
 
-### ❌ Not Deleting Database File
+### [ ] Not Deleting Database File
 ```rust
 let handle = create_database(config).expect("Failed to create database");
 // ... test operations ...
