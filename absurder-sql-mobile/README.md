@@ -1,26 +1,33 @@
 # AbsurderSQL Mobile
 
-React Native bindings for iOS and Android using **UniFFI** for auto-generated bindings, providing native SQLite with filesystem persistence and SQLCipher encryption.
+**React Native bindings for iOS and Android**
 
-## Status: Production Ready [x]
+[![npm](https://img.shields.io/npm/v/@npiesco/absurder-sql-mobile)](https://www.npmjs.com/package/@npiesco/absurder-sql-mobile)
 
-**Version:** 0.3.0 (Phase 4.2 Complete)  
-**Last Updated:** October 29, 2025  
-**Architecture:** UniFFI 0.29 + React Native Turbo Modules  
-**Test Coverage:** 
-- 141 Rust tests (69 FFI + 72 UniFFI) - all passing
-- 13 React Native integration tests - all passing
-- Zero regressions
+**Tech Stack:**  
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](../Cargo.toml)
+[![UniFFI](https://img.shields.io/badge/uniffi-0.29-blue)](https://mozilla.github.io/uniffi-rs/)
+[![React Native](https://img.shields.io/badge/react--native-0.82%2B-61dafb)](https://reactnative.dev/)
 
-**Platforms:**
-- [x] iOS (encryption via CommonCrypto)
-- [x] Android (encryption via pre-built SQLCipher + OpenSSL)
+**Capabilities:**  
+[![iOS](https://img.shields.io/badge/iOS-13%2B-blue)](https://developer.apple.com/ios/)
+[![Android](https://img.shields.io/badge/Android-API%2023%2B-green)](https://developer.android.com/)
+[![Encryption](https://img.shields.io/badge/encryption-SQLCipher%20AES%20256-success)](https://www.zetetic.net/sqlcipher/)
+[![Performance](https://img.shields.io/badge/performance-WAL%20%2B%20LRU-orange)](#performance-features)
 
----
+> *Native SQLite with filesystem persistence and SQLCipher encryption for React Native*
 
-## Architecture Overview
+## What is AbsurderSQL Mobile?
 
-### Current Architecture (UniFFI-based)
+React Native bindings that bring full SQLite functionality to iOS and Android apps using **UniFFI** for automatic cross-language bindings generation. All SQLite features work natively on mobile devices with:
+
+- **Filesystem persistence** - Real `.db` files on device storage
+- **AES-256 encryption** - SQLCipher integration for secure data at rest
+- **Auto-generated bindings** - TypeScript, Swift, and Kotlin from single Rust codebase
+- **Type-safe APIs** - End-to-end type safety from Rust to TypeScript
+- **Zero manual glue code** - UniFFI generates all platform bindings
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────┐
@@ -50,46 +57,30 @@ React Native bindings for iOS and Android using **UniFFI** for auto-generated bi
        └─────────────────────┘
 ```
 
-### What Changed from Phase I
-
-**Removed (3,835 lines of manual glue code):**
-- ~~Android JNI bindings~~ (747 lines) → Replaced by UniFFI auto-generated Kotlin
-- Manual FFI still exists for backward compatibility (1,434 lines kept)
-- iOS Objective-C bridge still in use (616 lines) - Swift migration pending
-
-**Added:**
-- `src/uniffi_api/` - UniFFI exported functions (core.rs, types.rs, mod.rs)
-- `ubrn.config.yaml` - UniFFI bindgen React Native configuration
-- Auto-generated TypeScript, Kotlin, and C++ bindings
-- Pre-built SQLCipher libraries for Android (all ABIs)
-
----
-
 ## Key Features
 
-### 1. UniFFI Auto-Generated Bindings
-- **20 exported functions** with `#[uniffi::export]` macro
+### UniFFI Auto-Generated Bindings
+- 20 exported Rust functions with `#[uniffi::export]`
 - Automatic TypeScript, Kotlin, and Swift bindings
 - Type-safe across all layers (Rust → TypeScript)
-- Zero manual synchronization needed
+- Zero manual synchronization
 
-### 2. Database Encryption (SQLCipher)
-- **iOS:** Uses `encryption-ios` feature with bundled SQLCipher + CommonCrypto
-- **Android:** Pre-built SQLCipher 4.6.0 + OpenSSL 1.1.1w static libraries
+### Database Encryption (SQLCipher)
+- **iOS:** Bundled SQLCipher with CommonCrypto
+- **Android:** Pre-built SQLCipher 4.6.0 + OpenSSL static libraries
 - AES-256 encryption at rest
 - `create_encrypted_database()` and `rekey_database()` APIs
 
-### 3. Performance Optimizations
-- **Cursor-based streaming:** O(n) complexity with `WHERE rowid > last_rowid`
-- **Index creation helpers:** `create_index(table, columns)` API
-- **Mobile-optimized config:** WAL mode, 20K cache pages, auto-vacuum
+### Performance Features
+- Cursor-based streaming with O(n) complexity
+- Index creation helpers: `create_index(table, columns)`
+- Mobile-optimized config: WAL mode, 20K cache pages, auto-vacuum
 
-### 4. Core Database Operations
-- Create, execute, query with params
+### Core Operations
+- Database creation, queries with parameters
 - Transactions (begin, commit, rollback)
-- Prepared statements
-- Export/import (VACUUM INTO)
-- Batch operations
+- Prepared statements and batch operations
+- Export/import via VACUUM INTO
 - BLOB support
 
 ---
@@ -353,83 +344,13 @@ The `npm run ubrn:android` script:
 
 ### Important: Clean Build Environments
 
-**Critical Lesson Learned:**
-Android NDK environment variables contaminate iOS builds. Always use separate terminal sessions.
+**Critical:** Android NDK environment variables contaminate iOS builds. Always use separate terminal sessions.
 
-**For iOS builds, ensure no Android NDK in environment:**
+**For iOS builds:**
 ```bash
 # Check environment is clean
 printenv | grep -E "CC|ANDROID|NDK|CLANG|AR_|RANLIB"
-# Should return nothing
-
-# If polluted, start a new terminal session
-```
-
-**For Android builds, environment variables are okay.**
-
----
-
-## Configuration Files
-
-### ubrn.config.yaml
-
-Configures UniFFI bindgen for React Native:
-
-```yaml
-name: AbsurderSQL
-
-rust:
-  directory: .
-  manifestPath: Cargo.toml
-
-ios:
-  enabled: true
-  deploymentTarget: "13.0"
-  targets:
-    - aarch64-apple-ios           # iOS devices
-    - aarch64-apple-ios-sim       # iOS simulator (Apple Silicon)
-  cargoExtras:
-    - --features
-    - uniffi-bindings,encryption-ios,fs_persist
-
-android:
-  enabled: true
-  targets:
-    - arm64-v8a                   # ARM64 devices
-    - armeabi-v7a                 # ARMv7 devices
-    - x86                         # x86 emulator
-    - x86_64                      # x86_64 emulator
-  cargoExtras:
-    - --features
-    - uniffi-bindings,encryption,fs_persist
-
-turboModule:
-  entrypoint: "src/index.ts"
-```
-
-### Cargo.toml
-
-Key dependencies and features:
-
-```toml
-[dependencies]
-absurder-sql = { path = "..", features = ["fs_persist"], default-features = false }
-uniffi = { version = "0.29", features = ["tokio"], optional = true }
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-[target.'cfg(target_os = "android")'.dependencies]
-jni = { version = "0.21", default-features = false }
-android_logger = "0.14"
-
-[features]
-default = ["bundled-sqlite"]
-fs_persist = ["absurder-sql/fs_persist"]
-bundled-sqlite = ["absurder-sql/bundled-sqlite", "fs_persist"]
-encryption = ["absurder-sql/encryption", "fs_persist"]  # Android
-encryption-ios = ["absurder-sql/encryption-ios", "fs_persist"]  # iOS
-uniffi-bindings = ["uniffi"]
+# Should return nothing - if polluted, start new terminal
 ```
 
 ---
@@ -521,156 +442,20 @@ All functions are exported with `#[uniffi::export]`:
 
 ## Testing
 
-### Run Rust Tests
-
 ```bash
-cd absurder-sql-mobile
-
-# All tests (141 total)
+# Rust tests
 cargo test
-
-# FFI tests only (69 tests)
-cargo test --test '*ffi*'
-
-# UniFFI tests only (72 tests)
-cargo test --test '*uniffi*'
-
-# With encryption
 cargo test --features encryption
 cargo test --features encryption-ios
-```
 
-### Run React Native Integration Tests
-
-```bash
+# React Native integration tests
 cd react-native
-
-# iOS
 npx react-native run-ios --simulator="iPhone 16"
-# Then run tests in the app
-
-# Android  
 npx react-native run-android
-# Then run tests in the app
 ```
-
-### Test Results (Current)
-
-- [x] **141 Rust tests** - All passing
-  - 69 FFI tests (legacy C API)
-  - 72 UniFFI tests (new API)
-- [x] **13 React Native integration tests** - All passing on iOS and Android
-- [x] **Zero regressions** from UniFFI migration
-- [x] **Encryption tests passing** on both platforms
-
----
-
-## Key Discoveries & Lessons Learned
-
-### 1. Position Independent Code (`-fPIC`) is Critical for Android
-
-Android shared libraries MUST be compiled with `-fPIC`. Without it, you get linker errors:
-```
-ld.lld: error: relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol
-```
-
-**Solution:** Pre-build all libraries with `-fPIC` and configure Rust via `.cargo/config.toml`.
-
-### 2. OpenSSL Assembly Code Causes PIC Issues
-
-OpenSSL's assembly optimizations don't work well with PIC on Android.
-
-**Solution:** Build OpenSSL with `no-asm` flag.
-
-### 3. Environment Pollution Breaks Cross-Platform Builds
-
-Android NDK adds itself to `PATH` and sets `CC`, `RANLIB`, etc. These contaminate iOS builds.
-
-**Solution:** Use separate terminal sessions for iOS and Android builds.
-
-### 4. iOS is Much Simpler with CommonCrypto
-
-iOS has built-in CommonCrypto, so no need to pre-build anything.
-
-**Solution:** Use `encryption-ios` feature which maps to `rusqlite/bundled-sqlcipher`.
-
-### 5. UniFFI Proc Macros > Manual Bindings
-
-UniFFI's `#[uniffi::export]` is far superior to maintaining 3,835 lines of manual glue code.
-
-**Benefits:**
-- Type safety across all layers
-- Automatic TypeScript types
-- No manual synchronization
-- Compile-time error checking
-
-### 6. Serial Tests Required for Database Tests
-
-Database tests MUST use `#[serial]` annotation to prevent race conditions.
-
-See `docs/mobile/INSTRUCTIONS.md` for complete testing patterns.
-
----
-
-## Project Structure
-
-```
-absurder-sql-mobile/
-├── src/
-│   ├── uniffi_api/          # UniFFI exported functions
-│   │   ├── core.rs          # All 20 exported functions
-│   │   ├── types.rs         # DatabaseConfig, QueryResult types
-│   │   └── mod.rs
-│   ├── ffi/                 # Legacy C FFI (kept for compatibility)
-│   │   ├── core.rs
-│   │   ├── encryption.rs
-│   │   ├── transactions.rs
-│   │   ├── prepared_statements.rs
-│   │   ├── streaming.rs
-│   │   └── export_import.rs
-│   ├── registry.rs          # Global handle management
-│   ├── lib.rs               # Module declarations
-│   └── __tests__/           # 141 Rust tests
-├── android/
-│   └── src/main/
-│       ├── jni/sqlcipher-libs/  # Pre-built libraries
-│       │   ├── arm64-v8a/
-│       │   ├── armeabi-v7a/
-│       │   ├── x86/
-│       │   ├── x86_64/
-│       │   └── include/
-│       └── jniLibs/         # Copied .a files (auto-generated)
-├── ios/
-│   └── AbsurderSqlMobileFramework.xcframework/
-├── react-native/            # Example React Native app
-│   ├── ios/
-│   ├── android/
-│   └── __tests__/           # 13 integration tests
-├── .cargo/
-│   └── config.toml          # Android linker + PIC configuration
-├── build.rs                 # Links pre-built Android libraries
-├── ubrn.config.yaml         # UniFFI bindgen configuration
-├── Cargo.toml
-└── README.md
-```
-
----
-
-## Documentation
-
-- **[INSTRUCTIONS.md](docs/mobile/INSTRUCTIONS.md)** - Testing patterns and best practices
-- **[Design_Documentation_II.md](docs/mobile/Design_Documentation_II.md)** - Architecture and design decisions
-- **[Planning_and_Progress_Tree_II.md](docs/mobile/Planning_and_Progress_Tree_II.md)** - Project roadmap and progress
-- **[PRD_II.md](docs/mobile/PRD_II.md)** - Product requirements
 
 ---
 
 ## License
 
-AGPL-3.0
-
----
-
-## Support
-
-For issues, questions, or contributions, see the main [absurder-sql](https://github.com/npiesco/absurder-sql) repository.
+AGPL-3.0 - See main [absurder-sql](https://github.com/npiesco/absurder-sql) repository.

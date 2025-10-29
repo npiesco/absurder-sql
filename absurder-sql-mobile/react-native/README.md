@@ -1,97 +1,99 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# AbsurderSQL Mobile Test App
 
-# Getting Started
+React Native test application for AbsurderSQL mobile bindings with comprehensive integration tests and performance benchmarks.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## What This App Tests
 
-## Step 1: Start Metro
+### 1. Integration Tests (13 tests)
+- Database creation and management
+- Table operations (CREATE, INSERT, SELECT)
+- Transaction support (COMMIT, ROLLBACK)
+- Export/import functionality
+- Encryption (SQLCipher)
+  - Encrypted database creation
+  - Encrypted data operations
+  - Key rekeying
+  - Persistence verification
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+### 2. Performance Benchmarks
+- Simple SELECT queries (1 row, 100 rows)
+- Bulk INSERT (1000 rows)
+- Transaction performance
+- Indexed vs non-indexed queries
+- Complex JOINs
+- Batch operations
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+### 3. Comparison Benchmarks
+Head-to-head performance comparison against:
+- **react-native-sqlite-storage** (popular SQLite wrapper)
+- **WatermelonDB** (reactive database with sync)
 
-```sh
-# Using npm
-npm start
+Tests same operations on all three libraries to measure relative performance.
 
-# OR using Yarn
-yarn start
-```
-
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
-```
+## Running the App
 
 ### iOS
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+```bash
+cd /path/to/absurder-sql-mobile/react-native
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+# Install CocoaPods (first time only)
+cd ios && pod install && cd ..
 
-```sh
-bundle install
+# Run on simulator
+npx react-native run-ios --simulator="iPhone 16"
 ```
 
-Then, and every time you update your native dependencies, run:
+### Android
 
-```sh
-bundle exec pod install
+```bash
+cd /path/to/absurder-sql-mobile/react-native
+
+# Ensure emulator is running
+# List available: ~/Library/Android/sdk/emulator/emulator -list-avds
+# Start emulator: ~/Library/Android/sdk/emulator/emulator -avd <avd_name>
+
+# Run on emulator
+npx react-native run-android
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## Using the App
 
-```sh
-# Using npm
-npm run ios
+The app has three tabs:
 
-# OR using Yarn
-yarn ios
+1. **Tests** - Run all 13 integration tests
+   - Tap "Run Tests" to execute
+   - Each test shows PASS/FAIL status
+   - Execution time displayed
+
+2. **Benchmarks** - Performance tests with requirements
+   - Tap "Run Benchmarks" to execute
+   - Shows actual vs required duration
+   - Green = PASS, Red = FAIL
+
+3. **Comparison** - Compare against other libraries
+   - Tests AbsurderSQL vs react-native-sqlite-storage vs WatermelonDB
+   - Side-by-side performance metrics
+   - Shows percentage differences
+
+## Test Files
+
+- `AbsurderSQLTest.tsx` - Integration tests
+- `AbsurderSQLBenchmark.tsx` - Performance benchmarks
+- `ComparisonBenchmark.tsx` - Library comparison
+- `App.tsx` - Main app with tab navigation
+
+## Viewing Logs
+
+Check Metro console for detailed test output:
+
+```bash
+# Metro should already be running, but if not:
+npx react-native start
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Logs show:
+- Test execution steps
+- SQL queries executed
+- Error messages (if any)
+- Performance metrics
