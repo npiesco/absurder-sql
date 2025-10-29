@@ -9,7 +9,7 @@
     "build": "tsc",
     "test": "jest",
     "prepare": "tsc",
-    "ubrn:ios": "ubrn build ios --and-generate",
+    "ubrn:ios": "IPHONEOS_DEPLOYMENT_TARGET=13.0 ubrn build ios --and-generate",
     "ubrn:android": "ubrn build android --and-generate && python3 scripts/fix_cpp_adapter.py",
     "ubrn:bindings": "ubrn generate --all-platforms",
     "ubrn:clean": "rm -rfv cpp/ android/generated/ ios/generated/ src/generated/",

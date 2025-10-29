@@ -9,5 +9,5 @@ pub mod prepared_statements;
 pub mod streaming;
 pub mod export_import;
 
-#[cfg(feature = "encryption")]
+#[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 pub mod encryption;

@@ -3,7 +3,7 @@
 //! This test demonstrates the issue where creating an IndexedDB VFS structure
 //! conflicts with SQLCipher encrypted database creation.
 
-#[cfg(all(test, feature = "encryption"))]
+#[cfg(all(test, any(feature = "encryption", feature = "encryption-ios")))]
 mod encryption_vfs_tests {
     use crate::ffi::encryption::absurder_db_new_encrypted;
     use crate::ffi::core::{absurder_db_execute, absurder_db_close};

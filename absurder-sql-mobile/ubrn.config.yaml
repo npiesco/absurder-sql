@@ -18,7 +18,7 @@ ios:
     - aarch64-apple-ios-sim       # iOS simulator (Apple Silicon)
   cargoExtras:
     - --features
-    - uniffi-bindings,encryption,fs_persist
+    - uniffi-bindings,encryption-ios,fs_persist
 
 # Android configuration  
 android:

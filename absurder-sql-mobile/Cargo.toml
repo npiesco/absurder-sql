@@ -53,9 +53,10 @@ serial_test = "3.0"
 default = ["bundled-sqlite"]  # Changed: default to bundled-sqlite for better out-of-box experience
 fs_persist = ["absurder-sql/fs_persist"]
 bundled-sqlite = ["absurder-sql/bundled-sqlite", "fs_persist"]
-encryption = ["absurder-sql/encryption", "fs_persist"]
+encryption = ["absurder-sql/encryption", "fs_persist"]  # Android: Uses pre-built SQLCipher libraries
+encryption-ios = ["absurder-sql/encryption-ios", "fs_persist"]  # iOS: CommonCrypto via alias
 # UniFFI feature for auto-generated bindings (opt-in during migration)
-uniffi-bindings = ["uniffi", "bundled-sqlite", "encryption"]  # UniFFI with encryption support
+uniffi-bindings = ["uniffi"]  # Base UniFFI - add bundled-sqlite or encryption via ubrn.config.yaml per platform
 
 [profile.release]
 opt-level = "z"     # Optimize for size

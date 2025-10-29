@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 // Make this public so child crates can use it
 // When encryption is enabled, rusqlite uses bundled-sqlcipher-vendored-openssl feature
 // When bundled-sqlite is enabled, rusqlite uses bundled feature
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "encryption", feature = "bundled-sqlite")))]
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "bundled-sqlite", feature = "encryption", feature = "encryption-commoncrypto", feature = "encryption-ios")))]
 pub extern crate rusqlite;
 
 // Enable better panic messages and memory allocation

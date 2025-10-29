@@ -2,7 +2,7 @@
 //!
 //! Tests for SQLCipher encryption FFI functions
 
-#![cfg(all(test, not(target_arch = "wasm32"), feature = "encryption"))]
+#![cfg(all(test, not(target_arch = "wasm32"), any(feature = "encryption", feature = "encryption-ios")))]
 
 use std::ffi::CString;
 use crate::ffi::encryption::{absurder_db_new_encrypted, absurder_db_rekey};

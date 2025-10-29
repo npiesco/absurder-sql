@@ -1054,7 +1054,7 @@ pub fn close_stream(stream_handle: u64) -> Result<(), DatabaseError> {
 /// 
 /// # Returns
 /// * `Result<u64, DatabaseError>` - Database handle on success
-#[cfg(feature = "encryption")]
+#[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
     log::info!("UniFFI: Creating encrypted database: {}", config.name);
@@ -1129,7 +1129,7 @@ pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Da
 /// 
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if rekey succeeded
-#[cfg(feature = "encryption")]
+#[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 #[uniffi::export]
 pub fn rekey_database(handle: u64, new_key: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Rekeying database handle {}", handle);

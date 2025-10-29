@@ -18,7 +18,7 @@ use crate::registry::{
 /// - name must be a valid null-terminated UTF-8 C string
 /// - key must be a valid null-terminated UTF-8 C string (min 8 characters)
 /// - Returns 0 on error
-#[cfg(feature = "encryption")]
+#[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn absurder_db_new_encrypted(
     name: *const c_char,
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn absurder_db_new_encrypted(
 /// - handle must be a valid database handle
 /// - new_key must be a valid null-terminated UTF-8 C string (min 8 characters)
 /// - Returns 0 on success, non-zero on error
-#[cfg(feature = "encryption")]
+#[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn absurder_db_rekey(
     handle: u64,
