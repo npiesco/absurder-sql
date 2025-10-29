@@ -1,0 +1,66 @@
+[package]
+name = "absurder-sql-mobile"
+version = "0.1.0"
+authors = ["Nicholas G. Piesco"]
+description = "AbsurderSQL Mobile FFI - React Native bindings for iOS and Android"
+license = "AGPL-3.0"
+repository = "https://github.com/npiesco/absurder-sql"
+edition = "2024"
+rust-version = "1.85.0"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+absurder-sql = { path = "..", features = ["fs_persist"], default-features = false }
+
+# UniFFI for cross-platform bindings (React Native, WASM)
+uniffi = { version = "0.29", features = ["tokio"], optional = true }
+
+# FFI and C bindings (legacy, will be replaced by UniFFI)
+libc = "0.2"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Thread-safe statics
+once_cell = "1.18"
+parking_lot = "0.12"
+
+# Error handling
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+
+# JNI for Android
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+android_logger = "0.14"
+
+[build-dependencies]
+uniffi = { version = "0.29", features = ["build"], optional = true }
+
+[dev-dependencies]
+env_logger = "0.11"
+serial_test = "3.0"
+
+[features]
+default = ["bundled-sqlite"]  # Changed: default to bundled-sqlite for better out-of-box experience
+fs_persist = ["absurder-sql/fs_persist"]
+bundled-sqlite = ["absurder-sql/bundled-sqlite", "fs_persist"]
+encryption = ["absurder-sql/encryption", "fs_persist"]  # Android: Uses pre-built SQLCipher libraries
+encryption-ios = ["absurder-sql/encryption-ios", "fs_persist"]  # iOS: CommonCrypto via alias
+# UniFFI feature for auto-generated bindings (opt-in during migration)
+uniffi-bindings = ["uniffi"]  # Base UniFFI - add bundled-sqlite or encryption via ubrn.config.yaml per platform
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Better optimization
+strip = true        # Strip symbols
+panic = "abort"     # Smaller binary

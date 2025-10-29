@@ -14,9 +14,9 @@ export interface DatabaseConfig {
 export interface QueryResult {
     columns: string[];
     rows: Row[];
-    affected_rows: number;
-    last_insert_id: number | null;
-    execution_time_ms: number;
+    affectedRows: number;
+    lastInsertId: number | null;
+    executionTimeMs: number;
 }
 
 export interface Row {
@@ -290,8 +290,8 @@ export interface InitOutput {
   readonly __wbindgen_export_5: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
   readonly closure310_externref_shim: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__hb8bb58060fde6c51: (a: number, b: number) => void;
   readonly closure933_externref_shim: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__hb63076da0b75c0a3: (a: number, b: number) => void;
   readonly closure961_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }

@@ -5,7 +5,7 @@
 ///
 /// EXPECTED TO FAIL until executeBatch() is implemented
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod mobile_bridge_overhead_tests {
     use absurder_sql::{DatabaseConfig, SqliteIndexedDB};
     use serial_test::serial;

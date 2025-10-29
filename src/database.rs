@@ -409,7 +409,7 @@ impl SqliteIndexedDB {
     /// - Keys should be stored in secure storage (iOS Keychain, Android Keystore)
     /// - Uses SQLCipher's PRAGMA key for encryption
     /// - Data is encrypted at rest using AES-256
-    #[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
+    #[cfg(all(not(target_arch = "wasm32"), any(feature = "encryption", feature = "encryption-commoncrypto", feature = "encryption-ios")))]
     pub async fn new_encrypted(config: DatabaseConfig, key: &str) -> Result<Self, DatabaseError> {
         log::info!("Creating encrypted SQLiteIndexedDB with config: {:?}", config);
         
@@ -501,7 +501,7 @@ impl SqliteIndexedDB {
     /// - Database remains accessible with the new key after successful rekey
     /// - Old key will no longer work after this operation
     /// - Operation is atomic - either succeeds completely or fails without changes
-    #[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
+    #[cfg(all(not(target_arch = "wasm32"), any(feature = "encryption", feature = "encryption-commoncrypto", feature = "encryption-ios")))]
     pub async fn rekey(&self, new_key: &str) -> Result<(), DatabaseError> {
         log::info!("Rekeying encrypted database");
         

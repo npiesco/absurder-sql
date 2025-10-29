@@ -233,41 +233,6 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             storage.evict_if_needed();
             return Ok(data);
         }
-
-        // For native non-test, return empty block - will implement file-based storage later
-        #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
-        {
-            // Check if block is actually allocated before returning zeroed data
-            if !storage.allocated_blocks.contains(&block_id) {
-                let error = DatabaseError::new(
-                    "BLOCK_NOT_FOUND",
-                    &format!("Block {} not found in storage", block_id)
-                );
-                // Record error for observability
-                storage.observability.record_error(&error);
-                return Err(error);
-            }
-            
-            let data = vec![0; BLOCK_SIZE];
-            log::debug!("Block {} not found, returning empty block (sync)", block_id);
-
-            // Cache for future reads
-            storage.cache.insert(block_id, data.clone());
-            log::debug!("Block {} cached (sync)", block_id);
-            // Verify checksum if tracked (typically none for empty native block)
-            if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-                log::error!(
-                    "Checksum verification failed for block {} (native fallback): {}",
-                    block_id, e.message
-                );
-                storage.observability.record_error(&e);
-                return Err(e);
-            }
-            storage.touch_lru(block_id);
-            storage.evict_if_needed();
-            
-            Ok(data)
-        }
     }
 
 /// Synchronous block write implementation

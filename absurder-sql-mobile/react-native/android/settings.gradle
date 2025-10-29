@@ -1,0 +1,10 @@
+pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+rootProject.name = 'AbsurderSQLTestApp'
+include ':detox'
+project(':detox').projectDir = new File(rootProject.projectDir, '../node_modules/detox/android/detox')
+include ':app'
+include ':absurder-sql-mobile'
+project(':absurder-sql-mobile').projectDir = new File(rootProject.projectDir, '../../android')
+includeBuild('../node_modules/@react-native/gradle-plugin')

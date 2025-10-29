@@ -1,12 +1,11 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-// Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
-// Make these public so child crates can use them
-#[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
-pub extern crate rusqlite_sqlcipher as rusqlite;
-
-#[cfg(all(not(target_arch = "wasm32"), not(feature = "encryption"), feature = "bundled-sqlite"))]
+// Conditional rusqlite import: same crate, different features
+// Make this public so child crates can use it
+// When encryption is enabled, rusqlite uses bundled-sqlcipher-vendored-openssl feature
+// When bundled-sqlite is enabled, rusqlite uses bundled feature
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "bundled-sqlite", feature = "encryption", feature = "encryption-commoncrypto", feature = "encryption-ios")))]
 pub extern crate rusqlite;
 
 // Enable better panic messages and memory allocation

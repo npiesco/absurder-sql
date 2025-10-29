@@ -1,0 +1,41 @@
+# UniFFI Bindgen React Native Configuration
+# https://jhugman.github.io/uniffi-bindgen-react-native/reference/config-yaml.html
+
+# Library name
+name: AbsurderSQL
+
+# Rust configuration - point to local crate
+rust:
+  directory: .
+  manifestPath: Cargo.toml
+
+# iOS configuration
+ios:
+  enabled: true
+  deploymentTarget: "13.0"        # Minimum iOS version
+  targets:
+    - aarch64-apple-ios           # iOS devices
+    - aarch64-apple-ios-sim       # iOS simulator (Apple Silicon)
+  cargoExtras:
+    - --features
+    - uniffi-bindings,encryption-ios,fs_persist
+
+# Android configuration  
+android:
+  enabled: true
+  targets:
+    - arm64-v8a                   # ARM64 devices
+    - armeabi-v7a                 # ARMv7 devices
+    - x86                         # x86 emulator
+    - x86_64                      # x86_64 emulator
+  cargoExtras:
+    - --features
+    - uniffi-bindings,encryption,fs_persist
+
+# Configure turboModule to generate to index.ts
+turboModule:
+  entrypoint: "src/index.ts"
+
+# Don't overwrite our custom main.ts entry point
+noOverwrite:
+  - "src/main.ts"
