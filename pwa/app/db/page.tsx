@@ -17,11 +17,12 @@ import {
 
 function DatabaseManagementContent() {
   const { db, loading, error } = useDatabase();
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('Ready');
   const [newDbName, setNewDbName] = useState('');
   const [tableCount, setTableCount] = useState(0);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -104,12 +105,67 @@ function DatabaseManagementContent() {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const file = files[0];
+    if (!file.name.endsWith('.db') && !file.name.endsWith('.sqlite') && !file.name.endsWith('.sqlite3')) {
+      setStatus('Error: Please drop a valid .db file');
+      return;
+    }
+
+    if (!db) {
+      setStatus('Error: Database not initialized');
+      return;
+    }
+
+    try {
+      await db.import(file);
+      (window as any).testDb = db;
+      setStatus('Import complete');
+    } catch (err: any) {
+      setStatus(`Import error: ${err.message}`);
+    }
+  };
+
   return (
     <div id="dbManagement" className="container mx-auto p-6 max-w-4xl">
       <h1 className="text-3xl font-bold mb-6">Database Management</h1>
 
       <div id="status" className="mb-4 p-3 bg-blue-50 rounded">
         {loading ? 'Loading...' : error ? `Error: ${error.message}` : status || 'Ready'}
+      </div>
+
+      {/* Drag and Drop Zone */}
+      <div
+        id="dropZone"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`mb-6 p-8 border-2 border-dashed rounded-lg text-center transition-colors ${
+          isDragOver ? 'border-blue-500 bg-blue-50 drag-over' : 'border-gray-300 bg-gray-50'
+        }`}
+      >
+        <p className="text-gray-600">
+          {isDragOver ? 'Drop your .db file here' : 'Drag and drop a .db file here to import'}
+        </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

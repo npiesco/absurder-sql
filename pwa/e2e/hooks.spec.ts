@@ -163,13 +163,16 @@ test.describe('React Hooks E2E', () => {
     const result = await page.evaluate(async () => {
       const db = (window as any).testDb;
       try {
-        console.log('Checking for imported data...');
         const result = await db.execute('SELECT * FROM import_source WHERE id = 999');
-        console.log('Import query result:', result);
+        if (result.rows.length > 0) {
+          const row = result.rows[0];
+          const id = row.values[0].type === 'Null' ? null : row.values[0].value;
+          const data = row.values[1].type === 'Null' ? null : row.values[1].value;
+          console.log('Import verification - ID:', id, 'Data:', data);
+        }
         return {
           exists: result.rows.length > 0 && result.rows[0].values[1].value === 'imported data',
-          rowCount: result.rows.length,
-          firstRow: result.rows[0]
+          rowCount: result.rows.length
         };
       } catch (err: any) {
         console.error('Import verification error:', err.message);
@@ -177,7 +180,6 @@ test.describe('React Hooks E2E', () => {
       }
     });
     
-    console.log('Import verification result:', result);
     expect(result.exists).toBe(true);
     
     // Cleanup
