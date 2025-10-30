@@ -26,6 +26,7 @@ import {
 
 interface TableInfo {
   name: string;
+  rowCount?: number;
 }
 
 interface ColumnInfo {
@@ -50,6 +51,7 @@ function SchemaViewerContent() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [indexes, setIndexes] = useState<IndexInfo[]>([]);
+  const [previewData, setPreviewData] = useState<any>(null);
   const [status, setStatus] = useState('');
   const [errorDisplay, setErrorDisplay] = useState('');
   
@@ -79,9 +81,20 @@ function SchemaViewerContent() {
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
       );
       
-      const tableList: TableInfo[] = result.rows.map(row => ({
-        name: getValue(row.values[0]) as string || '',
-      }));
+      const tableList: TableInfo[] = await Promise.all(
+        result.rows.map(async (row) => {
+          const tableName = getValue(row.values[0]) as string || '';
+          
+          // Get row count for each table
+          try {
+            const countResult = await db.execute(`SELECT COUNT(*) as count FROM ${tableName}`);
+            const rowCount = getValue(countResult.rows[0].values[0]) as number || 0;
+            return { name: tableName, rowCount };
+          } catch {
+            return { name: tableName, rowCount: 0 };
+          }
+        })
+      );
       
       setTables(tableList);
       setStatus('Tables refreshed');
@@ -118,6 +131,10 @@ function SchemaViewerContent() {
         partial: getValue(row.values[4]) as number,
       }));
       setIndexes(idxs);
+
+      // Get preview data (first 5 rows)
+      const previewResult = await db.execute(`SELECT * FROM ${tableName} LIMIT 5`);
+      setPreviewData(previewResult);
       
       setErrorDisplay('');
     } catch (err: any) {
@@ -241,7 +258,12 @@ function SchemaViewerContent() {
                     }`}
                     onClick={() => selectTable(table.name)}
                   >
-                    {table.name}
+                    <div className="flex justify-between items-center">
+                      <span>{table.name}</span>
+                      <span className="row-count text-xs text-gray-500">
+                        {table.rowCount !== undefined ? `${table.rowCount} rows` : ''}
+                      </span>
+                    </div>
                   </div>
                 ))
               )}
@@ -336,6 +358,57 @@ function SchemaViewerContent() {
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* Quick Query Button */}
+                <div className="pt-4 border-t">
+                  <Button
+                    id="quickSelectAll"
+                    onClick={() => {
+                      if (selectedTable) {
+                        window.location.href = `/db/query?sql=${encodeURIComponent(`SELECT * FROM ${selectedTable}`)}`;
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Quick Query: SELECT *
+                  </Button>
+                </div>
+
+                {/* Data Preview */}
+                <div id="dataPreview" className="pt-4 border-t">
+                  <h3 className="font-semibold mb-2">Data Preview (First 5 Rows)</h3>
+                  {previewData && previewData.rows.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            {previewData.columns.map((col: string, index: number) => (
+                              <TableHead key={index}>{col}</TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {previewData.rows.map((row: any, rowIndex: number) => (
+                            <TableRow key={rowIndex}>
+                              {row.values.map((cell: any, cellIndex: number) => (
+                                <TableCell key={cellIndex}>
+                                  {cell.type === 'Null' ? (
+                                    <span className="text-gray-400 italic">NULL</span>
+                                  ) : (
+                                    String(cell.value)
+                                  )}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No data in table</p>
                   )}
                 </div>
               </div>

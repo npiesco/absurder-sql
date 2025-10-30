@@ -33,6 +33,13 @@ function QueryInterfaceContent() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as any).testDb = db;
+      
+      // Check for SQL in URL parameters
+      const params = new URLSearchParams(window.location.search);
+      const sqlParam = params.get('sql');
+      if (sqlParam) {
+        setSql(sqlParam);
+      }
     }
   }, [db]);
 
