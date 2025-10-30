@@ -124,10 +124,100 @@ export class DatabaseClient {
       try {
         await this.db.close();
         this.db = null;
+        this.dbName = null;
       } catch (error) {
         console.error('Database close failed:', error);
         throw new Error(`Close failed: ${error}`);
       }
+    }
+  }
+
+  /**
+   * Check if database is currently open
+   */
+  isOpen(): boolean {
+    return this.db !== null;
+  }
+
+  /**
+   * Get the current database name
+   */
+  getDatabaseName(): string | null {
+    return this.dbName;
+  }
+
+  /**
+   * Export database to a Blob with specified name
+   * Alias for export() method to match common naming conventions
+   */
+  async exportDatabase(): Promise<Blob> {
+    return this.export();
+  }
+
+  /**
+   * Import database from a Blob with a new database name
+   * Creates a new database and imports the data
+   */
+  async importDatabase(dbName: string, blob: Blob): Promise<void> {
+    await this.initialize();
+
+    // Close existing database if open
+    if (this.db) {
+      await this.close();
+    }
+
+    try {
+      // Create new database
+      this.db = await Database.newDatabase(dbName);
+      this.dbName = dbName;
+
+      // Import data
+      const buffer = await blob.arrayBuffer();
+      await this.db.importFromFile(new Uint8Array(buffer));
+      
+      // importFromFile closes the connection, must reopen
+      console.log(`Import complete, reopening database "${dbName}"...`);
+      this.db = await Database.newDatabase(dbName);
+      console.log('Database reopened after import');
+    } catch (error) {
+      console.error('Database import failed:', error);
+      this.db = null;
+      this.dbName = null;
+      throw new Error(`Import failed: ${error}`);
+    }
+  }
+
+  /**
+   * Delete a database by name
+   * Warning: This permanently removes the database from IndexedDB
+   */
+  async deleteDatabase(dbName: string): Promise<void> {
+    await this.initialize();
+
+    // Close if this is the current database
+    if (this.dbName === dbName && this.db) {
+      await this.close();
+    }
+
+    try {
+      // Delete from IndexedDB directly
+      const deleteRequest = indexedDB.deleteDatabase(dbName);
+      
+      await new Promise<void>((resolve, reject) => {
+        deleteRequest.onsuccess = () => {
+          console.log(`Deleted database "${dbName}"`);
+          resolve();
+        };
+        deleteRequest.onerror = () => {
+          reject(new Error(`Failed to delete database: ${deleteRequest.error}`));
+        };
+        deleteRequest.onblocked = () => {
+          console.warn(`Delete blocked for database "${dbName}". Close all connections first.`);
+        };
+      });
+    } catch (error) {
+      console.error(`Failed to delete database "${dbName}":`, error);
+      throw new Error(`Delete failed: ${error}`);
     }
   }
 

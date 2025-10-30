@@ -1,0 +1,25 @@
+{
+  "name": "absurder-sql",
+  "type": "module",
+  "collaborators": [
+    "Nicholas G. Piesco"
+  ],
+  "description": "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql",
+  "version": "0.1.7",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/npiesco/absurder-sql"
+  },
+  "files": [
+    "absurder_sql_bg.wasm",
+    "absurder_sql.js",
+    "absurder_sql.d.ts",
+    "LICENSE.md"
+  ],
+  "main": "absurder_sql.js",
+  "types": "absurder_sql.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

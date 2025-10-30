@@ -253,83 +253,70 @@ Build a Next.js 15 PWA that uses the existing AbsurderSQL WASM package for SQLit
   - [x] Create table form
   - [x] Create index form
 
-### 3.7 Adminer Replacement Features
-- [ ] Drag-and-drop database import
-  - [ ] Add drop zone to database management page
-  - [ ] Handle file drop events
-  - [ ] Auto-import dropped .db files
-- [ ] Export query results
-  - [ ] Export to CSV format
-  - [ ] Export to JSON format
+### 3.7 Adminer Replacement Features ✅
+- [x] Drag-and-drop database import
+  - [x] Add drop zone to database management page
+  - [x] Handle file drop events
+  - [x] Auto-import dropped .db files
+- [x] Export query results
+  - [x] Export to CSV format
+  - [x] Export to JSON format
   - [ ] Export to Parquet format (optional)
-  - [ ] Add export buttons to query results
-- [ ] SQL Editor Enhancements
-  - [ ] Add SQL syntax highlighting
-  - [ ] Add SQL autocomplete
-  - [ ] Table/column name suggestions
-- [ ] Schema Viewer Enhancements
-  - [ ] Add data preview for tables
-  - [ ] Show row counts
-  - [ ] Add quick query buttons
+  - [x] Add export buttons to query results
+- [x] SQL Editor Enhancements
+  - [x] Add SQL syntax highlighting (CodeMirror 6)
+  - [x] Add SQL autocomplete
+  - [x] Table/column name suggestions
+- [x] Schema Viewer Enhancements
+  - [x] Add data preview for tables
+  - [x] Show row counts
+  - [x] Add quick query buttons
 
 **Acceptance Criteria:**
 - ✅ UI is responsive on mobile and desktop
 - ✅ All database operations accessible from UI
 - ✅ Query results display correctly
 - ✅ Schema viewer shows accurate information
-- [ ] Drag-and-drop import works
-- [ ] Query results export to CSV/JSON
-- [ ] SQL autocomplete functional
-- [ ] Zero server setup required
+- ✅ Drag-and-drop import works
+- ✅ Query results export to CSV/JSON
+- ✅ SQL autocomplete functional
+- ✅ Zero server setup required
 
 ---
 
-## Phase 4: PWA Features ⏳
+## Phase 4: PWA Features ✅
 
 **Goal:** Add Progressive Web App capabilities
 
 **Duration Estimate:** 2-3 days
 
-### 4.1 Service Worker Setup
-- [ ] Install `next-pwa`
-  ```bash
-  npm install next-pwa
-  ```
-- [ ] Configure in `next.config.js`
-  ```javascript
-  const withPWA = require('next-pwa')({
-    dest: 'public',
-    disable: process.env.NODE_ENV === 'development'
-  });
-  
-  module.exports = withPWA({
-    // ... next config
-  });
-  ```
-- [ ] Create custom service worker if needed
-- [ ] Configure caching strategies
+### 4.1 Service Worker Setup ✅
+- [x] Install `next-pwa`
+- [x] Configure in `next.config.js`
+- [x] Create custom service worker
+- [x] Configure caching strategies
 
-### 4.2 Web App Manifest
-- [ ] Create `public/manifest.json`
-  - [ ] App name and short name
-  - [ ] Icons (192x192, 512x512)
-  - [ ] Theme color and background color
-  - [ ] Display mode: standalone
-  - [ ] Start URL
-- [ ] Create app icons in multiple sizes
-- [ ] Test manifest in Chrome DevTools
+### 4.2 Web App Manifest ✅
+- [x] Create `public/manifest.json`
+  - [x] App name and short name
+  - [x] Icons (192x192, 512x512)
+  - [x] Theme color and background color
+  - [x] Display mode: standalone
+  - [x] Start URL
+- [x] Create app icons in multiple sizes
+- [x] Test manifest in Chrome DevTools
 
-### 4.3 Offline Support
-- [ ] Cache static assets (CSS, JS, images)
-- [ ] Cache WASM binary
-- [ ] Implement offline fallback page
-- [ ] Add online/offline status indicator
+### 4.3 Offline Support ✅
+- [x] Cache static assets (CSS, JS, images)
+- [x] Cache WASM binary
+- [x] Implement offline fallback page
+- [x] Add online/offline status indicator
 
-### 4.4 Install Prompt
-- [ ] Create "Add to Home Screen" prompt component
-- [ ] Detect if already installed
-- [ ] Show prompt at appropriate time
-- [ ] Track installation analytics
+### 4.4 Install Prompt ✅
+- [x] Create "Add to Home Screen" prompt component
+- [x] Detect if already installed
+- [x] Show prompt at appropriate time
+- [x] Track installation analytics
 
 ### 4.5 PWA Optimization
 - [ ] Configure app shortcuts in manifest
@@ -351,26 +338,27 @@ Build a Next.js 15 PWA that uses the existing AbsurderSQL WASM package for SQLit
 
 **Duration Estimate:** 4-5 days
 
-### 5.1 Unit Testing
-- [ ] Write tests for all hooks
-- [ ] Write tests for DatabaseClient
-- [ ] Write tests for utility functions
+### 5.1 Unit Testing ✅
+- [x] Write tests for all hooks
+- [x] Write tests for DatabaseClient
+- [x] Write tests for utility functions (SQL autocomplete)
 - [ ] Achieve > 80% code coverage
-- [ ] Set up coverage reporting
+- [x] Set up coverage reporting (Vitest + v8)
 
-### 5.2 Integration Testing
-- [ ] Test database lifecycle (open, query, close)
-- [ ] Test export/import flow
-- [ ] Test transaction handling
-- [ ] Test multi-tab coordination
-- [ ] Test error recovery
+### 5.2 Integration Testing ✅
+- [x] Test database lifecycle (open, query, close) - Covered by E2E tests
+- [x] Test export/import flow - Covered by E2E tests
+- [x] Test transaction handling - Covered by E2E tests
+- [x] Test multi-tab coordination - Covered by E2E tests
+- [x] Test error recovery - Covered by E2E tests
+- [x] Added unit tests for DatabaseClient helper methods
 
-### 5.3 End-to-End Testing
-- [ ] Write Playwright tests
-  - [ ] Test user flows (create DB, query, export)
-  - [ ] Test PWA installation
-  - [ ] Test offline functionality
-  - [ ] Test on multiple browsers
+### 5.3 End-to-End Testing ✅
+- [x] Write Playwright tests
+  - [x] Test user flows (create DB, query, export)
+  - [x] Test PWA installation
+  - [x] Test offline functionality
+  - [x] Test on multiple browsers
 - [ ] Set up CI/CD pipeline for E2E tests
 
 ### 5.4 Performance Optimization

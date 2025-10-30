@@ -5,7 +5,7 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: 'jsdom',
+    environment: 'happy-dom',
     globals: true,
     setupFiles: './vitest.setup.ts',
     exclude: [
@@ -14,6 +14,8 @@ export default defineConfig({
       '**/.next/**',
       '**/dist/**',
     ],
+    testTimeout: 30000, // 30 seconds for WASM init
+    hookTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
