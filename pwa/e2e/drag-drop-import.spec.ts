@@ -35,8 +35,19 @@ test.describe('Drag-and-Drop Import E2E', () => {
     await page.click('#exportDbButton');
     const download = await downloadPromise;
     
-    // Simulate drag over
-    await page.dispatchEvent('#dropZone', 'dragover');
+    // Simulate drag over with proper dataTransfer
+    await page.evaluate(() => {
+      const dropZone = document.querySelector('#dropZone');
+      const event = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: new DataTransfer()
+      });
+      dropZone?.dispatchEvent(event);
+    });
+    
+    // Wait a bit for styling to apply
+    await page.waitForTimeout(100);
     
     // Check if drop zone has active class
     const hasActiveClass = await page.locator('#dropZone').evaluate((el) => {

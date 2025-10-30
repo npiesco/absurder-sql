@@ -13,7 +13,8 @@ test.describe('Query Interface E2E', () => {
 
   test('should execute SQL query and display results', async ({ page }) => {
     // Enter query first (button is disabled without SQL)
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     
     // Wait for database to be ready
     await page.waitForSelector('#executeButton:not([disabled])');
@@ -28,7 +29,8 @@ test.describe('Query Interface E2E', () => {
     });
 
     // Enter actual query
-    await page.fill('#sqlEditor', 'SELECT * FROM query_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM query_test');
     
     // Execute
     await page.click('#executeButton');
@@ -48,7 +50,8 @@ test.describe('Query Interface E2E', () => {
   });
 
   test('should display query execution error', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT * FROM nonexistent_table');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT * FROM nonexistent_table');
     await page.click('#executeButton');
     
     await page.waitForSelector('#errorDisplay');
@@ -58,7 +61,8 @@ test.describe('Query Interface E2E', () => {
   });
 
   test('should save query to history', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.click('#executeButton');
     
     await page.waitForSelector('#resultsTable');
@@ -75,12 +79,14 @@ test.describe('Query Interface E2E', () => {
     const testQuery = 'SELECT 42 as answer';
     
     // Execute a query
-    await page.fill('#sqlEditor', testQuery);
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type(testQuery);
     await page.click('#executeButton');
     await page.waitForSelector('#resultsTable');
     
     // Clear editor
-    await page.fill('#sqlEditor', '');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.press('Backspace');
     
     // Open history and load query
     await page.click('#historyButton');
@@ -88,12 +94,13 @@ test.describe('Query Interface E2E', () => {
     await page.click('#queryHistory .history-item:first-child');
     
     // Verify query loaded
-    const editorValue = await page.inputValue('#sqlEditor');
+    const editorValue = await page.locator('.cm-editor .cm-content').textContent();
     expect(editorValue).toBe(testQuery);
   });
 
   test('should display column names in results', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])');
     
     await page.evaluate(async () => {
@@ -103,7 +110,8 @@ test.describe('Query Interface E2E', () => {
       await db.execute('INSERT INTO cols_test VALUES (1, ?, 25)', [{ type: 'Text', value: 'Test' }]);
     });
 
-    await page.fill('#sqlEditor', 'SELECT * FROM cols_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM cols_test');
     await page.click('#executeButton');
     
     await page.waitForSelector('#resultsTable');
@@ -122,7 +130,8 @@ test.describe('Query Interface E2E', () => {
   });
 
   test('should show execution time', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.click('#executeButton');
     
     await page.waitForSelector('#executionTime');

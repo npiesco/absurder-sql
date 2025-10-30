@@ -148,7 +148,7 @@ test.describe('Schema Viewer Enhancements E2E', () => {
     await page.waitForSelector('#queryInterface');
     
     // Should have SQL pre-filled
-    const sqlEditor = await page.inputValue('#sqlEditor');
+    const sqlEditor = await page.locator('.cm-editor .cm-content').textContent();
     expect(sqlEditor).toContain('SELECT * FROM nav_test');
 
     // Cleanup - go back to schema page

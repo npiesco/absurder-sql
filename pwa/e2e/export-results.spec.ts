@@ -8,7 +8,8 @@ test.describe('Export Query Results E2E', () => {
 
   test('should display export buttons when results exist', async ({ page }) => {
     // Execute a query to get results
-    await page.fill('#sqlEditor', 'SELECT 1 as id, "test" as name');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1 as id, "test" as name');
     await page.waitForSelector('#executeButton:not([disabled])');
     await page.click('#executeButton');
     
@@ -32,7 +33,8 @@ test.describe('Export Query Results E2E', () => {
 
   test('should export results to CSV format', async ({ page }) => {
     // Create test data
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])');
     
     await page.evaluate(async () => {
@@ -43,7 +45,8 @@ test.describe('Export Query Results E2E', () => {
       await db.execute('INSERT INTO export_test VALUES (2, ?, 30)', [{ type: 'Text', value: 'Bob' }]);
     });
     
-    await page.fill('#sqlEditor', 'SELECT * FROM export_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM export_test');
     await page.click('#executeButton');
     await page.waitForSelector('#resultsTable');
     
@@ -76,7 +79,8 @@ test.describe('Export Query Results E2E', () => {
 
   test('should export results to JSON format', async ({ page }) => {
     // Create test data
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])');
     
     await page.evaluate(async () => {
@@ -87,7 +91,8 @@ test.describe('Export Query Results E2E', () => {
       await db.execute('INSERT INTO json_test VALUES (2, ?)', [{ type: 'Text', value: 'test2' }]);
     });
     
-    await page.fill('#sqlEditor', 'SELECT * FROM json_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM json_test');
     await page.click('#executeButton');
     await page.waitForSelector('#resultsTable');
     
@@ -119,7 +124,8 @@ test.describe('Export Query Results E2E', () => {
   });
 
   test('should handle NULL values in CSV export', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])');
     
     await page.evaluate(async () => {
@@ -129,7 +135,8 @@ test.describe('Export Query Results E2E', () => {
       await db.execute('INSERT INTO null_test VALUES (1, NULL)');
     });
     
-    await page.fill('#sqlEditor', 'SELECT * FROM null_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM null_test');
     await page.click('#executeButton');
     await page.waitForSelector('#resultsTable');
     
@@ -154,7 +161,8 @@ test.describe('Export Query Results E2E', () => {
   });
 
   test('should handle NULL values in JSON export', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])');
     
     await page.evaluate(async () => {
@@ -164,7 +172,8 @@ test.describe('Export Query Results E2E', () => {
       await db.execute('INSERT INTO null_json_test VALUES (1, NULL)');
     });
     
-    await page.fill('#sqlEditor', 'SELECT * FROM null_json_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM null_json_test');
     await page.click('#executeButton');
     await page.waitForSelector('#resultsTable');
     
@@ -189,7 +198,8 @@ test.describe('Export Query Results E2E', () => {
   });
 
   test('should handle special characters in CSV export', async ({ page }) => {
-    await page.fill('#sqlEditor', 'SELECT 1');
+    await page.click('.cm-editor .cm-content');
+    await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])');
     
     await page.evaluate(async () => {
@@ -199,7 +209,8 @@ test.describe('Export Query Results E2E', () => {
       await db.execute('INSERT INTO special_test VALUES (1, ?)', [{ type: 'Text', value: 'Hello, "World"' }]);
     });
     
-    await page.fill('#sqlEditor', 'SELECT * FROM special_test');
+    await page.keyboard.press('Meta+A');
+    await page.keyboard.type('SELECT * FROM special_test');
     await page.click('#executeButton');
     await page.waitForSelector('#resultsTable');
     

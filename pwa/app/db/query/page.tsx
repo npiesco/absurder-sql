@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { DatabaseProvider, useDatabase } from '@/lib/db/provider';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CodeMirrorEditor } from '@/components/CodeMirrorEditor';
 import {
   Table,
   TableBody,
@@ -150,13 +150,13 @@ function QueryInterfaceContent() {
             <CardDescription>Enter your SQL query below</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Textarea
-              id="sqlEditor"
-              placeholder="SELECT * FROM table_name"
-              value={sql}
-              onChange={(e) => setSql(e.target.value)}
-              className="font-mono min-h-[150px]"
-            />
+            <div id="sqlEditor">
+              <CodeMirrorEditor
+                value={sql}
+                onChange={setSql}
+                placeholder="SELECT * FROM table_name"
+              />
+            </div>
             <div className="flex gap-2">
               <Button id="executeButton" onClick={executeQuery} disabled={!db || !sql.trim()}>
                 Execute Query
