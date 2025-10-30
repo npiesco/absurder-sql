@@ -1,10 +1,12 @@
 # Design Documentation
-## AbsurderSQL PWA - System Architecture
+## AbsurderSQL PWA - Browser-Based SQLite Admin Tool
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Last Updated:** October 29, 2025  
-**Status:** Planning Phase  
+**Status:** Active Development  
 **Target:** Next.js 15 + React 19 + AbsurderSQL WASM
+
+**Product Vision:** Modern Adminer replacement - zero server setup, drag-and-drop .db files, instant querying
 
 ---
 
@@ -734,22 +736,127 @@ self.addEventListener('install', (event) => {
 
 ---
 
-## Future Enhancements
+## Advanced Features (In Development)
 
-### Phase 2: Server Sync (Optional)
-- WebSocket connection for real-time sync
-- Conflict resolution strategies
-- Server-side PostgreSQL mirror
+### Server Synchronization Architecture
 
-### Phase 3: Collaborative Editing
-- Operational Transform (OT) or CRDTs
-- Multi-user cursor positions
-- Real-time collaboration
+```mermaid
+graph LR
+    Client1[PWA Client 1] -->|WebSocket| Server[Sync Server]
+    Client2[PWA Client 2] -->|WebSocket| Server
+    Server -->|SQL| PostgreSQL[(PostgreSQL Mirror)]
+    Server -->|Delta Sync| Client1
+    Server -->|Delta Sync| Client2
+```
 
-### Phase 4: Advanced Features
-- Full-text search with FTS5
-- Spatial data with SpatiaLite
-- Graph queries with recursive CTEs
+**Components:**
+- WebSocket server for real-time sync
+- PostgreSQL mirror database
+- Conflict resolution engine (OT/CRDTs)
+- Delta sync protocol
+- Offline queue management
+
+### Collaborative Editing Architecture
+
+```typescript
+// Operational Transform example
+interface Operation {
+  type: 'insert' | 'delete' | 'update';
+  table: string;
+  position: number;
+  data: any;
+  timestamp: number;
+  userId: string;
+}
+
+// Transform function for concurrent operations
+function transform(op1: Operation, op2: Operation): Operation {
+  // OT logic to resolve conflicts
+  if (op1.position <= op2.position) {
+    return op2;
+  }
+  // Adjust positions based on op1
+  return { ...op2, position: op2.position + adjustment };
+}
+```
+
+**Features:**
+- Real-time cursor positions
+- User presence indicators (active users)
+- Collaborative transactions
+- Shared query editing
+- Conflict-free replicated data types (CRDTs)
+
+### Advanced Database Capabilities
+
+**Full-Text Search (FTS5):**
+```sql
+-- Create FTS5 virtual table
+CREATE VIRTUAL TABLE documents_fts 
+USING fts5(title, content, tokenize='porter unicode61');
+
+-- Full-text query with ranking
+SELECT * FROM documents_fts 
+WHERE documents_fts MATCH 'database AND (sql OR nosql)' 
+ORDER BY rank;
+```
+
+**Spatial Queries (SpatiaLite):**
+```sql
+-- Find points within radius
+SELECT * FROM locations 
+WHERE ST_Distance(point, ST_MakePoint(-122.4, 37.8)) < 1000;
+```
+
+**Vector Search:**
+```typescript
+// Embedding-based similarity search
+const embedding = await generateEmbedding(query);
+const results = await db.execute(
+  'SELECT * FROM vectors ORDER BY vec_distance(embedding, ?) LIMIT 10',
+  [embedding]
+);
+```
+
+### Enterprise Security Architecture
+
+**Role-Based Access Control:**
+```typescript
+interface Permission {
+  role: 'admin' | 'editor' | 'viewer';
+  resource: string;
+  actions: ('read' | 'write' | 'delete')[];
+}
+
+// Row-level security
+CREATE POLICY user_policy ON users
+  USING (id = current_user_id() OR role = 'admin');
+```
+
+**Audit Logging:**
+```typescript
+interface AuditLog {
+  id: string;
+  timestamp: number;
+  userId: string;
+  action: 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
+  table: string;
+  rowId?: any;
+  before?: any;
+  after?: any;
+  hash: string; // Tamper-proof chain
+}
+```
+
+**Data Encryption:**
+```typescript
+// Encryption at rest with AES-256
+const encrypted = await crypto.subtle.encrypt(
+  { name: 'AES-GCM', iv: iv },
+  key,
+  data
+);
+```
 
 ---
 

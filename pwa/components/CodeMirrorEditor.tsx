@@ -1,33 +1,70 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { EditorView, lineNumbers } from '@codemirror/view';
+import { EditorView, lineNumbers, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { sql } from '@codemirror/lang-sql';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { keymap } from '@codemirror/view';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
+import { createSQLAutocomplete, getSchemaInfo, SchemaInfo } from '@/lib/editor/sql-autocomplete';
 
 interface CodeMirrorEditorProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  onExecute?: (sql: string) => Promise<any>;
 }
 
-export function CodeMirrorEditor({ value, onChange, placeholder }: CodeMirrorEditorProps) {
+export function CodeMirrorEditor({ value, onChange, placeholder, onExecute }: CodeMirrorEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const schemaCache = useRef<SchemaInfo | null>(null);
+  const schemaCacheTime = useRef<number>(0);
+  const onExecuteRef = useRef(onExecute);
+
+  // Update the ref when onExecute changes
+  useEffect(() => {
+    onExecuteRef.current = onExecute;
+  }, [onExecute]);
 
   useEffect(() => {
     if (!editorRef.current) return;
+
+    // Create schema provider function
+    const getSchema = async (): Promise<SchemaInfo> => {
+      // Cache schema for 5 seconds to avoid excessive queries
+      const now = Date.now();
+      if (schemaCache.current && now - schemaCacheTime.current < 5000) {
+        return schemaCache.current;
+      }
+
+      if (onExecuteRef.current) {
+        try {
+          const schema = await getSchemaInfo(onExecuteRef.current);
+          schemaCache.current = schema;
+          schemaCacheTime.current = now;
+          return schema;
+        } catch (error) {
+          console.error('Failed to fetch schema for autocomplete:', error);
+        }
+      }
+
+      return { tables: [], columns: {} };
+    };
 
     const startState = EditorState.create({
       doc: value,
       extensions: [
         lineNumbers(),
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap]),
         sql(),
+        autocompletion({
+          override: [createSQLAutocomplete(getSchema)],
+          activateOnTyping: true,
+          maxRenderedOptions: 20,
+        }),
         syntaxHighlighting(defaultHighlightStyle),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {

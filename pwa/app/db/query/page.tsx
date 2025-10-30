@@ -76,6 +76,17 @@ function QueryInterfaceContent() {
     setShowHistory(false);
   };
 
+  // Schema query function for autocomplete (doesn't affect UI state)
+  const executeSchemaQuery = async (schemaSql: string) => {
+    if (!db) return null;
+    try {
+      return await db.execute(schemaSql);
+    } catch (error) {
+      console.error('Schema query failed:', error);
+      return null;
+    }
+  };
+
   const exportToCSV = () => {
     if (!results || !results.rows.length) return;
 
@@ -155,6 +166,7 @@ function QueryInterfaceContent() {
                 value={sql}
                 onChange={setSql}
                 placeholder="SELECT * FROM table_name"
+                onExecute={executeSchemaQuery}
               />
             </div>
             <div className="flex gap-2">

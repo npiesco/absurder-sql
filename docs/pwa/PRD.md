@@ -1,67 +1,66 @@
 # Product Requirements Document (PRD)
-## AbsurderSQL PWA - Progressive Web Application
+## AbsurderSQL PWA - Browser-Based SQLite Admin Tool (Adminer Replacement)
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Last Updated:** October 29, 2025  
-**Status:** Planning Phase  
+**Status:** Active Development  
 **Target Framework:** Next.js 15 + React 19
 
 ---
 
 ## Project Overview
 
-Build a Progressive Web Application (PWA) using Next.js that leverages the existing AbsurderSQL WASM package (`@npiesco/absurder-sql`) to provide SQLite + IndexedDB functionality across desktop and mobile browsers.
+Build a browser-based SQLite database administration tool that eliminates the need for server setup, PHP, or Docker. This is a modern replacement for Adminer/phpMyAdmin that runs entirely in the browser using WASM.
+
+### Product Vision
+
+**Problem:** DevOps, database admins, and technical teams need lightweight database UI without Docker/PHP/server setup. Adminer is stuck serving the 2000s tech stack.
+
+**Solution:** Browser-based SQLite admin tool - upload .db file → query instantly → no server needed.
 
 ### Project Goals
 
-1. **Cross-Platform Browser Support** - Single codebase works on desktop and mobile browsers
-2. **Offline-First Architecture** - Full functionality without network connection
-3. **Data Portability** - Export/import `.db` files to/from React Native and CLI
-4. **Production Ready** - Built-in monitoring, error handling, and performance optimization
-5. **Developer Experience** - TypeScript types, clear API, comprehensive docs
+1. **Zero Server Setup** - No PHP, Docker, or backend required - just open browser
+2. **Instant Database Access** - Drag-and-drop .db files for immediate querying
+3. **Full Admin Capabilities** - Schema inspection, query execution, data export
+4. **Data Portability** - Import/export .db files, export results to CSV/JSON/Parquet
+5. **Production Ready** - Built-in error handling, performance optimization, offline-first
 
 ---
 
 ## User Stories
 
-### Primary Users: Web Application Users
+### Primary Users: Database Admins, DevOps, Data Analysts
 
-**Story 1: Offline Database Access**
-- **As a** web application user
-- **I want to** create and query SQLite databases in my browser
-- **So that** I can work offline without a backend server
+**Story 1: Quick Database Inspection**
+- **As a** database admin or data analyst
+- **I want to** drag-and-drop a .db file into my browser
+- **So that** I can instantly query and inspect data without server setup
 
-**Story 2: Data Export**
-- **As a** user with data in the browser
-- **I want to** export my database as a standard SQLite file
-- **So that** I can query it with CLI tools or import to mobile app
+**Story 2: Ad-Hoc Queries**
+- **As a** DevOps engineer troubleshooting production data
+- **I want to** execute SQL queries with autocomplete and syntax highlighting
+- **So that** I can quickly investigate issues
 
-**Story 3: Data Import**
-- **As a** user with a `.db` file from mobile or CLI
-- **I want to** import it into the browser
-- **So that** I can access my data from any platform
+**Story 3: Schema Exploration**
+- **As a** data analyst exploring a new database
+- **I want to** browse tables, columns, indexes, and constraints
+- **So that** I understand the data structure without documentation
 
-**Story 4: Multi-Tab Coordination**
-- **As a** user with multiple browser tabs open
-- **I want** automatic coordination between tabs
-- **So that** I don't corrupt my database with concurrent writes
+**Story 4: Data Export**
+- **As a** researcher working with SQLite data
+- **I want to** export query results to CSV, JSON, or Parquet
+- **So that** I can analyze data in Excel, Python, or other tools
 
-**Story 5: Mobile Browser Experience**
-- **As a** mobile browser user
-- **I want** a responsive, app-like interface
-- **So that** I can install as PWA and use like a native app
+**Story 5: Lightweight Alternative**
+- **As a** developer who finds DBeaver too heavy and Adminer requires server setup
+- **I want** a browser-based tool that just works
+- **So that** I can work with SQLite files without installing software
 
-### Secondary Users: Developers
-
-**Story 6: Easy Integration**
-- **As a** developer building a web app
-- **I want** simple TypeScript APIs
-- **So that** I can integrate SQLite quickly without learning complex APIs
-
-**Story 7: Performance Monitoring**
-- **As a** developer in production
-- **I want** built-in telemetry and monitoring
-- **So that** I can identify performance issues
+**Story 6: Offline Work**
+- **As a** field engineer with intermittent connectivity
+- **I want** full database admin capabilities offline
+- **So that** I can work anywhere without network dependency
 
 ---
 
@@ -76,10 +75,18 @@ Build a Progressive Web Application (PWA) using Next.js that leverages the exist
 - ✅ Transaction support (BEGIN, COMMIT, ROLLBACK)
 - ✅ Prepared statements for performance
 - ✅ BLOB support for binary data
+- [ ] SQL autocomplete in query editor
+- [ ] Syntax highlighting
+- ✅ Query history
+- ✅ Schema inspection (tables, columns, indexes)
 
 **FR2: Export/Import**
 - ✅ Export database to downloadable `.db` file
 - ✅ Import `.db` file from filesystem
+- [ ] Drag-and-drop file import
+- [ ] Export query results to CSV
+- [ ] Export query results to JSON
+- [ ] Export query results to Parquet
 - ✅ Standard SQLite format compatible with CLI and React Native
 
 **FR3: Multi-Tab Coordination**
@@ -191,13 +198,42 @@ Build a Progressive Web Application (PWA) using Next.js that leverages the exist
 
 ---
 
-## Out of Scope (Phase 1)
+## Advanced Features (Required)
 
-- ❌ Server-side synchronization (future: Phase 2)
-- ❌ Collaborative editing (future: Phase 3)
-- ❌ Advanced encryption (SQLCipher in browser)
-- ❌ WebRTC peer-to-peer sync
-- ❌ Cloud backup integration
+**FR6: Server Synchronization**
+- WebSocket-based real-time sync
+- Conflict resolution (automatic and manual)
+- PostgreSQL mirror database
+- Delta sync for efficiency
+- Offline queue management
+
+**FR7: Collaborative Features**
+- Multi-user editing with OT/CRDTs
+- Real-time cursor positions
+- User presence indicators
+- Collaborative transactions
+- Shared query editing
+
+**FR8: Advanced Database Capabilities**
+- Full-text search (FTS5)
+- Spatial queries (SpatiaLite)
+- Graph queries (recursive CTEs)
+- Vector search with embeddings
+- Advanced indexing strategies
+
+**FR9: Enterprise Security**
+- Role-based access control (RBAC)
+- Row-level security
+- Audit logging (tamper-proof)
+- Data encryption at rest (AES-256)
+- Key management (HSM/KMS support)
+
+**FR10: Compliance**
+- SOC 2 Type II certification
+- GDPR compliance features
+- HIPAA compliance (if applicable)
+- Security audit documentation
+- Data retention policies
 
 ---
 
@@ -262,10 +298,15 @@ Build a Progressive Web Application (PWA) using Next.js that leverages the exist
 
 ## Acceptance Criteria
 
-### Phase 1 Completion
+### Complete Product
 - ✅ PWA installable on desktop and mobile
-- ✅ All FR1-FR5 requirements met
+- ✅ All FR1-FR10 requirements met
 - ✅ All NFR1-NFR5 requirements met
+- [ ] Server sync operational (< 1s latency)
+- [ ] Collaborative editing functional
+- [ ] FTS5, SpatiaLite, vector search enabled
+- [ ] RBAC and audit logging active
+- [ ] SOC 2 and GDPR compliant
 - ✅ Example app demonstrating all features
 - ✅ Documentation complete
 - ✅ Test coverage > 80%
