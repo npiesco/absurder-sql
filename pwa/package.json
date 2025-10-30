@@ -9,7 +9,12 @@
     "lint": "eslint",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:unit:coverage": "vitest run --coverage",
+    "test:all": "npm run test:unit && npm run test",
+    "analyze": "npm run build && node scripts/analyze-bundle.js"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.19.1",
