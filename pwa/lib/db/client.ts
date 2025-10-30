@@ -91,16 +91,25 @@ export class DatabaseClient {
 
   /**
    * Import a database from a File
+   * Note: This closes the current database connection and reopens it with the imported data
    * @param file - File object containing SQLite database
+   * @param dbName - Name to reopen the database with (defaults to current db name)
    */
-  async import(file: File): Promise<void> {
+  async import(file: File, dbName?: string): Promise<void> {
     if (!this.db) {
       throw new Error('Database not opened. Call open() first to create initial database instance.');
     }
 
+    const nameToReopen = dbName || 'hooks_test.db'; // TODO: track original db name
+
     try {
       const buffer = await file.arrayBuffer();
       await this.db.importFromFile(new Uint8Array(buffer));
+      
+      // importFromFile closes the connection, must reopen
+      console.log('Import complete, reopening database...');
+      this.db = await Database.newDatabase(nameToReopen);
+      console.log('Database reopened after import');
     } catch (error) {
       console.error('Database import failed:', error);
       throw new Error(`Import failed: ${error}`);
