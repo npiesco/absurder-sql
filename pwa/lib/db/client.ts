@@ -4,6 +4,7 @@ export type { QueryResult };
 
 export class DatabaseClient {
   private db: Database | null = null;
+  private dbName: string | null = null;
   private initialized: boolean = false;
 
   /**
@@ -44,9 +45,11 @@ export class DatabaseClient {
 
     try {
       this.db = await Database.newDatabase(dbName);
+      this.dbName = dbName;
+      console.log(`DatabaseClient: Opened database "${dbName}"`);
     } catch (error) {
-      console.error('Failed to open database:', error);
-      throw new Error(`Database open failed: ${error}`);
+      console.error('DatabaseClient: Failed to open database:', error);
+      throw new Error(`Failed to open database: ${error}`);
     }
   }
 
@@ -93,22 +96,19 @@ export class DatabaseClient {
    * Import a database from a File
    * Note: This closes the current database connection and reopens it with the imported data
    * @param file - File object containing SQLite database
-   * @param dbName - Name to reopen the database with (defaults to current db name)
    */
-  async import(file: File, dbName?: string): Promise<void> {
-    if (!this.db) {
+  async import(file: File): Promise<void> {
+    if (!this.db || !this.dbName) {
       throw new Error('Database not opened. Call open() first to create initial database instance.');
     }
-
-    const nameToReopen = dbName || 'hooks_test.db'; // TODO: track original db name
 
     try {
       const buffer = await file.arrayBuffer();
       await this.db.importFromFile(new Uint8Array(buffer));
       
-      // importFromFile closes the connection, must reopen
-      console.log('Import complete, reopening database...');
-      this.db = await Database.newDatabase(nameToReopen);
+      // importFromFile closes the connection, must reopen with same name
+      console.log(`Import complete, reopening database "${this.dbName}"...`);
+      this.db = await Database.newDatabase(this.dbName);
       console.log('Database reopened after import');
     } catch (error) {
       console.error('Database import failed:', error);
