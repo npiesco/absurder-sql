@@ -69,6 +69,66 @@ function QueryInterfaceContent() {
     setShowHistory(false);
   };
 
+  const exportToCSV = () => {
+    if (!results || !results.rows.length) return;
+
+    // Build CSV header
+    const headers = results.columns.join(',');
+    
+    // Build CSV rows
+    const rows = results.rows.map(row => {
+      return row.values.map(col => {
+        if (col.type === 'Null') return '';
+        const value = String(col.value);
+        // Escape quotes and wrap in quotes if contains comma or quote
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      }).join(',');
+    });
+
+    const csv = [headers, ...rows].join('\n');
+    
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `query-results-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportToJSON = () => {
+    if (!results || !results.rows.length) return;
+
+    // Convert rows to objects
+    const data = results.rows.map(row => {
+      const obj: Record<string, any> = {};
+      results.columns.forEach((col, index) => {
+        const value = row.values[index];
+        obj[col] = value.type === 'Null' ? null : value.value;
+      });
+      return obj;
+    });
+
+    const json = JSON.stringify(data, null, 2);
+    
+    // Download
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `query-results-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div id="queryInterface" className="container mx-auto p-6 max-w-6xl">
       <h1 className="text-3xl font-bold mb-6">SQL Query Interface</h1>
@@ -145,15 +205,29 @@ function QueryInterfaceContent() {
         {results && (
           <Card>
             <CardHeader>
-              <CardTitle>Results</CardTitle>
-              <CardDescription>
-                {results.rows.length} row{results.rows.length !== 1 ? 's' : ''} returned
-                {executionTime && (
-                  <span id="executionTime" className="ml-2">
-                    • Execution time: {executionTime.toFixed(2)}ms
-                  </span>
+              <div className="flex justify-between items-start">
+                <div>
+                  <CardTitle>Results</CardTitle>
+                  <CardDescription>
+                    {results.rows.length} row{results.rows.length !== 1 ? 's' : ''} returned
+                    {executionTime && (
+                      <span id="executionTime" className="ml-2">
+                        • Execution time: {executionTime.toFixed(2)}ms
+                      </span>
+                    )}
+                  </CardDescription>
+                </div>
+                {results.rows.length > 0 && (
+                  <div className="flex gap-2">
+                    <Button id="exportCSV" onClick={exportToCSV} variant="outline" size="sm">
+                      Export CSV
+                    </Button>
+                    <Button id="exportJSON" onClick={exportToJSON} variant="outline" size="sm">
+                      Export JSON
+                    </Button>
+                  </div>
                 )}
-              </CardDescription>
+              </div>
             </CardHeader>
             <CardContent>
               {results.rows.length > 0 ? (
