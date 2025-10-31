@@ -36,6 +36,17 @@ interface EditingCell {
   value: any;
 }
 
+interface Filter {
+  column: string;
+  operator: string;
+  value: string;
+}
+
+interface SortConfig {
+  column: string;
+  direction: 'ASC' | 'DESC';
+}
+
 export default function DataBrowserPage() {
   const { db, setDb } = useDatabaseStore();
   const [tables, setTables] = useState<TableInfo[]>([]);
@@ -52,6 +63,10 @@ export default function DataBrowserPage() {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'bulk', rowId?: number } | null>(null);
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const [filters, setFilters] = useState<Filter[]>([]);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [newFilter, setNewFilter] = useState<Filter>({ column: '', operator: 'equals', value: '' });
 
   // Initialize WASM if needed
   useEffect(() => {
@@ -97,12 +112,12 @@ export default function DataBrowserPage() {
     }
   }, [db]);
 
-  // Load data when table or pagination changes
+  // Load data when table, pagination, filters, or sort changes
   useEffect(() => {
     if (selectedTable) {
       loadTableData();
     }
-  }, [selectedTable, pageSize, currentPage]);
+  }, [selectedTable, currentPage, pageSize, filters, sortConfig]);
 
   const loadTables = async () => {
     if (!db) return;
@@ -130,6 +145,46 @@ export default function DataBrowserPage() {
     }
   };
 
+  const buildWhereClause = () => {
+    if (filters.length === 0) return '';
+    
+    const conditions = filters.map(filter => {
+      const { column, operator, value } = filter;
+      
+      switch (operator) {
+        case 'equals':
+          return `${column} = '${value.replace(/'/g, "''")}'`;
+        case 'contains':
+          return `${column} LIKE '%${value.replace(/'/g, "''")}%'`;
+        case 'starts_with':
+          return `${column} LIKE '${value.replace(/'/g, "''")}%'`;
+        case 'greater_than':
+          return `${column} > ${value}`;
+        case 'less_than':
+          return `${column} < ${value}`;
+        case 'greater_equal':
+          return `${column} >= ${value}`;
+        case 'less_equal':
+          return `${column} <= ${value}`;
+        case 'not_equal':
+          return `${column} != '${value.replace(/'/g, "''")}'`;
+        case 'is_null':
+          return `${column} IS NULL`;
+        case 'is_not_null':
+          return `${column} IS NOT NULL`;
+        default:
+          return `${column} = '${value.replace(/'/g, "''")}'`;
+      }
+    });
+    
+    return ` WHERE ${conditions.join(' AND ')}`;
+  };
+
+  const buildOrderByClause = () => {
+    if (!sortConfig) return '';
+    return ` ORDER BY ${sortConfig.column} ${sortConfig.direction}`;
+  };
+
   const loadTableData = async () => {
     if (!db || !selectedTable) return;
 
@@ -144,16 +199,20 @@ export default function DataBrowserPage() {
       }));
       setColumns(cols);
 
-      // Get total row count
-      const countResult = await db.execute(`SELECT COUNT(*) FROM ${selectedTable}`);
+      // Build query with filters and sorting
+      const whereClause = buildWhereClause();
+      const orderByClause = buildOrderByClause();
+
+      // Get total row count with filters
+      const countQuery = `SELECT COUNT(*) FROM ${selectedTable}${whereClause}`;
+      const countResult = await db.execute(countQuery);
       const total = countResult.rows[0].values[0].value;
       setTotalRows(total);
 
-      // Get paginated data
+      // Get paginated data with filters and sorting
       const offset = (currentPage - 1) * pageSize;
-      const dataResult = await db.execute(
-        `SELECT rowid as _rowid_, * FROM ${selectedTable} LIMIT ${pageSize} OFFSET ${offset}`
-      );
+      const dataQuery = `SELECT rowid as _rowid_, * FROM ${selectedTable}${whereClause}${orderByClause} LIMIT ${pageSize} OFFSET ${offset}`;
+      const dataResult = await db.execute(dataQuery);
 
       setData(dataResult.rows);
     } catch (err) {
@@ -165,12 +224,14 @@ export default function DataBrowserPage() {
 
   const handleTableChange = (tableName: string) => {
     setSelectedTable(tableName);
-    setCurrentPage(1); // Reset to first page
+    setCurrentPage(1);
+    setSortConfig(null);
+    setFilters([]);
   };
 
   const handlePageSizeChange = (newSize: string) => {
     setPageSize(parseInt(newSize));
-    setCurrentPage(1); // Reset to first page
+    setCurrentPage(1);
   };
 
   const handleNextPage = () => {
@@ -184,6 +245,39 @@ export default function DataBrowserPage() {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
     }
+  };
+
+  const handleSort = (columnName: string) => {
+    if (sortConfig?.column === columnName) {
+      // Toggle direction
+      setSortConfig({
+        column: columnName,
+        direction: sortConfig.direction === 'ASC' ? 'DESC' : 'ASC'
+      });
+    } else {
+      // New column, start with ASC
+      setSortConfig({ column: columnName, direction: 'ASC' });
+    }
+    setCurrentPage(1);
+  };
+
+  const handleAddFilter = () => {
+    if (newFilter.column && newFilter.operator) {
+      setFilters([...filters, newFilter]);
+      setNewFilter({ column: '', operator: 'equals', value: '' });
+      setCurrentPage(1);
+    }
+  };
+
+  const handleClearFilters = () => {
+    setFilters([]);
+    setCurrentPage(1);
+  };
+
+  const handleRemoveFilter = (index: number) => {
+    const updatedFilters = filters.filter((_, i) => i !== index);
+    setFilters(updatedFilters);
+    setCurrentPage(1);
   };
 
   const handleCellDoubleClick = (rowIndex: number, columnIndex: number, currentValue: any) => {
@@ -449,6 +543,13 @@ export default function DataBrowserPage() {
                 </CardDescription>
               </div>
               <div className="flex gap-2">
+                <Button 
+                  onClick={() => setShowFilterPanel(!showFilterPanel)} 
+                  variant="outline"
+                  data-filter-toggle
+                >
+                  Filters {filters.length > 0 && `(${filters.length})`}
+                </Button>
                 <Button onClick={handleAddRow} disabled={loading}>
                   Add Row
                 </Button>
@@ -465,6 +566,107 @@ export default function DataBrowserPage() {
             </div>
           </CardHeader>
           <CardContent>
+            {/* Filter Panel */}
+            {showFilterPanel && (
+              <div className="mb-4 p-4 border rounded-md bg-muted/20">
+                <div className="space-y-3">
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="text-sm font-medium">Column</label>
+                      <Select 
+                        value={newFilter.column} 
+                        onValueChange={(value) => setNewFilter({...newFilter, column: value})}
+                      >
+                        <SelectTrigger id="filterColumn" data-filter-column>
+                          <SelectValue placeholder="Select column" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {columns.map(col => (
+                            <SelectItem key={col.name} value={col.name}>
+                              {col.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-sm font-medium">Operator</label>
+                      <Select 
+                        value={newFilter.operator} 
+                        onValueChange={(value) => setNewFilter({...newFilter, operator: value})}
+                      >
+                        <SelectTrigger id="filterOperator" data-filter-operator>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="equals">Equals</SelectItem>
+                          <SelectItem value="contains">Contains</SelectItem>
+                          <SelectItem value="starts_with">Starts With</SelectItem>
+                          <SelectItem value="greater_than">Greater Than</SelectItem>
+                          <SelectItem value="less_than">Less Than</SelectItem>
+                          <SelectItem value="greater_equal">Greater or Equal</SelectItem>
+                          <SelectItem value="less_equal">Less or Equal</SelectItem>
+                          <SelectItem value="not_equal">Not Equal</SelectItem>
+                          <SelectItem value="is_null">Is NULL</SelectItem>
+                          <SelectItem value="is_not_null">Is Not NULL</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-sm font-medium">Value</label>
+                      <input
+                        id="filterValue"
+                        data-filter-value
+                        type="text"
+                        className="w-full px-3 py-2 border rounded-md"
+                        value={newFilter.value}
+                        onChange={(e) => setNewFilter({...newFilter, value: e.target.value})}
+                        disabled={newFilter.operator === 'is_null' || newFilter.operator === 'is_not_null'}
+                      />
+                    </div>
+                    <Button onClick={handleAddFilter} data-apply-filter>
+                      Add Filter
+                    </Button>
+                  </div>
+
+                  {/* Active Filters */}
+                  {filters.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label className="text-sm font-medium">Active Filters:</label>
+                        <Button 
+                          onClick={handleClearFilters} 
+                          variant="ghost" 
+                          size="sm"
+                          data-clear-filters
+                        >
+                          Clear All
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {filters.map((filter, index) => (
+                          <div 
+                            key={index} 
+                            className="flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full text-sm"
+                          >
+                            <span>
+                              {filter.column} {filter.operator.replace(/_/g, ' ')} {filter.value || ''}
+                            </span>
+                            <button
+                              onClick={() => handleRemoveFilter(index)}
+                              className="text-destructive hover:text-destructive/80"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
             {loading ? (
               <div className="text-center py-8">
                 <p>{initializing ? 'Initializing...' : 'Loading...'}</p>
@@ -489,11 +691,22 @@ export default function DataBrowserPage() {
                         </TableHead>
                         <TableHead className="w-[100px]">rowid</TableHead>
                         {columns.map(col => (
-                          <TableHead key={col.name}>
-                            {col.name}
-                            <span className="text-xs text-muted-foreground ml-2">
-                              ({col.type})
-                            </span>
+                          <TableHead 
+                            key={col.name}
+                            onClick={() => handleSort(col.name)}
+                            className="cursor-pointer hover:bg-muted/50"
+                          >
+                            <div className="flex items-center gap-1">
+                              {col.name}
+                              {sortConfig?.column === col.name && (
+                                <span className="text-xs">
+                                  {sortConfig.direction === 'ASC' ? '↑' : '↓'}
+                                </span>
+                              )}
+                              <span className="text-xs text-muted-foreground ml-2">
+                                ({col.type})
+                              </span>
+                            </div>
                           </TableHead>
                         ))}
                         <TableHead className="w-[100px]">Actions</TableHead>

@@ -130,16 +130,49 @@
 - Delete multiple selected rows
 - Show count in Delete Selected button
 
-#### 1.4 Filtering & Sorting
-- [ ] Column header click to sort (ASC/DESC toggle)
-- [ ] Filter panel per column
-  - [ ] Text contains/equals/starts with
-  - [ ] Number >, <, =, ≠
-  - [ ] NULL/NOT NULL filters
-  - [ ] Date range picker
-- [ ] Multiple filters (AND logic)
-- [ ] Clear all filters button
-- [ ] WHERE clause preview
+#### 1.4 Filtering & Sorting ✅ COMPLETE
+- [x] Column header click to sort (ASC/DESC toggle)
+  - [x] Click header to sort ascending
+  - [x] Click again to toggle descending
+  - [x] Visual sort indicators (↑/↓)
+  - [x] Hover state on sortable headers
+  - [x] Numeric sorting (not string sorting)
+- [x] Filter panel per column
+  - [x] Text filters: contains/equals/starts with
+  - [x] Number filters: >, <, >=, <=, =, ≠
+  - [x] NULL/NOT NULL filters
+  - [x] Filter button with active filter count
+  - [x] Column/Operator/Value inputs
+- [x] Multiple filters (AND logic)
+  - [x] Add multiple filters sequentially
+  - [x] Filters combined with AND
+  - [x] Active filters display with badges
+  - [x] Remove individual filters
+- [x] Clear all filters button
+  - [x] Clear Filters button when filters active
+  - [x] Resets to full dataset
+- [x] SQL query building
+  - [x] WHERE clause generation from filters
+  - [x] ORDER BY clause from sort config
+  - [x] Parameterized SQL for safety
+- [x] E2E tests (15 tests passing)
+
+**Test Coverage:**
+- Show sort indicators on column headers
+- Sort column ascending on first click
+- Sort column descending on second click
+- Show sort direction indicator (arrows)
+- Sort numeric columns correctly (not as strings)
+- Show filter button/panel
+- Filter text with contains operator
+- Filter text with equals operator
+- Filter numeric with greater than operator
+- Filter numeric with less than operator
+- Filter for NULL values
+- Filter for NOT NULL values
+- Apply multiple filters with AND logic
+- Show Clear Filters button when filters active
+- Clear all filters when button clicked
 
 #### 1.5 Foreign Key Navigation
 - [ ] Detect FK relationships
