@@ -171,8 +171,8 @@ test.describe('Data Browser - Table Browsing', () => {
     await page.click('text=null_test');
     await page.waitForSelector('table tbody tr');
     
-    // Check NULL is displayed correctly
-    const nullCell = await page.locator('table tbody tr:nth-child(2) td:nth-child(3)');
+    // Check NULL is displayed correctly (column index shifted due to checkbox column)
+    const nullCell = await page.locator('table tbody tr:nth-child(2) td:nth-child(4)');
     const nullText = await nullCell.textContent();
     expect(nullText).toContain('NULL');
     

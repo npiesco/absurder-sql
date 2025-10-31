@@ -97,16 +97,38 @@
 - Support NULL value editing
 - Handle multiline TEXT with textarea (basic)
 
-#### 1.3 Row Operations
-- [ ] Add new row button
-  - [ ] Auto-populate DEFAULT values
-  - [ ] Required field validation
-  - [ ] Insert into database
-- [ ] Delete row button (with confirmation)
-- [ ] Bulk delete with checkboxes
-  - [ ] Select all/none checkboxes
-  - [ ] Bulk delete confirmation dialog
-  - [ ] DELETE query generation
+#### 1.3 Row Operations ✅ COMPLETE
+- [x] Add new row button
+  - [x] INSERT DEFAULT VALUES with fallback to explicit NULL
+  - [x] Auto-populate DEFAULT values from schema
+  - [x] Insert into database with executeWithParams
+- [x] Delete row button (with confirmation)
+  - [x] Delete button in Actions column
+  - [x] Confirmation dialog with Cancel/Delete options
+  - [x] Single row deletion via rowid
+- [x] Bulk delete with checkboxes
+  - [x] Checkbox column for row selection
+  - [x] Select all/none checkbox in header
+  - [x] Delete Selected button with count display
+  - [x] Bulk delete confirmation dialog
+  - [x] DELETE query generation via rowid
+- [x] E2E tests (14 tests passing)
+
+**Test Coverage:**
+- Show Add Row button when table selected
+- Add new empty row with default values
+- Auto-increment PRIMARY KEY when adding row
+- Handle tables with NOT NULL constraints
+- Show Delete button for each row
+- Show confirmation dialog before deleting row
+- Delete row when confirmed
+- Not delete row when cancelled
+- Show checkboxes for each row
+- Show Select All checkbox in header
+- Select all rows when Select All is checked
+- Show Delete Selected button when rows are selected
+- Delete multiple selected rows
+- Show count in Delete Selected button
 
 #### 1.4 Filtering & Sorting
 - [ ] Column header click to sort (ASC/DESC toggle)

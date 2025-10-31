@@ -34,7 +34,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.waitForSelector('table tbody tr');
 
     // Double-click on a cell
-    const nameCell = page.locator('table tbody tr:first-child td:nth-child(3)'); // name column
+    const nameCell = page.locator('table tbody tr:first-child td:nth-child(4)'); // name column
     await nameCell.dblclick();
 
     // Verify input appears
@@ -62,7 +62,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.waitForSelector('table tbody tr');
 
     // Double-click and edit
-    const nameCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const nameCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     await nameCell.dblclick();
     
     const input = nameCell.locator('input, textarea');
@@ -99,7 +99,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.click('text=cancel_test');
     await page.waitForSelector('table tbody tr');
 
-    const nameCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const nameCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     await nameCell.dblclick();
     
     const input = nameCell.locator('input, textarea');
@@ -136,7 +136,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.click('text=int_test');
     await page.waitForSelector('table tbody tr');
 
-    const ageCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const ageCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     await ageCell.dblclick();
     
     const input = ageCell.locator('input');
@@ -165,7 +165,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.click('text=real_test');
     await page.waitForSelector('table tbody tr');
 
-    const priceCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const priceCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     await priceCell.dblclick();
     
     const input = priceCell.locator('input');
@@ -195,7 +195,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.click('text=visual_test');
     await page.waitForSelector('table tbody tr');
 
-    const nameCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const nameCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     
     // Check for editing class when in edit mode
     await nameCell.dblclick();
@@ -220,7 +220,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.waitForSelector('table tbody tr');
 
     // Double-click on NULL cell
-    const nullCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const nullCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     await nullCell.dblclick();
     
     const input = nullCell.locator('input, textarea');
@@ -253,7 +253,7 @@ test.describe('Inline Editing - Cell Editing', () => {
     await page.click('text=multiline_test');
     await page.waitForSelector('table tbody tr');
 
-    const descCell = page.locator('table tbody tr:first-child td:nth-child(3)');
+    const descCell = page.locator('table tbody tr:first-child td:nth-child(4)');
     await descCell.dblclick();
     
     // For TEXT fields longer than certain threshold, should use textarea

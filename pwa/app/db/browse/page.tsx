@@ -49,6 +49,9 @@ export default function DataBrowserPage() {
   const [totalRows, setTotalRows] = useState<number>(0);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editValue, setEditValue] = useState<string>('');
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'bulk', rowId?: number } | null>(null);
 
   // Initialize WASM if needed
   useEffect(() => {
@@ -255,6 +258,110 @@ export default function DataBrowserPage() {
     return 'text';
   };
 
+  const handleAddRow = async () => {
+    if (!db || !selectedTable) return;
+
+    try {
+      setLoading(true);
+
+      // Use simple INSERT with DEFAULT VALUES to let SQLite handle defaults
+      await db.execute(`INSERT INTO ${selectedTable} DEFAULT VALUES`);
+
+      // Reload data
+      await loadTableData();
+    } catch (err) {
+      console.error('Error adding row:', err);
+      // If DEFAULT VALUES fails, try with explicit NULL values
+      try {
+        const columnNames = columns.map(col => col.name).join(', ');
+        const placeholders = columns.map(() => '?').join(', ');
+        const params = columns.map(() => ({ type: 'Null', value: null }));
+
+        await db.executeWithParams(
+          `INSERT INTO ${selectedTable} (${columnNames}) VALUES (${placeholders})`,
+          params
+        );
+        await loadTableData();
+      } catch (fallbackErr) {
+        console.error('Error adding row (fallback):', fallbackErr);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteRow = (rowId: number) => {
+    setDeleteTarget({ type: 'single', rowId });
+    setShowDeleteDialog(true);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedRows.size === 0) return;
+    setDeleteTarget({ type: 'bulk' });
+    setShowDeleteDialog(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!db || !selectedTable || !deleteTarget) return;
+
+    try {
+      setLoading(true);
+
+      if (deleteTarget.type === 'single' && deleteTarget.rowId !== undefined) {
+        // Delete single row
+        await db.executeWithParams(
+          `DELETE FROM ${selectedTable} WHERE rowid = ?`,
+          [{ type: 'Integer', value: deleteTarget.rowId }]
+        );
+      } else if (deleteTarget.type === 'bulk') {
+        // Delete multiple rows
+        const rowIds = Array.from(selectedRows);
+        for (const rowId of rowIds) {
+          await db.executeWithParams(
+            `DELETE FROM ${selectedTable} WHERE rowid = ?`,
+            [{ type: 'Integer', value: rowId }]
+          );
+        }
+        setSelectedRows(new Set());
+      }
+
+      // Reload data
+      await loadTableData();
+      setShowDeleteDialog(false);
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error('Error deleting row(s):', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteDialog(false);
+    setDeleteTarget(null);
+  };
+
+  const handleSelectRow = (rowId: number) => {
+    const newSelected = new Set(selectedRows);
+    if (newSelected.has(rowId)) {
+      newSelected.delete(rowId);
+    } else {
+      newSelected.add(rowId);
+    }
+    setSelectedRows(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRows.size === data.length) {
+      // Deselect all
+      setSelectedRows(new Set());
+    } else {
+      // Select all
+      const allRowIds = data.map(row => row.values[0].value);
+      setSelectedRows(new Set(allRowIds));
+    }
+  };
+
   const totalPages = Math.ceil(totalRows / pageSize);
 
   return (
@@ -334,10 +441,28 @@ export default function DataBrowserPage() {
       {selectedTable && (
         <Card>
           <CardHeader>
-            <CardTitle>{selectedTable}</CardTitle>
-            <CardDescription>
-              Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalRows)} of {totalRows} rows
-            </CardDescription>
+            <div className="flex justify-between items-start">
+              <div>
+                <CardTitle>{selectedTable}</CardTitle>
+                <CardDescription>
+                  Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalRows)} of {totalRows} rows
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleAddRow} disabled={loading}>
+                  Add Row
+                </Button>
+                {selectedRows.size > 0 && (
+                  <Button 
+                    onClick={handleDeleteSelected} 
+                    variant="destructive"
+                    disabled={loading}
+                  >
+                    Delete Selected ({selectedRows.size})
+                  </Button>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -354,6 +479,14 @@ export default function DataBrowserPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-[50px]">
+                          <input
+                            type="checkbox"
+                            checked={selectedRows.size === data.length && data.length > 0}
+                            onChange={handleSelectAll}
+                            className="cursor-pointer"
+                          />
+                        </TableHead>
                         <TableHead className="w-[100px]">rowid</TableHead>
                         {columns.map(col => (
                           <TableHead key={col.name}>
@@ -363,13 +496,24 @@ export default function DataBrowserPage() {
                             </span>
                           </TableHead>
                         ))}
+                        <TableHead className="w-[100px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.map((row, rowIndex) => (
+                      {data.map((row, rowIndex) => {
+                        const rowId = row.values[0].value;
+                        return (
                         <TableRow key={rowIndex}>
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectedRows.has(rowId)}
+                              onChange={() => handleSelectRow(rowId)}
+                              className="cursor-pointer"
+                            />
+                          </TableCell>
                           <TableCell className="font-mono text-sm">
-                            {row.values[0].value}
+                            {rowId}
                           </TableCell>
                           {row.values.slice(1).map((cell: any, cellIndex: number) => {
                             const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnIndex === cellIndex;
@@ -404,8 +548,20 @@ export default function DataBrowserPage() {
                               </TableCell>
                             );
                           })}
+                          <TableCell>
+                            <Button
+                              onClick={() => handleDeleteRow(rowId)}
+                              variant="ghost"
+                              size="sm"
+                              disabled={loading}
+                              aria-label="Delete row"
+                            >
+                              Delete
+                            </Button>
+                          </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -433,6 +589,45 @@ export default function DataBrowserPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={handleCancelDelete}
+        >
+          <div 
+            role="alertdialog" 
+            className="bg-background border rounded-lg p-6 max-w-md mx-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-2">Confirm Delete</h2>
+            <p className="text-muted-foreground mb-4">
+              {deleteTarget?.type === 'bulk' 
+                ? `Are you sure you want to delete ${selectedRows.size} row(s)? This action cannot be undone.`
+                : 'Are you sure you want to delete this row? This action cannot be undone.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button 
+                onClick={handleCancelDelete} 
+                variant="outline"
+                type="button"
+                id="cancelDeleteButton"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmDelete} 
+                variant="destructive"
+                type="button"
+                id="confirmDeleteButton"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
