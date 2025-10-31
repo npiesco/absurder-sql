@@ -47,6 +47,24 @@ interface SortConfig {
   direction: 'ASC' | 'DESC';
 }
 
+interface ForeignKey {
+  id: number;
+  seq: number;
+  table: string;
+  from: string;
+  to: string;
+  on_update: string;
+  on_delete: string;
+  match: string;
+}
+
+interface NavigationHistoryItem {
+  table: string;
+  page: number;
+  filters: Filter[];
+  sort: SortConfig | null;
+}
+
 export default function DataBrowserPage() {
   const { db, setDb } = useDatabaseStore();
   const [tables, setTables] = useState<TableInfo[]>([]);
@@ -67,6 +85,8 @@ export default function DataBrowserPage() {
   const [filters, setFilters] = useState<Filter[]>([]);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [newFilter, setNewFilter] = useState<Filter>({ column: '', operator: 'equals', value: '' });
+  const [foreignKeys, setForeignKeys] = useState<ForeignKey[]>([]);
+  const [navigationHistory, setNavigationHistory] = useState<NavigationHistoryItem[]>([]);
 
   // Initialize WASM if needed
   useEffect(() => {
@@ -114,10 +134,10 @@ export default function DataBrowserPage() {
 
   // Load data when table, pagination, filters, or sort changes
   useEffect(() => {
-    if (selectedTable) {
+    if (selectedTable && db) {
       loadTableData();
     }
-  }, [selectedTable, currentPage, pageSize, filters, sortConfig]);
+  }, [db, selectedTable, currentPage, pageSize, filters, sortConfig]);
 
   const loadTables = async () => {
     if (!db) return;
@@ -199,6 +219,20 @@ export default function DataBrowserPage() {
       }));
       setColumns(cols);
 
+      // Get foreign key relationships
+      const fkResult = await db.execute(`PRAGMA foreign_key_list(${selectedTable})`);
+      const fks: ForeignKey[] = fkResult.rows.map((row: any) => ({
+        id: row.values[0].value as number,
+        seq: row.values[1].value as number,
+        table: row.values[2].value as string,
+        from: row.values[3].value as string,
+        to: row.values[4].value as string,
+        on_update: row.values[5].value as string,
+        on_delete: row.values[6].value as string,
+        match: row.values[7].value as string,
+      }));
+      setForeignKeys(fks);
+
       // Build query with filters and sorting
       const whereClause = buildWhereClause();
       const orderByClause = buildOrderByClause();
@@ -278,6 +312,51 @@ export default function DataBrowserPage() {
     const updatedFilters = filters.filter((_, i) => i !== index);
     setFilters(updatedFilters);
     setCurrentPage(1);
+  };
+
+  const handleForeignKeyClick = (columnName: string, fkValue: any) => {
+    // Find the FK relationship for this column
+    const fk = foreignKeys.find(fk => fk.from === columnName);
+    if (!fk || fkValue === null || fkValue === undefined) return;
+
+    // Save current state to navigation history
+    setNavigationHistory([...navigationHistory, {
+      table: selectedTable,
+      page: currentPage,
+      filters: filters,
+      sort: sortConfig
+    }]);
+
+    // Navigate to related table with filter
+    setSelectedTable(fk.table);
+    setFilters([{
+      column: fk.to,
+      operator: 'equals',
+      value: String(fkValue)
+    }]);
+    setCurrentPage(1);
+    setSortConfig(null);
+  };
+
+  const handleBackNavigation = () => {
+    if (navigationHistory.length === 0) return;
+
+    const previous = navigationHistory[navigationHistory.length - 1];
+    const newHistory = navigationHistory.slice(0, -1);
+    
+    setNavigationHistory(newHistory);
+    setSelectedTable(previous.table);
+    setCurrentPage(previous.page);
+    setFilters(previous.filters);
+    setSortConfig(previous.sort);
+  };
+
+  const isForeignKeyColumn = (columnName: string): boolean => {
+    return foreignKeys.some(fk => fk.from === columnName);
+  };
+
+  const getForeignKeyInfo = (columnName: string): ForeignKey | undefined => {
+    return foreignKeys.find(fk => fk.from === columnName);
   };
 
   const handleCellDoubleClick = (rowIndex: number, columnIndex: number, currentValue: any) => {
@@ -535,9 +614,32 @@ export default function DataBrowserPage() {
       {selectedTable && (
         <Card>
           <CardHeader>
+            {/* Breadcrumb Navigation */}
+            {navigationHistory.length > 0 && (
+              <nav aria-label="breadcrumb" data-breadcrumb className="mb-4 flex items-center gap-2">
+                <Button
+                  onClick={handleBackNavigation}
+                  variant="ghost"
+                  size="sm"
+                  data-back-button
+                  aria-label="Go back to previous table"
+                >
+                  ← Back
+                </Button>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {navigationHistory.map((item, index) => (
+                    <span key={index}>
+                      {item.table} →
+                    </span>
+                  ))}
+                  <span className="font-semibold text-foreground">{selectedTable}</span>
+                </div>
+              </nav>
+            )}
+            
             <div className="flex justify-between items-start">
               <div>
-                <CardTitle>{selectedTable}</CardTitle>
+                <CardTitle data-table-title>{selectedTable}</CardTitle>
                 <CardDescription>
                   Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalRows)} of {totalRows} rows
                 </CardDescription>
@@ -690,7 +792,9 @@ export default function DataBrowserPage() {
                           />
                         </TableHead>
                         <TableHead className="w-[100px]">rowid</TableHead>
-                        {columns.map(col => (
+                        {columns.map(col => {
+                          const fkInfo = getForeignKeyInfo(col.name);
+                          return (
                           <TableHead 
                             key={col.name}
                             onClick={() => handleSort(col.name)}
@@ -698,6 +802,15 @@ export default function DataBrowserPage() {
                           >
                             <div className="flex items-center gap-1">
                               {col.name}
+                              {fkInfo && (
+                                <span 
+                                  className="text-xs text-blue-500" 
+                                  data-fk-indicator
+                                  title={`Foreign key to ${fkInfo.table}.${fkInfo.to}`}
+                                >
+                                  → {fkInfo.table}
+                                </span>
+                              )}
                               {sortConfig?.column === col.name && (
                                 <span className="text-xs">
                                   {sortConfig.direction === 'ASC' ? '↑' : '↓'}
@@ -708,7 +821,8 @@ export default function DataBrowserPage() {
                               </span>
                             </div>
                           </TableHead>
-                        ))}
+                        );
+                        })}
                         <TableHead className="w-[100px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -731,6 +845,8 @@ export default function DataBrowserPage() {
                           {row.values.slice(1).map((cell: any, cellIndex: number) => {
                             const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnIndex === cellIndex;
                             const column = columns[cellIndex];
+                            const isFK = isForeignKeyColumn(column.name);
+                            const cellValue = cell.value;
                             
                             return (
                               <TableCell 
@@ -740,6 +856,7 @@ export default function DataBrowserPage() {
                                   ${isEditing ? 'editing' : 'cursor-pointer hover:bg-muted/50'}
                                 `}
                                 onDoubleClick={() => !isEditing && handleCellDoubleClick(rowIndex, cellIndex, cell.value)}
+                                data-fk-link={isFK && cellValue !== null && cellValue !== undefined ? 'true' : undefined}
                               >
                                 {isEditing ? (
                                   <input
@@ -751,12 +868,20 @@ export default function DataBrowserPage() {
                                     autoFocus
                                     className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
                                   />
+                                ) : cell.value === null || cell.value === undefined ? (
+                                  <span className="italic text-muted-foreground">NULL</span>
+                                ) : isFK ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleForeignKeyClick(column.name, cellValue);
+                                    }}
+                                    className="text-blue-500 hover:text-blue-700 underline"
+                                  >
+                                    {String(cellValue)}
+                                  </button>
                                 ) : (
-                                  cell.value === null || cell.value === undefined ? (
-                                    <span className="italic text-muted-foreground">NULL</span>
-                                  ) : (
-                                    String(cell.value)
-                                  )
+                                  String(cellValue)
                                 )}
                               </TableCell>
                             );

@@ -174,12 +174,43 @@
 - Show Clear Filters button when filters active
 - Clear all filters when button clicked
 
-#### 1.5 Foreign Key Navigation
-- [ ] Detect FK relationships
-- [ ] Show clickable FK values
-- [ ] Navigate to related table on click
-- [ ] Breadcrumb navigation
-- [ ] Back button
+#### 1.5 Foreign Key Navigation ✅ COMPLETE
+- [x] Detect FK relationships
+  - [x] PRAGMA foreign_key_list() detection
+  - [x] FK indicator in column headers (→ table_name)
+  - [x] data-fk-indicator attribute for testing
+- [x] Show clickable FK values
+  - [x] FK values rendered as buttons
+  - [x] NULL FK values shown as non-clickable
+  - [x] data-fk-link attribute on cells
+  - [x] Visual styling (blue, underlined)
+- [x] Navigate to related table on click
+  - [x] Switch to target table
+  - [x] Apply filter for specific row
+  - [x] Handle composite FKs
+  - [x] Multi-level FK navigation
+- [x] Breadcrumb navigation
+  - [x] Show navigation path
+  - [x] aria-label="breadcrumb"
+  - [x] data-breadcrumb attribute
+  - [x] Display full path on multi-level navigation
+- [x] Back button
+  - [x] Restore previous table
+  - [x] Restore previous filters
+  - [x] Restore previous pagination
+  - [x] data-back-button attribute
+- [x] E2E tests (9 tests passing)
+
+**Test Coverage:**
+- Detect foreign key relationships
+- Show FK indicator for foreign key columns
+- Navigate to related table when FK value is clicked
+- Filter to specific row when navigating via FK
+- Handle NULL foreign key values
+- Show breadcrumb navigation after FK click
+- Have working back button after FK navigation
+- Support multi-level FK navigation
+- Handle composite foreign keys
 
 #### 1.6 BLOB Handling
 - [ ] Preview images in-table
