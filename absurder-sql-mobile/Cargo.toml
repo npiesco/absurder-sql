@@ -12,7 +12,7 @@ rust-version = "1.85.0"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-absurder-sql = { version = "0.1.7", features = ["fs_persist"], default-features = false }
+absurder-sql = { version = "0.1.8", features = ["fs_persist"], default-features = false }
 
 # UniFFI for cross-platform bindings (React Native, WASM)
 uniffi = { version = "0.29", features = ["tokio"], optional = true }

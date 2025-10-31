@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "absurder-sql"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d77ed58e5b596d29defa7255faf3b8d750342a10b9cc812317453cdcb54e7e70"
+checksum = "4046d4c439f74b1608d3da55b55743dc8aa757b0773efa35c83521dfeb55ff1b"
 dependencies = [
  "crc32fast",
  "futures",
