@@ -34,7 +34,8 @@
     "next": "16.0.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

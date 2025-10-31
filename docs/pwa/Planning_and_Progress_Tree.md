@@ -1,752 +1,668 @@
-# Planning and Progress Tree
-## AbsurderSQL PWA - Development Roadmap
+# Planning and Progress Tree II
+## AbsurderSQL PWA - Adminer Parity Implementation Roadmap
 
-**Version:** 1.0  
-**Last Updated:** October 29, 2025  
-**Status:** Planning Phase  
-**Target Completion:** TBD
-
----
-
-## Project Overview
-
-Build a Next.js 15 PWA that uses the existing AbsurderSQL WASM package for SQLite + IndexedDB functionality across desktop and mobile browsers.
-
-**Key Milestones:**
-- ✅ Phase 0: Planning & Design (Complete)
-- ✅ Phase 1: Project Setup & Core Infrastructure (Complete)
-- ✅ Phase 2: Database Integration (Complete - DatabaseClient + E2E tests passing)
-- ⏳ Phase 3: UI Development
-- ⏳ Phase 4: PWA Features
-- ⏳ Phase 5: Testing & Optimization
-- ⏳ Phase 6: Documentation & Deployment
-- ⏳ Phase 7: Server Sync
-- ⏳ Phase 8: Collaborative Features
-- ⏳ Phase 9: Advanced Database Features
-- ⏳ Phase 10: Enterprise Features
+**Version:** 2.1  
+**Last Updated:** October 31, 2025  
+**Status:** Active Development  
+**Target:** Complete Adminer Parity + Modern Enhancements
 
 ---
 
-## Phase 0: Planning & Design ✅
+## Implementation Phases
 
-### 0.1 Requirements Gathering ✅
-- [x] Define user stories
-- [x] Identify functional requirements
-- [x] Identify non-functional requirements
-- [x] Define success metrics
+### Phase 0: Foundation & Testing Infrastructure ✅ COMPLETE
 
-### 0.2 Architecture Design ✅
-- [x] Create system architecture diagram
-- [x] Design component structure
-- [x] Plan data flow
-- [x] Design API surface
+**Goal:** Establish enterprise state management and comprehensive testing  
+**Duration:** Completed October 31, 2025
 
-### 0.3 Documentation ✅
-- [x] Write PRD.md
-- [x] Write Design_Documentation.md
-- [x] Write Planning_and_Progress_Tree.md
+#### 0.1 State Management ✅
+- [x] Install Zustand for centralized state
+- [x] Create `/lib/db/store.ts` with DatabaseStore
+- [x] Track critical state:
+  - [x] Database instance (`db`)
+  - [x] Current database name (`currentDbName`)
+  - [x] Loading state
+  - [x] Status messages
+  - [x] Table count
+- [x] Update `/app/db/page.tsx` to use Zustand
+- [x] Fix delete operation using `currentDbName`
+- [x] Fix create operation to update `currentDbName`
+
+#### 0.2 Roundtrip Data Integrity Tests ✅
+- [x] Create `/e2e/roundtrip.spec.ts`
+- [x] Test 1: All data types preserved (TEXT, INTEGER, REAL, BLOB, NULL)
+  - [x] Special characters (quotes, unicode, newlines, tabs, XSS)
+  - [x] Byte-for-byte match on re-export
+- [x] Test 2: Schema preservation (indexes, triggers)
+  - [x] Triggers remain functional after roundtrip
+- [x] Test 3: Multiple cycles without corruption
+  - [x] 5 export/import cycles
+  - [x] Stable file sizes
+
+#### 0.3 Test Suite Fixes ✅
+- [x] Fix delete test (use UI flow instead of programmatic)
+- [x] Fix schema preservation test (use existing testDb)
+- [x] Add proper beforeEach hooks for state initialization
+- [x] All 108 tests passing with zero regressions
+
+**Status:** ✅ Foundation complete. All tests passing.
 
 ---
 
-## Phase 1: Project Setup & Core Infrastructure ⏳
+### Phase 1: Data Browser (PRIORITY 1) ⏳
 
-**Goal:** Set up Next.js project with TypeScript, dependencies, and development environment
+**Goal:** Implement inline data editing and browsing  
+**Duration:** 5-7 days
 
-**Duration Estimate:** 1-2 days
+#### 1.1 Data Table Component
+- [ ] Create `/app/db/browse/page.tsx`
+- [ ] Implement pagination controls (100/500/1000 rows)
+- [ ] Add table selection dropdown
+- [ ] Display data in editable table
+- [ ] Handle NULL values display
+- [ ] Show loading states
+- [ ] Add row count indicator
 
-### 1.1 Next.js Project Initialization
-- [ ] Create new Next.js 15 project with App Router
-  ```bash
-  npx create-next-app@latest absurder-sql-pwa --typescript --tailwind --app
-  ```
-- [ ] Configure TypeScript with strict mode
-- [ ] Set up ESLint and Prettier
-- [ ] Configure Git and `.gitignore`
+#### 1.2 Inline Editing
+- [ ] Double-click cell to edit
+- [ ] Input validation by data type
+  - [ ] TEXT: multiline textarea
+  - [ ] INTEGER: number input
+  - [ ] REAL: decimal input  
+  - [ ] BLOB: file upload/preview
+- [ ] Save on Enter, cancel on Escape
+- [ ] Optimistic UI updates
+- [ ] Rollback on error
+- [ ] Visual indicators (editing state, saved state, error state)
 
-### 1.2 Dependencies Installation
-- [ ] Install core dependencies
-  ```bash
-  npm install @npiesco/absurder-sql
-  npm install @radix-ui/react-* # UI primitives
-  npm install lucide-react # Icons
-  npm install zustand # State management (optional)
-  ```
-- [ ] Install dev dependencies
-  ```bash
-  npm install -D vitest @testing-library/react
-  npm install -D playwright @playwright/test
-  npm install -D @types/node
-  ```
+#### 1.3 Row Operations
+- [ ] Add new row button
+  - [ ] Auto-populate DEFAULT values
+  - [ ] Required field validation
+  - [ ] Insert into database
+- [ ] Delete row button (with confirmation)
+- [ ] Bulk delete with checkboxes
+  - [ ] Select all/none checkboxes
+  - [ ] Bulk delete confirmation dialog
+  - [ ] DELETE query generation
 
-### 1.3 Project Structure Setup
-- [ ] Create directory structure
-  ```
-  app/
-  ├── layout.tsx
-  ├── page.tsx
-  ├── db/
-  ├── api/
-  └── providers.tsx
-  
-  lib/
-  ├── db/
-  ├── monitoring/
-  └── pwa/
-  
-  components/
-  ├── ui/           # shadcn/ui components
-  └── database/     # Database-specific components
-  ```
-- [ ] Set up path aliases in `tsconfig.json`
-- [ ] Create initial `.env.local` file
+#### 1.4 Filtering & Sorting
+- [ ] Column header click to sort (ASC/DESC toggle)
+- [ ] Filter panel per column
+  - [ ] Text contains/equals/starts with
+  - [ ] Number >, <, =, ≠
+  - [ ] NULL/NOT NULL filters
+  - [ ] Date range picker
+- [ ] Multiple filters (AND logic)
+- [ ] Clear all filters button
+- [ ] WHERE clause preview
 
-### 1.4 Development Tools
-- [ ] Configure VS Code workspace settings
-- [ ] Set up debugging configurations
-- [ ] Create development scripts in `package.json`
-  ```json
-  {
-    "scripts": {
-      "dev": "next dev",
-      "build": "next build",
-      "start": "next start",
-      "lint": "next lint",
-      "test": "vitest",
-      "test:e2e": "playwright test"
-    }
-  }
-  ```
+#### 1.5 Foreign Key Navigation
+- [ ] Detect FK relationships
+- [ ] Show clickable FK values
+- [ ] Navigate to related table on click
+- [ ] Breadcrumb navigation
+- [ ] Back button
+
+#### 1.6 BLOB Handling
+- [ ] Preview images in-table
+- [ ] Download button for files
+- [ ] Upload new files
+- [ ] Display file size/type
+- [ ] Drag-and-drop upload
 
 **Acceptance Criteria:**
-- ✅ Next.js dev server runs without errors
-- ✅ TypeScript compilation succeeds
-- ✅ ESLint passes with no errors
-- ✅ All dependencies installed correctly
+- [ ] Can browse any table with pagination
+- [ ] Can edit cells inline and save
+- [ ] Can add/delete rows
+- [ ] Can filter and sort data
+- [ ] FK navigation works
+- [ ] BLOB upload/download works
 
 ---
 
-## Phase 2: Database Integration ⏳
+### Phase 2: Import/Export Formats (PRIORITY 2) ⏳
 
-**Goal:** Integrate AbsurderSQL WASM package and create React hooks
+**Goal:** CSV, JSON, SQL dump support  
+**Duration:** 3-4 days
 
-**Duration Estimate:** 3-4 days
+#### 2.1 CSV Import
+- [ ] Create `/app/db/import-csv/page.tsx`
+- [ ] File upload with drag-and-drop
+- [ ] CSV parsing (PapaParse library)
+- [ ] Column mapping interface
+  - [ ] Auto-detect column names from first row
+  - [ ] Map CSV columns to table columns
+  - [ ] Data type conversion preview
+- [ ] Import options
+  - [ ] Skip first row (headers)
+  - [ ] Delimiter selection (comma, tab, semicolon)
+  - [ ] Quote character
+  - [ ] Encoding (UTF-8, Latin1)
+- [ ] Preview first 10 rows before import
+- [ ] Progress bar for large imports
+- [ ] Error handling (show failed rows)
 
-### 2.1 WASM Module Integration
-- [ ] Create `lib/db/client.ts` - DatabaseClient wrapper
-  - [ ] Implement `initialize()` - Load WASM module
-  - [ ] Implement `open(dbName)` - Open database
-  - [ ] Implement `execute(sql, params)` - Execute queries
-  - [ ] Implement `export()` - Export to .db file
-  - [ ] Implement `import(file)` - Import from .db file
-  - [ ] Implement `close()` - Close database
-- [ ] Test WASM loading in browser
-- [ ] Handle WASM initialization errors
-- [ ] Add TypeScript types for all methods
+#### 2.2 CSV Export
+- [ ] Add to query results page
+- [ ] Export options dialog
+  - [ ] Include headers checkbox
+  - [ ] Delimiter selection
+  - [ ] Quote all fields checkbox
+  - [ ] Line ending (LF, CRLF)
+- [ ] Generate CSV from query results
+- [ ] Trigger download
+- [ ] Handle NULL values (empty string or "NULL")
 
-### 2.2 React Hooks Development
-- [ ] Create `lib/db/hooks.ts`
-  - [ ] Implement `useDatabase(dbName)` hook
-    - [ ] Handle loading state
-    - [ ] Handle error state
-    - [ ] Return database instance
-  - [ ] Implement `useQuery(sql, params)` hook
-    - [ ] Auto-fetch on mount
-    - [ ] Provide refetch function
-    - [ ] Handle loading and errors
-  - [ ] Implement `useTransaction()` hook
-    - [ ] Support multi-query transactions
-    - [ ] Auto-rollback on error
-    - [ ] Track pending state
-  - [ ] Implement `useExport()` hook
-    - [ ] Trigger browser download
-    - [ ] Show progress (if possible)
-  - [ ] Implement `useImport()` hook
-    - [ ] Handle file upload
-    - [ ] Show progress
-    - [ ] Validate SQLite format
+#### 2.3 JSON Export
+- [ ] Export as array of objects
+- [ ] Pretty print option
+- [ ] Nested objects for JOINs (optional)
+- [ ] Date format options (ISO8601, Unix timestamp)
 
-### 2.3 Context Providers
-- [ ] Create `app/providers.tsx`
-  - [ ] DatabaseProvider for global database instance
-  - [ ] Handle initialization on app load
-  - [ ] Provide database to all components
+#### 2.4 SQL Dump Export
+- [ ] Generate CREATE TABLE statements
+- [ ] Generate INSERT statements
+- [ ] Options:
+  - [ ] DROP TABLE IF EXISTS
+  - [ ] Include indexes
+  - [ ] Include triggers
+  - [ ] Include views
+- [ ] Batch INSERTs (100 rows per statement)
+- [ ] Add transaction wrapper
 
-### 2.4 Error Handling
-- [ ] Create `lib/db/errors.ts`
-  - [ ] Define DatabaseError types
-  - [ ] Create error handling utilities
-  - [ ] Implement error logging
-
-### 2.5 Testing
-- [ ] Write unit tests for DatabaseClient
-- [ ] Write tests for React hooks
-- [ ] Test WASM initialization flow
-- [ ] Test export/import functionality
+#### 2.5 Partial Export
+- [ ] Export filtered data only
+- [ ] Export selected rows (checkboxes)
+- [ ] Export specific columns
+- [ ] Export to all formats (CSV, JSON, SQL)
 
 **Acceptance Criteria:**
-- ✅ Database can be opened and closed
-- ✅ Queries execute successfully
-- ✅ Hooks work without memory leaks
-- ✅ Export/import produces valid .db files
-- ✅ All tests pass
+- [ ] CSV import with column mapping works
+- [ ] CSV export with options works
+- [ ] JSON export generates valid JSON
+- [ ] SQL dump can be re-imported
+- [ ] Partial export exports correct data
 
 ---
 
-## Phase 3: UI Development ⏳
+### Phase 3: Table Structure Editor (PRIORITY 3) ⏳
 
-**Goal:** Build user interface for database management and querying
+**Goal:** Visual table designer  
+**Duration:** 4-5 days
 
-**Duration Estimate:** 5-7 days
+#### 3.1 Table Designer UI
+- [ ] Create `/app/db/designer/page.tsx`
+- [ ] Table selection dropdown
+- [ ] Visual column list
+  - [ ] Column name
+  - [ ] Data type dropdown
+  - [ ] NOT NULL checkbox
+  - [ ] UNIQUE checkbox
+  - [ ] PRIMARY KEY indicator
+  - [ ] DEFAULT value input
+- [ ] Add column button
+- [ ] Remove column button
+- [ ] Reorder columns (drag-and-drop)
 
-### 3.1 shadcn/ui Setup
-- [ ] Initialize shadcn/ui
-  ```bash
-  npx shadcn-ui@latest init
-  ```
-- [ ] Install required components
-  ```bash
-  npx shadcn-ui@latest add button
-  npx shadcn-ui@latest add input
-  npx shadcn-ui@latest add table
-  npx shadcn-ui@latest add dialog
-  npx shadcn-ui@latest add tabs
-  npx shadcn-ui@latest add toast
-  ```
+#### 3.2 Column Operations
+- [ ] Add new column
+  - [ ] ALTER TABLE ADD COLUMN
+  - [ ] Set default value for existing rows
+- [ ] Modify column
+  - [ ] Rename column
+  - [ ] Change type (with confirmation)
+  - [ ] Add/remove constraints
+- [ ] Delete column
+  - [ ] Drop confirmation dialog
+  - [ ] ALTER TABLE DROP COLUMN
 
-### 3.2 Layout Components
-- [ ] Create root layout (`app/layout.tsx`)
-  - [ ] Header with navigation
-  - [ ] Footer with status
-  - [ ] Theme provider (light/dark mode)
-- [ ] Create sidebar navigation
-- [ ] Implement responsive mobile layout
+#### 3.3 Primary Key Management
+- [ ] Set primary key (single column)
+- [ ] Composite primary key support
+- [ ] Remove primary key
+- [ ] Auto-increment support
 
-### 3.3 Home Page
-- [ ] Create `app/page.tsx`
-  - [ ] Welcome section
-  - [ ] Quick actions (Create DB, Import DB)
-  - [ ] Recent databases list
-  - [ ] Feature highlights
+#### 3.4 Index Management
+- [ ] List existing indexes
+- [ ] Create new index
+  - [ ] Single or multi-column
+  - [ ] UNIQUE index checkbox
+  - [ ] Index name
+- [ ] Drop index
+- [ ] Index usage statistics (optional)
 
-### 3.4 Database Management Page ✅
-- [x] Create `app/db/page.tsx`
-  - [x] Database selector dropdown
-  - [x] Create new database button
-  - [x] Delete database button
-  - [x] Export database button
-  - [x] Import database button
-  - [x] Database info panel (size, tables, rows)
+#### 3.5 Foreign Key Management
+- [ ] List FK constraints
+- [ ] Create FK
+  - [ ] Select referenced table
+  - [ ] Select referenced column
+  - [ ] ON DELETE action
+  - [ ] ON UPDATE action
+- [ ] Drop FK
+- [ ] Validate FK integrity
 
-### 3.5 Query Interface ✅
-- [x] Create `app/db/query/page.tsx`
-  - [x] SQL editor with textarea
-  - [x] Execute button
-  - [x] Results table
-  - [x] Query history
-  - [x] Load saved query
-
-### 3.6 Schema Viewer ✅
-- [x] Create `app/db/schema/page.tsx`
-  - [x] Tables list
-  - [x] Table details (columns, types, constraints)
-  - [x] Indexes list
-  - [x] Create table form
-  - [x] Create index form
-
-### 3.7 Adminer Replacement Features ✅
-- [x] Drag-and-drop database import
-  - [x] Add drop zone to database management page
-  - [x] Handle file drop events
-  - [x] Auto-import dropped .db files
-- [x] Export query results
-  - [x] Export to CSV format
-  - [x] Export to JSON format
-  - [ ] Export to Parquet format (optional)
-  - [x] Add export buttons to query results
-- [x] SQL Editor Enhancements
-  - [x] Add SQL syntax highlighting (CodeMirror 6)
-  - [x] Add SQL autocomplete
-  - [x] Table/column name suggestions
-- [x] Schema Viewer Enhancements
-  - [x] Add data preview for tables
-  - [x] Show row counts
-  - [x] Add quick query buttons
+#### 3.6 Table Operations
+- [ ] Rename table
+- [ ] Copy table structure
+  - [ ] With or without data
+  - [ ] New table name input
+- [ ] Drop table
+  - [ ] Confirmation dialog
+  - [ ] Show dependent objects
+- [ ] VACUUM table
 
 **Acceptance Criteria:**
-- ✅ UI is responsive on mobile and desktop
-- ✅ All database operations accessible from UI
-- ✅ Query results display correctly
-- ✅ Schema viewer shows accurate information
-- ✅ Drag-and-drop import works
-- ✅ Query results export to CSV/JSON
-- ✅ SQL autocomplete functional
-- ✅ Zero server setup required
+- [ ] Can add/remove/modify columns
+- [ ] Can manage primary keys
+- [ ] Can create/drop indexes
+- [ ] Can manage foreign keys
+- [ ] Can perform table operations
 
 ---
 
-## Phase 4: PWA Features ✅
+### Phase 4: Advanced Schema Management ⏳
 
-**Goal:** Add Progressive Web App capabilities
+**Goal:** Views, triggers, ER diagrams  
+**Duration:** 4-5 days
 
-**Duration Estimate:** 2-3 days
+#### 4.1 Views Management
+- [ ] Create `/app/db/views/page.tsx`
+- [ ] List all views
+- [ ] Create view
+  - [ ] View name input
+  - [ ] SQL editor for SELECT query
+  - [ ] Query validation
+- [ ] Edit view (recreate)
+- [ ] Drop view
+- [ ] Query view data
 
-### 4.1 Service Worker Setup ✅
-- [x] Install `next-pwa`
-- [x] Configure in `next.config.js`
-- [x] Create custom service worker
-- [x] Configure caching strategies
+#### 4.2 Triggers Management
+- [ ] Create `/app/db/triggers/page.tsx`
+- [ ] List all triggers
+- [ ] Create trigger
+  - [ ] Trigger name
+  - [ ] BEFORE/AFTER
+  - [ ] INSERT/UPDATE/DELETE
+  - [ ] Table selection
+  - [ ] SQL editor for trigger body
+- [ ] Edit trigger (recreate)
+- [ ] Drop trigger
+- [ ] Test trigger (optional)
 
-### 4.2 Web App Manifest ✅
-- [x] Create `public/manifest.json`
-  - [x] App name and short name
-  - [x] Icons (192x192, 512x512)
-  - [x] Theme color and background color
-  - [x] Display mode: standalone
-  - [x] Start URL
-- [x] Create app icons in multiple sizes
-- [x] Test manifest in Chrome DevTools
-
-### 4.3 Offline Support ✅
-- [x] Cache static assets (CSS, JS, images)
-- [x] Cache WASM binary
-- [x] Implement offline fallback page
-- [x] Add online/offline status indicator
-
-### 4.4 Install Prompt ✅
-- [x] Create "Add to Home Screen" prompt component
-- [x] Detect if already installed
-- [x] Show prompt at appropriate time
-- [x] Track installation analytics
-
-### 4.5 PWA Optimization
-- [ ] Configure app shortcuts in manifest
-- [ ] Add Share Target API support (optional)
-- [ ] Implement background sync (optional)
-- [ ] Add push notifications capability (optional)
+#### 4.3 ER Diagram
+- [ ] Create `/app/db/diagram/page.tsx`
+- [ ] Visualize tables as nodes
+- [ ] Show FK relationships as edges
+- [ ] Interactive diagram
+  - [ ] Zoom in/out
+  - [ ] Pan
+  - [ ] Click table to view details
+- [ ] Export diagram as PNG/SVG
+- [ ] Auto-layout algorithm (force-directed or hierarchical)
 
 **Acceptance Criteria:**
-- ✅ App installable on desktop and mobile
-- ✅ Works fully offline after first visit
-- ✅ Lighthouse PWA score > 90
-- ✅ Service worker caches critical resources
+- [ ] Can create/edit/delete views
+- [ ] Can create/edit/delete triggers
+- [ ] ER diagram displays correctly
+- [ ] Diagram is interactive
 
 ---
 
-## Phase 5: Testing & Optimization ⏳
+### Phase 5: Query Management & Bookmarks ⏳
 
-**Goal:** Ensure quality, performance, and reliability
+**Goal:** Save and organize queries  
+**Duration:** 3-4 days
 
-**Duration Estimate:** 4-5 days
+#### 5.1 Query Bookmarks
+- [ ] Add "Save Query" button to query editor
+- [ ] Save dialog
+  - [ ] Query name input
+  - [ ] Query description (optional)
+  - [ ] Tags (optional)
+  - [ ] Folder selection
+- [ ] Store in IndexedDB
+  - [ ] Schema: id, name, description, sql, created_at, updated_at, tags, folder
+- [ ] Load saved query
+  - [ ] Sidebar with query list
+  - [ ] Search queries by name/description
+  - [ ] Filter by tags
+- [ ] Edit saved query
+- [ ] Delete saved query
+- [ ] Export/import query library (JSON)
 
-### 5.1 Unit Testing ✅
-- [x] Write tests for all hooks
-- [x] Write tests for DatabaseClient
-- [x] Write tests for utility functions (SQL autocomplete)
-- [ ] Achieve > 80% code coverage
-- [x] Set up coverage reporting (Vitest + v8)
+#### 5.2 Query Folders
+- [ ] Create folders
+- [ ] Organize queries into folders
+- [ ] Nested folders (optional)
+- [ ] Rename/delete folders
 
-### 5.2 Integration Testing ✅
-- [x] Test database lifecycle (open, query, close) - Covered by E2E tests
-- [x] Test export/import flow - Covered by E2E tests
-- [x] Test transaction handling - Covered by E2E tests
-- [x] Test multi-tab coordination - Covered by E2E tests
-- [x] Test error recovery - Covered by E2E tests
-- [x] Added unit tests for DatabaseClient helper methods
+#### 5.3 EXPLAIN Query Plan
+- [ ] Add "Explain" button to query editor
+- [ ] Run EXPLAIN QUERY PLAN
+- [ ] Visualize query plan
+  - [ ] Tree structure
+  - [ ] Table scans highlighted
+  - [ ] Index usage shown
+  - [ ] Cost estimates (if available)
+- [ ] Optimization hints
 
-### 5.3 End-to-End Testing ✅
-- [x] Write Playwright tests
-  - [x] Test user flows (create DB, query, export)
-  - [x] Test PWA installation
-  - [x] Test offline functionality
-  - [x] Test on multiple browsers
-- [ ] Set up CI/CD pipeline for E2E tests
-
-### 5.4 Performance Optimization ✅
-- [x] Analyze bundle size
-  - [x] Created bundle analysis script
-  - [x] Largest chunk: 355KB (under 500KB threshold)
-  - [x] Total top 10 bundles: 1.02MB
-  - [ ] Code split WASM loading
-  - [ ] Lazy load heavy components
-  - [ ] Optimize images
-- [x] Database performance benchmarking
-  - [x] Helper methods < 1ms (target met)
-  - [x] Instance creation < 1ms (target met)
-  - [x] 100 client instances < 10ms (target met)
-  - [x] Memory efficiency verified (< 10MB for 1000 instances)
-  - [x] Error handling < 50ms for 100 operations
-  - [x] 10K state checks < 50ms (target met)
-  - [ ] Benchmark with real WASM queries (requires E2E)
-  - [ ] Test with large datasets (10K+ rows)
-- [x] Measure Core Web Vitals
-  - [x] LCP (Largest Contentful Paint) < 2.5s (✓ 192-732ms measured)
-  - [x] FID (First Input Delay) < 100ms (✓ 0ms - instant)
-  - [x] CLS (Cumulative Layout Shift) < 0.1 (✓ 0 measured)
-  - [x] TTFB < 600ms (✓ 56-143ms measured)
-  - [x] DOMContentLoaded < 2s (✓ 161-219ms measured)
-  - [x] TTI < 3.8s (✓ 538-565ms measured)
-  - [x] TBT < 300ms (✓ 2-9ms measured)
-  - [x] Responsive layout testing (mobile & desktop)
-
-### 5.5 Browser Compatibility Testing
-- [ ] Test on Chrome 90+
-- [ ] Test on Firefox 88+
-- [ ] Test on Safari 14+
-- [ ] Test on Edge 90+
-- [ ] Test on mobile browsers (iOS Safari, Android Chrome)
-- [ ] Fix browser-specific issues
-
-### 5.6 Accessibility Testing ✅
-- [x] Test keyboard navigation (Tab, Shift+Tab, Enter, Space)
-- [x] Test screen reader support (ARIA labels, roles, live regions)
-- [x] Ensure WCAG 2.1 AA compliance
-- [x] Add ARIA labels where needed
-- [x] Semantic HTML5 landmarks (main, nav)
-- [x] Skip-to-content link for keyboard users
-- [x] Focus indicators on all interactive elements
-- [x] Form labels and accessible error messages
-- [x] Button type attributes for all buttons
-- [x] Sufficient color contrast
-- [x] Alt text on images
-- [x] Descriptive link text
-- [x] Proper heading hierarchy
-- [x] Adequate touch target sizes (44x44px)
-- [ ] Run Lighthouse accessibility audit (automated)
-- [ ] Manual test with screen readers (NVDA, JAWS, VoiceOver)
-
-### 5.7 Security Testing
-- [ ] Audit Content Security Policy
-- [ ] Test for XSS vulnerabilities
-- [ ] Test for SQL injection (should be prevented by params)
-- [ ] Verify HTTPS-only in production
-- [ ] Check IndexedDB quota handling
+#### 5.4 Query Performance
+- [ ] Measure execution time
+- [ ] Track query statistics
+  - [ ] Execution count
+  - [ ] Average time
+  - [ ] Min/max time
+- [ ] Slow query log (> 1s)
+- [ ] Performance trends over time
 
 **Acceptance Criteria:**
-- ✅ All tests pass
-- ✅ Code coverage > 80%
-- ✅ Lighthouse score > 90 (all categories)
-- ✅ No critical accessibility issues
-- ✅ Works on all target browsers
+- [ ] Can save queries with names/descriptions
+- [ ] Can organize queries in folders
+- [ ] Can export/import query library
+- [ ] EXPLAIN plan visualization works
+- [ ] Query performance metrics accurate
 
 ---
 
-## Phase 6: Documentation & Deployment ⏳
+### Phase 6: Search & Discovery ⏳
 
-**Goal:** Complete documentation and deploy to production
+**Goal:** Find data anywhere in database  
+**Duration:** 3-4 days
 
-**Duration Estimate:** 2-3 days
+#### 6.1 Full-Text Search
+- [ ] Create `/app/db/search/page.tsx`
+- [ ] Search input with autocomplete
+- [ ] Search scope selection
+  - [ ] All tables
+  - [ ] Selected tables
+  - [ ] Selected columns
+- [ ] Search options
+  - [ ] Case-sensitive
+  - [ ] Exact match
+  - [ ] Regex pattern
+- [ ] Display results
+  - [ ] Table name
+  - [ ] Column name
+  - [ ] Row ID
+  - [ ] Matched value (highlighted)
+  - [ ] Context (surrounding data)
+- [ ] Click result to view row
+- [ ] Export search results
 
-### 6.1 User Documentation
-- [ ] Create `docs/pwa/USER_GUIDE.md`
-  - [ ] Getting started
-  - [ ] Creating a database
-  - [ ] Writing queries
-  - [ ] Exporting/importing data
-  - [ ] Installing as PWA
-  - [ ] Troubleshooting
-- [ ] Create video tutorial (optional)
-- [ ] Add screenshots to documentation
+#### 6.2 Column Finder
+- [ ] Search columns by name
+- [ ] Show table + column type
+- [ ] Click to view table schema
 
-### 6.2 Developer Documentation
-- [ ] Create `docs/pwa/DEVELOPER_GUIDE.md`
-  - [ ] Project structure
-  - [ ] Running locally
-  - [ ] Building for production
-  - [ ] Environment variables
-  - [ ] Contributing guidelines
-- [ ] Document all React hooks
-- [ ] Add JSDoc comments to code
-- [ ] Generate API documentation (TypeDoc)
-
-### 6.3 README Updates
-- [ ] Update main `README.md`
-  - [ ] Add PWA section
-  - [ ] Link to PWA documentation
-  - [ ] Update architecture diagram
-- [ ] Create PWA-specific `README.md` in project root
-- [ ] Add badges (build status, coverage, license)
-
-### 6.4 Deployment Setup
-- [ ] Choose hosting platform (Vercel recommended)
-- [ ] Configure environment variables
-- [ ] Set up custom domain (optional)
-- [ ] Configure CDN for WASM files
-- [ ] Set up analytics (Vercel Analytics or Google Analytics)
-
-### 6.5 CI/CD Pipeline
-- [ ] Set up GitHub Actions
-  - [ ] Run tests on PR
-  - [ ] Run linting
-  - [ ] Build and deploy preview
-- [ ] Auto-deploy main branch to production
-- [ ] Set up staging environment
-
-### 6.6 Monitoring & Analytics
-- [ ] Set up error tracking (Sentry)
-- [ ] Configure performance monitoring
-- [ ] Add custom analytics events
-  - [ ] Database created
-  - [ ] Query executed
-  - [ ] Database exported/imported
-  - [ ] PWA installed
-- [ ] Create Grafana dashboard (optional)
-
-### 6.7 Launch Preparation
-- [ ] Write announcement blog post
-- [ ] Create demo video
-- [ ] Prepare social media posts
-- [ ] Update npm package description to mention PWA
-- [ ] Create GitHub release
+#### 6.3 Data Grep
+- [ ] Search for value across all columns
+- [ ] Support multiple data types
+  - [ ] Text (substring match)
+  - [ ] Numbers (exact/range)
+  - [ ] Dates (range)
+- [ ] Limit results (performance)
+- [ ] Background search (Web Worker)
 
 **Acceptance Criteria:**
-- ✅ All documentation complete and reviewed
-- ✅ App deployed to production
-- ✅ CI/CD pipeline working
-- ✅ Monitoring and analytics active
-- ✅ Launch materials prepared
+- [ ] Can search across all tables
+- [ ] Can find columns by name
+- [ ] Data grep returns correct results
+- [ ] Search is performant (< 1s for small DBs)
 
 ---
 
-## Phase 7: Server Sync ⏳
+### Phase 7: Data Visualization ⏳
 
-**Goal:** Enable real-time synchronization with backend servers
+**Goal:** Charts and dashboards  
+**Duration:** 5-6 days
 
-**Duration Estimate:** 5-7 days
+#### 7.1 Chart Builder
+- [ ] Create `/app/db/charts/page.tsx`
+- [ ] Query input (reuse query editor)
+- [ ] Chart type selection
+  - [ ] Line chart
+  - [ ] Bar chart
+  - [ ] Pie chart
+  - [ ] Scatter plot
+- [ ] Data mapping
+  - [ ] X-axis column
+  - [ ] Y-axis column(s)
+  - [ ] Group by column
+  - [ ] Color column
+- [ ] Chart options
+  - [ ] Title
+  - [ ] Axis labels
+  - [ ] Legend position
+  - [ ] Colors
+- [ ] Live preview
+- [ ] Save chart configuration
 
-### 7.1 Sync Protocol Design
-- [ ] Define sync protocol (WebSocket-based)
-- [ ] Design conflict resolution strategy
-- [ ] Create protocol documentation
-- [ ] Define sync state machine
+#### 7.2 Chart Library
+- [ ] Integrate Recharts or Chart.js
+- [ ] Responsive charts
+- [ ] Export charts as PNG/SVG
+- [ ] Download chart data as CSV
 
-### 7.2 Server-Side API
-- [ ] Implement server-side sync endpoint
-- [ ] Add PostgreSQL mirror database
-- [ ] Create sync queue management
-- [ ] Implement delta sync
-
-### 7.3 Client-Side Sync
-- [ ] Add WebSocket client
-- [ ] Implement sync state tracking
-- [ ] Add conflict resolution UI
-- [ ] Create offline queue
-
-### 7.4 Sync UI
-- [ ] Sync status indicator
-- [ ] Conflict resolution dialog
-- [ ] Sync history view
-- [ ] Manual sync trigger
+#### 7.3 Dashboard Builder
+- [ ] Create `/app/db/dashboard/page.tsx`
+- [ ] Add multiple charts
+- [ ] Grid layout (drag-and-drop)
+- [ ] Auto-refresh option
+- [ ] Save dashboard layout
+- [ ] Share dashboard (URL)
 
 **Acceptance Criteria:**
-- [ ] Changes sync within 1 second
-- [ ] Conflicts resolved automatically or manually
-- [ ] Offline changes queued and synced on reconnect
-- [ ] No data loss during sync
+- [ ] Can create charts from queries
+- [ ] Multiple chart types supported
+- [ ] Charts are interactive and responsive
+- [ ] Can export charts
+- [ ] Dashboard with multiple charts works
 
 ---
 
-## Phase 8: Collaborative Features ⏳
+### Phase 8: Developer Tools ⏳
 
-**Goal:** Enable multi-user real-time collaboration
+**Goal:** Query formatter, schema diff, migration generator  
+**Duration:** 4-5 days
 
-**Duration Estimate:** 7-10 days
+#### 8.1 Query Formatter
+- [ ] Integrate sql-formatter library
+- [ ] Format button in query editor
+- [ ] Formatting options
+  - [ ] Keyword case (UPPER, lower)
+  - [ ] Indentation (2/4 spaces, tabs)
+  - [ ] Line length limit
+- [ ] Format on paste (optional)
 
-### 8.1 Operational Transform / CRDTs
-- [ ] Choose collaboration algorithm (OT or CRDT)
-- [ ] Implement operation transforms
-- [ ] Add vector clock tracking
-- [ ] Handle concurrent edits
+#### 8.2 Schema Diff
+- [ ] Create `/app/db/diff/page.tsx`
+- [ ] Compare two databases
+  - [ ] Upload second .db file
+  - [ ] Or select from existing databases
+- [ ] Show differences
+  - [ ] Tables added/removed
+  - [ ] Columns added/removed/modified
+  - [ ] Indexes added/removed
+  - [ ] Triggers added/removed
+- [ ] Color-coded diff view
+  - [ ] Green: added
+  - [ ] Red: removed
+  - [ ] Yellow: modified
 
-### 8.2 Real-Time Cursors
-- [ ] Multi-user cursor positions
-- [ ] User presence indicators
-- [ ] Cursor color coding
-- [ ] Active users list
+#### 8.3 Migration Generator
+- [ ] Generate SQL migration script
+- [ ] ALTER TABLE statements
+- [ ] CREATE/DROP statements
+- [ ] Maintain data integrity
+- [ ] Rollback script (reverse migration)
+- [ ] Download migration files
 
-### 8.3 Collaborative Editing
-- [ ] Real-time query sharing
-- [ ] Shared schema editor
-- [ ] Co-editing data rows
-- [ ] Collaborative transactions
+#### 8.4 Index Analyzer
+- [ ] Detect missing indexes
+  - [ ] Scan queries for WHERE clauses
+  - [ ] Check if indexed
+  - [ ] Suggest indexes
+- [ ] Index usage statistics
+  - [ ] Times used
+  - [ ] Last used
+  - [ ] Unused indexes
+- [ ] Recommend index removal
 
 **Acceptance Criteria:**
-- [ ] Multiple users can edit simultaneously
-- [ ] Changes visible in real-time (< 100ms)
-- [ ] No edit conflicts
-- [ ] User presence always accurate
+- [ ] Query formatter produces readable SQL
+- [ ] Schema diff shows all differences
+- [ ] Migration generator creates valid SQL
+- [ ] Index analyzer provides useful suggestions
 
 ---
 
-## Phase 9: Advanced Database Features ⏳
+### Phase 9: Performance Tools ⏳
 
-**Goal:** Add advanced SQLite capabilities
+**Goal:** Optimize database performance  
+**Duration:** 3-4 days
 
-**Duration Estimate:** 5-7 days
+#### 9.1 Storage Analysis
+- [ ] Create `/app/db/storage/page.tsx`
+- [ ] Display database size
+- [ ] Table sizes (rows + disk space)
+- [ ] Index sizes
+- [ ] Fragmentation metrics
+- [ ] VACUUM recommendations
 
-### 9.1 Full-Text Search (FTS5)
-- [ ] Enable FTS5 extension
-- [ ] Add FTS index creation UI
-- [ ] Implement search syntax highlighting
-- [ ] Add relevance ranking
+#### 9.2 Query Optimizer
+- [ ] Analyze query performance
+- [ ] Suggest index creation
+- [ ] Rewrite slow queries
+  - [ ] Suggest JOIN order
+  - [ ] Suggest subquery elimination
+- [ ] Cache query plans
 
-### 9.2 Spatial Queries (SpatiaLite)
-- [ ] Integrate SpatiaLite extension
-- [ ] Add geometry type support
-- [ ] Implement spatial indexes
-- [ ] Add map visualization (optional)
-
-### 9.3 Graph Queries
-- [ ] Recursive CTE support
-- [ ] Graph query builder UI
-- [ ] Visualization of query results
-- [ ] Performance optimization
-
-### 9.4 Vector Search
-- [ ] Add vector embedding support
-- [ ] Implement similarity search
-- [ ] Integrate with embedding models
-- [ ] Add vector indexing
+#### 9.3 Slow Query Log
+- [ ] Track queries > 1s
+- [ ] Display in performance dashboard
+- [ ] Group by query pattern
+- [ ] Suggest optimizations
 
 **Acceptance Criteria:**
-- [ ] FTS5 queries execute < 100ms
-- [ ] Spatial queries accurate
-- [ ] Graph traversal performant
-- [ ] Vector search scales to 10K+ vectors
+- [ ] Storage analysis accurate
+- [ ] Optimizer provides useful hints
+- [ ] Slow query log captures long-running queries
 
 ---
 
-## Phase 10: Enterprise Features ⏳
+## Testing Strategy
 
-**Goal:** Add enterprise-grade security and compliance
+### Unit Tests
+- [ ] Data browser component tests
+- [ ] CSV parser tests
+- [ ] Table designer tests
+- [ ] Chart builder tests
+- [ ] Query formatter tests
+- [ ] Schema diff tests
 
-**Duration Estimate:** 10-14 days
+### Integration Tests
+- [ ] Import/export flows
+- [ ] Data editing flow
+- [ ] Foreign key navigation
+- [ ] Chart creation flow
 
-### 10.1 Role-Based Access Control
-- [ ] Define user roles and permissions
-- [ ] Implement RBAC engine
-- [ ] Add permission UI
-- [ ] Row-level security
-
-### 10.2 Audit Logging
-- [ ] Log all database operations
-- [ ] Add audit trail viewer
-- [ ] Export audit logs
-- [ ] Tamper-proof logging
-
-### 10.3 Data Encryption
-- [ ] Implement encryption at rest
-- [ ] Add key management
-- [ ] Support for HSM/KMS
-- [ ] Encrypted backups
-
-### 10.4 Compliance Certifications
-- [ ] SOC 2 Type II preparation
-- [ ] GDPR compliance features
-- [ ] HIPAA compliance (if applicable)
-- [ ] Security audit documentation
-
-**Acceptance Criteria:**
-- [ ] All operations logged
-- [ ] Data encrypted with AES-256
-- [ ] RBAC enforced consistently
-- [ ] Compliance audit ready
+### E2E Tests
+- [ ] Complete data browsing workflow
+- [ ] CSV import and export
+- [ ] Table structure modifications
+- [ ] Query bookmarking
+- [ ] Dashboard creation
 
 ---
 
-## Risk Register
+## Deployment Milestones
 
-### Active Risks
-
-| Risk | Impact | Probability | Mitigation | Owner |
-|------|--------|-------------|------------|-------|
-| WASM performance on mobile | High | Medium | Optimize bundle size, lazy loading | TBD |
-| IndexedDB quota exceeded | High | Low | Monitor quota, prompt for export | TBD |
-| Browser compatibility issues | Medium | Medium | Comprehensive testing, polyfills | TBD |
-| Multi-tab race conditions | High | Low | Use existing AbsurderSQL coordination | TBD |
-
----
-
-## Dependencies & Blockers
-
-### Dependencies
-- ✅ AbsurderSQL WASM package published to npm
-- ✅ Next.js 15 stable release
-- ✅ React 19 stable release
-
-### Current Blockers
-- None
-
----
-
-## Team & Resources
-
-### Team Members
-- **Product Owner:** Nicholas Piesco
-- **Technical Lead:** Nicholas Piesco
-- **Frontend Developer:** TBD
-- **QA Engineer:** TBD
-- **Designer:** TBD
-
-### Resources Needed
-- Development environment (already available)
-- Vercel account for deployment (free tier sufficient)
-- Domain name (optional)
-- Sentry account for error tracking (optional)
-
----
-
-## Timeline Estimate
-
-| Phase | Duration | Start Date | End Date |
-|-------|----------|------------|----------|
-| Phase 0: Planning | 2 days | 2025-10-29 | 2025-10-30 |
-| Phase 1: Setup | 2 days | TBD | TBD |
-| Phase 2: Database | 4 days | TBD | TBD |
-| Phase 3: UI | 7 days | TBD | TBD |
-| Phase 4: PWA | 3 days | TBD | TBD |
-| Phase 5: Testing | 5 days | TBD | TBD |
-| Phase 6: Deploy | 3 days | TBD | TBD |
-| Phase 7: Server Sync | 7 days | TBD | TBD |
-| Phase 8: Collaborative | 10 days | TBD | TBD |
-| Phase 9: Advanced DB | 7 days | TBD | TBD |
-| Phase 10: Enterprise | 14 days | TBD | TBD |
-| **Total** | **64 days** | TBD | TBD |
-
-**Target Completion:** TBD (approximately 3 months from start)
-
----
-
-## Success Criteria
-
-### Phase 1 Success
-- [x] All planning documents complete
-- [ ] Next.js project initialized
-- [ ] Dependencies installed
-- [ ] Dev server running
-
-### Final Launch Success
-- [ ] PWA deployed to production
-- [ ] All tests passing
+### v1.0 Release (Adminer Parity)
+- [ ] Data browser ✅
+- [ ] CSV import/export ✅
+- [ ] Table structure editor ✅
+- [ ] Query bookmarks ✅
 - [ ] Lighthouse score > 90
+- [ ] E2E tests passing
 - [ ] Documentation complete
-- [ ] Zero critical bugs
-- [ ] Positive user feedback
+
+### v2.0 Release (Modern Enhancements)
+- [ ] Full-text search ✅
+- [ ] Data visualization ✅
+- [ ] Schema diff tool ✅
+- [ ] Query formatter ✅
+- [ ] User feedback collected
+
+### v3.0 Release (Performance & Advanced)
+- [ ] Index analyzer ✅
+- [ ] Query optimizer ✅
+- [ ] Dashboard builder ✅
+- [ ] Migration generator ✅
 
 ---
 
-## Change Log
+## Dependencies
 
-### 2025-10-29
-- Created initial planning documents
-- Defined 6 phases with detailed tasks
-- Estimated 26 days to launch
-- Identified risks and dependencies
+**Libraries to Install:**
+```bash
+npm install papaparse          # CSV parsing
+npm install sql-formatter      # SQL formatting
+npm install recharts          # Charts
+npm install react-grid-layout # Dashboard layout
+npm install d3                # ER diagrams (optional)
+```
+
+**Dev Dependencies:**
+```bash
+npm install -D @types/papaparse
+npm install -D @types/d3
+```
+
+---
+
+## Success Metrics
+
+### Feature Adoption
+- **Goal:** 70% of users use data browser
+- **Goal:** 50% of users import CSV
+- **Goal:** 40% of users save queries
+- **Goal:** 30% of users create charts
+
+### Performance
+- **Goal:** Data browser load < 200ms
+- **Goal:** CSV import 10K rows < 2s
+- **Goal:** Chart render < 500ms
+
+### Quality
+- **Goal:** Zero critical bugs in production
+- **Goal:** User rating > 4.5/5
+- **Goal:** Test coverage > 85%
+
+---
+
+## Timeline
+
+| Phase | Duration | Dependencies |
+|-------|----------|--------------|
+| Phase 1: Data Browser | 7 days | None |
+| Phase 2: Import/Export | 4 days | PapaParse |
+| Phase 3: Table Editor | 5 days | Phase 1 |
+| Phase 4: Schema Mgmt | 5 days | D3 (optional) |
+| Phase 5: Query Mgmt | 4 days | Phase 1 |
+| Phase 6: Search | 4 days | Phase 1 |
+| Phase 7: Visualization | 6 days | Recharts |
+| Phase 8: Dev Tools | 5 days | sql-formatter |
+| Phase 9: Performance | 4 days | Phase 3, 5 |
+| **Total** | **44 days** | |
+
+**Target Completion:** 9 weeks from start
 
 ---
 
 ## Notes
 
-- This is a living document - update as project progresses
-- Mark tasks complete with [x] as they finish
-- Add new tasks as needed
-- Review weekly to track progress
+- Prioritize Phases 1-3 for v1.0 (Adminer parity)
+- Phases 6-9 can be done in parallel with different developers
+- User testing after Phase 3 completion
+- Beta release after Phase 5

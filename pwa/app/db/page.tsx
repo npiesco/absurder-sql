@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { DatabaseProvider, useDatabase } from '@/lib/db/provider';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,34 +13,70 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { useDatabaseStore } from '@/lib/db/store';
 
-function DatabaseManagementContent() {
-  const { db, loading, error } = useDatabase();
-  const [status, setStatus] = useState('Ready');
+export default function DatabaseManagementPage() {
+  const { db, currentDbName, loading, status, tableCount, setDb, setCurrentDbName, setLoading, setStatus, setTableCount } = useDatabaseStore();
   const [newDbName, setNewDbName] = useState('');
-  const [tableCount, setTableCount] = useState(0);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Initialize WASM and expose Database to window (like working vite app)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).testDb = db;
+    if (typeof window === 'undefined') return;
+
+    async function initializeWasm() {
+      try {
+        const init = (await import('@npiesco/absurder-sql')).default;
+        const { Database } = await import('@npiesco/absurder-sql');
+        
+        // Init WASM first
+        await init();
+        
+        // Expose Database class on window IMMEDIATELY after init (like vite app line 66)
+        (window as any).Database = Database;
+        
+        // Open default database
+        const dbInstance = await Database.newDatabase('database.db');
+        setDb(dbInstance);
+        (window as any).testDb = dbInstance;
+        
+        setStatus('Ready');
+        setLoading(false);
+      } catch (err: any) {
+        console.error('Failed to initialize:', err);
+        setStatus(`Error: ${err.message}`);
+        setLoading(false);
+      }
     }
-  }, [db]);
+
+    initializeWasm();
+  }, []);
 
   const handleCreateDatabase = async () => {
-    if (!newDbName.trim()) return;
+    const Database = (window as any).Database;
+    if (!newDbName.trim() || !Database) return;
 
     try {
-      const { DatabaseClient } = await import('@/lib/db/client');
-      const newDb = new DatabaseClient();
-      await newDb.open(newDbName);
+      // Close existing database
+      if (db) {
+        await db.close();
+      }
+      
+      // Create new database
+      const newDb = await Database.newDatabase(newDbName);
+      setDb(newDb);
+      setCurrentDbName(newDbName);
+      (window as any).testDb = newDb;
+      
       setStatus(`Database created: ${newDbName}`);
       setCreateDialogOpen(false);
       setNewDbName('');
-    } catch (err) {
-      setStatus(`Error: ${err}`);
+    } catch (err: any) {
+      setStatus(`Error: ${err.message}`);
     }
   };
 
@@ -49,35 +84,58 @@ function DatabaseManagementContent() {
     if (!db) return;
 
     try {
-      const blob = await db.export();
+      // Use the WASM export method
+      const bytes = await db.exportToFile();
+      const blob = new Blob([bytes], { type: 'application/x-sqlite3' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'database.db';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setStatus('Database exported');
-    } catch (err) {
-      setStatus(`Export error: ${err}`);
+    } catch (err: any) {
+      setStatus(`Export error: ${err.message}`);
     }
   };
 
   const handleImport = async () => {
-    if (!db) return;
+    const Database = (window as any).Database;
+    if (!db || !Database) return;
 
-    const file = (window as any).importFile;
+    const file = fileInputRef.current?.files?.[0];
     if (!file) {
       setStatus('No file selected');
       return;
     }
 
     try {
-      await db.import(file);
-      // Update window reference after import reopens connection
-      (window as any).testDb = db;
+      // Read file as array buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Close existing database
+      await db.close();
+      
+      // Create new database instance
+      const newDb = await Database.newDatabase('database.db');
+      
+      // Import the data
+      await newDb.importFromFile(uint8Array);
+      
+      // Close and reopen
+      await newDb.close();
+      const reopenedDb = await Database.newDatabase('database.db');
+      
+      setDb(reopenedDb);
+      (window as any).testDb = reopenedDb;
       setStatus('Import complete');
-    } catch (err) {
-      setStatus(`Import error: ${err}`);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err: any) {
+      setStatus(`Import error: ${err.message}`);
     }
   };
 
@@ -94,14 +152,30 @@ function DatabaseManagementContent() {
   };
 
   const handleDelete = async () => {
-    if (!db) return;
+    const Database = (window as any).Database;
+    if (!db || !Database) return;
 
     try {
       await db.close();
+      
+      // Actually delete from IndexedDB using current database name
+      await new Promise<void>((resolve, reject) => {
+        const deleteRequest = indexedDB.deleteDatabase(currentDbName);
+        deleteRequest.onsuccess = () => resolve();
+        deleteRequest.onerror = () => reject(deleteRequest.error);
+      });
+      
+      // Create fresh database with default name
+      const defaultName = 'database.db';
+      const newDb = await Database.newDatabase(defaultName);
+      setDb(newDb);
+      setCurrentDbName(defaultName);
+      (window as any).testDb = newDb;
+      
       setStatus('Database deleted');
       setDeleteDialogOpen(false);
-    } catch (err) {
-      setStatus(`Delete error: ${err}`);
+    } catch (err: any) {
+      setStatus(`Delete error: ${err.message}`);
     }
   };
 
@@ -131,15 +205,26 @@ function DatabaseManagementContent() {
       return;
     }
 
-    if (!db) {
+    const Database = (window as any).Database;
+    if (!db || !Database) {
       setStatus('Error: Database not initialized');
       return;
     }
 
     try {
-      await db.import(file);
-      (window as any).testDb = db;
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      await db.close();
+      const newDb = await Database.newDatabase('database.db');
+      await newDb.importFromFile(uint8Array);
+      await newDb.close();
+      
+      const reopenedDb = await Database.newDatabase('database.db');
+      setDb(reopenedDb);
+      (window as any).testDb = reopenedDb;
       setStatus('Import complete');
+      setSelectedFile(null);
     } catch (err: any) {
       setStatus(`Import error: ${err.message}`);
     }
@@ -150,7 +235,7 @@ function DatabaseManagementContent() {
       <h1 className="text-3xl font-bold mb-6">Database Management</h1>
 
       <div id="status" className="mb-4 p-3 bg-blue-50 rounded">
-        {loading ? 'Loading...' : error ? `Error: ${error.message}` : status || 'Ready'}
+        {status}
       </div>
 
       {/* Drag and Drop Zone */}
@@ -175,9 +260,18 @@ function DatabaseManagementContent() {
             <CardDescription>Manage your database</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <div id="dbSelector" className="text-sm text-gray-600 mb-4">
+            <div id="dbSelector" className="text-sm text-muted-foreground mb-4">
               Current database: database.db
             </div>
+            
+            <input 
+              ref={fileInputRef}
+              id="importFile"
+              type="file" 
+              accept=".db,.sqlite,.sqlite3"
+              className="hidden"
+              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} 
+            />
 
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
               <DialogTrigger asChild>
@@ -204,8 +298,23 @@ function DatabaseManagementContent() {
               Export Database
             </Button>
 
-            <Button id="importDbButton" onClick={handleImport} disabled={!db} className="w-full" variant="outline">
-              Import Database
+            <Button 
+              id="importDbButton" 
+              onClick={() => fileInputRef.current?.click()} 
+              disabled={!db} 
+              className="w-full" 
+              variant="outline"
+            >
+              Select File to Import
+            </Button>
+            
+            <Button 
+              onClick={handleImport} 
+              disabled={!db || !selectedFile} 
+              className="w-full" 
+              variant="outline"
+            >
+              Import Selected File
             </Button>
 
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -249,10 +358,3 @@ function DatabaseManagementContent() {
   );
 }
 
-export default function DatabaseManagementPage() {
-  return (
-    <DatabaseProvider dbName="database.db">
-      <DatabaseManagementContent />
-    </DatabaseProvider>
-  );
-}

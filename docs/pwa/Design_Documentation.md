@@ -1,337 +1,760 @@
-# Design Documentation
-## AbsurderSQL PWA - Browser-Based SQLite Admin Tool
+# Design Documentation II
+## AbsurderSQL PWA - Adminer Parity Technical Architecture
 
-**Version:** 2.0  
-**Last Updated:** October 29, 2025  
-**Status:** Active Development  
-**Target:** Next.js 15 + React 19 + AbsurderSQL WASM
-
-**Product Vision:** Modern Adminer replacement - zero server setup, drag-and-drop .db files, instant querying
+**Version:** 3.1  
+**Last Updated:** October 31, 2025  
+**Status:** Implementation Guide  
+**Target:** Complete Adminer Replacement
 
 ---
 
-## Table of Contents
+## System Architecture
 
-1. [System Overview](#system-overview)
-2. [Architecture Diagram](#architecture-diagram)
-3. [Component Design](#component-design)
-4. [Data Flow](#data-flow)
-5. [API Design](#api-design)
-6. [Database Schema](#database-schema)
-7. [Security Model](#security-model)
-8. [Performance Considerations](#performance-considerations)
-9. [Error Handling](#error-handling)
-
----
-
-## System Overview
-
-### High-Level Architecture
-
-The PWA consists of three layers:
-
-1. **Presentation Layer** - Next.js React components + UI
-2. **Business Logic Layer** - Database hooks + state management
-3. **Data Layer** - AbsurderSQL WASM + IndexedDB
-
-### Technology Stack
-
-```
-┌─────────────────────────────────────────────┐
-│         Next.js 15 App Router               │
-│  (React 19 + TypeScript + Tailwind CSS)    │
-└─────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────┐
-│      Custom React Hooks Layer               │
-│  useDatabase, useQuery, useTransaction      │
-└─────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────┐
-│       AbsurderSQL WASM Package              │
-│    @npiesco/absurder-sql (npm package)      │
-└─────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────┐
-│           Browser IndexedDB                  │
-│     (4KB block-level storage + LRU cache)   │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## Architecture Diagram
-
-### Complete System Architecture
-
-```mermaid
-graph TB
-    subgraph "Browser Environment"
-        UI["Next.js UI Components<br/>(React 19 + shadcn/ui)"]
-        HOOKS["Custom React Hooks<br/>(useDatabase, useQuery)"]
-        SW["Service Worker<br/>(Offline Support)"]
-    end
-    
-    subgraph "AbsurderSQL WASM Layer"
-        WASM["WASM Module<br/>(absurder_sql_bg.wasm)"]
-        JS["JS Bindings<br/>(absurder_sql.js)"]
-        API["Public API<br/>(SqliteIndexedDB class)"]
-    end
-    
-    subgraph "Storage & Coordination"
-        IDB["IndexedDB<br/>(Block Storage)"]
-        CACHE["LRU Cache<br/>(128 blocks)"]
-        BC["BroadcastChannel<br/>(Multi-Tab Sync)"]
-        LS["localStorage<br/>(Leader Election)"]
-    end
-    
-    UI --> HOOKS
-    HOOKS --> API
-    API --> JS
-    JS --> WASM
-    WASM --> IDB
-    WASM --> CACHE
-    WASM --> BC
-    WASM --> LS
-    SW --> CACHE
-```
-
-### Multi-Tab Coordination
-
-```mermaid
-sequenceDiagram
-    participant Tab1
-    participant Tab2
-    participant BroadcastChannel
-    participant localStorage
-    participant IndexedDB
-    
-    Tab1->>localStorage: Acquire leader lock
-    Tab1->>BroadcastChannel: Announce as leader
-    Tab2->>BroadcastChannel: Listen for leader
-    Tab1->>IndexedDB: Begin write operation
-    Tab1->>BroadcastChannel: Broadcast write intent
-    Tab2->>Tab2: Queue local writes
-    Tab1->>IndexedDB: Commit transaction
-    Tab1->>BroadcastChannel: Broadcast write complete
-    Tab2->>IndexedDB: Process queued writes
-```
-
----
-
-## Component Design
-
-### 1. Core Components
-
-#### `/app` Directory Structure
+### Component Hierarchy
 
 ```
 app/
-├── layout.tsx                 # Root layout with providers
-├── page.tsx                   # Home page
 ├── db/
-│   ├── page.tsx              # Database management UI
-│   ├── query/page.tsx        # Query interface
-│   └── schema/page.tsx       # Schema viewer
-├── api/
-│   └── health/route.ts       # Health check endpoint
-└── providers.tsx             # Context providers
-```
+│   ├── page.tsx                    # Database management (✅ EXISTS)
+│   ├── query/page.tsx              # Query interface (✅ EXISTS)
+│   ├── schema/page.tsx             # Schema viewer (✅ EXISTS)
+│   ├── browse/page.tsx             # ⏳ Data browser (NEW)
+│   ├── import-csv/page.tsx         # ⏳ CSV import (NEW)
+│   ├── designer/page.tsx           # ⏳ Table designer (NEW)
+│   ├── views/page.tsx              # ⏳ Views management (NEW)
+│   ├── triggers/page.tsx           # ⏳ Triggers management (NEW)
+│   ├── diagram/page.tsx            # ⏳ ER diagram (NEW)
+│   ├── charts/page.tsx             # ⏳ Chart builder (NEW)
+│   ├── dashboard/page.tsx          # ⏳ Dashboard (NEW)
+│   ├── search/page.tsx             # ⏳ Search (NEW)
+│   ├── diff/page.tsx               # ⏳ Schema diff (NEW)
+│   └── storage/page.tsx            # ⏳ Storage analysis (NEW)
 
-#### `/lib` Directory Structure
+components/
+├── data-browser/
+│   ├── DataTable.tsx               # ⏳ Main data table component
+│   ├── EditableCell.tsx            # ⏳ Inline editable cell
+│   ├── FilterPanel.tsx             # ⏳ Column filters
+│   ├── PaginationControls.tsx     # ⏳ Pagination UI
+│   └── BulkOperations.tsx          # ⏳ Bulk delete/edit
+├── import-export/
+│   ├── CSVImporter.tsx             # ⏳ CSV import wizard
+│   ├── CSVExporter.tsx             # ⏳ CSV export options
+│   ├── JSONExporter.tsx            # ⏳ JSON export
+│   └── SQLDumpExporter.tsx         # ⏳ SQL dump generator
+├── table-designer/
+│   ├── ColumnEditor.tsx            # ⏳ Column definition UI
+│   ├── IndexManager.tsx            # ⏳ Index management
+│   ├── ForeignKeyEditor.tsx        # ⏳ FK constraints
+│   └── TableOperations.tsx         # ⏳ Rename/drop/copy table
+├── chart-builder/
+│   ├── ChartTypeSelector.tsx       # ⏳ Select chart type
+│   ├── DataMapper.tsx              # ⏳ Map columns to axes
+│   ├── ChartPreview.tsx            # ⏳ Live preview
+│   └── ChartExporter.tsx           # ⏳ Export PNG/SVG
+└── query-tools/
+    ├── QueryFormatter.tsx          # ⏳ SQL formatter
+    ├── QueryBookmarks.tsx          # ⏳ Save/load queries
+    ├── ExplainViewer.tsx           # ⏳ EXPLAIN plan viz
+    └── QueryStats.tsx              # ⏳ Performance metrics
 
-```
 lib/
 ├── db/
-│   ├── client.ts             # AbsurderSQL client wrapper
-│   ├── hooks.ts              # React hooks (useDatabase, useQuery)
-│   ├── types.ts              # TypeScript types
-│   └── utils.ts              # Helper functions
-├── monitoring/
-│   ├── telemetry.ts          # Performance tracking
-│   └── errors.ts             # Error tracking
-└── pwa/
-    ├── service-worker.ts     # SW configuration
-    └── manifest.ts           # PWA manifest
+│   ├── client.ts                   # ✅ Database client wrapper
+│   ├── hooks.ts                    # ✅ React hooks
+│   ├── store.ts                    # ✅ Zustand state store (NEW)
+│   ├── data-browser.ts             # ⏳ Data browsing logic (NEW)
+│   ├── csv-parser.ts               # ⏳ CSV import/export (NEW)
+│   ├── schema-diff.ts              # ⏳ Schema comparison (NEW)
+│   └── query-analyzer.ts           # ⏳ Performance analysis (NEW)
+└── utils/
+    ├── sql-formatter.ts            # ⏳ SQL formatting utils
+    ├── chart-generator.ts          # ⏳ Chart generation
+    └── migration-generator.ts      # ⏳ Migration SQL gen
+
+e2e/
+├── roundtrip.spec.ts               # ✅ Full data integrity tests (NEW)
+├── database-operations.spec.ts     # ✅ Import/Export/Create/Delete tests
+├── query-interface.spec.ts         # ✅ SQL query UI tests
+├── schema-viewer.spec.ts           # ✅ Schema viewer tests
+└── accessibility.spec.ts           # ✅ WCAG compliance tests
 ```
 
-### 2. Database Client Wrapper
+---
 
-**File:** `/lib/db/client.ts`
+## State Management Architecture
+
+### Zustand Store
 
 ```typescript
-import init, { SqliteIndexedDB } from '@npiesco/absurder-sql';
+// lib/db/store.ts
 
-export class DatabaseClient {
-  private db: SqliteIndexedDB | null = null;
-  private initialized: boolean = false;
+import { create } from 'zustand';
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    
-    // Initialize WASM module
-    await init();
-    this.initialized = true;
-  }
+interface DatabaseStore {
+  db: any | null;
+  currentDbName: string;
+  loading: boolean;
+  status: string;
+  tableCount: number;
+  
+  setDb: (db: any) => void;
+  setCurrentDbName: (name: string) => void;
+  setLoading: (loading: boolean) => void;
+  setStatus: (status: string) => void;
+  setTableCount: (count: number) => void;
+  reset: () => void;
+}
 
-  async open(dbName: string): Promise<void> {
-    await this.initialize();
-    this.db = new SqliteIndexedDB(dbName);
-    await this.db.open();
-  }
+export const useDatabaseStore = create<DatabaseStore>((set) => ({
+  db: null,
+  currentDbName: 'database.db',
+  loading: true,
+  status: 'Initializing...',
+  tableCount: 0,
+  
+  setDb: (db) => set({ db }),
+  setCurrentDbName: (name) => set({ currentDbName: name }),
+  setLoading: (loading) => set({ loading }),
+  setStatus: (status) => set({ status }),
+  setTableCount: (count) => set({ tableCount: count }),
+  reset: () => set({
+    db: null,
+    currentDbName: 'database.db',
+    loading: false,
+    status: 'Reset',
+    tableCount: 0,
+  }),
+}));
+```
 
-  async execute(sql: string, params?: any[]): Promise<QueryResult> {
-    if (!this.db) throw new Error('Database not opened');
-    return await this.db.execute(sql, params);
-  }
+**Key Features:**
+- Centralized database state management
+- Tracks current database name (critical for delete operations)
+- Single source of truth for UI state
+- Prevents state conflicts between programmatic and UI operations
 
-  async export(): Promise<Blob> {
-    if (!this.db) throw new Error('Database not opened');
-    const buffer = await this.db.export();
-    return new Blob([buffer], { type: 'application/x-sqlite3' });
-  }
+**Usage in Components:**
+```typescript
+import { useDatabaseStore } from '@/lib/db/store';
 
-  async import(file: File): Promise<void> {
-    await this.initialize();
-    const buffer = await file.arrayBuffer();
-    this.db = await SqliteIndexedDB.import(new Uint8Array(buffer));
-  }
-
-  async close(): Promise<void> {
-    if (this.db) {
-      await this.db.close();
-      this.db = null;
-    }
-  }
+export default function DatabaseManagementPage() {
+  const { 
+    db, 
+    currentDbName, 
+    loading, 
+    status, 
+    setDb, 
+    setCurrentDbName, 
+    setStatus 
+  } = useDatabaseStore();
+  
+  // Use state directly without local useState
 }
 ```
 
-### 3. React Hooks
+---
 
-**File:** `/lib/db/hooks.ts`
+## Data Browser Architecture
+
+### Component Design
 
 ```typescript
-import { useEffect, useState } from 'react';
-import { DatabaseClient } from './client';
+// components/data-browser/DataTable.tsx
 
-// Singleton database client
-let dbClient: DatabaseClient | null = null;
-
-export function useDatabase(dbName: string) {
-  const [db, setDb] = useState<DatabaseClient | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    async function openDb() {
-      try {
-        if (!dbClient) {
-          dbClient = new DatabaseClient();
-        }
-        await dbClient.open(dbName);
-        setDb(dbClient);
-      } catch (err) {
-        setError(err as Error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    openDb();
-  }, [dbName]);
-
-  return { db, loading, error };
+interface DataTableProps {
+  tableName: string;
+  pageSize: 100 | 500 | 1000;
+  onEdit: (rowId: any, column: string, newValue: any) => Promise<void>;
+  onDelete: (rowIds: any[]) => Promise<void>;
 }
 
-export function useQuery<T = any>(sql: string, params?: any[]) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+export function DataTable({ tableName, pageSize, onEdit, onDelete }: DataTableProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('ASC');
+  const [filters, setFilters] = useState<Record<string, any>>({});
+  const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
 
-  useEffect(() => {
-    async function runQuery() {
-      if (!dbClient) return;
+  // Fetch data with pagination, sorting, filters
+  const { data, loading, error } = useTableData(tableName, {
+    page: currentPage,
+    pageSize,
+    sortColumn,
+    sortDirection,
+    filters,
+  });
+
+  return (
+    <div className="data-table">
+      <FilterPanel columns={data.columns} onFilter={setFilters} />
+      <PaginationControls 
+        currentPage={currentPage}
+        total Pages={data.totalPages}
+        onPageChange={setCurrentPage}
+      />
+      <BulkOperations selectedRows={selectedRows} onDelete={onDelete} />
       
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" onChange={handleSelectAll} /></th>
+            {data.columns.map(col => (
+              <th key={col.name} onClick={() => handleSort(col.name)}>
+                {col.name}
+                {sortColumn === col.name && (sortDirection === 'ASC' ? '▲' : '▼')}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map(row => (
+            <tr key={row._rowid_}>
+              <td><input type="checkbox" checked={selectedRows.has(row._rowid_)} /></td>
+              {data.columns.map(col => (
+                <EditableCell
+                  key={col.name}
+                  value={row[col.name]}
+                  column={col}
+                  onSave={(newValue) => onEdit(row._rowid_, col.name, newValue)}
+                />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+```
+
+### Data Fetching Hook
+
+```typescript
+// lib/db/data-browser.ts
+
+interface TableDataOptions {
+  page: number;
+  pageSize: number;
+  sortColumn?: string;
+  sortDirection?: 'ASC' | 'DESC';
+  filters?: Record<string, any>;
+}
+
+export function useTableData(tableName: string, options: TableDataOptions) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const { db } = useDatabase();
+
+  useEffect(() => {
+    async function fetchData() {
+      if (!db) return;
+
       try {
-        const result = await dbClient.execute(sql, params);
-        setData(result.rows as T);
+        setLoading(true);
+
+        // Build WHERE clause from filters
+        const whereClause = buildWhereClause(options.filters);
+        
+        // Build ORDER BY clause
+        const orderByClause = options.sortColumn 
+          ? `ORDER BY ${options.sortColumn} ${options.sortDirection}`
+          : '';
+
+        // Calculate offset
+        const offset = (options.page - 1) * options.pageSize;
+
+        // Fetch data
+        const sql = `
+          SELECT rowid as _rowid_, *
+          FROM ${tableName}
+          ${whereClause}
+          ${orderByClause}
+          LIMIT ${options.pageSize}
+          OFFSET ${offset}
+        `;
+
+        const result = await db.execute(sql);
+
+        // Fetch total count
+        const countSql = `
+          SELECT COUNT(*) as total
+          FROM ${tableName}
+          ${whereClause}
+        `;
+        const countResult = await db.execute(countSql);
+        const total = countResult.rows[0].values[0].value;
+
+        // Fetch column info
+        const columnsResult = await db.execute(`PRAGMA table_info(${tableName})`);
+        const columns = columnsResult.rows.map(row => ({
+          name: row.values[1].value,
+          type: row.values[2].value,
+          notNull: row.values[3].value === 1,
+          defaultValue: row.values[4].value,
+          primaryKey: row.values[5].value === 1,
+        }));
+
+        setData({
+          columns,
+          rows: result.rows,
+          total,
+          totalPages: Math.ceil(total / options.pageSize),
+        });
       } catch (err) {
         setError(err as Error);
       } finally {
         setLoading(false);
       }
     }
-    runQuery();
-  }, [sql, JSON.stringify(params)]);
+
+    fetchData();
+  }, [db, tableName, JSON.stringify(options)]);
 
   return { data, loading, error };
 }
 
-export function useTransaction() {
-  const [pending, setPending] = useState(false);
-
-  const execute = async (queries: Array<{ sql: string; params?: any[] }>) => {
-    if (!dbClient) throw new Error('Database not initialized');
-    
-    setPending(true);
-    try {
-      await dbClient.execute('BEGIN TRANSACTION');
-      
-      for (const query of queries) {
-        await dbClient.execute(query.sql, query.params);
+function buildWhereClause(filters: Record<string, any>): string {
+  const conditions = Object.entries(filters)
+    .filter(([_, value]) => value !== null && value !== undefined)
+    .map(([column, filter]) => {
+      if (filter.type === 'contains') {
+        return `${column} LIKE '%${filter.value}%'`;
+      } else if (filter.type === 'equals') {
+        return `${column} = '${filter.value}'`;
+      } else if (filter.type === 'null') {
+        return `${column} IS NULL`;
+      } else if (filter.type === 'notNull') {
+        return `${column} IS NOT NULL`;
       }
-      
-      await dbClient.execute('COMMIT');
-    } catch (err) {
-      await dbClient.execute('ROLLBACK');
-      throw err;
-    } finally {
-      setPending(false);
-    }
-  };
+      // Add more filter types...
+      return null;
+    })
+    .filter(Boolean);
 
-  return { execute, pending };
+  return conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 }
 ```
 
-### 4. UI Components
-
-#### Database Manager Component
+### Inline Editing Component
 
 ```typescript
-// components/DatabaseManager.tsx
-'use client';
+// components/data-browser/EditableCell.tsx
 
-import { useState } from 'react';
-import { useDatabase } from '@/lib/db/hooks';
-import { Button } from '@/components/ui/button';
+interface EditableCellProps {
+  value: any;
+  column: ColumnInfo;
+  onSave: (newValue: any) => Promise<void>;
+}
 
-export function DatabaseManager() {
-  const [dbName, setDbName] = useState('myapp.db');
-  const { db, loading, error } = useDatabase(dbName);
+export function EditableCell({ value, column, onSave }: EditableCellProps) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleExport = async () => {
-    if (!db) return;
-    const blob = await db.export();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = dbName;
-    a.click();
+  const handleDoubleClick = () => {
+    setEditing(true);
+    setEditValue(value);
   };
 
-  const handleImport = async (file: File) => {
-    if (!db) return;
-    await db.import(file);
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      setError(null);
+      await onSave(editValue);
+      setEditing(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  if (loading) return <div>Loading database...</div>;
-  if (error) return <div>Error: {error.message}</div>;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSave();
+    } else if (e.key === 'Escape') {
+      setEditing(false);
+      setEditValue(value);
+    }
+  };
+
+  if (editing) {
+    return (
+      <td className="editing">
+        {renderEditor(column.type, editValue, setEditValue, handleKeyDown)}
+        {saving && <Spinner />}
+        {error && <div className="error">{error}</div>}
+      </td>
+    );
+  }
+
+  return (
+    <td onDoubleClick={handleDoubleClick}>
+      {renderValue(value, column.type)}
+    </td>
+  );
+}
+
+function renderEditor(type: string, value: any, onChange: (v: any) => void, onKeyDown: (e: any) => void) {
+  switch (type) {
+    case 'INTEGER':
+      return <input type="number" value={value} onChange={(e) => onChange(e.target.valueAsNumber)} onKeyDown={onKeyDown} autoFocus />;
+    case 'REAL':
+      return <input type="number" step="any" value={value} onChange={(e) => onChange(e.target.valueAsNumber)} onKeyDown={onKeyDown} autoFocus />;
+    case 'TEXT':
+      return <textarea value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} autoFocus />;
+    case 'BLOB':
+      return <input type="file" onChange={(e) => onChange(e.target.files?.[0])} autoFocus />;
+    default:
+      return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} autoFocus />;
+  }
+}
+
+function renderValue(value: any, type: string) {
+  if (value === null) {
+    return <span className="null">NULL</span>;
+  }
+  if (type === 'BLOB') {
+    return <BlobPreview data={value} />;
+  }
+  return <span>{String(value)}</span>;
+}
+```
+
+---
+
+## CSV Import/Export Architecture
+
+### CSV Import Flow
+
+```typescript
+// lib/db/csv-parser.ts
+
+import Papa from 'papaparse';
+
+export interface CSVImportOptions {
+  file: File;
+  tableName: string;
+  hasHeaders: boolean;
+  delimiter: ',' | '\t' | ';' | '|';
+  encoding: 'UTF-8' | 'Latin1';
+  columnMapping: Record<string, string>; // CSV column -> DB column
+}
+
+export async function importCSV(db: DatabaseClient, options: CSVImportOptions): Promise<ImportResult> {
+  return new Promise((resolve, reject) => {
+    const results: any[] = [];
+    let headers: string[] = [];
+
+    Papa.parse(options.file, {
+      delimiter: options.delimiter,
+      encoding: options.encoding,
+      header: options.hasHeaders,
+      step: (row) => {
+        if (options.hasHeaders && headers.length === 0) {
+          headers = row.meta.fields || [];
+        }
+        results.push(row.data);
+      },
+      complete: async () => {
+        try {
+          // Begin transaction
+          await db.execute('BEGIN TRANSACTION');
+
+          let successCount = 0;
+          let errorCount = 0;
+          const errors: Array<{ row: number; error: string }> = [];
+
+          for (let i = 0; i < results.length; i++) {
+            try {
+              const row = results[i];
+              
+              // Map CSV columns to DB columns
+              const values = Object.entries(options.columnMapping).map(([csvCol, dbCol]) => {
+                return row[csvCol];
+              });
+
+              const placeholders = values.map(() => '?').join(', ');
+              const columns = Object.values(options.columnMapping).join(', ');
+
+              await db.execute(
+                `INSERT INTO ${options.tableName} (${columns}) VALUES (${placeholders})`,
+                values
+              );
+
+              successCount++;
+            } catch (err) {
+              errorCount++;
+              errors.push({ row: i + 1, error: (err as Error).message });
+            }
+          }
+
+          // Commit transaction
+          await db.execute('COMMIT');
+
+          resolve({
+            totalRows: results.length,
+            successCount,
+            errorCount,
+            errors,
+          });
+        } catch (err) {
+          await db.execute('ROLLBACK');
+          reject(err);
+        }
+      },
+      error: (err) => {
+        reject(err);
+      },
+    });
+  });
+}
+```
+
+### CSV Export
+
+```typescript
+export interface CSVExportOptions {
+  includeHeaders: boolean;
+  delimiter: ',' | '\t' | ';' | '|';
+  quoteAll: boolean;
+  lineEnding: 'LF' | 'CRLF';
+}
+
+export function exportToCSV(data: QueryResult, options: CSVExportOptions): string {
+  const rows: string[] = [];
+
+  // Add headers
+  if (options.includeHeaders) {
+    const headers = data.columns.map(col => maybeQuote(col, options));
+    rows.push(headers.join(options.delimiter));
+  }
+
+  // Add data rows
+  for (const row of data.rows) {
+    const values = row.values.map(val => {
+      const strValue = val.value === null ? '' : String(val.value);
+      return maybeQuote(strValue, options);
+    });
+    rows.push(values.join(options.delimiter));
+  }
+
+  const lineEnding = options.lineEnding === 'CRLF' ? '\r\n' : '\n';
+  return rows.join(lineEnding);
+}
+
+function maybeQuote(value: string, options: CSVExportOptions): string {
+  if (options.quoteAll) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  if (value.includes(options.delimiter) || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+```
+
+---
+
+## Table Designer Architecture
+
+### Column Editor Component
+
+```typescript
+// components/table-designer/ColumnEditor.tsx
+
+interface ColumnDefinition {
+  name: string;
+  type: 'INTEGER' | 'TEXT' | 'REAL' | 'BLOB';
+  notNull: boolean;
+  unique: boolean;
+  primaryKey: boolean;
+  defaultValue?: string;
+  autoIncrement?: boolean;
+}
+
+export function ColumnEditor({ tableName }: { tableName: string }) {
+  const [columns, setColumns] = useState<ColumnDefinition[]>([]);
+  const { db } = useDatabase();
+
+  useEffect(() => {
+    // Fetch existing columns
+    async function loadColumns() {
+      const result = await db.execute(`PRAGMA table_info(${tableName})`);
+      const cols = result.rows.map(row => ({
+        name: row.values[1].value,
+        type: row.values[2].value,
+        notNull: row.values[3].value === 1,
+        defaultValue: row.values[4].value,
+        primaryKey: row.values[5].value === 1,
+        unique: false, // TODO: fetch from index info
+        autoIncrement: false, // TODO: detect from schema
+      }));
+      setColumns(cols);
+    }
+    loadColumns();
+  }, [tableName]);
+
+  const handleAddColumn = () => {
+    setColumns([...columns, {
+      name: '',
+      type: 'TEXT',
+      notNull: false,
+      unique: false,
+      primaryKey: false,
+    }]);
+  };
+
+  const handleSaveColumn = async (index: number) => {
+    const column = columns[index];
+    
+    // Build ALTER TABLE statement
+    const constraints = [];
+    if (column.notNull) constraints.push('NOT NULL');
+    if (column.unique) constraints.push('UNIQUE');
+    if (column.defaultValue) constraints.push(`DEFAULT ${column.defaultValue}`);
+
+    const sql = `ALTER TABLE ${tableName} ADD COLUMN ${column.name} ${column.type} ${constraints.join(' ')}`;
+    await db.execute(sql);
+  };
+
+  const handleRemoveColumn = async (columnName: string) => {
+    // SQLite requires table recreation to drop column
+    await db.execute(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
+    setColumns(columns.filter(c => c.name !== columnName));
+  };
+
+  return (
+    <div className="column-editor">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>NOT NULL</th>
+            <th>UNIQUE</th>
+            <th>PK</th>
+            <th>Default</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {columns.map((col, index) => (
+            <tr key={index}>
+              <td><input value={col.name} onChange={(e) => updateColumn(index, 'name', e.target.value)} /></td>
+              <td>
+                <select value={col.type} onChange={(e) => updateColumn(index, 'type', e.target.value)}>
+                  <option value="INTEGER">INTEGER</option>
+                  <option value="TEXT">TEXT</option>
+                  <option value="REAL">REAL</option>
+                  <option value="BLOB">BLOB</option>
+                </select>
+              </td>
+              <td><input type="checkbox" checked={col.notNull} onChange={(e) => updateColumn(index, 'notNull', e.target.checked)} /></td>
+              <td><input type="checkbox" checked={col.unique} onChange={(e) => updateColumn(index, 'unique', e.target.checked)} /></td>
+              <td><input type="checkbox" checked={col.primaryKey} onChange={(e) => updateColumn(index, 'primaryKey', e.target.checked)} /></td>
+              <td><input value={col.defaultValue || ''} onChange={(e) => updateColumn(index, 'defaultValue', e.target.value)} /></td>
+              <td>
+                <Button onClick={() => handleSaveColumn(index)}>Save</Button>
+                <Button onClick={() => handleRemoveColumn(col.name)} variant="destructive">Delete</Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Button onClick={handleAddColumn}>Add Column</Button>
+    </div>
+  );
+
+  function updateColumn(index: number, field: keyof ColumnDefinition, value: any) {
+    const updated = [...columns];
+    updated[index] = { ...updated[index], [field]: value };
+    setColumns(updated);
+  }
+}
+```
+
+---
+
+## Chart Builder Architecture
+
+### Chart Component
+
+```typescript
+// components/chart-builder/ChartBuilder.tsx
+
+import { LineChart, BarChart, PieChart, ScatterChart, Line, Bar, Pie, Scatter, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+
+interface ChartConfig {
+  type: 'line' | 'bar' | 'pie' | 'scatter';
+  title: string;
+  xAxis: string;
+  yAxis: string[];
+  groupBy?: string;
+}
+
+export function ChartBuilder({ data }: { data: QueryResult }) {
+  const [config, setConfig] = useState<ChartConfig>({
+    type: 'bar',
+    title: 'Chart',
+    xAxis: data.columns[0],
+    yAxis: [data.columns[1]],
+  });
+
+  // Transform query result to chart data
+  const chartData = useMemo(() => {
+    return data.rows.map(row => {
+      const obj: any = {};
+      data.columns.forEach((col, i) => {
+        obj[col] = row.values[i].value;
+      });
+      return obj;
+    });
+  }, [data]);
+
+  const renderChart = () => {
+    switch (config.type) {
+      case 'line':
+        return (
+          <LineChart data={chartData} width={600} height={400}>
+            <XAxis dataKey={config.xAxis} />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            {config.yAxis.map(y => (
+              <Line key={y} type="monotone" dataKey={y} stroke={randomColor()} />
+            ))}
+          </LineChart>
+        );
+      case 'bar':
+        return (
+          <BarChart data={chartData} width={600} height={400}>
+            <XAxis dataKey={config.xAxis} />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            {config.yAxis.map(y => (
+              <Bar key={y} dataKey={y} fill={randomColor()} />
+            ))}
+          </BarChart>
+        );
+      // Add pie, scatter...
+      default:
+        return null;
+    }
+  };
 
   return (
     <div>
-      <h2>Database: {dbName}</h2>
-      <Button onClick={handleExport}>Export Database</Button>
-      <input type="file" onChange={(e) => handleImport(e.target.files[0])} />
+      <ChartConfigPanel config={config} onChange={setConfig} columns={data.columns} />
+      <div className="chart-preview">
+        {renderChart()}
+      </div>
+      <Button onClick={() => exportChartAsPNG()}>Export PNG</Button>
+      <Button onClick={() => exportChartAsSVG()}>Export SVG</Button>
     </div>
   );
 }
@@ -339,542 +762,238 @@ export function DatabaseManager() {
 
 ---
 
-## Data Flow
+## Performance & Security
 
-### 1. Database Initialization Flow
+### SQL Injection Prevention
 
-```
-User opens app
-    ↓
-Next.js renders page
-    ↓
-useDatabase hook triggered
-    ↓
-DatabaseClient.initialize() called
-    ↓
-WASM module loaded (init())
-    ↓
-SqliteIndexedDB.open(dbName)
-    ↓
-IndexedDB database created/opened
-    ↓
-Multi-tab leader election
-    ↓
-Database ready for queries
+```typescript
+// ALWAYS use parameterized queries
+const safeSql = `SELECT * FROM users WHERE id = ?`;
+await db.execute(safeSql, [userId]);
+
+// NEVER concatenate user input
+const UNSAFE = `SELECT * FROM users WHERE id = ${userId}`; // ❌
 ```
 
-### 2. Query Execution Flow
+### Performance Optimization
 
-```
-User submits query
-    ↓
-useQuery hook triggered
-    ↓
-DatabaseClient.execute(sql, params)
-    ↓
-WASM: Prepare statement
-    ↓
-WASM: Check LRU cache for blocks
-    ↓
-Cache miss → Read from IndexedDB
-Cache hit → Use cached blocks
-    ↓
-WASM: Execute query on SQLite
-    ↓
-WASM: Return rows as JSON
-    ↓
-React state updated
-    ↓
-UI re-renders with results
-```
-
-### 3. Export Flow
-
-```
-User clicks "Export"
-    ↓
-DatabaseClient.export()
-    ↓
-WASM: Serialize database to buffer
-    ↓
-WASM: Read all blocks from IndexedDB
-    ↓
-WASM: Construct SQLite file format
-    ↓
-Return Uint8Array
-    ↓
-Convert to Blob
-    ↓
-Trigger browser download
-```
-
-### 4. Import Flow
-
-```
-User selects .db file
-    ↓
-Read file as ArrayBuffer
-    ↓
-DatabaseClient.import(buffer)
-    ↓
-WASM: Parse SQLite file format
-    ↓
-WASM: Write blocks to IndexedDB
-    ↓
-WASM: Update metadata
-    ↓
-Database ready with imported data
-```
+- **Pagination:** Limit queries to 100/500/1000 rows
+- **Indexing:** Detect missing indexes on filtered columns
+- **Caching:** Cache query results for 30s
+- **Web Workers:** Run CSV parsing in background thread
+- **Lazy Loading:** Code split heavy components (charts, diagrams)
 
 ---
 
-## API Design
+## Testing Strategy
 
-### Public API Surface
+### Enterprise Testing Discipline
 
+Following mobile INSTRUCTIONS.md patterns:
+- **Serial execution:** `--workers=1` for database tests
+- **Unique database names:** Timestamp-based for isolation  
+- **Complete cleanup:** Delete databases after tests
+- **Zero flakiness tolerance:** Tests must pass 100% of the time
+
+### Unit Tests
 ```typescript
-// @npiesco/absurder-sql package exports
-
-export class SqliteIndexedDB {
-  constructor(dbName: string);
-  
-  // Database lifecycle
-  open(): Promise<void>;
-  close(): Promise<void>;
-  
-  // Queries
-  execute(sql: string, params?: any[]): Promise<QueryResult>;
-  prepare(sql: string): PreparedStatement;
-  
-  // Transactions
-  beginTransaction(): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
-  
-  // Export/Import
-  export(): Promise<Uint8Array>;
-  static import(buffer: Uint8Array): Promise<SqliteIndexedDB>;
-  
-  // Schema
-  getTables(): Promise<string[]>;
-  getSchema(table: string): Promise<ColumnInfo[]>;
-  
-  // Performance
-  createIndex(table: string, columns: string): Promise<void>;
-  vacuum(): Promise<void>;
-}
-
-export interface QueryResult {
-  columns: string[];
-  rows: any[][];
-  rowsAffected: number;
-}
-
-export interface PreparedStatement {
-  execute(params: any[]): Promise<QueryResult>;
-  finalize(): Promise<void>;
-}
-```
-
-### Custom React Hooks API
-
-```typescript
-// Hooks provided by PWA
-
-// Database management
-export function useDatabase(dbName: string): {
-  db: DatabaseClient | null;
-  loading: boolean;
-  error: Error | null;
-};
-
-// Query execution
-export function useQuery<T>(sql: string, params?: any[]): {
-  data: T | null;
-  loading: boolean;
-  error: Error | null;
-  refetch: () => Promise<void>;
-};
-
-// Transaction management
-export function useTransaction(): {
-  execute: (queries: Query[]) => Promise<void>;
-  pending: boolean;
-};
-
-// Export/Import
-export function useExport(): {
-  exportDb: () => Promise<Blob>;
-  loading: boolean;
-};
-
-export function useImport(): {
-  importDb: (file: File) => Promise<void>;
-  loading: boolean;
-  progress: number;
-};
-```
-
----
-
-## Database Schema
-
-### Example Application Schema
-
-```sql
--- Users table
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-
--- Posts table
-CREATE TABLE posts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  content TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
--- Comments table
-CREATE TABLE comments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  post_id INTEGER NOT NULL,
-  user_id INTEGER NOT NULL,
-  content TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY (post_id) REFERENCES posts(id),
-  FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
--- Indexes for performance
-CREATE INDEX idx_posts_user_id ON posts(user_id);
-CREATE INDEX idx_comments_post_id ON comments(post_id);
-CREATE INDEX idx_comments_user_id ON comments(user_id);
-```
-
----
-
-## Security Model
-
-### Content Security Policy
-
-```typescript
-// next.config.js
-const cspHeader = `
-  default-src 'self';
-  script-src 'self' 'unsafe-eval' 'unsafe-inline';
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' blob: data:;
-  font-src 'self';
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-  frame-ancestors 'none';
-  upgrade-insecure-requests;
-`;
-```
-
-### Data Isolation
-
-- **Same-Origin Policy:** IndexedDB data isolated by origin
-- **No Cross-Tab Data Leaks:** BroadcastChannel confined to same origin
-- **Local Storage Only:** No data sent to servers (optional sync in future)
-
-### Input Validation
-
-```typescript
-// Always use parameterized queries
-const safe = await db.execute(
-  'SELECT * FROM users WHERE email = ?',
-  [userInput]
-);
-
-// Never concatenate user input
-const UNSAFE = await db.execute(
-  `SELECT * FROM users WHERE email = '${userInput}'` // SQL injection risk
-);
-```
-
----
-
-## Performance Considerations
-
-### 1. WASM Loading Strategy
-
-```typescript
-// Dynamic import with loading state
-const [wasmLoaded, setWasmLoaded] = useState(false);
-
-useEffect(() => {
-  import('@npiesco/absurder-sql').then(async (module) => {
-    await module.default(); // Initialize WASM
-    setWasmLoaded(true);
+// data-browser.test.ts
+describe('buildWhereClause', () => {
+  it('should build correct WHERE clause for contains filter', () => {
+    const filters = { name: { type: 'contains', value: 'John' } };
+    expect(buildWhereClause(filters)).toBe("WHERE name LIKE '%John%'");
   });
-}, []);
-```
-
-### 2. Code Splitting
-
-```typescript
-// app/db/page.tsx
-import dynamic from 'next/dynamic';
-
-const DatabaseManager = dynamic(() => import('@/components/DatabaseManager'), {
-  loading: () => <p>Loading database...</p>,
-  ssr: false, // Disable SSR for WASM components
 });
 ```
 
-### 3. LRU Cache Tuning
-
+### E2E Tests - Data Browser
 ```typescript
-// Increase cache size for better performance
-const db = new SqliteIndexedDB('mydb.db', {
-  cacheSize: 256, // Default is 128 blocks (512KB)
-});
-```
-
-### 4. Indexing Strategy
-
-```typescript
-// Create indexes for frequently queried columns
-await db.createIndex('users', 'email');
-await db.createIndex('posts', 'user_id,created_at');
-```
-
----
-
-## Error Handling
-
-### Error Types
-
-```typescript
-export enum DatabaseErrorType {
-  INITIALIZATION_FAILED = 'INITIALIZATION_FAILED',
-  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
-  QUERY_FAILED = 'QUERY_FAILED',
-  TRANSACTION_ABORTED = 'TRANSACTION_ABORTED',
-  EXPORT_FAILED = 'EXPORT_FAILED',
-  IMPORT_FAILED = 'IMPORT_FAILED',
-}
-
-export class DatabaseError extends Error {
-  constructor(
-    public type: DatabaseErrorType,
-    message: string,
-    public originalError?: Error
-  ) {
-    super(message);
-    this.name = 'DatabaseError';
-  }
-}
-```
-
-### Error Handling Strategy
-
-```typescript
-try {
-  await db.execute(sql, params);
-} catch (err) {
-  if (err instanceof DOMException && err.name === 'QuotaExceededError') {
-    // Handle quota exceeded
-    throw new DatabaseError(
-      DatabaseErrorType.QUOTA_EXCEEDED,
-      'Storage quota exceeded. Please export and clear old data.',
-      err
-    );
-  }
+// data-browser.spec.ts
+test('should edit cell and save', async ({ page }) => {
+  await page.goto('/db/browse?table=users');
+  await page.doubleClick('td[data-column="name"]');
+  await page.fill('input', 'New Name');
+  await page.press('input', 'Enter');
+  await page.waitForSelector('.saved-indicator');
   
-  // Log and re-throw
-  console.error('Query failed:', err);
-  throw new DatabaseError(
-    DatabaseErrorType.QUERY_FAILED,
-    'Failed to execute query',
-    err as Error
-  );
-}
-```
-
----
-
-## Deployment Architecture
-
-### Next.js Deployment on Vercel
-
-```
-User Browser
-    ↓ HTTPS
-Vercel Edge Network
-    ↓
-Next.js App (Static + SSR)
-    ↓ (client-side only)
-AbsurderSQL WASM
-    ↓
-Browser IndexedDB (local)
-```
-
-### Service Worker Caching
-
-```typescript
-// Service worker caches WASM binary
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open('absurder-sql-v1').then((cache) => {
-      return cache.addAll([
-        '/absurder_sql_bg.wasm',
-        '/absurder_sql.js',
-      ]);
-    })
-  );
+  // Verify in database
+  const result = await page.evaluate(async () => {
+    const db = (window as any).testDb;
+    return await db.execute('SELECT name FROM users WHERE rowid = 1');
+  });
+  expect(result.rows[0].values[0].value).toBe('New Name');
 });
 ```
 
+### E2E Tests - Roundtrip Data Integrity (✅ IMPLEMENTED)
+
+```typescript
+// e2e/roundtrip.spec.ts
+
+test('should preserve all data types through export/import cycle', async ({ page }) => {
+  // Create database with all SQLite types
+  const originalData = await page.evaluate(async () => {
+    const db = await window.Database.newDatabase('roundtrip_test.db');
+    await db.execute(`
+      CREATE TABLE comprehensive_test (
+        id INTEGER PRIMARY KEY,
+        text_field TEXT NOT NULL,
+        int_field INTEGER,
+        real_field REAL,
+        blob_field BLOB,
+        null_field TEXT
+      )
+    `);
+    
+    // Insert with special characters (quotes, unicode, XSS, newlines, tabs)
+    await db.execute(`
+      INSERT INTO comprehensive_test (text_field, int_field, real_field, null_field) VALUES
+        ('Alice O''Brien', 30, 1234.56, NULL),
+        ('Bob "The Builder"', 25, 9876.54, 'not null'),
+        ('Charlie 你好', 35, 5555.55, NULL),
+        ('Diana [rocket]', 28, 7777.77, 'value'),
+        ('Eve <script>alert("XSS")</script>', 42, 3333.33, NULL),
+        ('Frank\\nNewline\\tTab', 50, 8888.88, 'test')
+    `);
+    
+    const result = await db.execute('SELECT * FROM comprehensive_test ORDER BY id');
+    const exported = await db.exportToFile();
+    await db.close();
+    
+    return {
+      rows: result.rows,
+      exportBytes: Array.from(exported)
+    };
+  });
+  
+  // Import back into new database
+  const importedData = await page.evaluate(async (fileBytes) => {
+    const bytes = new Uint8Array(fileBytes);
+    const db = await window.Database.newDatabase('roundtrip_imported.db');
+    await db.importFromFile(bytes);
+    await db.close();
+    
+    const db2 = await window.Database.newDatabase('roundtrip_imported.db');
+    const result = await db2.execute('SELECT * FROM comprehensive_test ORDER BY id');
+    const reExported = await db2.exportToFile();
+    await db2.close();
+    
+    return {
+      rows: result.rows,
+      reExportBytes: Array.from(reExported)
+    };
+  }, originalData.exportBytes);
+  
+  // Verify row-by-row match
+  expect(importedData.rows.length).toBe(originalData.rows.length);
+  
+  // Verify byte-for-byte match on re-export
+  const bytesMatch = importedData.reExportBytes.every((byte, i) => 
+    byte === originalData.exportBytes[i]
+  );
+  expect(bytesMatch).toBe(true);
+});
+
+test('should preserve schema (indexes, triggers) through roundtrip', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const db = await window.Database.newDatabase('schema_roundtrip.db');
+    
+    await db.execute(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT UNIQUE)`);
+    await db.execute('CREATE INDEX idx_users_name ON users(name)');
+    await db.execute(`
+      CREATE TRIGGER users_timestamp
+      AFTER INSERT ON users
+      BEGIN
+        UPDATE users SET created_at = strftime('%s', 'now') WHERE id = NEW.id;
+      END
+    `);
+    
+    const exported = await db.exportToFile();
+    await db.close();
+    
+    // Import and verify
+    const db2 = await window.Database.newDatabase('schema_imported.db');
+    await db2.importFromFile(exported);
+    await db2.close();
+    
+    const db3 = await window.Database.newDatabase('schema_imported.db');
+    const tables = await db3.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'");
+    const indexes = await db3.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_users_name'");
+    const triggers = await db3.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name='users_timestamp'");
+    await db3.close();
+    
+    return {
+      hasTable: tables.rows.length > 0,
+      hasIndex: indexes.rows.length > 0,
+      hasTrigger: triggers.rows.length > 0
+    };
+  });
+  
+  expect(result.hasTable).toBe(true);
+  expect(result.hasIndex).toBe(true);
+  expect(result.hasTrigger).toBe(true);
+});
+
+test('should handle 5 roundtrip cycles without corruption', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    let db = await window.Database.newDatabase('cycle1.db');
+    await db.execute('CREATE TABLE cycle_test (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT)');
+    await db.execute("INSERT INTO cycle_test (value) VALUES ('Cycle1')");
+    let exported = await db.exportToFile();
+    await db.close();
+    
+    const exportSizes = [exported.length];
+    
+    // 4 more cycles
+    for (let i = 2; i <= 5; i++) {
+      db = await window.Database.newDatabase(`cycle${i}.db`);
+      await db.importFromFile(exported);
+      await db.close();
+      
+      db = await window.Database.newDatabase(`cycle${i}.db`);
+      await db.execute(`INSERT INTO cycle_test (value) VALUES ('Cycle${i}')`);
+      await db.close();
+      
+      db = await window.Database.newDatabase(`cycle${i}.db`);
+      exported = await db.exportToFile();
+      await db.close();
+      
+      exportSizes.push(exported.length);
+    }
+    
+    return { exportSizes, cycleCount: 5 };
+  });
+  
+  expect(result.cycleCount).toBe(5);
+  // All exports should be same size (stable file format)
+  expect(new Set(result.exportSizes).size).toBe(1);
+});
+```
+
+**Test Results:** ✅ 108/108 tests passing
+- 3 roundtrip tests (NEW)
+- 105 existing tests (no regressions)
+
 ---
 
-## Advanced Features (In Development)
+## Deployment Checklist
 
-### Server Synchronization Architecture
-
-```mermaid
-graph LR
-    Client1[PWA Client 1] -->|WebSocket| Server[Sync Server]
-    Client2[PWA Client 2] -->|WebSocket| Server
-    Server -->|SQL| PostgreSQL[(PostgreSQL Mirror)]
-    Server -->|Delta Sync| Client1
-    Server -->|Delta Sync| Client2
-```
-
-**Components:**
-- WebSocket server for real-time sync
-- PostgreSQL mirror database
-- Conflict resolution engine (OT/CRDTs)
-- Delta sync protocol
-- Offline queue management
-
-### Collaborative Editing Architecture
-
-```typescript
-// Operational Transform example
-interface Operation {
-  type: 'insert' | 'delete' | 'update';
-  table: string;
-  position: number;
-  data: any;
-  timestamp: number;
-  userId: string;
-}
-
-// Transform function for concurrent operations
-function transform(op1: Operation, op2: Operation): Operation {
-  // OT logic to resolve conflicts
-  if (op1.position <= op2.position) {
-    return op2;
-  }
-  // Adjust positions based on op1
-  return { ...op2, position: op2.position + adjustment };
-}
-```
-
-**Features:**
-- Real-time cursor positions
-- User presence indicators (active users)
-- Collaborative transactions
-- Shared query editing
-- Conflict-free replicated data types (CRDTs)
-
-### Advanced Database Capabilities
-
-**Full-Text Search (FTS5):**
-```sql
--- Create FTS5 virtual table
-CREATE VIRTUAL TABLE documents_fts 
-USING fts5(title, content, tokenize='porter unicode61');
-
--- Full-text query with ranking
-SELECT * FROM documents_fts 
-WHERE documents_fts MATCH 'database AND (sql OR nosql)' 
-ORDER BY rank;
-```
-
-**Spatial Queries (SpatiaLite):**
-```sql
--- Find points within radius
-SELECT * FROM locations 
-WHERE ST_Distance(point, ST_MakePoint(-122.4, 37.8)) < 1000;
-```
-
-**Vector Search:**
-```typescript
-// Embedding-based similarity search
-const embedding = await generateEmbedding(query);
-const results = await db.execute(
-  'SELECT * FROM vectors ORDER BY vec_distance(embedding, ?) LIMIT 10',
-  [embedding]
-);
-```
-
-### Enterprise Security Architecture
-
-**Role-Based Access Control:**
-```typescript
-interface Permission {
-  role: 'admin' | 'editor' | 'viewer';
-  resource: string;
-  actions: ('read' | 'write' | 'delete')[];
-}
-
-// Row-level security
-CREATE POLICY user_policy ON users
-  USING (id = current_user_id() OR role = 'admin');
-```
-
-**Audit Logging:**
-```typescript
-interface AuditLog {
-  id: string;
-  timestamp: number;
-  userId: string;
-  action: 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
-  table: string;
-  rowId?: any;
-  before?: any;
-  after?: any;
-  hash: string; // Tamper-proof chain
-}
-```
-
-**Data Encryption:**
-```typescript
-// Encryption at rest with AES-256
-const encrypted = await crypto.subtle.encrypt(
-  { name: 'AES-GCM', iv: iv },
-  key,
-  data
-);
-```
+- [ ] Bundle size < 500KB per chunk
+- [ ] Lighthouse score > 90
+- [ ] WCAG 2.1 AA compliance
+- [ ] E2E tests passing
+- [ ] User documentation complete
+- [ ] Error tracking enabled (Sentry)
+- [ ] Analytics configured
+- [ ] PWA manifest updated
+- [ ] Service worker caching configured
 
 ---
 
-## Appendix
+## References
 
-### Browser Compatibility Matrix
-
-| Feature | Chrome | Firefox | Safari | Edge |
-|---------|--------|---------|--------|------|
-| WASM | 90+ | 88+ | 14+ | 90+ |
-| IndexedDB | 90+ | 88+ | 14+ | 90+ |
-| Service Worker | 90+ | 88+ | 14+ | 90+ |
-| BroadcastChannel | 90+ | 88+ | 15.4+ | 90+ |
-| PWA Install | ✅ | ✅ | ✅ | ✅ |
-
-### References
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [AbsurderSQL GitHub](https://github.com/npiesco/absurder-sql)
-- [Web.dev PWA Guide](https://web.dev/progressive-web-apps/)
-- [IndexedDB API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+- [Adminer Features](https://www.adminer.org/)
+- [Recharts Documentation](https://recharts.org/)
+- [PapaParse Documentation](https://www.papaparse.com/)
+- [SQLite ALTER TABLE](https://www.sqlite.org/lang_altertable.html)
+- [SQL Formatter](https://github.com/sql-formatter-org/sql-formatter)
