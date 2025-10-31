@@ -46,7 +46,22 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ServiceWorkerRegistration />
-        {children}
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded">
+          Skip to main content
+        </a>
+        <nav role="navigation" aria-label="Main navigation" className="border-b">
+          <div className="container mx-auto px-6 py-3">
+            <ul className="flex gap-6">
+              <li><a href="/" className="hover:text-primary">Home</a></li>
+              <li><a href="/db/query" className="hover:text-primary">Query</a></li>
+              <li><a href="/db/schema" className="hover:text-primary">Schema</a></li>
+              <li><a href="/db" className="hover:text-primary">Database</a></li>
+            </ul>
+          </div>
+        </nav>
+        <main id="main-content" role="main">
+          {children}
+        </main>
       </body>
     </html>
   );

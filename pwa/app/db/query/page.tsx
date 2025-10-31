@@ -211,7 +211,7 @@ function QueryInterfaceContent() {
         )}
 
         {queryError && (
-          <Card>
+          <Card role="alert" aria-live="assertive">
             <CardHeader>
               <CardTitle className="text-red-500">Error</CardTitle>
             </CardHeader>

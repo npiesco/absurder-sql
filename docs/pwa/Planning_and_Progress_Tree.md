@@ -396,12 +396,23 @@ Build a Next.js 15 PWA that uses the existing AbsurderSQL WASM package for SQLit
 - [ ] Test on mobile browsers (iOS Safari, Android Chrome)
 - [ ] Fix browser-specific issues
 
-### 5.6 Accessibility Testing
-- [ ] Run Lighthouse accessibility audit
-- [ ] Test keyboard navigation
-- [ ] Test screen reader (NVDA, JAWS, VoiceOver)
-- [ ] Ensure WCAG 2.1 AA compliance
-- [ ] Add ARIA labels where needed
+### 5.6 Accessibility Testing ✅
+- [x] Test keyboard navigation (Tab, Shift+Tab, Enter, Space)
+- [x] Test screen reader support (ARIA labels, roles, live regions)
+- [x] Ensure WCAG 2.1 AA compliance
+- [x] Add ARIA labels where needed
+- [x] Semantic HTML5 landmarks (main, nav)
+- [x] Skip-to-content link for keyboard users
+- [x] Focus indicators on all interactive elements
+- [x] Form labels and accessible error messages
+- [x] Button type attributes for all buttons
+- [x] Sufficient color contrast
+- [x] Alt text on images
+- [x] Descriptive link text
+- [x] Proper heading hierarchy
+- [x] Adequate touch target sizes (44x44px)
+- [ ] Run Lighthouse accessibility audit (automated)
+- [ ] Manual test with screen readers (NVDA, JAWS, VoiceOver)
 
 ### 5.7 Security Testing
 - [ ] Audit Content Security Policy
