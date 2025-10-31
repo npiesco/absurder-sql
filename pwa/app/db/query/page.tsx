@@ -168,7 +168,7 @@ function QueryInterfaceContent() {
                   value={sql}
                   onChange={setSql}
                   placeholder="SELECT * FROM table_name"
-                  onExecute={executeQuery}
+                  onExecute={executeSchemaQuery}
                 />
               </div>
             </div>
