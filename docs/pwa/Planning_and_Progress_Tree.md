@@ -378,10 +378,15 @@ Build a Next.js 15 PWA that uses the existing AbsurderSQL WASM package for SQLit
   - [x] 10K state checks < 50ms (target met)
   - [ ] Benchmark with real WASM queries (requires E2E)
   - [ ] Test with large datasets (10K+ rows)
-- [ ] Measure Core Web Vitals
-  - [ ] LCP (Largest Contentful Paint) < 2.5s
-  - [ ] FID (First Input Delay) < 100ms
-  - [ ] CLS (Cumulative Layout Shift) < 0.1
+- [x] Measure Core Web Vitals
+  - [x] LCP (Largest Contentful Paint) < 2.5s (✓ 192-732ms measured)
+  - [x] FID (First Input Delay) < 100ms (✓ 0ms - instant)
+  - [x] CLS (Cumulative Layout Shift) < 0.1 (✓ 0 measured)
+  - [x] TTFB < 600ms (✓ 56-143ms measured)
+  - [x] DOMContentLoaded < 2s (✓ 161-219ms measured)
+  - [x] TTI < 3.8s (✓ 538-565ms measured)
+  - [x] TBT < 300ms (✓ 2-9ms measured)
+  - [x] Responsive layout testing (mobile & desktop)
 
 ### 5.5 Browser Compatibility Testing
 - [ ] Test on Chrome 90+
