@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { DatabaseProvider, useDatabase } from '@/lib/db/provider';
+import { useDatabaseStore } from '@/lib/db/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -423,8 +424,10 @@ function SchemaViewerContent() {
 }
 
 export default function SchemaViewerPage() {
+  const { currentDbName } = useDatabaseStore();
+  
   return (
-    <DatabaseProvider dbName="schema.db">
+    <DatabaseProvider dbName={currentDbName || 'database.db'}>
       <SchemaViewerContent />
     </DatabaseProvider>
   );

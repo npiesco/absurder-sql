@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { DatabaseProvider, useDatabase } from '@/lib/db/provider';
+import { useDatabaseStore } from '@/lib/db/store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CodeMirrorEditor } from '@/components/CodeMirrorEditor';
@@ -162,12 +163,14 @@ function QueryInterfaceContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div id="sqlEditor">
-              <CodeMirrorEditor
-                value={sql}
-                onChange={setSql}
-                placeholder="SELECT * FROM table_name"
-                onExecute={executeSchemaQuery}
-              />
+              <div id="queryEditor">
+                <CodeMirrorEditor
+                  value={sql}
+                  onChange={setSql}
+                  placeholder="SELECT * FROM table_name"
+                  onExecute={executeQuery}
+                />
+              </div>
             </div>
             <div className="flex gap-2">
               <Button id="executeButton" onClick={executeQuery} disabled={!db || !sql.trim()}>
@@ -288,8 +291,10 @@ function QueryInterfaceContent() {
 }
 
 export default function QueryInterfacePage() {
+  const { currentDbName } = useDatabaseStore();
+  
   return (
-    <DatabaseProvider dbName="query.db">
+    <DatabaseProvider dbName={currentDbName || 'database.db'}>
       <QueryInterfaceContent />
     </DatabaseProvider>
   );

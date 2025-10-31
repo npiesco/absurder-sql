@@ -39,9 +39,13 @@ export default function DatabaseManagementPage() {
         // Expose Database class on window IMMEDIATELY after init (like vite app line 66)
         (window as any).Database = Database;
         
-        // Open default database
-        const dbInstance = await Database.newDatabase('database.db');
+        // Open database - use existing name from Zustand if available
+        const existingDbName = currentDbName || 'database.db';
+        const dbInstance = await Database.newDatabase(existingDbName);
         setDb(dbInstance);
+        if (!currentDbName) {
+          setCurrentDbName(existingDbName);
+        }
         (window as any).testDb = dbInstance;
         
         setStatus('Ready');
@@ -90,7 +94,7 @@ export default function DatabaseManagementPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'database.db';
+      a.download = currentDbName || 'database.db';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -120,14 +124,14 @@ export default function DatabaseManagementPage() {
       await db.close();
       
       // Create new database instance
-      const newDb = await Database.newDatabase('database.db');
+      const newDb = await Database.newDatabase(currentDbName);
       
       // Import the data
       await newDb.importFromFile(uint8Array);
       
       // Close and reopen
       await newDb.close();
-      const reopenedDb = await Database.newDatabase('database.db');
+      const reopenedDb = await Database.newDatabase(currentDbName);
       
       setDb(reopenedDb);
       (window as any).testDb = reopenedDb;
@@ -216,11 +220,11 @@ export default function DatabaseManagementPage() {
       const uint8Array = new Uint8Array(arrayBuffer);
       
       await db.close();
-      const newDb = await Database.newDatabase('database.db');
+      const newDb = await Database.newDatabase(currentDbName);
       await newDb.importFromFile(uint8Array);
       await newDb.close();
       
-      const reopenedDb = await Database.newDatabase('database.db');
+      const reopenedDb = await Database.newDatabase(currentDbName);
       setDb(reopenedDb);
       (window as any).testDb = reopenedDb;
       setStatus('Import complete');
@@ -261,7 +265,7 @@ export default function DatabaseManagementPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div id="dbSelector" className="text-sm text-muted-foreground mb-4">
-              Current database: database.db
+              Current database: {currentDbName || 'database.db'}
             </div>
             
             <input 
