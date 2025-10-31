@@ -4,6 +4,9 @@
   <p><strong>Rust + WASM + SQLite + IndexedDB</strong></p>
   
   [![npm](https://img.shields.io/npm/v/@npiesco/absurder-sql)](https://www.npmjs.com/package/@npiesco/absurder-sql)
+  [![npm downloads](https://img.shields.io/npm/dm/@npiesco/absurder-sql)](https://www.npmjs.com/package/@npiesco/absurder-sql)
+  [![crates.io](https://img.shields.io/crates/v/absurder-sql)](https://crates.io/crates/absurder-sql)
+  [![crates.io downloads](https://img.shields.io/crates/d/absurder-sql)](https://crates.io/crates/absurder-sql)
 </div>
 
 **Tech Stack:**  
@@ -413,7 +416,24 @@ await db.close();
 
 > **Note:** The npm package is built without the `telemetry` feature for smaller size and faster load times. If you need Prometheus/OpenTelemetry support for production monitoring, build from source with `--features telemetry`.
 
-#### Option 2: Build from Source
+#### Option 2: Install from crates.io (Rust Projects)
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+absurder-sql = "0.1.7"
+```
+
+Or use cargo:
+
+```bash
+cargo add absurder-sql
+```
+
+**Available on [crates.io](https://crates.io/crates/absurder-sql)** with full Rust documentation and dual-mode support (browser WASM + native CLI).
+
+#### Option 3: Build from Source
 
 For development or custom builds:
 
