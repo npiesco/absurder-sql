@@ -144,4 +144,12 @@
     clip: auto;
     white-space: normal;
   }
+  
+  .null-value {
+    background-color: oklch(0.967 0.003 264.542);
+  }
+  
+  .dark .null-value {
+    background-color: oklch(0.278 0.033 256.848);
+  }
 }
