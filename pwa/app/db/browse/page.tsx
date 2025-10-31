@@ -30,6 +30,12 @@ interface ColumnInfo {
   type: string;
 }
 
+interface EditingCell {
+  rowIndex: number;
+  columnIndex: number;
+  value: any;
+}
+
 export default function DataBrowserPage() {
   const { db, setDb } = useDatabaseStore();
   const [tables, setTables] = useState<TableInfo[]>([]);
@@ -41,6 +47,8 @@ export default function DataBrowserPage() {
   const [pageSize, setPageSize] = useState<number>(100);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalRows, setTotalRows] = useState<number>(0);
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
 
   // Initialize WASM if needed
   useEffect(() => {
@@ -48,6 +56,13 @@ export default function DataBrowserPage() {
 
     async function initializeWasm() {
       try {
+        // If db already exists in Zustand (from main page), just use it
+        if (db) {
+          (window as any).testDb = db;
+          setInitializing(false);
+          return;
+        }
+
         const init = (await import('@npiesco/absurder-sql')).default;
         const { Database } = await import('@npiesco/absurder-sql');
         
@@ -57,14 +72,10 @@ export default function DataBrowserPage() {
         // Expose Database class on window
         (window as any).Database = Database;
         
-        // Open default database if not already open
-        if (!db) {
-          const dbInstance = await Database.newDatabase('database.db');
-          setDb(dbInstance);
-          (window as any).testDb = dbInstance;
-        } else {
-          (window as any).testDb = db;
-        }
+        // Only create new database if none exists
+        const dbInstance = await Database.newDatabase('database.db');
+        setDb(dbInstance);
+        (window as any).testDb = dbInstance;
         
         setInitializing(false);
       } catch (err: any) {
@@ -170,6 +181,78 @@ export default function DataBrowserPage() {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
     }
+  };
+
+  const handleCellDoubleClick = (rowIndex: number, columnIndex: number, currentValue: any) => {
+    setEditingCell({ rowIndex, columnIndex, value: currentValue });
+    setEditValue(currentValue === null || currentValue === undefined ? '' : String(currentValue));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingCell || !db || !selectedTable) return;
+
+    try {
+      const row = data[editingCell.rowIndex];
+      const rowId = row.values[0].value; // rowid is first column
+      const column = columns[editingCell.columnIndex];
+      
+      
+      // Determine the value to save based on column type
+      let valueToSave: any = editValue;
+      if (editValue === '') {
+        valueToSave = null;
+      } else if (column.type.includes('INT')) {
+        valueToSave = parseInt(editValue, 10);
+      } else if (column.type.includes('REAL') || column.type.includes('FLOAT') || column.type.includes('DOUBLE')) {
+        valueToSave = parseFloat(editValue);
+      }
+
+      // Update database
+      const updateQuery = `UPDATE ${selectedTable} SET ${column.name} = ? WHERE rowid = ?`;
+      const params = [
+        valueToSave === null ? { type: 'Null', value: null } : 
+        typeof valueToSave === 'number' && Number.isInteger(valueToSave) ? { type: 'Integer', value: valueToSave } :
+        typeof valueToSave === 'number' ? { type: 'Real', value: valueToSave } :
+        { type: 'Text', value: String(valueToSave) },
+        { type: 'Integer', value: rowId }
+      ];
+      
+      // Execute the UPDATE
+      await db.executeWithParams(updateQuery, params);
+
+      // Update local data
+      const newData = [...data];
+      newData[editingCell.rowIndex].values[editingCell.columnIndex + 1].value = valueToSave;
+      setData(newData);
+
+      // Exit edit mode
+      setEditingCell(null);
+      setEditValue('');
+    } catch (err) {
+      console.error('Error saving edit:', err);
+      // Keep in edit mode on error
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      await handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelEdit();
+    }
+  };
+
+  const getInputType = (columnType: string): string => {
+    if (columnType.includes('INT')) return 'number';
+    if (columnType.includes('REAL') || columnType.includes('FLOAT') || columnType.includes('DOUBLE')) return 'number';
+    return 'text';
   };
 
   const totalPages = Math.ceil(totalRows / pageSize);
@@ -288,18 +371,39 @@ export default function DataBrowserPage() {
                           <TableCell className="font-mono text-sm">
                             {row.values[0].value}
                           </TableCell>
-                          {row.values.slice(1).map((cell: any, cellIndex: number) => (
-                            <TableCell 
-                              key={cellIndex}
-                              className={cell.value === null || cell.value === undefined ? 'null-value' : ''}
-                            >
-                              {cell.value === null || cell.value === undefined ? (
-                                <span className="italic text-muted-foreground">NULL</span>
-                              ) : (
-                                String(cell.value)
-                              )}
-                            </TableCell>
-                          ))}
+                          {row.values.slice(1).map((cell: any, cellIndex: number) => {
+                            const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnIndex === cellIndex;
+                            const column = columns[cellIndex];
+                            
+                            return (
+                              <TableCell 
+                                key={cellIndex}
+                                className={`
+                                  ${cell.value === null || cell.value === undefined ? 'null-value' : ''}
+                                  ${isEditing ? 'editing' : 'cursor-pointer hover:bg-muted/50'}
+                                `}
+                                onDoubleClick={() => !isEditing && handleCellDoubleClick(rowIndex, cellIndex, cell.value)}
+                              >
+                                {isEditing ? (
+                                  <input
+                                    type={getInputType(column.type)}
+                                    step={column.type.includes('REAL') || column.type.includes('FLOAT') || column.type.includes('DOUBLE') ? 'any' : undefined}
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    autoFocus
+                                    className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+                                  />
+                                ) : (
+                                  cell.value === null || cell.value === undefined ? (
+                                    <span className="italic text-muted-foreground">NULL</span>
+                                  ) : (
+                                    String(cell.value)
+                                  )
+                                )}
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                       ))}
                     </TableBody>

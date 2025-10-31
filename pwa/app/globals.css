@@ -152,4 +152,14 @@
   .dark .null-value {
     background-color: oklch(0.278 0.033 256.848);
   }
+  
+  .editing {
+    background-color: oklch(0.9 0.05 220);
+    border: 2px solid oklch(0.707 0.022 261.325);
+  }
+  
+  .dark .editing {
+    background-color: oklch(0.3 0.05 220);
+    border: 2px solid oklch(0.551 0.027 264.364);
+  }
 }
