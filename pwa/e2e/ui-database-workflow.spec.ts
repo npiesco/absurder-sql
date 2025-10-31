@@ -77,6 +77,37 @@ test.describe('UI Database Workflow - REAL USER ACTIONS', () => {
     }, customDbName);
   });
 
+  test('should append .db extension to export filename if not present', async ({ page }) => {
+    // Create database without .db extension
+    const dbNameWithoutExt = `ui_no_ext_${Date.now()}`;
+    
+    console.log('[TEST] Creating database without .db extension:', dbNameWithoutExt);
+    
+    await page.click('#createDbButton');
+    await page.fill('#dbNameInput', dbNameWithoutExt);
+    await page.click('#confirmCreate');
+    await page.waitForSelector(`#status:has-text("Database created: ${dbNameWithoutExt}")`, { timeout: 10000 });
+
+    // Export and verify filename has .db extension
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('#exportDbButton');
+    const download = await downloadPromise;
+    
+    const downloadedFilename = download.suggestedFilename();
+    console.log('[TEST] Downloaded filename:', downloadedFilename);
+    console.log('[TEST] Expected filename:', `${dbNameWithoutExt}.db`);
+    
+    // Should have .db extension appended
+    expect(downloadedFilename).toBe(`${dbNameWithoutExt}.db`);
+    
+    // Cleanup
+    await page.evaluate(async (dbName) => {
+      const db = (window as any).testDb;
+      if (db) await db.close();
+      await indexedDB.deleteDatabase(dbName);
+    }, dbNameWithoutExt);
+  });
+
   test('should PERSIST custom database across operations', async ({ page }) => {
     const customDbName = `ui_persist_${Date.now()}.db`;
     

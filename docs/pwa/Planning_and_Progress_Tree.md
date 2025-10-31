@@ -53,7 +53,7 @@
 
 **Goal:** Implement inline data editing and browsing  
 **Duration:** Completed October 31, 2025
-**Test Coverage:** 67 passing tests (data browser, inline editing, row operations, filtering/sorting, FK navigation, BLOB handling)
+**Test Coverage:** 175 passing tests (data browser, inline editing, row operations, filtering/sorting, FK navigation, BLOB handling, database management)
 
 #### 1.1 Data Table Component ✅ COMPLETE
 - [x] Create `/app/db/browse/page.tsx`
@@ -249,6 +249,29 @@
 - [x] Can filter and sort data
 - [x] FK navigation works
 - [x] BLOB upload/download works
+
+#### 1.7 Database Management Improvements ✅ COMPLETE
+- [x] Fixed database initialization timing bug
+  - [x] Split WASM init and DB loading into separate effects
+  - [x] Added `wasmReady` flag to coordinate timing
+  - [x] Database properly loads from localStorage on page refresh
+  - [x] Fixed Zustand hydration race condition
+- [x] Export filename improvements
+  - [x] Always append `.db` extension if missing
+  - [x] Use imported filename as database name
+- [x] System tables toggle
+  - [x] Added `showSystemTables` to global Zustand store
+  - [x] Persists across all pages (Browse, Schema, Management)
+  - [x] Auto-refreshes when toggled
+- [x] Database Info enhancements
+  - [x] Shows actual SQLite version
+  - [x] Displays real query results (no hardcoded messages)
+  - [x] Results shown in Database Info card with formatting
+- [x] Test coverage
+  - [x] Added `database-persistence-init.spec.ts` (2 tests)
+  - [x] All 175 tests passing
+
+**Test Coverage:** 175/175 passing (0 failures)
 
 ---
 

@@ -16,17 +16,20 @@ import {
 import { useDatabaseStore } from '@/lib/db/store';
 
 export default function DatabaseManagementPage() {
-  const { db, currentDbName, loading, status, tableCount, setDb, setCurrentDbName, setLoading, setStatus, setTableCount } = useDatabaseStore();
+  const { db, currentDbName, loading, status, tableCount, showSystemTables, setDb, setCurrentDbName, setLoading, setStatus, setTableCount, setShowSystemTables } = useDatabaseStore();
   const [newDbName, setNewDbName] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [wasmReady, setWasmReady] = useState(false);
+  const [dbInfo, setDbInfo] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize WASM and expose Database to window (like working vite app)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if ((window as any).Database) return; // Already initialized
 
     async function initializeWasm() {
       try {
@@ -39,17 +42,9 @@ export default function DatabaseManagementPage() {
         // Expose Database class on window IMMEDIATELY after init (like vite app line 66)
         (window as any).Database = Database;
         
-        // Open database - use existing name from Zustand if available
-        const existingDbName = currentDbName || 'database.db';
-        const dbInstance = await Database.newDatabase(existingDbName);
-        setDb(dbInstance);
-        if (!currentDbName) {
-          setCurrentDbName(existingDbName);
-        }
-        (window as any).testDb = dbInstance;
-        
-        setStatus('Ready');
+        setWasmReady(true);
         setLoading(false);
+        setStatus('Ready to load database');
       } catch (err: any) {
         console.error('Failed to initialize:', err);
         setStatus(`Error: ${err.message}`);
@@ -59,6 +54,30 @@ export default function DatabaseManagementPage() {
 
     initializeWasm();
   }, []);
+
+  // Load database when currentDbName is available (after Zustand hydration) AND WASM is ready
+  useEffect(() => {
+    const Database = (window as any).Database;
+    if (!wasmReady || db) return; // Wait for WASM init, don't re-init if db exists
+
+    async function loadDatabase() {
+      try {
+        if (currentDbName) {
+          const dbInstance = await Database.newDatabase(currentDbName);
+          setDb(dbInstance);
+          (window as any).testDb = dbInstance;
+          setStatus(`Loaded: ${currentDbName}`);
+        } else {
+          setStatus('Create or import a database to get started');
+        }
+      } catch (err: any) {
+        console.error('Failed to load database:', err);
+        setStatus(`Error loading database: ${err.message}`);
+      }
+    }
+
+    loadDatabase();
+  }, [wasmReady, currentDbName]);
 
   const handleCreateDatabase = async () => {
     const Database = (window as any).Database;
@@ -94,7 +113,9 @@ export default function DatabaseManagementPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = currentDbName || 'database.db';
+      // Ensure .db extension if not present
+      const filename = currentDbName || 'database.db';
+      a.download = filename.endsWith('.db') ? filename : `${filename}.db`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -107,7 +128,7 @@ export default function DatabaseManagementPage() {
 
   const handleImport = async () => {
     const Database = (window as any).Database;
-    if (!db || !Database) return;
+    if (!Database) return;
 
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
@@ -120,22 +141,28 @@ export default function DatabaseManagementPage() {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       
-      // Close existing database
-      await db.close();
+      // Close existing database if one is open
+      if (db) {
+        await db.close();
+      }
+      
+      // Use the imported filename as database name (remove path, keep extension)
+      const dbName = file.name;
       
       // Create new database instance
-      const newDb = await Database.newDatabase(currentDbName);
+      const newDb = await Database.newDatabase(dbName);
       
       // Import the data
       await newDb.importFromFile(uint8Array);
       
       // Close and reopen
       await newDb.close();
-      const reopenedDb = await Database.newDatabase(currentDbName);
+      const reopenedDb = await Database.newDatabase(dbName);
       
       setDb(reopenedDb);
+      setCurrentDbName(dbName);
       (window as any).testDb = reopenedDb;
-      setStatus('Import complete');
+      setStatus(`Import complete: ${dbName}`);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: any) {
@@ -147,13 +174,42 @@ export default function DatabaseManagementPage() {
     if (!db) return;
 
     try {
-      const result = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+      const query = showSystemTables 
+        ? "SELECT type, name FROM sqlite_master ORDER BY name"
+        : "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name";
+      const result = await db.execute(query);
       setTableCount(result.rows.length);
-      setStatus('Info refreshed');
+      
+      // Get SQLite version to prove database is working
+      const sqliteVersion = await db.execute("SELECT sqlite_version()");
+      const version = sqliteVersion.rows[0]?.values[0]?.value || 'unknown';
+      
+      // Always show what was actually found
+      if (result.rows.length > 0) {
+        const items = result.rows.map((r: any) => {
+          const type = r.values[0].value;
+          const name = r.values[1].value;
+          return `${name} (${type})`;
+        }).join('\n');
+        setDbInfo(`SQLite ${version}\n\nObjects found:\n${items}`);
+        setStatus('Info refreshed');
+      } else {
+        // Prove database is real and working, just empty
+        setDbInfo(`SQLite ${version}\n\nQuery: ${query}\n\nResult: 0 rows (empty database)`);
+        setStatus('Info refreshed');
+      }
     } catch (err) {
       setStatus(`Error: ${err}`);
+      setDbInfo(`Error executing query: ${err}`);
     }
   };
+
+  // Auto-refresh when showSystemTables toggle changes
+  useEffect(() => {
+    if (db) {
+      handleRefreshInfo();
+    }
+  }, [showSystemTables]);
 
   const handleDelete = async () => {
     const Database = (window as any).Database;
@@ -169,14 +225,12 @@ export default function DatabaseManagementPage() {
         deleteRequest.onerror = () => reject(deleteRequest.error);
       });
       
-      // Create fresh database with default name
-      const defaultName = 'database.db';
-      const newDb = await Database.newDatabase(defaultName);
-      setDb(newDb);
-      setCurrentDbName(defaultName);
-      (window as any).testDb = newDb;
+      // Clear state - don't auto-create a new database
+      setDb(null);
+      setCurrentDbName('');
+      (window as any).testDb = null;
       
-      setStatus('Database deleted');
+      setStatus('Database deleted - create or import a new database');
       setDeleteDialogOpen(false);
     } catch (err: any) {
       setStatus(`Delete error: ${err.message}`);
@@ -265,7 +319,7 @@ export default function DatabaseManagementPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div id="dbSelector" className="text-sm text-muted-foreground mb-4">
-              Current database: {currentDbName || 'database.db'}
+              Current database: {currentDbName || 'None (create or import a database)'}
             </div>
             
             <input 
@@ -305,7 +359,6 @@ export default function DatabaseManagementPage() {
             <Button 
               id="importDbButton" 
               onClick={() => fileInputRef.current?.click()} 
-              disabled={!db} 
               className="w-full" 
               variant="outline"
             >
@@ -314,7 +367,7 @@ export default function DatabaseManagementPage() {
             
             <Button 
               onClick={handleImport} 
-              disabled={!db || !selectedFile} 
+              disabled={!selectedFile} 
               className="w-full" 
               variant="outline"
             >
@@ -351,9 +404,26 @@ export default function DatabaseManagementPage() {
                 <span className="font-semibold">Tables: </span>
                 <span id="tableCount">{tableCount}</span>
               </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="showSystemTables"
+                  checked={showSystemTables}
+                  onChange={(e) => setShowSystemTables(e.target.checked)}
+                  className="cursor-pointer"
+                />
+                <label htmlFor="showSystemTables" className="text-sm cursor-pointer">
+                  Show system tables (sqlite_*)
+                </label>
+              </div>
               <Button id="refreshInfo" onClick={handleRefreshInfo} disabled={!db} size="sm">
                 Refresh Info
               </Button>
+              {dbInfo && (
+                <pre className="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded text-sm whitespace-pre-wrap font-mono">
+                  {dbInfo}
+                </pre>
+              )}
             </div>
           </CardContent>
         </Card>

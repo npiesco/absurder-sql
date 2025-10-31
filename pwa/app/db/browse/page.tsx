@@ -66,7 +66,7 @@ interface NavigationHistoryItem {
 }
 
 export default function DataBrowserPage() {
-  const { db, setDb } = useDatabaseStore();
+  const { db, setDb, showSystemTables, setShowSystemTables } = useDatabaseStore();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
@@ -133,6 +133,13 @@ export default function DataBrowserPage() {
     }
   }, [db]);
 
+  // Reload tables when showSystemTables toggle changes
+  useEffect(() => {
+    if (db) {
+      loadTables();
+    }
+  }, [showSystemTables]);
+
   // Load data when table, pagination, filters, or sort changes
   useEffect(() => {
     if (selectedTable && db) {
@@ -145,9 +152,10 @@ export default function DataBrowserPage() {
 
     try {
       setLoading(true);
-      const result = await db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-      );
+      const query = showSystemTables
+        ? "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        : "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+      const result = await db.execute(query);
 
       const tableList: TableInfo[] = [];
       for (const row of result.rows) {

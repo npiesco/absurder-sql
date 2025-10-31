@@ -73,11 +73,19 @@ lib/
     └── migration-generator.ts      # ⏳ Migration SQL gen
 
 e2e/
-├── roundtrip.spec.ts               # ✅ Full data integrity tests (NEW)
+├── roundtrip.spec.ts               # ✅ Full data integrity tests
 ├── database-operations.spec.ts     # ✅ Import/Export/Create/Delete tests
 ├── query-interface.spec.ts         # ✅ SQL query UI tests
 ├── schema-viewer.spec.ts           # ✅ Schema viewer tests
-└── accessibility.spec.ts           # ✅ WCAG compliance tests
+├── accessibility.spec.ts           # ✅ WCAG compliance tests
+├── ui-database-workflow.spec.ts    # ✅ UI database persistence tests
+├── data-browser.spec.ts            # ✅ Data browsing and editing tests
+├── inline-editing.spec.ts          # ✅ Inline cell editing tests
+├── row-operations.spec.ts          # ✅ Add/delete row tests
+├── filtering-sorting.spec.ts       # ✅ Data filtering and sorting tests
+├── foreign-key-navigation.spec.ts  # ✅ FK navigation tests
+├── blob-handling.spec.ts           # ✅ BLOB upload/download/preview tests
+└── database-persistence-init.spec.ts # ✅ Database initialization tests (NEW)
 ```
 
 ---
@@ -90,6 +98,7 @@ e2e/
 // lib/db/store.ts
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface DatabaseStore {
   db: any | null;
@@ -97,21 +106,26 @@ interface DatabaseStore {
   loading: boolean;
   status: string;
   tableCount: number;
+  showSystemTables: boolean;
   
   setDb: (db: any) => void;
   setCurrentDbName: (name: string) => void;
   setLoading: (loading: boolean) => void;
   setStatus: (status: string) => void;
   setTableCount: (count: number) => void;
+  setShowSystemTables: (show: boolean) => void;
   reset: () => void;
 }
 
-export const useDatabaseStore = create<DatabaseStore>((set) => ({
-  db: null,
-  currentDbName: 'database.db',
-  loading: true,
-  status: 'Initializing...',
-  tableCount: 0,
+export const useDatabaseStore = create<DatabaseStore>()(
+  persist(
+    (set) => ({
+      db: null,
+      currentDbName: '',
+      loading: true,
+      status: 'Initializing...',
+      tableCount: 0,
+      showSystemTables: false,
   
   setDb: (db) => set({ db }),
   setCurrentDbName: (name) => set({ currentDbName: name }),

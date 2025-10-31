@@ -10,6 +10,24 @@
 
 ---
 
+## Recent Updates (October 31, 2025)
+
+### Database Management Improvements ✅
+- **Fixed critical initialization bug**: Database now properly loads from localStorage on page refresh (Zustand hydration race condition resolved)
+- **Export filename fix**: Always appends `.db` extension if missing
+- **System tables toggle**: Added global toggle to show/hide `sqlite_*` tables across all pages
+- **Database Info enhancements**: Shows actual SQLite version and real query results (no hardcoded messages)
+- **Test coverage**: Added `database-persistence-init.spec.ts` with 2 new tests
+- **Total tests**: 175/175 passing (0 failures)
+
+### Technical Improvements
+- Split WASM initialization and database loading into separate effects with proper coordination via `wasmReady` flag
+- Added `showSystemTables` to Zustand store with localStorage persistence
+- Import now uses uploaded filename as database name
+- Database Info displays formatted query results in-card
+
+---
+
 ## Foundation Requirements (✅ COMPLETE)
 
 ### State Management
@@ -34,16 +52,17 @@
 
 ### Core Adminer Features (MUST HAVE)
 
-#### 1. Data Browser & Editor
-- **FR-AB1.1:** Browse table data with pagination (100/500/1000 rows per page)
-- **FR-AB1.2:** Inline cell editing (double-click to edit)
-- **FR-AB1.3:** Add new rows inline
-- **FR-AB1.4:** Delete rows (single + bulk delete with checkboxes)
-- **FR-AB1.5:** Filter columns (WHERE clause builder)
-- **FR-AB1.6:** Sort by column (ASC/DESC toggle)
-- **FR-AB1.7:** NULL value handling and display
-- **FR-AB1.8:** BLOB preview and download
-- **FR-AB1.9:** Foreign key navigation (click FK to jump to related table)
+#### 1. Data Browser & Editor ✅ COMPLETE
+- **FR-AB1.1:** ✅ Browse table data with pagination (100/500/1000 rows per page)
+- **FR-AB1.2:** ✅ Inline cell editing (double-click to edit)
+- **FR-AB1.3:** ✅ Add new rows inline
+- **FR-AB1.4:** ✅ Delete rows (single + bulk delete with checkboxes)
+- **FR-AB1.5:** ✅ Filter columns (WHERE clause builder)
+- **FR-AB1.6:** ✅ Sort by column (ASC/DESC toggle)
+- **FR-AB1.7:** ✅ NULL value handling and display
+- **FR-AB1.8:** ✅ BLOB preview and download (images, files)
+- **FR-AB1.9:** ✅ Foreign key navigation (click FK to jump to related table)
+- **FR-AB1.10:** ✅ System tables toggle (show/hide sqlite_* tables)
 
 #### 2. Import/Export Formats
 - **FR-AB2.1:** SQLite file import/export (✅ DONE)
@@ -191,15 +210,16 @@
 - ✅ FR-1.5: Transaction support
 - ✅ FR-1.6: BLOB support
 
-**Data Browser** (❌ Not Started)
-- ⏳ FR-2.1: Pagination (100/500/1000 rows)
-- ⏳ FR-2.2: Inline editing
-- ⏳ FR-2.3: Add/delete rows
-- ⏳ FR-2.4: Column filtering
-- ⏳ FR-2.5: Column sorting
-- ⏳ FR-2.6: NULL handling
-- ⏳ FR-2.7: BLOB preview
-- ⏳ FR-2.8: FK navigation
+**Data Browser** (✅ Complete)
+- ✅ FR-2.1: Pagination (100/500/1000 rows)
+- ✅ FR-2.2: Inline editing
+- ✅ FR-2.3: Add/delete rows
+- ✅ FR-2.4: Column filtering
+- ✅ FR-2.5: Column sorting
+- ✅ FR-2.6: NULL handling
+- ✅ FR-2.7: BLOB preview (images + download)
+- ✅ FR-2.8: FK navigation
+- ✅ FR-2.9: System tables toggle
 
 **Import/Export** (⚠️ Partial)
 - ✅ FR-3.1: SQLite file import/export

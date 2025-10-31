@@ -14,12 +14,14 @@ interface DatabaseStore {
   loading: boolean;
   status: string;
   tableCount: number;
+  showSystemTables: boolean;
   
   setDb: (db: any) => void;
   setCurrentDbName: (name: string) => void;
   setLoading: (loading: boolean) => void;
   setStatus: (status: string) => void;
   setTableCount: (count: number) => void;
+  setShowSystemTables: (show: boolean) => void;
   reset: () => void;
 }
 
@@ -27,22 +29,25 @@ export const useDatabaseStore = create<DatabaseStore>()(
   persist(
     (set) => ({
       db: null,
-      currentDbName: 'database.db',
+      currentDbName: '',
       loading: true,
       status: 'Initializing...',
       tableCount: 0,
+      showSystemTables: false,
       
       setDb: (db) => set({ db }),
       setCurrentDbName: (name) => set({ currentDbName: name }),
       setLoading: (loading) => set({ loading }),
       setStatus: (status) => set({ status }),
       setTableCount: (count) => set({ tableCount: count }),
+      setShowSystemTables: (show) => set({ showSystemTables: show }),
       reset: () => set({
         db: null,
-        currentDbName: 'database.db',
+        currentDbName: '',
         loading: false,
         status: 'Reset',
         tableCount: 0,
+        showSystemTables: false,
       }),
     }),
     {
