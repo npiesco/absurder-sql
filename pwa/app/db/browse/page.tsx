@@ -78,6 +78,7 @@ export default function DataBrowserPage() {
   const [totalRows, setTotalRows] = useState<number>(0);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editValue, setEditValue] = useState<string>('');
+  const [editFile, setEditFile] = useState<File | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'bulk', rowId?: number } | null>(null);
@@ -359,9 +360,49 @@ export default function DataBrowserPage() {
     return foreignKeys.find(fk => fk.from === columnName);
   };
 
-  const handleCellDoubleClick = (rowIndex: number, columnIndex: number, currentValue: any) => {
-    setEditingCell({ rowIndex, columnIndex, value: currentValue });
-    setEditValue(currentValue === null || currentValue === undefined ? '' : String(currentValue));
+  const handleCellDoubleClick = (rowIndex: number, columnIndex: number, value: any) => {
+    setEditingCell({ rowIndex, columnIndex, value });
+    setEditValue(value !== null && value !== undefined ? String(value) : '');
+    setEditFile(null);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Auto-save immediately with the file
+      await handleSaveEditWithFile(file);
+    }
+  };
+
+  const handleSaveEditWithFile = async (file: File) => {
+    if (!editingCell || !db || !selectedTable) return;
+
+    try {
+      const row = data[editingCell.rowIndex];
+      const rowId = row.values[0].value;
+      const column = columns[editingCell.columnIndex];
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const newValue = new Uint8Array(arrayBuffer);
+      
+      const updateQuery = `UPDATE ${selectedTable} SET ${column.name} = ? WHERE rowid = ?`;
+      const params = [
+        { type: 'Blob', value: Array.from(newValue) },
+        { type: 'Integer', value: rowId }
+      ];
+      
+      await db.executeWithParams(updateQuery, params);
+
+      const newData = [...data];
+      newData[editingCell.rowIndex].values[editingCell.columnIndex + 1].value = Array.from(newValue);
+      setData(newData);
+
+      setEditingCell(null);
+      setEditValue('');
+      setEditFile(null);
+    } catch (err) {
+      console.error('Error saving BLOB:', err);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -369,27 +410,35 @@ export default function DataBrowserPage() {
 
     try {
       const row = data[editingCell.rowIndex];
-      const rowId = row.values[0].value; // rowid is first column
+      const rowId = row.values[0].value;
       const column = columns[editingCell.columnIndex];
       
+      let newValue: any = editValue;
       
-      // Determine the value to save based on column type
-      let valueToSave: any = editValue;
-      if (editValue === '') {
-        valueToSave = null;
+      // Handle BLOB columns
+      if (isBlobColumn(column.type)) {
+        if (editFile) {
+          const arrayBuffer = await editFile.arrayBuffer();
+          newValue = new Uint8Array(arrayBuffer);
+        } else {
+          newValue = null;
+        }
+      } else if (editValue === '' || editValue.toLowerCase() === 'null') {
+        newValue = null;
       } else if (column.type.includes('INT')) {
-        valueToSave = parseInt(editValue, 10);
-      } else if (column.type.includes('REAL') || column.type.includes('FLOAT') || column.type.includes('DOUBLE')) {
-        valueToSave = parseFloat(editValue);
+        newValue = parseInt(editValue);
+      } else if (column.type.includes('REAL') || column.type.includes('FLOAT') || column.type.includes('DOUBLE') || column.type.includes('NUMERIC')) {
+        newValue = parseFloat(editValue);
       }
 
       // Update database
       const updateQuery = `UPDATE ${selectedTable} SET ${column.name} = ? WHERE rowid = ?`;
       const params = [
-        valueToSave === null ? { type: 'Null', value: null } : 
-        typeof valueToSave === 'number' && Number.isInteger(valueToSave) ? { type: 'Integer', value: valueToSave } :
-        typeof valueToSave === 'number' ? { type: 'Real', value: valueToSave } :
-        { type: 'Text', value: String(valueToSave) },
+        newValue === null ? { type: 'Null', value: null } : 
+        newValue instanceof Uint8Array ? { type: 'Blob', value: Array.from(newValue) } :
+        typeof newValue === 'number' && Number.isInteger(newValue) ? { type: 'Integer', value: newValue } :
+        typeof newValue === 'number' ? { type: 'Real', value: newValue } :
+        { type: 'Text', value: String(newValue) },
         { type: 'Integer', value: rowId }
       ];
       
@@ -398,12 +447,15 @@ export default function DataBrowserPage() {
 
       // Update local data
       const newData = [...data];
-      newData[editingCell.rowIndex].values[editingCell.columnIndex + 1].value = valueToSave;
+      // For BLOB columns, store as number array to match DB format
+      const displayValue = newValue instanceof Uint8Array ? Array.from(newValue) : newValue;
+      newData[editingCell.rowIndex].values[editingCell.columnIndex + 1].value = displayValue;
       setData(newData);
 
       // Exit edit mode
       setEditingCell(null);
       setEditValue('');
+      setEditFile(null);
     } catch (err) {
       console.error('Error saving edit:', err);
       // Keep in edit mode on error
@@ -413,6 +465,7 @@ export default function DataBrowserPage() {
   const handleCancelEdit = () => {
     setEditingCell(null);
     setEditValue('');
+    setEditFile(null);
   };
 
   const handleKeyDown = async (e: React.KeyboardEvent) => {
@@ -426,9 +479,53 @@ export default function DataBrowserPage() {
   };
 
   const getInputType = (columnType: string): string => {
-    if (columnType.includes('INT')) return 'number';
-    if (columnType.includes('REAL') || columnType.includes('FLOAT') || columnType.includes('DOUBLE')) return 'number';
+    const type = columnType.toUpperCase();
+    if (type.includes('INT')) return 'number';
+    if (type.includes('REAL') || type.includes('FLOAT') || type.includes('DOUBLE') || type.includes('NUMERIC')) return 'number';
+    if (type.includes('BLOB')) return 'file';
     return 'text';
+  };
+
+  const isBlobColumn = (columnType: string): boolean => {
+    return columnType.toUpperCase().includes('BLOB');
+  };
+
+  const formatBlobSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const isImageBlob = (data: Uint8Array): boolean => {
+    if (data.length < 4) return false;
+    // PNG: 89 50 4E 47
+    if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) return true;
+    // JPEG: FF D8 FF
+    if (data[0] === 0xFF && data[1] === 0xD8 && data[2] === 0xFF) return true;
+    // GIF: 47 49 46
+    if (data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) return true;
+    // WebP: 52 49 46 46 ... 57 45 42 50
+    if (data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46 && data.length > 12) {
+      if (data[8] === 0x57 && data[9] === 0x45 && data[10] === 0x42 && data[11] === 0x50) return true;
+    }
+    return false;
+  };
+
+  const blobToDataURL = (data: Uint8Array, mimeType: string = 'image/png'): string => {
+    const blob = new Blob([data as any], { type: mimeType });
+    return URL.createObjectURL(blob);
+  };
+
+  const handleBlobDownload = (data: Uint8Array, filename: string = 'download.bin') => {
+    const blob = new Blob([data as any]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleAddRow = async () => {
@@ -848,6 +945,9 @@ export default function DataBrowserPage() {
                             const isFK = isForeignKeyColumn(column.name);
                             const cellValue = cell.value;
                             
+                            const isBlob = isBlobColumn(column.type) && Array.isArray(cellValue);
+                            const blobSize = isBlob ? new Uint8Array(cellValue).length : 0;
+                            
                             return (
                               <TableCell 
                                 key={cellIndex}
@@ -857,19 +957,57 @@ export default function DataBrowserPage() {
                                 `}
                                 onDoubleClick={() => !isEditing && handleCellDoubleClick(rowIndex, cellIndex, cell.value)}
                                 data-fk-link={isFK && cellValue !== null && cellValue !== undefined ? 'true' : undefined}
+                                data-blob-preview={isBlob ? 'true' : undefined}
+                                data-blob-size={isBlob ? formatBlobSize(blobSize) : undefined}
                               >
                                 {isEditing ? (
-                                  <input
-                                    type={getInputType(column.type)}
-                                    step={column.type.includes('REAL') || column.type.includes('FLOAT') || column.type.includes('DOUBLE') ? 'any' : undefined}
-                                    value={editValue}
-                                    onChange={(e) => setEditValue(e.target.value)}
-                                    onKeyDown={handleKeyDown}
-                                    autoFocus
-                                    className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
-                                  />
+                                  isBlobColumn(column.type) ? (
+                                    <input
+                                      type="file"
+                                      onChange={handleFileChange}
+                                      className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+                                    />
+                                  ) : (
+                                    <input
+                                      type={getInputType(column.type)}
+                                      step={column.type.includes('REAL') || column.type.includes('FLOAT') || column.type.includes('DOUBLE') ? 'any' : undefined}
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onKeyDown={handleKeyDown}
+                                      autoFocus
+                                      className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+                                    />
+                                  )
                                 ) : cell.value === null || cell.value === undefined ? (
                                   <span className="italic text-muted-foreground">NULL</span>
+                                ) : isBlobColumn(column.type) && Array.isArray(cellValue) ? (
+                                  (() => {
+                                    const blobData = new Uint8Array(cellValue);
+                                    return (
+                                      <div className="flex items-center gap-2">
+                                        {isImageBlob(blobData) ? (
+                                          <img 
+                                            src={blobToDataURL(blobData)} 
+                                            alt="BLOB preview" 
+                                            className="max-w-[100px] max-h-[50px] object-contain"
+                                          />
+                                        ) : null}
+                                        <span className="text-sm text-muted-foreground">
+                                          {formatBlobSize(blobData.length)}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleBlobDownload(blobData, `blob-${rowId}-${column.name}.bin`);
+                                          }}
+                                          className="text-xs px-2 py-1 bg-primary text-primary-foreground rounded hover:bg-primary/90"
+                                          data-blob-download
+                                        >
+                                          ↓
+                                        </button>
+                                      </div>
+                                    );
+                                  })()
                                 ) : isFK ? (
                                   <button
                                     onClick={(e) => {
