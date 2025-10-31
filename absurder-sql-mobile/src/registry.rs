@@ -8,6 +8,8 @@
 //! - Tokio runtime for async operations
 //! - Thread-local error handling
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::Mutex;
