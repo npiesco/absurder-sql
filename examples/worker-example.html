@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AbsurderSQL Web Worker Example</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            border-left: 4px solid #2196f3;
+        }
+        button {
+            padding: 12px 24px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #output {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .success {
+            color: #4caf50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.ready {
+            background: #c8e6c9;
+        }
+        .status.working {
+            background: #fff9c4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 AbsurderSQL Web Worker Example</h1>
+        <p>This demonstrates using AbsurderSQL in a Web Worker for off-thread database operations.</p>
+        
+        <div class="info">
+            <strong>Why use Workers?</strong>
+            <ul>
+                <li>Keep the main thread responsive during heavy database operations</li>
+                <li>Process large datasets without blocking the UI</li>
+                <li>Run background sync and data processing tasks</li>
+            </ul>
+        </div>
+
+        <div id="status" class="status">Initializing worker...</div>
+
+        <div>
+            <button id="createTable" disabled>Create Table</button>
+            <button id="insertData" disabled>Insert 1000 Rows</button>
+            <button id="queryData" disabled>Query Data</button>
+            <button id="syncDb" disabled>Sync to IndexedDB</button>
+            <button id="clearDb" disabled>Clear Database</button>
+        </div>
+
+        <div id="output"># Worker output will appear here...\n</div>
+    </div>
+
+    <script type="module">
+        let worker;
+        let messageId = 0;
+        const pendingMessages = new Map();
+        const output = document.getElementById('output');
+        const statusDiv = document.getElementById('status');
+
+        function log(msg, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : '📝';
+            output.textContent += `[${timestamp}] ${prefix} ${msg}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function setStatus(msg, state = 'ready') {
+            statusDiv.textContent = msg;
+            statusDiv.className = `status ${state}`;
+        }
+
+        function enableButtons() {
+            document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        }
+
+        function sendMessage(type, data = {}) {
+            return new Promise((resolve, reject) => {
+                const id = messageId++;
+                pendingMessages.set(id, { resolve, reject });
+                worker.postMessage({ type, id, ...data });
+                
+                // Timeout after 30s
+                setTimeout(() => {
+                    if (pendingMessages.has(id)) {
+                        pendingMessages.delete(id);
+                        reject(new Error('Worker timeout'));
+                    }
+                }, 30000);
+            });
+        }
+
+        // Initialize worker
+        try {
+            worker = new Worker('./worker-db.js', { type: 'module' });
+            
+            worker.onmessage = (e) => {
+                const { id, success, error, message, data } = e.data;
+                
+                if (id !== undefined && pendingMessages.has(id)) {
+                    const pending = pendingMessages.get(id);
+                    pendingMessages.delete(id);
+                    
+                    if (success) {
+                        if (message) log(message, 'success');
+                        pending.resolve(data);
+                    } else {
+                        log(error || 'Unknown error', 'error');
+                        pending.reject(new Error(error));
+                    }
+                } else if (message) {
+                    log(message);
+                }
+            };
+            
+            worker.onerror = (error) => {
+                log(`Worker error: ${error.message}`, 'error');
+                setStatus('Worker error', 'error');
+            };
+
+            // Initialize the database in worker
+            sendMessage('init')
+                .then(() => {
+                    log('Worker initialized successfully', 'success');
+                    setStatus('Worker ready', 'ready');
+                    enableButtons();
+                })
+                .catch(err => {
+                    log(`Failed to initialize: ${err.message}`, 'error');
+                    setStatus('Initialization failed', 'error');
+                });
+
+        } catch (err) {
+            log(`Failed to create worker: ${err.message}`, 'error');
+            setStatus('Failed to create worker', 'error');
+        }
+
+        // Button handlers
+        document.getElementById('createTable').onclick = async () => {
+            setStatus('Creating table...', 'working');
+            try {
+                await sendMessage('createTable');
+                setStatus('Table created', 'ready');
+            } catch (err) {
+                setStatus('Error', 'error');
+            }
+        };
+
+        document.getElementById('insertData').onclick = async () => {
+            setStatus('Inserting 1000 rows...', 'working');
+            try {
+                const result = await sendMessage('insertData', { count: 1000 });
+                setStatus(`Inserted ${result.count} rows in ${result.duration}ms`, 'ready');
+            } catch (err) {
+                setStatus('Error', 'error');
+            }
+        };
+
+        document.getElementById('queryData').onclick = async () => {
+            setStatus('Querying data...', 'working');
+            try {
+                const result = await sendMessage('queryData');
+                log(`Query returned ${result.count} rows in ${result.duration}ms`, 'success');
+                setStatus('Query complete', 'ready');
+            } catch (err) {
+                setStatus('Error', 'error');
+            }
+        };
+
+        document.getElementById('syncDb').onclick = async () => {
+            setStatus('Syncing to IndexedDB...', 'working');
+            try {
+                await sendMessage('sync');
+                setStatus('Sync complete', 'ready');
+            } catch (err) {
+                setStatus('Error', 'error');
+            }
+        };
+
+        document.getElementById('clearDb').onclick = async () => {
+            setStatus('Clearing database...', 'working');
+            try {
+                await sendMessage('clear');
+                setStatus('Database cleared', 'ready');
+            } catch (err) {
+                setStatus('Error', 'error');
+            }
+        };
+    </script>
+</body>
+</html>

@@ -282,17 +282,18 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
   readonly sqlite3_os_init: () => number;
+  readonly wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__hddca379abe978273: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h6b7c52e54d4296f7: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h016f72c78ceb1612: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h75cad9db8e5c6c64: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
-  readonly __wbindgen_export_4: WebAssembly.Table;
-  readonly __wbindgen_export_5: WebAssembly.Table;
+  readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
-  readonly closure310_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure933_externref_shim: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__hb63076da0b75c0a3: (a: number, b: number) => void;
-  readonly closure961_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

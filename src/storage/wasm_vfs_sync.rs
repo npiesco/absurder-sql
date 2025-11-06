@@ -189,11 +189,18 @@ pub async fn persist_commit_marker_to_indexeddb(db_name: &str, commit_marker: u6
     use futures::channel::oneshot;
 
     let db_name_string = db_name.to_string();
-    let window = web_sys::window().ok_or_else(|| DatabaseError::new("WASM_ERROR", "No window object"))?;
-    let indexed_db = window
-        .indexed_db()
-        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "IndexedDB not available"))?
-        .ok_or_else(|| DatabaseError::new("INDEXEDDB_ERROR", "IndexedDB is null"))?;
+    
+    // Get IndexedDB factory (works in both Window and Worker contexts)
+    let global = js_sys::global();
+    let indexed_db_value = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("indexedDB"))
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to access indexedDB property"))?;
+    
+    if indexed_db_value.is_null() || indexed_db_value.is_undefined() {
+        return Err(DatabaseError::new("INDEXEDDB_ERROR", "IndexedDB is not available"));
+    }
+    
+    let indexed_db = indexed_db_value.dyn_into::<web_sys::IdbFactory>()
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "indexedDB is not an IdbFactory"))?;
 
     let (tx, rx) = oneshot::channel();
     let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));

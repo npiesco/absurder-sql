@@ -11,16 +11,31 @@ use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
 use std::collections::HashMap;
 
 /// Helper: Safely get IndexedDB factory
+/// Works in both Window and Worker contexts by using js_sys::global()
 #[cfg(target_arch = "wasm32")]
 fn get_indexeddb_factory() -> Result<web_sys::IdbFactory, DatabaseError> {
-    let window = web_sys::window()
-        .ok_or_else(|| DatabaseError::new("WINDOW_UNAVAILABLE", "Window object not available"))?;
+    use wasm_bindgen::JsCast;
     
-    let indexed_db = window.indexed_db()
+    // Get the global object (works in both Window and Worker contexts)
+    let global = js_sys::global();
+    
+    // Try to get indexedDB from the global object
+    // In Window: window.indexedDB
+    // In Worker: self.indexedDB or globalThis.indexedDB
+    let indexed_db_value = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("indexedDB"))
         .map_err(|e| DatabaseError::new("INDEXEDDB_ACCESS_ERROR", 
-            &format!("Failed to access IndexedDB API: {:?}", e)))?
-        .ok_or_else(|| DatabaseError::new("INDEXEDDB_UNAVAILABLE", 
-            "IndexedDB is not supported in this environment"))?;
+            &format!("Failed to access indexedDB property: {:?}", e)))?;
+    
+    // Check if indexedDB is null/undefined
+    if indexed_db_value.is_null() || indexed_db_value.is_undefined() {
+        return Err(DatabaseError::new("INDEXEDDB_UNAVAILABLE", 
+            "IndexedDB is not supported in this environment"));
+    }
+    
+    // Cast to IdbFactory
+    let indexed_db = indexed_db_value.dyn_into::<web_sys::IdbFactory>()
+        .map_err(|_| DatabaseError::new("INDEXEDDB_TYPE_ERROR", 
+            "indexedDB property is not an IdbFactory"))?;
     
     Ok(indexed_db)
 }

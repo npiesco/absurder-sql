@@ -307,21 +307,31 @@ impl super::BlockStorage {
             log::debug!("Spawning IndexedDB persistence for {} blocks", to_persist.len());
             let db_name = self.db_name.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let Some(window) = web_sys::window() else {
-                    log::error!("Window unavailable for IndexedDB persistence - cannot persist");
-                    return;
-                };
-                let idb_factory = match window.indexed_db() {
-                    Ok(Some(factory)) => factory,
-                    Ok(None) => {
-                        log::warn!("IndexedDB unavailable for persistence (private browsing?) - data not persisted to IndexedDB");
-                        return;
-                    },
+                use wasm_bindgen::JsCast;
+                
+                // Get IndexedDB factory (works in both Window and Worker contexts)
+                let global = js_sys::global();
+                let indexed_db_value = match js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("indexedDB")) {
+                    Ok(val) => val,
                     Err(_) => {
-                        log::error!("IndexedDB access denied for persistence - data not persisted to IndexedDB");
+                        log::error!("IndexedDB property access failed - cannot persist");
                         return;
                     }
                 };
+                
+                if indexed_db_value.is_null() || indexed_db_value.is_undefined() {
+                    log::warn!("IndexedDB unavailable for persistence (private browsing?) - data not persisted to IndexedDB");
+                    return;
+                }
+                
+                let idb_factory = match indexed_db_value.dyn_into::<web_sys::IdbFactory>() {
+                    Ok(factory) => factory,
+                    Err(_) => {
+                        log::error!("IndexedDB property is not an IdbFactory - cannot persist");
+                        return;
+                    }
+                };
+                
                 let open_req = match idb_factory.open_with_u32("block_storage", 2) {
                     Ok(req) => req,
                     Err(e) => {
