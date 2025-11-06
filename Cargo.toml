@@ -7,6 +7,7 @@ license = "AGPL-3.0"
 repository = "https://github.com/npiesco/absurder-sql"
 edition = "2024"
 rust-version = "1.85.0"
+exclude = ["pwa/", "pwa/.next/", "pwa/node_modules/"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-Oz"]  # Optimize for size
