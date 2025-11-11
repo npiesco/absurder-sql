@@ -41,7 +41,7 @@ But AbsurderSQL takes it further: it's **absurdly better**. Unlike absurd-sql, y
 
 A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**:
 
-- **Browser (WASM)**: SQLite → IndexedDB with multi-tab coordination and full export/import
+- **Browser (WASM)**: SQLite → IndexedDB with multi-tab coordination, Web Worker support, and full export/import
 - **Native/CLI**: SQLite → Real filesystem with traditional `.db` files
 
 **Unique Advantages:** 
@@ -240,6 +240,8 @@ absurder-sql/
 │   ├── web_demo.html       # Full-featured web interface
 │   ├── benchmark.html      # Performance comparison tool
 │   ├── multi-tab-demo.html # Multi-tab coordination demo
+│   ├── worker-example.html # Web Worker demo
+│   ├── worker-db.js        # Web Worker implementation
 │   ├── devtools_demo.html  # DevTools extension telemetry demo
 │   └── DEMO_GUIDE.md       # Demo usage guide
 │
@@ -677,6 +679,58 @@ await db.sync();
 // Close
 await db.close();
 ```
+
+### Web Worker Support
+
+AbsurderSQL fully supports Web Workers for off-thread database operations, keeping your main thread responsive during heavy database work:
+
+```javascript
+// worker.js
+import init, { Database } from '@npiesco/absurder-sql';
+
+self.onmessage = async function(e) {
+  // Initialize WASM in worker
+  await init();
+  
+  const db = await Database.newDatabase('worker_db.db');
+  
+  // Workers don't have localStorage for leader election
+  // Enable non-leader writes for worker context
+  db.allowNonLeaderWrites(true);
+  
+  // Perform database operations
+  await db.execute('CREATE TABLE data (id INTEGER, value TEXT)');
+  await db.execute("INSERT INTO data VALUES (1, 'processed in worker')");
+  
+  // Sync to IndexedDB
+  await db.sync();
+  
+  const result = await db.execute('SELECT * FROM data');
+  await db.close();
+  
+  // Send results back to main thread
+  self.postMessage({ success: true, rows: result.rows });
+};
+```
+
+```javascript
+// main.js
+const worker = new Worker('/worker.js', { type: 'module' });
+
+worker.onmessage = (e) => {
+  console.log('Worker result:', e.data);
+};
+
+worker.postMessage({ type: 'processData' });
+```
+
+**Key Points:**
+- IndexedDB access works in both Window and Worker contexts
+- Workers don't have `localStorage`, so use `db.allowNonLeaderWrites(true)` for single-worker scenarios
+- All database operations run off the main thread
+- Perfect for heavy data processing, imports, or background sync
+
+**Example:** See `examples/worker-example.html` for a complete working demo
 
 ### Native/CLI Usage (Filesystem)
 

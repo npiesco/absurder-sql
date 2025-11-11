@@ -1292,8 +1292,15 @@ impl Drop for Database {
 impl Database {
     #[wasm_bindgen(js_name = "newDatabase")]
     pub async fn new_wasm(name: String) -> Result<Database, JsValue> {
+        // Normalize database name: ensure it has .db suffix
+        let normalized_name = if name.ends_with(".db") {
+            name.clone()
+        } else {
+            format!("{}.db", name)
+        };
+        
         let config = DatabaseConfig {
-            name: name.clone(),
+            name: normalized_name.clone(),
             version: Some(1),
             cache_size: Some(10_000),
             page_size: Some(4096),
@@ -1307,9 +1314,268 @@ impl Database {
             .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
         
         // Start listening for write queue requests (leader will process them)
-        Self::start_write_queue_listener(&name)?;
+        Self::start_write_queue_listener(&normalized_name)?;
+        
+        // Track database in persistent list
+        if let Err(e) = Self::add_database_to_persistent_list(&normalized_name) {
+            log::warn!("Failed to add database to persistent list: {:?}", e);
+        }
         
         Ok(db)
+    }
+    
+    /// Get all database names stored in IndexedDB
+    /// 
+    /// Returns an array of database names (sorted alphabetically)
+    #[wasm_bindgen(js_name = "getAllDatabases")]
+    pub async fn get_all_databases() -> Result<JsValue, JsValue> {
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use crate::storage::vfs_sync::with_global_storage;
+        use std::collections::HashSet;
+        
+        log::info!("getAllDatabases called");
+        let mut db_names = HashSet::new();
+        
+        // Get databases from persistent list (localStorage)
+        match Self::get_persistent_database_list() {
+            Ok(persistent_list) => {
+                log::info!("Persistent list has {} entries", persistent_list.len());
+                for name in persistent_list {
+                    log::info!("Found in persistent list: {}", name);
+                    db_names.insert(name);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get persistent list: {:?}", e);
+            }
+        }
+        
+        // Get databases from STORAGE_REGISTRY (currently open)
+        STORAGE_REGISTRY.with(|reg| {
+            let registry = reg.borrow();
+            log::info!("STORAGE_REGISTRY has {} entries", registry.len());
+            for key in registry.keys() {
+                log::info!("Found in STORAGE_REGISTRY: {}", key);
+                db_names.insert(key.clone());
+            }
+        });
+        
+        // Get databases from GLOBAL_STORAGE (in-memory persistent storage)
+        with_global_storage(|gs| {
+            let storage = gs.borrow();
+            log::info!("GLOBAL_STORAGE has {} entries", storage.len());
+            for key in storage.keys() {
+                log::info!("Found in GLOBAL_STORAGE: {}", key);
+                db_names.insert(key.clone());
+            }
+        });
+        
+        log::info!("Total unique databases found: {}", db_names.len());
+        
+        // Convert to sorted vector
+        let mut result_vec: Vec<String> = db_names.into_iter().collect();
+        result_vec.sort();
+        
+        // Convert to JavaScript array
+        let js_array = js_sys::Array::new();
+        for name in &result_vec {
+            log::info!("Returning database: {}", name);
+            js_array.push(&JsValue::from_str(name));
+        }
+        
+        log::info!("getAllDatabases returning {} databases", result_vec.len());
+        
+        Ok(js_array.into())
+    }
+    
+    /// Delete a database from storage
+    /// 
+    /// Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
+    #[wasm_bindgen(js_name = "deleteDatabase")]
+    pub async fn delete_database(name: String) -> Result<(), JsValue> {
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        use crate::storage::vfs_sync::{with_global_storage, with_global_metadata, with_global_commit_marker};
+        
+        // Normalize database name
+        let normalized_name = if name.ends_with(".db") {
+            name.clone()
+        } else {
+            format!("{}.db", name)
+        };
+        
+        log::info!("Deleting database: {}", normalized_name);
+        
+        // Remove from STORAGE_REGISTRY
+        STORAGE_REGISTRY.with(|reg| {
+            let mut registry = reg.borrow_mut();
+            registry.remove(&normalized_name);
+        });
+        
+        // Remove from GLOBAL_STORAGE
+        with_global_storage(|gs| {
+            let mut storage = gs.borrow_mut();
+            storage.remove(&normalized_name);
+        });
+        
+        // Remove from GLOBAL_METADATA
+        with_global_metadata(|gm| {
+            let mut metadata = gm.borrow_mut();
+            metadata.remove(&normalized_name);
+        });
+        
+        // Remove from commit markers
+        with_global_commit_marker(|cm| {
+            let mut markers = cm.borrow_mut();
+            markers.remove(&normalized_name);
+        });
+        
+        // Delete from IndexedDB
+        let idb_name = format!("absurder_{}", normalized_name);
+        let _delete_promise = js_sys::eval(&format!(
+            "indexedDB.deleteDatabase('{}')",
+            idb_name
+        )).map_err(|e| JsValue::from_str(&format!("Failed to delete IndexedDB: {:?}", e)))?;
+        
+        log::info!("Database deleted: {}", normalized_name);
+        
+        // Remove from persistent list
+        Self::remove_database_from_persistent_list(&normalized_name)?;
+        
+        Ok(())
+    }
+    
+    /// Add database name to persistent list in localStorage
+    fn add_database_to_persistent_list(db_name: &str) -> Result<(), JsValue> {
+        log::info!("add_database_to_persistent_list called for: {}", db_name);
+        
+        let window = web_sys::window().ok_or_else(|| {
+            log::error!("No window object");
+            JsValue::from_str("No window")
+        })?;
+        
+        let storage = window.local_storage()
+            .map_err(|e| {
+                log::error!("Failed to get localStorage: {:?}", e);
+                JsValue::from_str("No localStorage")
+            })?
+            .ok_or_else(|| {
+                log::error!("localStorage not available");
+                JsValue::from_str("localStorage not available")
+            })?;
+        
+        let key = "absurder_db_list";
+        let existing = storage.get_item(key).map_err(|e| {
+            log::error!("Failed to read localStorage key {}: {:?}", key, e);
+            JsValue::from_str("Failed to read localStorage")
+        })?;
+        
+        log::debug!("Existing localStorage value: {:?}", existing);
+        
+        let mut db_list: Vec<String> = if let Some(json_str) = existing {
+            match serde_json::from_str(&json_str) {
+                Ok(list) => {
+                    log::debug!("Parsed existing list: {:?}", list);
+                    list
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse localStorage JSON: {}, starting fresh", e);
+                    Vec::new()
+                }
+            }
+        } else {
+            log::debug!("No existing list, creating new");
+            Vec::new()
+        };
+        
+        if !db_list.contains(&db_name.to_string()) {
+            db_list.push(db_name.to_string());
+            db_list.sort();
+            log::debug!("Updated list: {:?}", db_list);
+            
+            let json_str = serde_json::to_string(&db_list).map_err(|e| {
+                log::error!("Failed to serialize list: {}", e);
+                JsValue::from_str("Failed to serialize")
+            })?;
+            
+            log::debug!("Writing to localStorage: {}", json_str);
+            
+            storage.set_item(key, &json_str).map_err(|e| {
+                log::error!("Failed to write to localStorage: {:?}", e);
+                JsValue::from_str("Failed to write localStorage")
+            })?;
+            
+            log::info!("Successfully added {} to persistent database list", db_name);
+        } else {
+            log::info!("{} already in persistent list", db_name);
+        }
+        
+        Ok(())
+    }
+    
+    /// Remove database name from persistent list in localStorage
+    fn remove_database_from_persistent_list(db_name: &str) -> Result<(), JsValue> {
+        let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+        let storage = window.local_storage()
+            .map_err(|_| JsValue::from_str("No localStorage"))?
+            .ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        
+        let key = "absurder_db_list";
+        let existing = storage.get_item(key).map_err(|_| JsValue::from_str("Failed to read localStorage"))?;
+        
+        if let Some(json_str) = existing {
+            let mut db_list: Vec<String> = serde_json::from_str(&json_str).unwrap_or_else(|_| Vec::new());
+            db_list.retain(|name| name != db_name);
+            let json_str = serde_json::to_string(&db_list).map_err(|_| JsValue::from_str("Failed to serialize"))?;
+            storage.set_item(key, &json_str).map_err(|_| JsValue::from_str("Failed to write localStorage"))?;
+            log::info!("Removed {} from persistent database list", db_name);
+        }
+        
+        Ok(())
+    }
+    
+    /// Get database names from persistent list in localStorage
+    fn get_persistent_database_list() -> Result<Vec<String>, JsValue> {
+        log::info!("get_persistent_database_list called");
+        
+        let window = web_sys::window().ok_or_else(|| {
+            log::error!("No window object");
+            JsValue::from_str("No window")
+        })?;
+        
+        let storage = window.local_storage()
+            .map_err(|e| {
+                log::error!("Failed to get localStorage: {:?}", e);
+                JsValue::from_str("No localStorage")
+            })?
+            .ok_or_else(|| {
+                log::error!("localStorage not available");
+                JsValue::from_str("localStorage not available")
+            })?;
+        
+        let key = "absurder_db_list";
+        let existing = storage.get_item(key).map_err(|e| {
+            log::error!("Failed to read localStorage key {}: {:?}", key, e);
+            JsValue::from_str("Failed to read localStorage")
+        })?;
+        
+        log::debug!("Read from localStorage: {:?}", existing);
+        
+        if let Some(json_str) = existing {
+            match serde_json::from_str::<Vec<String>>(&json_str) {
+                Ok(db_list) => {
+                    log::info!("Successfully parsed {} databases from localStorage", db_list.len());
+                    log::debug!("Database list: {:?}", db_list);
+                    Ok(db_list)
+                }
+                Err(e) => {
+                    log::error!("Failed to parse localStorage JSON: {}", e);
+                    Ok(Vec::new())
+                }
+            }
+        } else {
+            log::info!("No persistent database list in localStorage");
+            Ok(Vec::new())
+        }
     }
     
     /// Start listening for write queue requests (leader processes these)

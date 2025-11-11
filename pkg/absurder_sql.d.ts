@@ -43,6 +43,18 @@ export class Database {
   free(): void;
   [Symbol.dispose](): void;
   static newDatabase(name: string): Promise<Database>;
+  /**
+   * Get all database names stored in IndexedDB
+   * 
+   * Returns an array of database names (sorted alphabetically)
+   */
+  static getAllDatabases(): Promise<any>;
+  /**
+   * Delete a database from storage
+   * 
+   * Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
+   */
+  static deleteDatabase(name: string): Promise<void>;
   execute(sql: string): Promise<any>;
   executeWithParams(sql: string, params: any): Promise<any>;
   close(): Promise<void>;
@@ -220,6 +232,8 @@ export interface InitOutput {
   readonly init_logger: () => void;
   readonly __wbg_database_free: (a: number, b: number) => void;
   readonly database_newDatabase: (a: number, b: number) => any;
+  readonly database_getAllDatabases: () => any;
+  readonly database_deleteDatabase: (a: number, b: number) => any;
   readonly database_execute: (a: number, b: number, c: number) => any;
   readonly database_executeWithParams: (a: number, b: number, c: number, d: any) => any;
   readonly database_close: (a: number) => any;
@@ -284,9 +298,9 @@ export interface InitOutput {
   readonly sqlite3_os_init: () => number;
   readonly wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__hddca379abe978273: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h6b7c52e54d4296f7: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h016f72c78ceb1612: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h75cad9db8e5c6c64: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h664825a3f589e875: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h64b5ea0699d2d09b: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h2f695ecdfc88e9e0: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
