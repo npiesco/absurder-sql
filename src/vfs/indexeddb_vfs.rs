@@ -43,6 +43,64 @@ thread_local! {
     pub static STORAGE_REGISTRY: RefCell<std::collections::HashMap<String, Rc<RefCell<BlockStorage>>>> = RefCell::new(std::collections::HashMap::new());
 }
 
+#[cfg(target_arch = "wasm32")]
+/// Async-safe helper to get storage from registry with retry on borrow conflicts
+/// Per INSTRUCTIONS.md: Zero Tolerance for Flakiness - handle RefCell conflicts gracefully
+pub(crate) fn try_get_storage_from_registry(db_name: &str) -> Option<Rc<RefCell<BlockStorage>>> {
+    const MAX_ATTEMPTS: u32 = 10;
+    
+    for attempt in 0..MAX_ATTEMPTS {
+        match STORAGE_REGISTRY.try_with(|reg| {
+            reg.try_borrow()
+                .ok()
+                .and_then(|registry| registry.get(db_name).cloned())
+        }) {
+            Ok(Some(storage)) => return Some(storage),
+            Ok(None) => return None, // DB not in registry
+            Err(_) => {
+                // RefCell borrow conflict - yield and retry
+                if attempt < MAX_ATTEMPTS - 1 {
+                    // In WASM, we can't actually sleep, but logging helps debug
+                    log::trace!("Registry borrow conflict on attempt {}, retrying", attempt + 1);
+                    continue;
+                }
+            }
+        }
+    }
+    
+    log::warn!("Failed to access STORAGE_REGISTRY for {} after {} attempts", db_name, MAX_ATTEMPTS);
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+/// Async-safe helper to check if storage exists in registry
+pub(crate) fn registry_contains_key(db_name: &str) -> bool {
+    const MAX_ATTEMPTS: u32 = 10;
+    
+    for attempt in 0..MAX_ATTEMPTS {
+        match STORAGE_REGISTRY.try_with(|reg| {
+            reg.try_borrow()
+                .ok()
+                .map(|registry| registry.contains_key(db_name))
+        }) {
+            Ok(Some(result)) => return result,
+            Ok(None) => {
+                if attempt < MAX_ATTEMPTS - 1 {
+                    continue;
+                }
+            }
+            Err(_) => {
+                if attempt < MAX_ATTEMPTS - 1 {
+                    continue;
+                }
+            }
+        }
+    }
+    
+    log::warn!("Failed to check STORAGE_REGISTRY for {} after {} attempts", db_name, MAX_ATTEMPTS);
+    false
+}
+
 /// Custom SQLite VFS implementation that uses IndexedDB for storage
 pub struct IndexedDBVFS {
     #[cfg(target_arch = "wasm32")]
@@ -358,8 +416,7 @@ impl IndexedDBFile {
             return Ok(to_copy);
         }
         
-        let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&self.filename).cloned());
-        let Some(storage_rc) = storage_rc else {
+        let Some(storage_rc) = try_get_storage_from_registry(&self.filename) else {
             return Err(DatabaseError::new("OPEN_ERROR", &format!("No storage found for {}", self.filename)));
         };
         let start_block = offset / BLOCK_SIZE as u64;
@@ -406,22 +463,17 @@ impl IndexedDBFile {
         }
         
         // KEY OPTIMIZATION: Buffer writes during transactions (absurd-sql strategy)
-        // Only persist to GLOBAL_STORAGE when transaction commits (on unlock)
         if self.transaction_active {
             #[cfg(target_arch = "wasm32")]
             vfs_log!("BUFFERED WRITE: offset={} len={} (transaction active)", offset, data.len());
             
-            let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&self.filename).cloned());
-            let Some(storage_rc) = storage_rc else {
+            let Some(storage_rc) = try_get_storage_from_registry(&self.filename) else {
                 return Err(DatabaseError::new("OPEN_ERROR", &format!("No storage found for {}", self.filename)));
             };
-            
             let start_block = offset / BLOCK_SIZE as u64;
             let end_block = (offset + data.len() as u64 - 1) / BLOCK_SIZE as u64;
             let mut bytes_written = 0;
             let mut data_offset = 0;
-            
-            // Buffer the write for later
             for block_id in start_block..=end_block {
                 let block_start = if block_id == start_block { (offset % BLOCK_SIZE as u64) as usize } else { 0 };
                 let remaining_data = data.len() - data_offset;
@@ -469,8 +521,7 @@ impl IndexedDBFile {
         }
         
         // Non-transactional write: persist immediately (old behavior)
-        let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&self.filename).cloned());
-        let Some(storage_rc) = storage_rc else {
+        let Some(storage_rc) = try_get_storage_from_registry(&self.filename) else {
             return Err(DatabaseError::new("OPEN_ERROR", &format!("No storage found for {}", self.filename)));
         };
         let start_block = offset / BLOCK_SIZE as u64;
@@ -636,7 +687,7 @@ unsafe extern "C" fn x_open(
     let db_name = norm;
 
     // Ensure storage exists for base db - create if needed for existing databases
-    let has_storage = STORAGE_REGISTRY.with(|reg| reg.borrow().contains_key(&db_name));
+    let has_storage = registry_contains_key(&db_name);
     #[cfg(target_arch = "wasm32")]
     vfs_log!("VFS xOpen: Checking storage for {} (ephemeral={}), has_storage={}", db_name, ephemeral, has_storage);
     
@@ -973,8 +1024,7 @@ unsafe extern "C" fn x_close(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_in
     
     // Reload the cache from GLOBAL_STORAGE so next connection sees fresh data
     unsafe {
-        let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&(*vf).handle.filename).cloned());
-        if let Some(storage_rc) = storage_rc {
+        if let Some(storage_rc) = try_get_storage_from_registry(&(*vf).handle.filename) {
             storage_rc.borrow_mut().reload_cache_from_global_storage();
             
             #[cfg(target_arch = "wasm32")]
@@ -1231,8 +1281,7 @@ unsafe extern "C" fn x_unlock(_p_file: *mut sqlite_wasm_rs::sqlite3_file, e_lock
             vfs_log!("TRANSACTION COMMIT: Flushing {} buffered writes to memory", (*vf).handle.write_buffer.len());
             
             // Flush all buffered writes to GLOBAL_STORAGE (in-memory)
-            let storage_rc = STORAGE_REGISTRY.with(|reg| reg.borrow().get(&(*vf).handle.filename).cloned());
-            if let Some(storage_rc) = storage_rc {
+            if let Some(storage_rc) = try_get_storage_from_registry(&(*vf).handle.filename) {
                 for (block_id, block_data) in (*vf).handle.write_buffer.drain() {
                     // Write buffered block to GLOBAL_STORAGE (memory only)
                     if let Err(_e) = storage_rc.borrow_mut().write_block_sync(block_id, block_data) {

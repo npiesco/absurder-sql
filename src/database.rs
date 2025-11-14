@@ -185,12 +185,12 @@ impl SqliteIndexedDB {
             log::debug!("Setting cache_size: {}", sql);
             let mut stmt = self.connection.prepare(&sql)
                 .map_err(|e| {
-                    log::warn!("Failed to prepare cache_size statement: {}", e);
+                    log::warn!("Failed to prepare cache_size statement: {:?}", e);
                     DatabaseError::from(e)
                 })?;
             let _ = stmt.query_map([], |_| Ok(()))
                 .map_err(|e| {
-                    log::warn!("Failed to set cache_size: {}", e);
+                    log::warn!("Failed to set cache_size: {:?}", e);
                     DatabaseError::from(e)
                 })?;
         }
@@ -200,12 +200,12 @@ impl SqliteIndexedDB {
             log::debug!("Setting page_size: {}", sql);
             let mut stmt = self.connection.prepare(&sql)
                 .map_err(|e| {
-                    log::warn!("Failed to prepare page_size statement: {}", e);
+                    log::warn!("Failed to prepare page_size statement: {:?}", e);
                     DatabaseError::from(e)
                 })?;
             let _ = stmt.query_map([], |_| Ok(()))
                 .map_err(|e| {
-                    log::warn!("Failed to set page_size: {}", e);
+                    log::warn!("Failed to set page_size: {:?}", e);
                     DatabaseError::from(e)
                 })?;
         }
@@ -215,12 +215,12 @@ impl SqliteIndexedDB {
             log::debug!("Setting journal_mode: {}", sql);
             let mut stmt = self.connection.prepare(&sql)
                 .map_err(|e| {
-                    log::warn!("Failed to prepare journal_mode statement: {}", e);
+                    log::warn!("Failed to prepare journal_mode statement: {:?}", e);
                     DatabaseError::from(e)
                 })?;
             let _ = stmt.query_map([], |_| Ok(()))
                 .map_err(|e| {
-                    log::warn!("Failed to set journal_mode: {}", e);
+                    log::warn!("Failed to set journal_mode: {:?}", e);
                     DatabaseError::from(e)
                 })?;
         }
