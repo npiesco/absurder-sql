@@ -59,34 +59,6 @@ async fn test_concurrent_database_operations_no_panic() {
     Database::delete_database(db2_name).await.ok();
 }
 
-/// Educational test showing RefCell limitations (not run in test suite)
-/// This demonstrates WHY we needed to implement try_get_storage_from_registry()
-#[wasm_bindgen_test]
-#[ignore] // Skip in normal test runs - this is documentation of the problem
-fn test_refcell_borrow_semantics_demo() {
-    use std::cell::RefCell;
-    use std::panic::AssertUnwindSafe;
-    
-    let cell = RefCell::new(42);
-    
-    // Sequential borrows work fine
-    {
-        let _borrow1 = cell.borrow_mut();
-    }
-    {
-        let _borrow2 = cell.borrow_mut();
-    }
-    
-    // Concurrent borrows panic - this is what used to happen in STORAGE_REGISTRY
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let _borrow1 = cell.borrow_mut();
-        let _borrow2 = cell.borrow_mut(); // PANIC: already borrowed
-    }));
-    
-    // This demonstrates RefCell is NOT async-safe (the problem we fixed)
-    assert!(result.is_err(), "RefCell should panic on concurrent borrow_mut");
-}
-
 /// RED: Multiple separate databases querying concurrently
 /// This mirrors 6 Playwright workers all hitting the Next.js server at once
 #[wasm_bindgen_test]

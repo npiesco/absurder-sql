@@ -5,7 +5,7 @@
     "Nicholas G. Piesco"
   ],
   "description": "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",
