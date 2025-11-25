@@ -36,13 +36,30 @@ use super::export::validate_sqlite_file;
 /// ```
 pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> {
     use super::vfs_sync::{
-        with_global_storage, 
+        with_global_storage,
         with_global_commit_marker,
         with_global_allocation_map
     };
-    
+
     log::info!("Clearing storage for database: {}", db_name);
-    
+
+    // CRITICAL: Remove from STORAGE_REGISTRY so a fresh BlockStorage is created on next open
+    // This prevents stale state (local cache, dirty_blocks) from being reused
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::vfs::indexeddb_vfs::remove_storage_from_registry(db_name);
+        log::debug!("Removed {} from STORAGE_REGISTRY", db_name);
+    }
+
+    // CRITICAL: Force close connection pool entry to reset SQLite internal state
+    // Without this, SQLite may use cached pages from the old database
+    #[cfg(target_arch = "wasm32")]
+    {
+        let pool_key = db_name.trim_end_matches(".db");
+        crate::connection_pool::force_close_connection(pool_key);
+        log::debug!("Force closed connection pool for {}", pool_key);
+    }
+
     // Clear GLOBAL_STORAGE blocks
     with_global_storage(|gs| {
         let mut storage = gs.borrow_mut();
@@ -74,7 +91,10 @@ pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> 
     {
         use super::block_storage::GLOBAL_METADATA_TEST;
         GLOBAL_METADATA_TEST.with(|gm| {
-            let mut metadata = gm.borrow_mut();
+            #[cfg(target_arch = "wasm32")]
+            let metadata = gm;
+            #[cfg(not(target_arch = "wasm32"))]
+            let mut metadata = gm.lock();
             if let Some(meta) = metadata.get_mut(db_name) {
                 let count = meta.len();
                 meta.clear();
@@ -161,11 +181,21 @@ pub async fn import_database_from_bytes(
     validate_sqlite_file(&data)?;
     log::debug!("SQLite file validation passed");
     
-    // Step 2: Clear existing storage
+    // Step 2: Clear existing storage from memory (this also does registry and connection pool cleanup)
     clear_database_storage(db_name).await?;
-    log::debug!("Existing storage cleared");
-    
-    // Step 3: Split data into BLOCK_SIZE chunks
+    log::debug!("Existing storage cleared from memory");
+
+    // Step 3: Delete ALL old blocks from IndexedDB (without needing to know block IDs)
+    // This is critical because close() clears GLOBAL_ALLOCATION_MAP, so we can't rely on it
+    // to know which blocks exist. Instead, scan IndexedDB directly.
+    #[cfg(target_arch = "wasm32")]
+    {
+        log::debug!("Deleting all existing blocks from IndexedDB for: {}", db_name);
+        super::wasm_indexeddb::delete_all_database_blocks_from_indexeddb(db_name).await?;
+        log::debug!("All old blocks deleted from IndexedDB");
+    }
+
+    // Step 4: Split data into BLOCK_SIZE chunks
     let total_blocks = (data.len() + BLOCK_SIZE - 1) / BLOCK_SIZE;
     log::debug!(
         "Splitting {} bytes into {} blocks of {} bytes",
@@ -205,16 +235,14 @@ pub async fn import_database_from_bytes(
     
     // Step 5: Write blocks to GLOBAL_STORAGE
     with_global_storage(|gs| {
-        let mut storage = gs.borrow_mut();
-        storage.insert(db_name.to_string(), blocks.clone());
+        gs.borrow_mut().insert(db_name.to_string(), blocks.clone());
     });
     
     log::debug!("Blocks written to GLOBAL_STORAGE");
     
     // Step 6: Update allocation map
     with_global_allocation_map(|gam| {
-        let mut alloc = gam.borrow_mut();
-        alloc.insert(db_name.to_string(), allocated_ids.clone());
+        gam.borrow_mut().insert(db_name.to_string(), allocated_ids.clone());
     });
     
     log::debug!("Allocation map updated");
@@ -229,9 +257,8 @@ pub async fn import_database_from_bytes(
         use super::metadata::{BlockMetadataPersist, ChecksumManager, ChecksumAlgorithm};
         
         with_global_metadata(|gm| {
-            let mut metadata = gm.borrow_mut();
             let mut db_metadata = std::collections::HashMap::new();
-            
+
             for block_id in allocated_ids.iter() {
                 // Calculate checksum for each block using CRC32 (standard algorithm)
                 let checksum = if let Some(block_data) = blocks.get(block_id) {
@@ -239,7 +266,7 @@ pub async fn import_database_from_bytes(
                 } else {
                     0
                 };
-                
+
                 db_metadata.insert(*block_id, BlockMetadataPersist {
                     version: 1,  // All imported blocks start at version 1
                     checksum,
@@ -247,8 +274,8 @@ pub async fn import_database_from_bytes(
                     algo: ChecksumAlgorithm::CRC32,
                 });
             }
-            
-            metadata.insert(db_name.to_string(), db_metadata);
+
+            gm.borrow_mut().insert(db_name.to_string(), db_metadata);
         });
         
         log::debug!("Metadata created for {} blocks in global storage (WASM)", allocated_ids.len());
@@ -261,7 +288,10 @@ pub async fn import_database_from_bytes(
         use super::metadata::{BlockMetadataPersist, ChecksumManager, ChecksumAlgorithm};
         
         GLOBAL_METADATA_TEST.with(|gm| {
-            let mut metadata = gm.borrow_mut();
+            #[cfg(target_arch = "wasm32")]
+            let metadata = gm;
+            #[cfg(not(target_arch = "wasm32"))]
+            let mut metadata = gm.lock();
             let mut db_metadata = std::collections::HashMap::new();
             
             for block_id in allocated_ids.iter() {
@@ -373,27 +403,68 @@ pub async fn import_database_from_bytes(
     // Step 8: Set commit marker to 1 to make all imported blocks visible
     use super::vfs_sync::with_global_commit_marker;
     with_global_commit_marker(|gcm| {
-        let mut markers = gcm.borrow_mut();
-        markers.insert(db_name.to_string(), 1);
+        gcm.borrow_mut().insert(db_name.to_string(), 1);
     });
     
     log::debug!("Commit marker set to 1 for immediate visibility");
     
-    // Step 10: For WASM, sync to IndexedDB to make data persistent
+    // Step 10: For WASM, sync imported data to IndexedDB immediately and WAIT for it
     #[cfg(target_arch = "wasm32")]
     {
         log::debug!("Syncing imported data to IndexedDB for {}", db_name);
         
-        // We need to trigger a sync to persist the imported data to IndexedDB
-        // Use the wasm_vfs_sync module to sync the data
-        use super::wasm_vfs_sync::vfs_sync_database;
+        // Advance commit marker
+        let next_commit = with_global_commit_marker(|cm| {
+            let current = cm.borrow().get(db_name).copied().unwrap_or(0);
+            let new_marker = current + 1;
+            cm.borrow_mut().insert(db_name.to_string(), new_marker);
+            new_marker
+        });
         
-        vfs_sync_database(db_name).map_err(|e| {
-            log::error!("Failed to sync imported data to IndexedDB: {}", e);
-            DatabaseError::new("IMPORT_SYNC_FAILED", &format!("Failed to persist imported data: {}", e))
-        })?;
+        // Collect blocks and metadata to persist
+        let (blocks_to_persist, metadata_to_persist) = {
+            use super::vfs_sync::with_global_metadata;
+            with_global_storage(|storage| {
+                let blocks = if let Some(db_storage) = storage.borrow().get(db_name) {
+                    db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                
+                let metadata = with_global_metadata(|meta| {
+                    if let Some(db_meta) = meta.borrow().get(db_name) {
+                        db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    }
+                });
+                
+                (blocks, metadata)
+            })
+        };
         
-        log::debug!("IndexedDB sync complete for {}", db_name);
+        if !blocks_to_persist.is_empty() {
+            log::debug!("Persisting {} blocks to IndexedDB with commit marker {}", blocks_to_persist.len(), next_commit);
+            
+            // CRITICAL: AWAIT the persistence to complete BEFORE returning
+            super::wasm_indexeddb::persist_to_indexeddb_event_based(
+                db_name,
+                blocks_to_persist,
+                metadata_to_persist,
+                next_commit,
+                #[cfg(feature = "telemetry")]
+                None,
+                #[cfg(feature = "telemetry")]
+                None,
+            ).await.map_err(|e| {
+                log::error!("Failed to persist imported data to IndexedDB: {}", e);
+                DatabaseError::new("IMPORT_SYNC_FAILED", &format!("Failed to persist imported data: {}", e))
+            })?;
+            
+            log::debug!("Import sync to IndexedDB complete for {}", db_name);
+        } else {
+            log::warn!("No blocks to persist to IndexedDB for {}", db_name);
+        }
     }
     
     log::info!(
@@ -403,19 +474,28 @@ pub async fn import_database_from_bytes(
         data.len()
     );
     
+    // DEBUG: Log what blocks were actually imported
+    #[cfg(target_arch = "wasm32")]
+    {
+        use super::vfs_sync::with_global_storage;
+        with_global_storage(|storage_map| {
+            if let Some(db_storage) = storage_map.borrow().get(db_name) {
+                web_sys::console::log_1(&format!("[IMPORT] GLOBAL_STORAGE now has {} blocks for {}", db_storage.len(), db_name).into());
+                for (block_id, data) in db_storage.iter().take(5) {
+                    web_sys::console::log_1(&format!("[IMPORT] Block {} has {} bytes, first 16: {:02x?}", block_id, data.len(), &data[..16.min(data.len())]).into());
+                }
+            }
+        });
+    }
+    
     Ok(())
 }
 
 /// Invalidate BlockStorage caches for a specific database
 ///
-/// This function signals that any BlockStorage instances for the specified database
-/// should invalidate their caches. This is important after importing to prevent
-/// reading stale cached data.
-///
-/// **Note**: This is a best-effort notification mechanism. BlockStorage instances
-/// must call `on_database_import()` on themselves to actually clear their caches.
-/// This function serves as documentation and a placeholder for future automatic
-/// cache invalidation mechanisms.
+/// This function removes the BlockStorage from the registry, forcing a fresh
+/// instance to be created on next open. This ensures no stale cached data
+/// is read after an import operation.
 ///
 /// # Arguments
 /// * `db_name` - Name of the database whose caches should be invalidated
@@ -424,22 +504,18 @@ pub async fn import_database_from_bytes(
 /// ```rust
 /// use absurder_sql::storage::import::invalidate_block_storage_caches;
 ///
-/// // After importing a database, signal that caches should be cleared
+/// // After importing a database, clear caches
 /// invalidate_block_storage_caches("mydb");
 /// ```
 pub fn invalidate_block_storage_caches(db_name: &str) {
-    log::info!(
-        "Cache invalidation signal sent for database '{}'. \
-        BlockStorage instances should call on_database_import() to clear caches.",
-        db_name
-    );
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::vfs::indexeddb_vfs::remove_storage_from_registry(db_name);
+        log::info!("Removed BlockStorage from registry for: {}", db_name);
+    }
     
-    // Currently this is a documentation/logging function
-    // In the future, this could:
-    // - Send a broadcast message via channels
-    // - Update a global "invalidation generation" counter
-    // - Trigger callbacks registered by BlockStorage instances
-    //
-    // For now, applications should manually call storage.on_database_import()
-    // after importing a database if they have active BlockStorage instances.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        log::info!("Cache invalidation for native not yet implemented for: {}", db_name);
+    }
 }

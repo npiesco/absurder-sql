@@ -1,6 +1,52 @@
 //! I/O operations for BlockStorage
 //! This module contains block reading and writing functionality
 
+// Reentrancy-safe lock macros
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in io_operations.rs")
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! try_lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut().ok()
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! try_lock_mutex {
+    ($mutex:expr) => {
+        Some($mutex.lock())
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! try_read_lock {
+    ($mutex:expr) => {
+        $mutex.try_borrow().ok()
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! try_read_lock {
+    ($mutex:expr) => {
+        Some($mutex.lock())
+    };
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::Ordering;
 use crate::types::DatabaseError;
@@ -21,11 +67,20 @@ use std::{fs, io::Read, path::PathBuf};
 use super::block_storage::GLOBAL_METADATA_TEST;
 
 /// Synchronous block read implementation
-pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
+pub fn read_block_sync_impl(storage: &BlockStorage, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
         // Skip auto_sync check for reads - only writes trigger sync
         
-        // Check cache first (both native and WASM)
-        if let Some(data) = storage.cache.get(&block_id).cloned() {
+        // Check cache first - use try_read_lock to handle reentrancy
+        let cached_data = try_read_lock!(storage.cache)
+            .and_then(|cache| cache.get(&block_id).cloned());
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let cache_hit = cached_data.is_some();
+            web_sys::console::log_1(&format!("[READ_DEBUG] db={}, block_id={}, cache_hit={}", storage.db_name, block_id, cache_hit).into());
+        }
+
+        if let Some(data) = cached_data {
             // Record cache hit
             #[cfg(feature = "telemetry")]
             if let Some(ref metrics) = storage.metrics {
@@ -40,8 +95,11 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             }
             // Only update LRU when close to capacity to avoid O(n) overhead on every read
             // This maintains correctness for eviction while optimizing hot-path performance
-            if storage.cache.len() > (storage.capacity * 4 / 5) {
-                storage.touch_lru(block_id);
+            if let Some(cache) = try_read_lock!(storage.cache) {
+                if cache.len() > (storage.capacity * 4 / 5) {
+                    drop(cache); // Drop read lock before calling touch_lru
+                    storage.touch_lru(block_id);
+                }
             }
             
             return Ok(data);
@@ -64,25 +122,38 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                 // Block 0 (database header) is always visible
                 if block_id == 0 {
                     let data = vfs_sync::with_global_storage(|gs| {
-                        gs.borrow()
+                        let storage_map = gs.borrow();
+                        let result = storage_map
                             .get(&storage.db_name)
                             .and_then(|db_storage| db_storage.get(&block_id))
-                            .cloned()
-                            .unwrap_or_else(|| vec![0; BLOCK_SIZE])
+                            .cloned();
+
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let found_in_gs = result.is_some();
+                            let gs_has_db = storage_map.contains_key(&storage.db_name);
+                            web_sys::console::log_1(&format!(
+                                "[READ_DEBUG] GLOBAL_STORAGE lookup: db={}, gs_has_db={}, found_block_0={}",
+                                storage.db_name, gs_has_db, found_in_gs
+                            ).into());
+                        }
+
+                        result.unwrap_or_else(|| vec![0; BLOCK_SIZE])
                     });
                     return (data, true);
                 }
                 
                 // For other blocks, check visibility and get data in one pass
                 vfs_sync::with_global_metadata(|meta| {
-                    let has_metadata = meta.borrow()
+                    let meta_borrow = meta.borrow();
+                    let has_metadata = meta_borrow
                         .get(&storage.db_name)
                         .and_then(|db_meta| db_meta.get(&block_id))
                         .is_some();
-                    
+
                     if has_metadata {
                         // Has metadata - check if visible based on commit marker
-                        let is_visible = meta.borrow()
+                        let is_visible = meta_borrow
                             .get(&storage.db_name)
                             .and_then(|db_meta| db_meta.get(&block_id))
                             .map(|m| (m.version as u64) <= committed)
@@ -128,7 +199,11 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             }
             
             // Cache for future reads (skip eviction check for performance)
-            storage.cache.insert(block_id, data.clone());
+            // Use try_lock to handle reentrancy gracefully - skip caching if borrowed
+            if let Some(mut cache) = try_lock_mutex!(storage.cache) {
+                cache.insert(block_id, data.clone());
+            }
+            
             return Ok(data);
         }
 
@@ -143,7 +218,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             let mut block_path = blocks.clone();
             block_path.push(format!("block_{}.bin", block_id));
             // If the block was explicitly deallocated (tombstoned), refuse reads
-            if storage.deallocated_blocks.contains(&block_id) {
+            if lock_mutex!(storage.deallocated_blocks).contains(&block_id) {
                 return Err(DatabaseError::new(
                     "BLOCK_NOT_ALLOCATED",
                     &format!("Block {} is not allocated", block_id),
@@ -152,7 +227,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             if let Ok(mut f) = fs::File::open(&block_path) {
                 let mut data = vec![0u8; BLOCK_SIZE];
                 f.read_exact(&mut data).map_err(|e| DatabaseError::new("IO_ERROR", &format!("read block {} failed: {}", block_id, e)))?;
-                storage.cache.insert(block_id, data.clone());
+                lock_mutex!(storage.cache).insert(block_id, data.clone());
                 if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) { return Err(e); }
                 storage.touch_lru(block_id);
                 storage.evict_if_needed();
@@ -161,7 +236,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             // If file missing, treat as zeroed data (compat). This covers never-written blocks
             // and avoids depending on allocated_blocks for read behavior.
             let data = vec![0; BLOCK_SIZE];
-            storage.cache.insert(block_id, data.clone());
+            lock_mutex!(storage.cache).insert(block_id, data.clone());
             if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) { return Err(e); }
             storage.touch_lru(block_id);
             storage.evict_if_needed();
@@ -173,11 +248,17 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
         {
             // Enforce commit gating in native test path as well
             let committed: u64 = vfs_sync::with_global_commit_marker(|cm| {
+                #[cfg(target_arch = "wasm32")]
+                let cm = cm;
+                #[cfg(not(target_arch = "wasm32"))]
                 let cm = cm.borrow();
                 cm.get(&storage.db_name).copied().unwrap_or(0)
             });
             let is_visible: bool = GLOBAL_METADATA_TEST.with(|meta| {
-                let meta_map = meta.borrow();
+                #[cfg(target_arch = "wasm32")]
+                let meta_map = meta.borrow_mut();
+                #[cfg(not(target_arch = "wasm32"))]
+                let meta_map = meta.lock();
                 if let Some(db_meta) = meta_map.get(&storage.db_name) {
                     if let Some(m) = db_meta.get(&block_id) {
                         return (m.version as u64) <= committed;
@@ -187,6 +268,9 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             });
             let data = if is_visible {
                 vfs_sync::with_global_storage(|gs| {
+                    #[cfg(target_arch = "wasm32")]
+                    let storage_map = gs;
+                    #[cfg(not(target_arch = "wasm32"))]
                     let storage_map = gs.borrow();
                     if let Some(db_storage) = storage_map.get(&storage.db_name) {
                         if let Some(data) = db_storage.get(&block_id) {
@@ -206,7 +290,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             };
 
             // Check if block is actually allocated before returning zeroed data
-            if !storage.allocated_blocks.contains(&block_id) && !is_visible {
+            if !lock_mutex!(storage.allocated_blocks).contains(&block_id) && !is_visible {
                 let error = DatabaseError::new(
                     "BLOCK_NOT_FOUND",
                     &format!("Block {} not found in storage", block_id)
@@ -216,7 +300,7 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
                 return Err(error);
             }
             
-            storage.cache.insert(block_id, data.clone());
+            lock_mutex!(storage.cache).insert(block_id, data.clone());
             log::debug!("[test] Block {} cached from global storage (sync)", block_id);
             // Verify checksum only if the block is visible under the commit marker
             if is_visible {
@@ -233,10 +317,28 @@ pub fn read_block_sync_impl(storage: &mut BlockStorage, block_id: u64) -> Result
             storage.evict_if_needed();
             return Ok(data);
         }
+        
+        // Unreachable: all build configurations should hit one of the above code paths
+        #[cfg(not(any(
+            target_arch = "wasm32",
+            all(not(target_arch = "wasm32"), feature = "fs_persist"),
+            all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist"))
+        )))]
+        unreachable!("No storage backend configured for this build")
     }
 
-/// Synchronous block write implementation
+/// Synchronous block write implementation  
+#[cfg(target_arch = "wasm32")]
+pub fn write_block_sync_impl(storage: &BlockStorage, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
+    write_block_impl_inner(storage, block_id, data)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
+    write_block_impl_inner(storage, block_id, data)
+}
+
+fn write_block_impl_inner(storage: &BlockStorage, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
     // Record IndexedDB write operation
     #[cfg(feature = "telemetry")]
     if let Some(ref metrics) = storage.metrics {
@@ -260,15 +362,14 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
     
             // If requested by policy, verify existing data integrity BEFORE accepting the new write.
             // This prevents overwriting a block whose prior contents no longer match the stored checksum.
-            let verify_before = storage
-                .policy
+            let verify_before = lock_mutex!(storage.policy)
                 .as_ref()
                 .map(|p| p.verify_after_write)
                 .unwrap_or(false);
             if verify_before {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    if let Some(bytes) = storage.cache.get(&block_id).cloned() {
+                    if let Some(bytes) = lock_mutex!(storage.cache).get(&block_id).cloned() {
                         if let Err(e) = storage.verify_against_stored_checksum(block_id, &bytes) {
                             log::error!(
                                 "verify_after_write: pre-write checksum verification failed for block {}: {}",
@@ -280,7 +381,7 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                 }
                 #[cfg(target_arch = "wasm32")]
                 {
-                    if let Some(bytes) = storage.cache.get(&block_id).cloned() {
+                    if let Some(bytes) = lock_mutex!(storage.cache).get(&block_id).cloned() {
                         if let Err(e) = storage.verify_against_stored_checksum(block_id, &bytes) {
                             log::error!(
                                 "verify_after_write: pre-write checksum verification failed for block {}: {}",
@@ -290,8 +391,8 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                         }
                     } else {
                         let maybe_bytes = vfs_sync::with_global_storage(|gs| {
-                            let storage_map = gs.borrow();
-                            storage_map
+                            let storage_map = gs;
+                            storage_map.borrow()
                                 .get(&storage.db_name)
                                 .and_then(|db| db.get(&block_id))
                                 .cloned()
@@ -309,7 +410,7 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                 }
                 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
                 {
-                    if let Some(bytes) = storage.cache.get(&block_id).cloned() {
+                    if let Some(bytes) = lock_mutex!(storage.cache).get(&block_id).cloned() {
                         if let Err(e) = storage.verify_against_stored_checksum(block_id, &bytes) {
                             log::error!(
                                 "[test] verify_after_write: pre-write checksum verification failed for block {}: {}",
@@ -343,8 +444,8 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
             {
                 // Check if this block already exists in global storage with committed data
                 let existing_data = vfs_sync::with_global_storage(|gs| {
-                    let storage_map = gs.borrow();
-                    if let Some(db_storage) = storage_map.get(&storage.db_name) {
+                    let storage_map = gs;
+                    if let Some(db_storage) = storage_map.borrow().get(&storage.db_name) {
                         db_storage.get(&block_id).cloned()
                     } else {
                         None
@@ -353,8 +454,7 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                 
                 // Check if there's existing metadata for this block
                 let has_committed_metadata = vfs_sync::with_global_metadata(|meta| {
-                    let meta_map = meta.borrow();
-                    if let Some(db_meta) = meta_map.get(&storage.db_name) {
+                    if let Some(db_meta) = meta.borrow().get(&storage.db_name) {
                         if let Some(metadata) = db_meta.get(&block_id) {
                             // If version > 0, this block has been committed before
                             metadata.version > 0
@@ -390,8 +490,7 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                 } else {
                     // Check if there's committed data in global storage that we haven't seen yet
                     let has_global_committed_data = vfs_sync::with_global_metadata(|meta| {
-                        let meta_map = meta.borrow();
-                        if let Some(db_meta) = meta_map.get(&storage.db_name) {
+                        if let Some(db_meta) = meta.borrow().get(&storage.db_name) {
                             if let Some(metadata) = db_meta.get(&block_id) {
                                 metadata.version > 0
                             } else {
@@ -414,18 +513,18 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                     vfs_sync::with_global_storage(|gs| {
                         let mut storage_map = gs.borrow_mut();
                         let db_storage = storage_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
-                        
+
                         // Log what we're about to write vs what exists
                         // Block overwrite (debug logging removed for performance)
-                        
+
                         db_storage.insert(block_id, data.clone());
                     });
                 }
                 
                 // Always ensure metadata exists for the block, and UPDATE checksum if we wrote new data
                 vfs_sync::with_global_metadata(|meta| {
-                    let mut meta_map = meta.borrow_mut();
-                    let db_meta = meta_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
+                    let mut meta_guard = meta.borrow_mut();
+                    let db_meta = meta_guard.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
                     
                     // Calculate checksum for the data that will be stored (either new or existing)
                     let stored_data = if should_write {
@@ -433,8 +532,8 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                     } else {
                         // Use existing data from global storage
                         vfs_sync::with_global_storage(|gs| {
-                            let storage_map = gs.borrow();
-                            if let Some(db_storage) = storage_map.get(&storage.db_name) {
+                            let storage_map = gs;
+                            if let Some(db_storage) = storage_map.borrow().get(&storage.db_name) {
                                 if let Some(existing) = db_storage.get(&block_id) {
                                     existing.clone()
                                 } else {
@@ -479,7 +578,7 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                     } else {
                         // Use existing data from global test storage
                         vfs_sync::with_global_storage(|gs| {
-                            let storage_map = gs.borrow();
+                            let storage_map = gs.lock();
                             if let Some(db_storage) = storage_map.get(&storage.db_name) {
                                 if let Some(existing) = db_storage.get(&block_id) {
                                     existing.clone()
@@ -516,13 +615,13 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
             }
             
             // Update cache and mark as dirty
-            storage.cache.insert(block_id, data.clone());
+            lock_mutex!(storage.cache).insert(block_id, data.clone());
             {
-                let mut dirty = storage.dirty_blocks.lock();
+                let mut dirty = lock_mutex!(storage.dirty_blocks);
                 dirty.insert(block_id, data);
             }
             // Update checksum metadata on write
-            if let Some(bytes) = storage.cache.get(&block_id) {
+            if let Some(bytes) = lock_mutex!(storage.cache).get(&block_id) {
                 storage.checksum_manager.store_checksum(block_id, bytes);
             }
             // Record write time for debounce tracking (native)
@@ -532,27 +631,26 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
             }
     
             // Policy-based triggers: thresholds
-            let (max_dirty_opt, max_bytes_opt) = storage
-                .policy
+            let (max_dirty_opt, max_bytes_opt) = lock_mutex!(storage.policy)
                 .as_ref()
                 .map(|p| (p.max_dirty, p.max_dirty_bytes))
                 .unwrap_or((None, None));
     
             let mut threshold_reached = false;
             if let Some(max_dirty) = max_dirty_opt {
-                let cur = storage.dirty_blocks.lock().len();
+                let cur = lock_mutex!(storage.dirty_blocks).len();
                 if cur >= max_dirty { threshold_reached = true; }
             }
             if let Some(max_bytes) = max_bytes_opt {
                 let cur_bytes: usize = {
-                    let m = storage.dirty_blocks.lock();
+                    let m = lock_mutex!(storage.dirty_blocks);
                     m.values().map(|v| v.len()).sum()
                 };
                 if cur_bytes >= max_bytes { threshold_reached = true; }
             }
     
             if threshold_reached {
-                let debounce_ms_opt = storage.policy.as_ref().and_then(|p| p.debounce_ms);
+                let debounce_ms_opt = lock_mutex!(storage.policy).as_ref().and_then(|p| p.debounce_ms);
                 if let Some(_debounce) = debounce_ms_opt {
                     // Debounce enabled: mark threshold and let debounce thread flush after inactivity
                     #[cfg(not(target_arch = "wasm32"))]
@@ -561,7 +659,23 @@ pub fn write_block_sync_impl(storage: &mut BlockStorage, block_id: u64, data: Ve
                     }
                 } else {
                     // No debounce: flush immediately
-                    let _ = storage.sync_now();
+                    #[cfg(target_arch = "wasm32")]
+                    #[allow(invalid_reference_casting)]
+                    {
+                        // WASM: Use unsafe cast to call sync_now
+                        let storage_mut = unsafe { &mut *(storage as *const BlockStorage as *mut BlockStorage) };
+                        let _ = storage_mut.sync_now();
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        // Native: Mark that threshold was hit so write_block can sync inline
+                        if storage.sync_sender.is_some() {
+                            log::info!("Threshold reached: marking for inline sync");
+                            storage.threshold_hit.store(true, Ordering::SeqCst);
+                        } else {
+                            log::warn!("Backpressure threshold reached but no auto-sync enabled");
+                        }
+                    }
                 }
             }
             

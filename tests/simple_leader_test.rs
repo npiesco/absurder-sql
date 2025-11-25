@@ -17,7 +17,7 @@ async fn test_simple_two_instance_leader_election() {
     
     // Create first instance
     web_sys::console::log_1(&"Creating first instance...".into());
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
     
     // Wait a moment
     sleep_ms(200).await;
@@ -28,7 +28,7 @@ async fn test_simple_two_instance_leader_election() {
     
     // Create second instance
     web_sys::console::log_1(&"Creating second instance...".into());
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Wait a moment
     sleep_ms(200).await;

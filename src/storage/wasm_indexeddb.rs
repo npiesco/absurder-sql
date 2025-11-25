@@ -9,6 +9,30 @@ use super::{vfs_sync, BlockStorage};
 use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
 #[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
+use futures::lock::Mutex;
+#[cfg(target_arch = "wasm32")]
+use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
+use futures::channel::oneshot;
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// Global mutex to serialize IndexedDB open operations
+    /// Chrome blocks concurrent opens even after close(), so we must serialize all IndexedDB access
+    static INDEXEDDB_MUTEX: RefCell<Arc<Mutex<()>>> = RefCell::new(Arc::new(Mutex::new(())));
+}
+
+// Reentrancy-safe lock macros
+#[allow(unused_macros)]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy issue")
+    };
+}
 
 /// Helper: Safely get IndexedDB factory
 /// Works in both Window and Worker contexts by using js_sys::global()
@@ -85,16 +109,42 @@ pub async fn restore_from_indexeddb(db_name: &str) -> Result<(), DatabaseError> 
     with_retry("restore_from_indexeddb", || {
         let db_name = db_name.clone();
         async move {
-            restore_from_indexeddb_internal(&db_name).await
+            restore_from_indexeddb_internal(&db_name, false).await
+        }
+    }).await
+}
+
+/// Force restore variant that always loads from IndexedDB even if blocks exist
+#[cfg(target_arch = "wasm32")]
+pub async fn restore_from_indexeddb_force(db_name: &str) -> Result<(), DatabaseError> {
+    use super::retry_logic::with_retry;
+    
+    let db_name = db_name.to_string();
+    
+    with_retry("restore_from_indexeddb_force", || {
+        let db_name = db_name.clone();
+        async move {
+            restore_from_indexeddb_internal(&db_name, true).await
         }
     }).await
 }
 
 /// Internal implementation of IndexedDB restoration (without retry logic)
 #[cfg(target_arch = "wasm32")]
-async fn restore_from_indexeddb_internal(db_name: &str) -> Result<(), DatabaseError> {
+async fn restore_from_indexeddb_internal(db_name: &str, force: bool) -> Result<(), DatabaseError> {
     use wasm_bindgen::JsValue;
     use wasm_bindgen::JsCast;
+
+    web_sys::console::log_1(&format!("[RESTORE] restore_from_indexeddb_internal called for: {} (force={})", db_name, force).into());
+
+    // CRITICAL: Acquire mutex to serialize IndexedDB operations
+    // Chrome blocks concurrent opens even after close()
+    let mutex = INDEXEDDB_MUTEX.with(|m| m.borrow().clone());
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Acquiring IndexedDB mutex...").into());
+    let _guard = mutex.lock().await;
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Mutex acquired, proceeding with restoration").into());
     
     log::debug!("Starting restoration for {}", db_name);
     
@@ -102,21 +152,37 @@ async fn restore_from_indexeddb_internal(db_name: &str) -> Result<(), DatabaseEr
     let existing_marker = vfs_sync::with_global_commit_marker(|cm| {
         cm.borrow().get(db_name).copied()
     });
-    
+
     // Check if blocks are already loaded (regardless of commit marker)
-    let has_blocks = vfs_sync::with_global_storage(|gs| {
-        gs.borrow().get(db_name).map(|db_storage| !db_storage.is_empty()).unwrap_or(false)
+    let (has_blocks, block_count, block_0_size) = vfs_sync::with_global_storage(|gs| {
+        if let Some(db_storage) = gs.borrow().get(db_name) {
+            let count = db_storage.len();
+            let b0_size = db_storage.get(&0).map(|d| d.len()).unwrap_or(0);
+            (!db_storage.is_empty(), count, b0_size)
+        } else {
+            (false, 0, 0)
+        }
     });
+    
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Commit marker: {:?}, Has blocks: {} (count={}, block_0_size={})", existing_marker, has_blocks, block_count, block_0_size).into());
     
     if let Some(_marker) = existing_marker {
         log::debug!("Found existing commit marker for {}", db_name);
         
-        if has_blocks {
+        if has_blocks && !force {
             log::debug!("Blocks already loaded for {}, skipping restoration", db_name);
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("[RESTORE] Blocks already loaded, skipping IndexedDB restore").into());
             return Ok(());
+        } else if has_blocks && force {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("[RESTORE] Blocks exist but force=true, reloading from IndexedDB").into());
         }
         
         log::debug!("Commit marker exists but no blocks - opening IndexedDB to restore blocks");
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("[RESTORE] Opening IndexedDB to restore blocks").into());
         
         // Open IndexedDB to restore blocks
         let open_req = open_indexeddb("block_storage", 2)?;
@@ -139,10 +205,14 @@ async fn restore_from_indexeddb_internal(db_name: &str) -> Result<(), DatabaseEr
         success_callback.forget();
         
         if let Ok(Ok(db)) = rx.await {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("[RESTORE] IndexedDB opened, starting block restoration").into());
             restore_blocks_from_indexeddb(&db, db_name).await?;
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("[RESTORE] Block restoration complete").into());
             return Ok(());
         }
-        
+
         return Err(DatabaseError::new("INDEXEDDB_OPEN_FAILED", 
             "Failed to open IndexedDB for block restoration"));
     } else {
@@ -317,7 +387,7 @@ async fn restore_from_indexeddb_internal(db_name: &str) -> Result<(), DatabaseEr
             log::error!("IndexedDB open channel failed");
         }
     }
-    
+
     log::debug!("No commit marker found for {} in IndexedDB", db_name);
     Ok(())
 }
@@ -345,9 +415,14 @@ async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str)
         .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
     
     // Get all blocks for this database (keys start with "db_name:")
+    let key_start = format!("{}:", db_name);
+    let key_end = format!("{}:\u{FFFF}", db_name);
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Searching IndexedDB for keys from '{}' to '{}'", key_start, key_end).into());
+    
     let key_range = web_sys::IdbKeyRange::bound(
-        &JsValue::from_str(&format!("{}:", db_name)),
-        &JsValue::from_str(&format!("{}:\u{FFFF}", db_name))
+        &JsValue::from_str(&key_start),
+        &JsValue::from_str(&key_end)
     ).map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create key range"))?;
     
     let blocks_cursor_req = blocks_store.open_cursor_with_range(&key_range)
@@ -370,6 +445,9 @@ async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str)
             let key = cursor.key().unwrap().as_string().unwrap();
             let value = cursor.value().unwrap();
             
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("[RESTORE] Found key in IndexedDB: {}", key).into());
+            
             // Parse key: "db_name:block_id:checksum"
             let parts: Vec<&str> = key.split(':').collect();
             if parts.len() >= 2 {
@@ -378,6 +456,8 @@ async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str)
                     if let Ok(array) = value.dyn_into::<js_sys::Uint8Array>() {
                         let mut data = vec![0u8; array.length() as usize];
                         array.copy_to(&mut data);
+                        #[cfg(target_arch = "wasm32")]
+                        web_sys::console::log_1(&format!("[RESTORE] Block {} has {} bytes", block_id, data.len()).into());
                         blocks_data_clone.borrow_mut().push((block_id, data));
                     }
                 }
@@ -400,16 +480,54 @@ async fn restore_blocks_from_indexeddb(db: &web_sys::IdbDatabase, db_name: &str)
     let _ = rx.await;
     
     // Now restore blocks to global storage
+    // CRITICAL: De-duplicate by block_id, keeping only the LAST occurrence (highest version)
     let restored_blocks = blocks_data.borrow().clone();
-    log::info!("Restored {} blocks from IndexedDB", restored_blocks.len());
-    
+    let mut deduped_blocks: HashMap<u64, Vec<u8>> = HashMap::new();
     for (block_id, data) in &restored_blocks {
-        vfs_sync::with_global_storage(|gs| {
-            let mut storage_map = gs.borrow_mut();
-            let db_storage = storage_map.entry(db_name.to_string()).or_insert_with(HashMap::new);
-            db_storage.insert(*block_id, data.clone());
-        });
+        deduped_blocks.insert(*block_id, data.clone());
     }
+    
+    log::info!("Restored {} unique blocks from IndexedDB (after deduplication)", deduped_blocks.len());
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Restored {} unique blocks from IndexedDB for {}", deduped_blocks.len(), db_name).into());
+    
+    // Only write blocks that DON'T already exist in GLOBAL_STORAGE (respects fresh imports)
+    let total_deduped = deduped_blocks.len();
+    let blocks_written = vfs_sync::with_global_storage(|gs| {
+        let mut storage_map = gs.borrow_mut();
+        let db_storage = storage_map.entry(db_name.to_string()).or_insert_with(HashMap::new);
+        let mut count = 0;
+        for (block_id, data) in deduped_blocks {
+            if !db_storage.contains_key(&block_id) {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(&format!("[RESTORE] Writing block {} to GLOBAL_STORAGE[{}]", block_id, db_name).into());
+                db_storage.insert(block_id, data);
+                count += 1;
+            } else {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(&format!("[RESTORE] Skipping block {} - already in GLOBAL_STORAGE", block_id).into());
+            }
+        }
+        count
+    });
+    
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Wrote {} new blocks to GLOBAL_STORAGE (skipped {} existing)", blocks_written, total_deduped - blocks_written).into());
+    
+    // CRITICAL: Update allocation map with the blocks that are NOW in GLOBAL_STORAGE
+    use std::collections::HashSet;
+    let allocated_ids = vfs_sync::with_global_storage(|gs| {
+        let storage_map = gs.borrow();
+        storage_map.get(db_name)
+            .map(|db_storage| db_storage.keys().copied().collect::<HashSet<u64>>())
+            .unwrap_or_default()
+    });
+    
+    vfs_sync::with_global_allocation_map(|gam| {
+        gam.borrow_mut().insert(db_name.to_string(), allocated_ids.clone());
+    });
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[RESTORE] Updated allocation map with {} blocks", allocated_ids.len()).into());
     
     // FIXED TODO #1: Restore metadata from metadata store
     // Iterate through metadata store to restore block metadata (checksums, versions, algorithms)
@@ -567,12 +685,19 @@ pub async fn persist_to_indexeddb_event_based(
 async fn persist_to_indexeddb_event_based_internal(db_name: &str, blocks: Vec<(u64, Vec<u8>)>, metadata: Vec<(u64, u64)>, commit_marker: u64) -> Result<(), DatabaseError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen::closure::Closure;
-    use futures::channel::oneshot;
-    
+
+    // CRITICAL: Acquire mutex to serialize IndexedDB operations
+    // Chrome blocks concurrent opens even after close()
+    let mutex = INDEXEDDB_MUTEX.with(|m| m.borrow().clone());
+    log::debug!("PERSIST: Acquiring IndexedDB mutex...");
+    let _guard = mutex.lock().await;
+    log::debug!("PERSIST: Mutex acquired, proceeding with persistence");
+
     log::debug!("persist_to_indexeddb_event_based starting");
-    
+
+    // Use shared block_storage database for all SQLite databases
     let open_req = open_indexeddb("block_storage", 2)?;
-    log::info!("Created open request for version 2");
+    log::info!("Created open request for block_storage version 2");
     
     // Set up upgrade handler
     let upgrade_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
@@ -669,7 +794,7 @@ async fn persist_to_indexeddb_event_based_internal(db_name: &str, blocks: Vec<(u
             return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error"));
         },
     };
-    
+
     log::debug!("Starting IndexedDB transaction");
     
     // Check if object stores exist
@@ -686,7 +811,21 @@ async fn persist_to_indexeddb_event_based_internal(db_name: &str, blocks: Vec<(u
         log::debug!("Required object stores missing, cannot create transaction");
         return Err(DatabaseError::new("INDEXEDDB_ERROR", "Required object stores not found"));
     }
-    
+
+    // Acquire queue slot to prevent browser-level IndexedDB contention
+    super::indexeddb_queue::acquire_indexeddb_slot().await;
+    log::info!("Acquired IndexedDB transaction slot");
+
+    // Guard to ensure slot is released on all exit paths (including errors)
+    struct SlotGuard;
+    impl Drop for SlotGuard {
+        fn drop(&mut self) {
+            super::indexeddb_queue::release_indexeddb_slot();
+            web_sys::console::log_1(&"[GUARD] Released IndexedDB slot via guard".into());
+        }
+    }
+    let _slot_guard = SlotGuard;
+
     // Start transaction
     let store_names = js_sys::Array::new();
     store_names.push(&"blocks".into());
@@ -710,7 +849,10 @@ async fn persist_to_indexeddb_event_based_internal(db_name: &str, blocks: Vec<(u
             let key = format!("{}:{}:{}", db_name, block_id, version);
             let value = js_sys::Uint8Array::from(&block_data[..]);
             #[cfg(target_arch = "wasm32")]
-            log::debug!("Storing block with idempotent key: {}", key);
+            {
+                log::debug!("Storing block with idempotent key: {}", key);
+                web_sys::console::log_1(&format!("[PERSIST] Writing block to IndexedDB with key: {}", key).into());
+            }
             let _ = blocks_store.put_with_key(&value, &key.into());
         }
     }
@@ -753,27 +895,47 @@ async fn persist_to_indexeddb_event_based_internal(db_name: &str, blocks: Vec<(u
     
     transaction.set_oncomplete(Some(complete_closure.as_ref().unchecked_ref()));
     transaction.set_onerror(Some(tx_error_closure.as_ref().unchecked_ref()));
-    complete_closure.forget();
-    tx_error_closure.forget();
     
-    match tx_rx.await {
-        Ok(Ok(())) => {},
-        Ok(Err(e)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
-        Err(_) => return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error")),
-    }
-    log::info!("IndexedDB persistence completed successfully");
+    // CRITICAL: Keep closures alive until await completes, then drop them
+    // This allows proper cleanup of IDBDatabase reference
+    // Note: _done_guard will drop when function returns, signaling next operation
     
-    Ok(())
+    let result = match tx_rx.await {
+        Ok(Ok(())) => {
+            log::info!("IndexedDB persistence completed successfully");
+            Ok(())
+        },
+        Ok(Err(e)) => {
+            Err(DatabaseError::new("INDEXEDDB_ERROR", &e))
+        },
+        Err(_) => {
+            Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error"))
+        },
+    };
+    
+    // CRITICAL: Drop closures first to release references
+    drop(complete_closure);
+    drop(tx_error_closure);
+    
+    // CRITICAL: Close the IDBDatabase connection to allow subsequent opens
+    // This MUST be done after tx_rx.await resolves (transaction complete)
+    db.close();
+    log::debug!("Closed IndexedDB connection after transaction completion");
+
+    // Note: my_done_tx already sent signal right after DB opened (line 730)
+    // This allows concurrent transactions while serializing DB opens
+
+    result
 }
 
 /// Async version of sync for WASM that properly awaits IndexedDB persistence
 #[cfg(target_arch = "wasm32")]
-pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError> {
+pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
     log::debug!("Using ASYNC sync_async method");
     // Get current commit marker
     let current_commit = vfs_sync::with_global_commit_marker(|cm| {
-        let cm = cm.borrow();
-        cm.get(&storage.db_name).copied().unwrap_or(0)
+        let cm = cm;
+        cm.borrow().get(&storage.db_name).copied().unwrap_or(0)
     });
     
     let next_commit = current_commit + 1;
@@ -784,10 +946,16 @@ pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError>
     let mut to_persist = Vec::new();
     let mut metadata_to_persist = Vec::new();
     
-    for (&block_id, block_data) in &storage.cache {
+    // Collect cache data to iterate over (can't iterate over Mutex directly)
+    let cache_snapshot: Vec<(u64, Vec<u8>)> = lock_mutex!(storage.cache)
+        .iter()
+        .map(|(k, v)| (*k, v.clone()))
+        .collect();
+    
+    for (block_id, block_data) in cache_snapshot {
         let should_update = vfs_sync::with_global_storage(|storage_global| {
-            let storage_global = storage_global.borrow();
-            if let Some(db_storage) = storage_global.get(&storage.db_name) {
+            let storage_global = storage_global;
+            if let Some(db_storage) = storage_global.borrow().get(&storage.db_name) {
                 if let Some(existing_data) = db_storage.get(&block_id) {
                     // Check if cache has richer data (more non-zero bytes)
                     let existing_non_zero = existing_data.iter().filter(|&&b| b != 0).count();
@@ -832,8 +1000,8 @@ pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError>
     
     // Update global storage
     vfs_sync::with_global_storage(|storage_global| {
-        let mut storage_global = storage_global.borrow_mut();
-        let db_storage = storage_global.entry(storage.db_name.clone()).or_insert_with(std::collections::HashMap::new);
+        let mut guard = storage_global.borrow_mut();
+        let db_storage = guard.entry(storage.db_name.clone()).or_insert_with(std::collections::HashMap::new);
         for (block_id, block_data) in &to_persist {
             db_storage.insert(*block_id, block_data.clone());
         }
@@ -841,8 +1009,8 @@ pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError>
     
     // Update global metadata
     vfs_sync::with_global_metadata(|metadata| {
-        let mut metadata = metadata.borrow_mut();
-        let db_metadata = metadata.entry(storage.db_name.clone()).or_insert_with(std::collections::HashMap::new);
+        let mut guard = metadata.borrow_mut();
+        let db_metadata = guard.entry(storage.db_name.clone()).or_insert_with(std::collections::HashMap::new);
         for (block_id, version) in &metadata_to_persist {
             db_metadata.insert(*block_id, BlockMetadataPersist {
                 version: *version as u32,
@@ -855,8 +1023,8 @@ pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError>
     
     // Update commit marker AFTER data and metadata are persisted
     vfs_sync::with_global_commit_marker(|cm| {
-        let mut cm_map = cm.borrow_mut();
-        cm_map.insert(storage.db_name.clone(), next_commit);
+        let cm_map = cm;
+        cm_map.borrow_mut().insert(storage.db_name.clone(), next_commit);
     });
     
     // Perform IndexedDB persistence with proper event-based waiting
@@ -877,7 +1045,7 @@ pub async fn sync_async(storage: &mut BlockStorage) -> Result<(), DatabaseError>
     
     // Clear dirty blocks
     {
-        let mut dirty = storage.dirty_blocks.lock();
+        let mut dirty = lock_mutex!(storage.dirty_blocks);
         dirty.clear();
     }
     
@@ -1001,7 +1169,21 @@ pub async fn delete_blocks_from_indexeddb(
         Ok(Err(e)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
         Err(_) => return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error")),
     };
-    
+
+    // Acquire queue slot to prevent browser-level IndexedDB contention
+    super::indexeddb_queue::acquire_indexeddb_slot().await;
+    log::info!("Acquired IndexedDB transaction slot for delete");
+
+    // Guard to ensure slot is released on all exit paths
+    struct SlotGuard;
+    impl Drop for SlotGuard {
+        fn drop(&mut self) {
+            super::indexeddb_queue::release_indexeddb_slot();
+            web_sys::console::log_1(&"[GUARD] Released IndexedDB slot via guard (delete)".into());
+        }
+    }
+    let _slot_guard = SlotGuard;
+
     // Start transaction
     let store_names = js_sys::Array::new();
     store_names.push(&"blocks".into());
@@ -1044,6 +1226,15 @@ pub async fn delete_blocks_from_indexeddb(
                 
                 if !result.is_null() {
                     let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+                    
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        if let Ok(key) = cursor.key() {
+                            if let Some(key_str) = key.as_string() {
+                                web_sys::console::log_1(&format!("[DELETE] Deleting key: {}", key_str).into());
+                            }
+                        }
+                    }
                     
                     // Delete this entry
                     let _ = cursor.delete();
@@ -1139,5 +1330,309 @@ pub async fn delete_blocks_from_indexeddb(
         },
         Ok(Err(e)) => Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
         Err(_) => Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error during deletion")),
+    }
+}
+
+/// Delete ALL blocks and metadata for a database from IndexedDB
+///
+/// Unlike `delete_blocks_from_indexeddb`, this function does NOT require knowing
+/// the block IDs beforehand. It scans IndexedDB for all keys matching the database
+/// name prefix and deletes them. This is essential for import operations where
+/// the database was closed (clearing the allocation map) before import.
+///
+/// # Arguments
+/// * `db_name` - Name of the database (without .db extension)
+///
+/// # Returns
+/// * `Ok(())` - All blocks deleted successfully
+/// * `Err(DatabaseError)` - If deletion fails
+///
+/// # Key Format
+/// Blocks are stored with keys: `{db_name}:{block_id}:{checksum}`
+/// This function deletes all keys starting with `{db_name}:`
+#[cfg(target_arch = "wasm32")]
+pub async fn delete_all_database_blocks_from_indexeddb(
+    db_name: &str,
+) -> Result<(), DatabaseError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
+    use futures::channel::oneshot;
+
+    log::info!("[DELETE_ALL] Starting deletion of ALL blocks for database: {}", db_name);
+    web_sys::console::log_1(&format!("[DELETE_ALL] Deleting all IndexedDB entries for: {}", db_name).into());
+
+    let open_req = open_indexeddb("block_storage", 2)?;
+
+    // Set up upgrade handler (should not be needed, but included for safety)
+    let upgrade_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+        match (|| -> Result<(), Box<dyn std::error::Error>> {
+            let target = event.target().ok_or("No event target")?;
+            let request: web_sys::IdbOpenDbRequest = target.dyn_into().map_err(|_| "Cast failed")?;
+            let result = request.result().map_err(|_| "No result")?;
+            let db: web_sys::IdbDatabase = result.dyn_into().map_err(|_| "Cast to IdbDatabase failed")?;
+
+            if !db.object_store_names().contains("blocks") {
+                db.create_object_store("blocks").map_err(|_| "Create blocks store failed")?;
+            }
+            if !db.object_store_names().contains("metadata") {
+                db.create_object_store("metadata").map_err(|_| "Create metadata store failed")?;
+            }
+            Ok(())
+        })() {
+            Ok(_) => {},
+            Err(e) => log::error!("[DELETE_ALL] Upgrade handler error: {}", e),
+        }
+    }) as Box<dyn FnMut(_)>);
+    open_req.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
+    upgrade_closure.forget();
+
+    // Wait for database to open
+    let (open_tx, open_rx) = oneshot::channel();
+    let open_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(open_tx)));
+
+    let success_closure = {
+        let open_tx = open_tx.clone();
+        Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(sender) = open_tx.borrow_mut().take() {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbOpenDbRequest = target.dyn_into().unwrap();
+                let result = request.result().unwrap();
+                let db: web_sys::IdbDatabase = result.dyn_into().unwrap();
+                let _ = sender.send(Ok(db));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    let error_closure = {
+        let open_tx = open_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = open_tx.borrow_mut().take() {
+                let _ = sender.send(Err("Failed to open IndexedDB".to_string()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    open_req.set_onsuccess(Some(success_closure.as_ref().unchecked_ref()));
+    open_req.set_onerror(Some(error_closure.as_ref().unchecked_ref()));
+    success_closure.forget();
+    error_closure.forget();
+
+    let db = match open_rx.await {
+        Ok(Ok(db)) => db,
+        Ok(Err(e)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
+        Err(_) => return Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error opening DB")),
+    };
+
+    // Acquire queue slot to prevent browser-level IndexedDB contention
+    super::indexeddb_queue::acquire_indexeddb_slot().await;
+    web_sys::console::log_1(&"[DELETE_ALL] Acquired IndexedDB slot".into());
+
+    // Guard to ensure slot is released on all exit paths
+    struct SlotGuard;
+    impl Drop for SlotGuard {
+        fn drop(&mut self) {
+            super::indexeddb_queue::release_indexeddb_slot();
+            web_sys::console::log_1(&"[DELETE_ALL] Released IndexedDB slot via guard".into());
+        }
+    }
+    let _slot_guard = SlotGuard;
+
+    // Start readwrite transaction on both stores
+    let store_names = js_sys::Array::new();
+    store_names.push(&"blocks".into());
+    store_names.push(&"metadata".into());
+    let transaction = db.transaction_with_str_sequence_and_mode(&store_names, web_sys::IdbTransactionMode::Readwrite)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create transaction"))?;
+
+    let blocks_store = transaction.object_store("blocks")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get blocks store"))?;
+    let metadata_store = transaction.object_store("metadata")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
+
+    // Create key range for all entries with this database prefix
+    // Keys are formatted as: {db_name}:{block_id}:{checksum}
+    let key_prefix_start = format!("{}:", db_name);
+    let key_prefix_end = format!("{}:\u{FFFF}", db_name);
+
+    let key_range = web_sys::IdbKeyRange::bound(
+        &key_prefix_start.clone().into(),
+        &key_prefix_end.clone().into()
+    ).map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create key range"))?;
+
+    web_sys::console::log_1(&format!("[DELETE_ALL] Key range: {} to {}", key_prefix_start, key_prefix_end).into());
+
+    // Delete from blocks store using cursor
+    let blocks_cursor_req = blocks_store.open_cursor_with_range(&key_range)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open blocks cursor"))?;
+
+    let (blocks_tx, blocks_rx) = oneshot::channel::<Result<u32, String>>();
+    let blocks_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(blocks_tx)));
+    let blocks_deleted = std::rc::Rc::new(std::cell::RefCell::new(0u32));
+
+    let blocks_closure = {
+        let blocks_tx = blocks_tx.clone();
+        let blocks_deleted = blocks_deleted.clone();
+        Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let target = event.target().unwrap();
+            let request: web_sys::IdbRequest = target.unchecked_into();
+            let result = request.result().unwrap();
+
+            if !result.is_null() && !result.is_undefined() {
+                let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+
+                // Log the key being deleted
+                if let Ok(key) = cursor.key() {
+                    if let Some(key_str) = key.as_string() {
+                        web_sys::console::log_1(&format!("[DELETE_ALL] Deleting block key: {}", key_str).into());
+                    }
+                }
+
+                // Delete and continue
+                let _ = cursor.delete();
+                *blocks_deleted.borrow_mut() += 1;
+                let _ = cursor.continue_();
+            } else {
+                // Done iterating
+                let count = *blocks_deleted.borrow();
+                if let Some(sender) = blocks_tx.borrow_mut().take() {
+                    let _ = sender.send(Ok(count));
+                }
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    let blocks_error_closure = {
+        let blocks_tx = blocks_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = blocks_tx.borrow_mut().take() {
+                let _ = sender.send(Err("Blocks cursor error".to_string()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    blocks_cursor_req.set_onsuccess(Some(blocks_closure.as_ref().unchecked_ref()));
+    blocks_cursor_req.set_onerror(Some(blocks_error_closure.as_ref().unchecked_ref()));
+    blocks_closure.forget();
+    blocks_error_closure.forget();
+
+    let blocks_result = blocks_rx.await;
+    let blocks_count = match blocks_result {
+        Ok(Ok(count)) => count,
+        Ok(Err(e)) => {
+            log::error!("[DELETE_ALL] Error deleting blocks: {}", e);
+            0
+        },
+        Err(_) => 0,
+    };
+
+    web_sys::console::log_1(&format!("[DELETE_ALL] Deleted {} blocks", blocks_count).into());
+
+    // Delete from metadata store using same key range
+    let metadata_cursor_req = metadata_store.open_cursor_with_range(&key_range)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open metadata cursor"))?;
+
+    let (meta_tx, meta_rx) = oneshot::channel::<Result<u32, String>>();
+    let meta_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(meta_tx)));
+    let meta_deleted = std::rc::Rc::new(std::cell::RefCell::new(0u32));
+
+    let meta_closure = {
+        let meta_tx = meta_tx.clone();
+        let meta_deleted = meta_deleted.clone();
+        Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let target = event.target().unwrap();
+            let request: web_sys::IdbRequest = target.unchecked_into();
+            let result = request.result().unwrap();
+
+            if !result.is_null() && !result.is_undefined() {
+                let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+
+                if let Ok(key) = cursor.key() {
+                    if let Some(key_str) = key.as_string() {
+                        web_sys::console::log_1(&format!("[DELETE_ALL] Deleting metadata key: {}", key_str).into());
+                    }
+                }
+
+                let _ = cursor.delete();
+                *meta_deleted.borrow_mut() += 1;
+                let _ = cursor.continue_();
+            } else {
+                let count = *meta_deleted.borrow();
+                if let Some(sender) = meta_tx.borrow_mut().take() {
+                    let _ = sender.send(Ok(count));
+                }
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    let meta_error_closure = {
+        let meta_tx = meta_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = meta_tx.borrow_mut().take() {
+                let _ = sender.send(Err("Metadata cursor error".to_string()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    metadata_cursor_req.set_onsuccess(Some(meta_closure.as_ref().unchecked_ref()));
+    metadata_cursor_req.set_onerror(Some(meta_error_closure.as_ref().unchecked_ref()));
+    meta_closure.forget();
+    meta_error_closure.forget();
+
+    let meta_result = meta_rx.await;
+    let meta_count = match meta_result {
+        Ok(Ok(count)) => count,
+        Ok(Err(e)) => {
+            log::error!("[DELETE_ALL] Error deleting metadata: {}", e);
+            0
+        },
+        Err(_) => 0,
+    };
+
+    web_sys::console::log_1(&format!("[DELETE_ALL] Deleted {} metadata entries", meta_count).into());
+
+    // Also delete the commit marker (stored with key "{db_name}_commit_marker")
+    let commit_marker_key = format!("{}_commit_marker", db_name);
+    web_sys::console::log_1(&format!("[DELETE_ALL] Deleting commit marker: {}", commit_marker_key).into());
+    let _ = metadata_store.delete(&commit_marker_key.into());
+
+    // Wait for transaction to complete
+    let (tx_tx, tx_rx) = oneshot::channel();
+    let tx_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx_tx)));
+
+    let complete_closure = {
+        let tx_tx = tx_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = tx_tx.borrow_mut().take() {
+                let _ = sender.send(Ok(()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    let tx_error_closure = {
+        let tx_tx = tx_tx.clone();
+        Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            if let Some(sender) = tx_tx.borrow_mut().take() {
+                let _ = sender.send(Err("Transaction failed".to_string()));
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
+    transaction.set_oncomplete(Some(complete_closure.as_ref().unchecked_ref()));
+    transaction.set_onerror(Some(tx_error_closure.as_ref().unchecked_ref()));
+    complete_closure.forget();
+    tx_error_closure.forget();
+
+    match tx_rx.await {
+        Ok(Ok(())) => {
+            log::info!("[DELETE_ALL] Successfully deleted all IndexedDB data for {}: {} blocks, {} metadata entries",
+                db_name, blocks_count, meta_count);
+            web_sys::console::log_1(&format!(
+                "[DELETE_ALL] Complete: {} blocks, {} metadata for {}",
+                blocks_count, meta_count, db_name
+            ).into());
+            Ok(())
+        },
+        Ok(Err(e)) => Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
+        Err(_) => Err(DatabaseError::new("INDEXEDDB_ERROR", "Channel error during delete all")),
     }
 }

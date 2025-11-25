@@ -10,7 +10,7 @@ use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
 #[wasm_bindgen_test]
 async fn test_wasm_checksum_mismatch_after_restart() {
     // Instance 1: write and sync to persist data + metadata
-    let mut s1 = BlockStorage::new_with_capacity("wasm_meta_mismatch_db", 8)
+    let s1 = BlockStorage::new_with_capacity("wasm_meta_mismatch_db", 8)
         .await
         .expect("create storage s1");
 

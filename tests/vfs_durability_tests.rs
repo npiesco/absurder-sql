@@ -29,7 +29,7 @@ async fn test_force_sync_persists_to_indexeddb() {
     storage.force_sync().await.expect("force_sync should succeed");
     
     // Verify data is actually in IndexedDB by creating a new instance
-    let mut storage2 = BlockStorage::new("force_sync_test").await.expect("create storage2");
+    let storage2 = BlockStorage::new("force_sync_test").await.expect("create storage2");
     
     // Data should be visible from IndexedDB
     let data1 = storage2.read_block(block1).await.expect("read block1");
@@ -52,7 +52,7 @@ async fn test_vfs_xsync_triggers_force_sync() {
     storage.force_sync().await.expect("force_sync");
     
     // Verify persistence
-    let mut storage2 = BlockStorage::new("vfs_xsync_test").await.expect("create storage2");
+    let storage2 = BlockStorage::new("vfs_xsync_test").await.expect("create storage2");
     let data = storage2.read_block(block1).await.expect("read block1");
     assert_eq!(data[0], 1u8, "Data should be persisted");
 }
@@ -74,7 +74,7 @@ async fn test_force_sync_error_handling() {
     match result {
         Ok(_) => {
             // Success case - verify data is persisted
-            let mut storage2 = BlockStorage::new("force_sync_errors").await.expect("create storage2");
+            let storage2 = BlockStorage::new("force_sync_errors").await.expect("create storage2");
             let data = storage2.read_block(block1).await.expect("read block1");
             assert_eq!(data[0], 42u8, "Data should be persisted");
         }
@@ -101,7 +101,7 @@ async fn test_force_sync_idempotent() {
     storage.force_sync().await.expect("force_sync 3");
     
     // Data should still be correct
-    let mut storage2 = BlockStorage::new("force_sync_idempotent").await.expect("create storage2");
+    let storage2 = BlockStorage::new("force_sync_idempotent").await.expect("create storage2");
     let data = storage2.read_block(block1).await.expect("read block1");
     assert_eq!(data[0], 99u8, "Data should be persisted correctly");
 }
@@ -149,7 +149,7 @@ async fn test_force_sync_waits_for_persistence() {
     assert!(duration < 5000.0, "Should complete within 5 seconds");
     
     // All blocks should be persisted
-    let mut storage2 = BlockStorage::new("force_sync_wait").await.expect("create storage2");
+    let storage2 = BlockStorage::new("force_sync_wait").await.expect("create storage2");
     for (i, block_id) in block_ids.iter().enumerate() {
         let data = storage2.read_block(*block_id).await.expect("read block");
         assert_eq!(data[0], i as u8, "Block {} should be persisted", i);
@@ -176,7 +176,7 @@ async fn test_vfs_xsync_transaction_durability() {
     storage.force_sync().await.expect("force_sync");
     
     // Verify both blocks are persisted
-    let mut storage2 = BlockStorage::new("vfs_transaction_test").await.expect("create storage2");
+    let storage2 = BlockStorage::new("vfs_transaction_test").await.expect("create storage2");
     let data1 = storage2.read_block(block1).await.expect("read block1");
     let data2 = storage2.read_block(block2).await.expect("read block2");
     

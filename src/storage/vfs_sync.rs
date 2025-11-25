@@ -32,12 +32,6 @@ thread_local! {
     pub static GLOBAL_COMMIT_MARKER: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
 }
 
-// Global registry of active BlockStorage instances for VFS sync
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    static STORAGE_REGISTRY: RefCell<HashMap<String, std::rc::Weak<std::cell::RefCell<super::BlockStorage>>>> = RefCell::new(HashMap::new());
-}
-
 /// Access to global storage for BlockStorage (internal use)
 #[cfg(target_arch = "wasm32")]
 pub fn with_global_storage<F, R>(f: F) -> R
@@ -67,7 +61,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn with_global_metadata<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>>) -> R
+    F: FnOnce(&parking_lot::Mutex<HashMap<String, HashMap<u64, BlockMetadataPersist>>>) -> R
 {
     // For native tests, use the shared GLOBAL_METADATA_TEST from block_storage
     use super::block_storage::GLOBAL_METADATA_TEST;
@@ -110,13 +104,4 @@ where
     F: FnOnce(&RefCell<HashMap<String, HashSet<u64>>>) -> R
 {
     GLOBAL_ALLOCATION_MAP_TEST.with(f)
-}
-
-/// Access to storage registry (internal use)
-#[cfg(target_arch = "wasm32")]
-pub fn with_storage_registry<F, R>(f: F) -> R
-where
-    F: FnOnce(&RefCell<HashMap<String, std::rc::Weak<std::cell::RefCell<super::BlockStorage>>>>) -> R
-{
-    STORAGE_REGISTRY.with(f)
 }

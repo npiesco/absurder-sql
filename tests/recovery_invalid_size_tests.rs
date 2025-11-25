@@ -41,7 +41,7 @@ async fn test_recovery_drops_metadata_for_invalid_sized_files() {
 
     // Startup recovery should drop the metadata entry for the invalid-sized file
     {
-        let b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
+        let mut b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
         let meta = b.get_block_metadata_for_testing();
         assert!(
             !meta.contains_key(&id1),
@@ -51,7 +51,7 @@ async fn test_recovery_drops_metadata_for_invalid_sized_files() {
 
     // Second recovery run should be idempotent and keep the entry dropped
     {
-        let b2 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B2");
+        let mut b2 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B2");
         let meta2 = b2.get_block_metadata_for_testing();
         assert!(
             !meta2.contains_key(&id1),

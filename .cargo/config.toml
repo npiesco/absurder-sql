@@ -1,2 +1,5 @@
 [build]
 rustflags = ["-D", "warnings", "-L", "lib"]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["-D", "warnings", "-L", "lib", "--cfg=web_sys_unstable_apis"]

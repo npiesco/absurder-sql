@@ -18,7 +18,7 @@ async fn test_forced_leader_maintains_lease() {
     
     // Create first instance - becomes leader
     web_sys::console::log_1(&"Creating first instance (will be leader)...".into());
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
     sleep_ms(200).await;
     
     assert!(storage1.is_leader().await, "First instance should be leader");
@@ -26,7 +26,7 @@ async fn test_forced_leader_maintains_lease() {
     
     // Create second instance - becomes follower
     web_sys::console::log_1(&"Creating second instance (will be follower)...".into());
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     sleep_ms(200).await;
     
     assert!(!storage2.is_leader().await, "Second instance should be follower");

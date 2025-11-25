@@ -68,7 +68,7 @@ async fn test_transaction_begin_commit() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
     let timestamp = js_sys::Date::now() as u64;
@@ -127,7 +127,7 @@ async fn test_transaction_rollback() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
     let timestamp = js_sys::Date::now() as u64;
@@ -186,7 +186,7 @@ async fn test_implicit_transaction() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
     let timestamp = js_sys::Date::now() as u64;
@@ -235,7 +235,7 @@ async fn test_transaction_persistence_across_instances() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
     let timestamp = js_sys::Date::now() as u64;

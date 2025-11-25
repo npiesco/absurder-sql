@@ -156,7 +156,7 @@ async fn test_metadata_removed_on_deallocate_persists_across_instances() {
 
     // Instance B: ensure metadata remains removed across instances
     let b_meta = {
-        let b = BlockStorage::new_with_capacity(db_name, 4)
+        let mut b = BlockStorage::new_with_capacity(db_name, 4)
             .await
             .expect("create B");
         b.get_block_metadata_for_testing()

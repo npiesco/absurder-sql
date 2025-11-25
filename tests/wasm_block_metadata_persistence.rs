@@ -11,7 +11,7 @@ use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
 #[wasm_bindgen_test]
 async fn test_wasm_metadata_persists_across_instances() {
     // Create first instance and write a block, then sync to persist data + metadata
-    let mut s1 = BlockStorage::new_with_capacity("wasm_meta_persist_db", 8)
+    let s1 = BlockStorage::new_with_capacity("wasm_meta_persist_db", 8)
         .await
         .expect("create storage s1");
 

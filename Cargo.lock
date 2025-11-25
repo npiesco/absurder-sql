@@ -10,6 +10,7 @@ dependencies = [
  "console_log",
  "crc32fast",
  "futures",
+ "futures-channel",
  "getrandom 0.2.16",
  "indexed_db_futures",
  "js-sys",
@@ -37,6 +38,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "weblocks",
  "wee_alloc",
 ]
 
@@ -1846,6 +1848,18 @@ checksum = "3a1f95c0d03a47f4ae1f7a64643a6bb97465d9b740f0fa8f90ea33915c99a9a1"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "weblocks"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e770224d4d61ccfd8ecc036d8f109e30d48827aafa9b2f192ebe4958391487f"
+dependencies = [
+ "futures-channel",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

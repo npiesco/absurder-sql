@@ -129,7 +129,7 @@ impl WasmAutoSyncManager {
             
             // Spawn async sync during idle time
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(mut storage) = BlockStorage::new(&db_name).await {
+                if let Ok(storage) = BlockStorage::new(&db_name).await {
                     let dirty_count = storage.get_dirty_count();
                     if dirty_count > 0 {
                         log::info!("Idle sync: syncing {} dirty blocks", dirty_count);
@@ -178,7 +178,7 @@ impl WasmAutoSyncManager {
                     if document.hidden() {
                         log::info!("Tab hidden, triggering sync");
                         wasm_bindgen_futures::spawn_local(async move {
-                            if let Ok(mut storage) = BlockStorage::new(&db_name).await {
+                            if let Ok(storage) = BlockStorage::new(&db_name).await {
                                 let _ = storage.sync().await;
                             }
                         });
@@ -210,7 +210,7 @@ impl WasmAutoSyncManager {
             
             // Synchronous sync before unload
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(mut storage) = BlockStorage::new(&db_name).await {
+                if let Ok(storage) = BlockStorage::new(&db_name).await {
                     let _ = storage.sync().await;
                 }
             });

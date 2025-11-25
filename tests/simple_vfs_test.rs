@@ -39,7 +39,7 @@ async fn test_simple_insert_without_transaction() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
     
     // Use unique names to avoid interference from other tests

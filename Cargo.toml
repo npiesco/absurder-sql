@@ -42,6 +42,10 @@ web-sys = { version = "0.3", features = [
     "RequestMode",
     "Response",
     "Headers",
+    "Navigator",
+    "LockManager",
+    "LockOptions",
+    "AbortSignal",
 ] }
 
 # TypeScript integration
@@ -53,8 +57,7 @@ crc32fast = "1.4"
 
 # IndexedDB async API
 indexed_db_futures = "0.5"
-
-futures = "0.3"
+futures = { version = "0.3", features = ["std"] }
 
 # SQL parsing
 sqlparser = "0.53"
@@ -81,6 +84,8 @@ prometheus = { version = "0.13", optional = true }
 opentelemetry = { version = "0.21", optional = true }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
 opentelemetry-prometheus = { version = "0.14", optional = true }
+weblocks = "0.1.0"
+futures-channel = "0.3.31"
 
 [dependencies.getrandom]
 version = "0.2"

@@ -30,7 +30,7 @@ fn test_default_config_uses_memory_mode() {
     let config = DatabaseConfig::default();
     
     assert_eq!(config.journal_mode, Some("MEMORY".to_string()));
-    assert_eq!(config.cache_size, Some(10_000)); // Standard cache for browser
+    assert_eq!(config.cache_size, Some(10_000));
 }
 
 /// Test that mobile config has larger cache than default

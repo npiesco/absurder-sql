@@ -42,7 +42,7 @@ async fn test_blocks_restore_from_indexeddb() {
     
     // Second session: Blocks should be restored from IndexedDB
     {
-        let mut storage = BlockStorage::new(db_name).await.expect("reopen storage");
+        let storage = BlockStorage::new(db_name).await.expect("reopen storage");
         
         // Block should be restored from IndexedDB
         let block_id = 1; // First allocated block
@@ -83,7 +83,7 @@ async fn test_multiple_blocks_restore() {
     
     // Second session: All blocks should be restored
     {
-        let mut storage = BlockStorage::new(db_name).await.expect("reopen storage");
+        let storage = BlockStorage::new(db_name).await.expect("reopen storage");
         
         for i in 1..=5 {
             let read_data = storage.read_block(i).await.expect(&format!("read block {}", i));

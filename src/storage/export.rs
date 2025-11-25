@@ -359,14 +359,33 @@ pub fn validate_sqlite_file(data: &[u8]) -> Result<(), DatabaseError> {
 ///     Ok(db_bytes)
 /// }
 /// ```
+#[cfg(target_arch = "wasm32")]
+pub async fn export_database_to_bytes(
+    storage: &BlockStorage,
+    max_size_bytes: Option<u64>,
+) -> Result<Vec<u8>, DatabaseError> {
+    export_database_to_bytes_impl(storage, max_size_bytes).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn export_database_to_bytes(
     storage: &mut BlockStorage,
     max_size_bytes: Option<u64>,
 ) -> Result<Vec<u8>, DatabaseError> {
+    export_database_to_bytes_impl(storage, max_size_bytes).await
+}
+
+#[allow(invalid_reference_casting)]
+async fn export_database_to_bytes_impl(
+    storage: &BlockStorage,
+    max_size_bytes: Option<u64>,
+) -> Result<Vec<u8>, DatabaseError> {
     log::info!("Starting database export");
 
-    // Force sync to ensure all data is persisted
-    storage.sync().await?;
+    // NOTE: Removed sync() call - export is a read-only operation and should not
+    // trigger sync. The caller should ensure data is synced before export if needed.
+    // Concurrent exports were hanging because all tried to sync simultaneously,
+    // causing RefCell borrow conflicts in global storage.
 
     // Read first block to get header
     log::debug!("Reading block 0 for header");
@@ -406,20 +425,53 @@ pub async fn export_database_to_bytes(
     let block_ids: Vec<u64> = (0..total_blocks).collect();
 
     log::debug!("Reading {} blocks for export", block_ids.len());
+    
+    // DEBUG: Check what blocks actually exist in storage
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::storage::vfs_sync::with_global_storage;
+        with_global_storage(|storage_map| {
+            if let Some(db_storage) = storage_map.borrow().get(storage.get_db_name()) {
+                web_sys::console::log_1(&format!("[EXPORT] GLOBAL_STORAGE has {} blocks", db_storage.len()).into());
+                web_sys::console::log_1(&format!("[EXPORT] Block IDs in GLOBAL_STORAGE: {:?}", db_storage.keys().collect::<Vec<_>>()).into());
+            }
+        });
+        web_sys::console::log_1(&format!("[EXPORT] Requesting {} blocks: {:?}", block_ids.len(), block_ids).into());
+    }
 
     // Read all blocks at once
     let blocks = storage.read_blocks(&block_ids).await?;
+    
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[EXPORT] Actually read {} blocks", blocks.len()).into());
 
     // Concatenate all blocks
     let mut result = Vec::with_capacity(total_db_size as usize);
-    for block in blocks {
+    for (i, block) in blocks.iter().enumerate() {
         result.extend_from_slice(&block);
+        #[cfg(target_arch = "wasm32")]
+        if i < 5 {
+            web_sys::console::log_1(&format!("[EXPORT] Block {} has {} bytes, first 16: {:02x?}", i, block.len(), &block[..16.min(block.len())]).into());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = i; // Suppress unused warning on native
     }
 
     // Truncate to exact database size
     result.truncate(total_db_size as usize);
 
     log::info!("Export complete: {} bytes", result.len());
+    
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::console::log_1(&format!("[EXPORT] Final result: {} bytes", result.len()).into());
+        if result.len() >= 100 {
+            web_sys::console::log_1(&format!("[EXPORT] Header bytes 28-39: {:02x?}", &result[28..40]).into());
+            web_sys::console::log_1(&format!("[EXPORT] Header bytes 40-60: {:02x?}", &result[40..60]).into());
+            let largest_root_page = u32::from_be_bytes([result[52], result[53], result[54], result[55]]);
+            web_sys::console::log_1(&format!("[EXPORT] Largest root b-tree page (bytes 52-55): {}", largest_root_page).into());
+        }
+    }
 
     Ok(result)
 }
@@ -453,14 +505,38 @@ pub async fn export_database_to_bytes(
 ///     export_database_with_options(&mut storage, options).await
 /// }
 /// ```
+#[cfg(target_arch = "wasm32")]
+pub async fn export_database_with_options(
+    storage: &BlockStorage,
+    options: ExportOptions,
+) -> Result<Vec<u8>, DatabaseError> {
+    export_database_with_options_impl(storage, options).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn export_database_with_options(
     storage: &mut BlockStorage,
+    options: ExportOptions,
+) -> Result<Vec<u8>, DatabaseError> {
+    export_database_with_options_impl(storage, options).await
+}
+
+#[allow(invalid_reference_casting)]
+async fn export_database_with_options_impl(
+    storage: &BlockStorage,
     options: ExportOptions,
 ) -> Result<Vec<u8>, DatabaseError> {
     log::info!("Starting streaming database export");
 
     // Force sync to ensure all data is persisted
+    #[cfg(target_arch = "wasm32")]
     storage.sync().await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // SAFETY: Called from public API that takes &mut on native
+        let storage_mut = unsafe { &mut *(storage as *const _ as *mut BlockStorage) };
+        storage_mut.sync().await?;
+    }
 
     // Read first block to get header
     log::debug!("Reading block 0 for header");
@@ -576,6 +652,22 @@ pub async fn export_database_with_options(
 ///     ).await
 /// }
 /// ```
+#[cfg(target_arch = "wasm32")]
+pub async fn export_database_to_bytes_streaming(
+    storage: &BlockStorage,
+    max_size_bytes: Option<u64>,
+    chunk_size_bytes: Option<u64>,
+    progress_callback: Option<ProgressCallback>,
+) -> Result<Vec<u8>, DatabaseError> {
+    let options = ExportOptions {
+        max_size_bytes,
+        chunk_size_bytes,
+        progress_callback,
+    };
+    export_database_with_options(storage, options).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn export_database_to_bytes_streaming(
     storage: &mut BlockStorage,
     max_size_bytes: Option<u64>,
@@ -587,7 +679,6 @@ pub async fn export_database_to_bytes_streaming(
         chunk_size_bytes,
         progress_callback,
     };
-    
     export_database_with_options(storage, options).await
 }
 

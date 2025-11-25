@@ -40,6 +40,9 @@ fn test_import_database_from_bytes() {
     
     // Verify blocks were written to GLOBAL_STORAGE
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let storage = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let storage = gs.borrow();
         assert!(storage.contains_key(db_name), "Database should exist in storage");
         
@@ -78,6 +81,9 @@ fn test_import_database_different_page_size() {
     
     // Should still be stored in 4096-byte blocks (2 blocks for 8192 bytes)
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let storage = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let storage = gs.borrow();
         let blocks = storage.get(db_name).unwrap();
         assert_eq!(blocks.len(), 2, "Should have 2 blocks (8192 / 4096)");
@@ -113,6 +119,9 @@ fn test_import_clears_existing_data() {
     
     // Populate with old data
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let mut storage = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let mut storage = gs.borrow_mut();
         let mut blocks = HashMap::new();
         blocks.insert(99, vec![0xAA; 4096]);  // Old block that shouldn't exist after import
@@ -131,6 +140,9 @@ fn test_import_clears_existing_data() {
     
     // Verify old data is gone, new data exists
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let storage = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let storage = gs.borrow();
         let blocks = storage.get(db_name).unwrap();
         assert!(!blocks.contains_key(&99), "Old block 99 should be cleared");
@@ -165,6 +177,9 @@ fn test_import_database_with_padding() {
     
     // Should be stored in 2 blocks (6144 bytes = 1.5 blocks, needs padding to 8192)
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let storage = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let storage = gs.borrow();
         let blocks = storage.get(db_name).unwrap();
         assert_eq!(blocks.len(), 2, "Should have 2 blocks with padding");

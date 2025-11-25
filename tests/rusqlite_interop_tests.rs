@@ -54,6 +54,9 @@ fn test_import_from_rusqlite_file() {
     
     // Verify blocks in GLOBAL_STORAGE
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let storage_map = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let storage_map = gs.borrow();
         let blocks = storage_map.get("imported_from_rusqlite")
             .expect("Should have blocks");
@@ -113,6 +116,9 @@ fn test_import_rusqlite_with_multiple_tables() {
     
     // Verify in GLOBAL_STORAGE
     with_global_storage(|gs| {
+        #[cfg(target_arch = "wasm32")]
+        let storage_map = gs;
+        #[cfg(not(target_arch = "wasm32"))]
         let storage_map = gs.borrow();
         let blocks = storage_map.get("complex_db").expect("Should have blocks");
         

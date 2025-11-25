@@ -94,8 +94,8 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
             static GLOBAL_COMMIT_MARKER: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
         }
         GLOBAL_COMMIT_MARKER.with(|cm| {
-            let cm = cm.borrow();
-            cm.get("cm_lag_across.db").copied().unwrap_or(0)
+            let cm = cm;
+            cm.borrow().get("cm_lag_across.db").copied().unwrap_or(0)
         })
     };
     log::info!("Commit marker after sync: {}", commit_marker_after);

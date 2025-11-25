@@ -58,6 +58,10 @@ export class Database {
   execute(sql: string): Promise<any>;
   executeWithParams(sql: string, params: any): Promise<any>;
   close(): Promise<void>;
+  /**
+   * Force close connection and remove from pool (for test cleanup)
+   */
+  forceCloseConnection(): Promise<void>;
   sync(): Promise<void>;
   /**
    * Allow non-leader writes (for single-tab apps or testing)
@@ -81,6 +85,10 @@ export class Database {
    * ```
    */
   exportToFile(): Promise<Uint8Array>;
+  /**
+   * Test method for concurrent locking - simple increment counter
+   */
+  testLock(value: number): Promise<number>;
   /**
    * Import SQLite database from .db file bytes
    * 
@@ -109,7 +117,8 @@ export class Database {
    * 
    * # Warning
    * This operation is destructive and will replace all existing database data.
-   * The database connection will be closed and must be reopened after import.
+   * **IMPORTANT:** You MUST call `db.close()` after import and reopen the database
+   * for changes to take effect.
    */
   importFromFile(file_data: Uint8Array): Promise<void>;
   /**
@@ -203,6 +212,10 @@ export class Database {
    * Reset all coordination metrics
    */
   resetCoordinationMetrics(): Promise<void>;
+  /**
+   * Get the database name
+   */
+  readonly name: string;
 }
 export class WasmColumnValue {
   private constructor();
@@ -232,14 +245,17 @@ export interface InitOutput {
   readonly init_logger: () => void;
   readonly __wbg_database_free: (a: number, b: number) => void;
   readonly database_newDatabase: (a: number, b: number) => any;
+  readonly database_name: (a: number) => [number, number];
   readonly database_getAllDatabases: () => any;
   readonly database_deleteDatabase: (a: number, b: number) => any;
   readonly database_execute: (a: number, b: number, c: number) => any;
   readonly database_executeWithParams: (a: number, b: number, c: number, d: any) => any;
   readonly database_close: (a: number) => any;
+  readonly database_forceCloseConnection: (a: number) => any;
   readonly database_sync: (a: number) => any;
   readonly database_allowNonLeaderWrites: (a: number, b: number) => any;
   readonly database_exportToFile: (a: number) => any;
+  readonly database_testLock: (a: number, b: number) => any;
   readonly database_importFromFile: (a: number, b: any) => any;
   readonly database_waitForLeadership: (a: number) => any;
   readonly database_requestLeadership: (a: number) => any;
@@ -296,17 +312,19 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__h4a40dd3e40c810c9: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h2f37bf16a5f8f009: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h22534da7d54bf13b: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h5d89cc2ab3b3e449: (a: number, b: number, c: any) => any;
+  readonly wasm_bindgen__closure__destroy__h4d3ac454e1c5b733: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h461a9f3a02628bdb: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__hddca379abe978273: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h183d48ae9af1b9ef: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
   readonly __wbindgen_externrefs: WebAssembly.Table;
+  readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }

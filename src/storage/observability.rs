@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
 
 /// Comprehensive metrics for observability
 #[derive(Debug, Clone)]
@@ -68,11 +70,11 @@ pub struct ObservabilityManager {
     #[cfg(target_arch = "wasm32")]
     pub(super) wasm_sync_success_callback: Option<WasmSyncSuccessCallback>,
     
-    // Throughput tracking
+    // Throughput tracking (use interior mutability)
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) last_sync_start: Option<Instant>,
-    pub(super) last_sync_blocks: usize,
-    pub(super) last_sync_bytes: usize,
+    pub(super) last_sync_start: Mutex<Option<Instant>>,
+    pub(super) last_sync_blocks: AtomicU64,
+    pub(super) last_sync_bytes: AtomicU64,
 }
 
 impl Default for ObservabilityManager {
@@ -89,9 +91,15 @@ impl Default for ObservabilityManager {
             #[cfg(target_arch = "wasm32")]
             wasm_sync_success_callback: None,
             #[cfg(not(target_arch = "wasm32"))]
-            last_sync_start: None,
-            last_sync_blocks: 0,
-            last_sync_bytes: 0,
+            last_sync_start: Mutex::new(None),
+            #[cfg(not(target_arch = "wasm32"))]
+            last_sync_blocks: AtomicU64::new(0),
+            #[cfg(not(target_arch = "wasm32"))]
+            last_sync_bytes: AtomicU64::new(0),
+            #[cfg(target_arch = "wasm32")]
+            last_sync_blocks: AtomicU64::new(0),
+            #[cfg(target_arch = "wasm32")]
+            last_sync_bytes: AtomicU64::new(0),
         }
     }
 }
@@ -116,13 +124,15 @@ impl ObservabilityManager {
     }
     
     /// Record sync start
-    pub fn record_sync_start(&mut self, dirty_count: usize, dirty_bytes: usize) {
+    pub fn record_sync_start(&self, dirty_count: usize, dirty_bytes: usize) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.last_sync_start = Some(Instant::now());
+            if let Ok(mut guard) = self.last_sync_start.lock() {
+                *guard = Some(Instant::now());
+            }
         }
-        self.last_sync_blocks = dirty_count;
-        self.last_sync_bytes = dirty_bytes;
+        self.last_sync_blocks.store(dirty_count as u64, Ordering::SeqCst);
+        self.last_sync_bytes.store(dirty_bytes as u64, Ordering::SeqCst);
         
         if let Some(ref callback) = self.sync_start_callback {
             callback(dirty_count, dirty_bytes);
@@ -130,7 +140,7 @@ impl ObservabilityManager {
     }
     
     /// Record sync success
-    pub fn record_sync_success(&mut self, duration_ms: u64, blocks_synced: usize) {
+    pub fn record_sync_success(&self, duration_ms: u64, blocks_synced: usize) {
         // Increment sync count
         self.sync_count.fetch_add(1, Ordering::SeqCst);
         
@@ -167,8 +177,10 @@ impl ObservabilityManager {
         }
         
         let duration_sec = duration_ms as f64 / 1000.0;
-        let blocks_per_sec = self.last_sync_blocks as f64 / duration_sec;
-        let bytes_per_sec = self.last_sync_bytes as f64 / duration_sec;
+        let blocks = self.last_sync_blocks.load(Ordering::SeqCst) as f64;
+        let bytes = self.last_sync_bytes.load(Ordering::SeqCst) as f64;
+        let blocks_per_sec = blocks / duration_sec;
+        let bytes_per_sec = bytes / duration_sec;
         
         (blocks_per_sec, bytes_per_sec)
     }

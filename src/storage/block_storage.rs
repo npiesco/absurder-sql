@@ -1,13 +1,15 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+#[allow(unused_imports)]
+use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
 use parking_lot::Mutex;
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 #[cfg(target_arch = "wasm32")]
 use js_sys::Date;
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use crate::types::DatabaseError;
 use super::metadata::{ChecksumManager, ChecksumAlgorithm};
 #[allow(unused_imports)]
@@ -18,9 +20,6 @@ use super::vfs_sync;
 use tokio::task::JoinHandle as TokioJoinHandle;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
-
-#[allow(unused_imports)]
-use std::cell::RefCell;
 
 // FS persistence imports (native only when feature is enabled)
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -104,13 +103,13 @@ struct FsDealloc { tombstones: Vec<u64> }
 // Metadata mirror for native builds
 #[cfg(not(target_arch = "wasm32"))]
 thread_local! {
-    pub(super) static GLOBAL_METADATA_TEST: RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = RefCell::new(HashMap::new());
+    pub(super) static GLOBAL_METADATA_TEST: parking_lot::Mutex<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = parking_lot::Mutex::new(HashMap::new());
 }
 
 // Test-only commit marker mirror for native builds (when fs_persist is disabled)
 #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
 thread_local! {
-    static GLOBAL_COMMIT_MARKER_TEST: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
+    static GLOBAL_COMMIT_MARKER_TEST: parking_lot::Mutex<HashMap<String, u64>> = parking_lot::Mutex::new(HashMap::new());
 }
 
 #[derive(Clone, Debug)]
@@ -152,25 +151,135 @@ const STORE_NAME: &str = "sqlite_blocks";
 #[allow(dead_code)]
 const METADATA_STORE: &str = "metadata";
 
+// Helper macro to abstract lock API differences: RefCell for WASM, Mutex for native
+// WASM: Use try_borrow_mut and handle reentrancy at call sites
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in block_storage.rs")
+    };
+}
+
+// Try-lock version for reentrancy-safe operations
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! try_lock_mutex {
+    ($mutex:expr) => {
+        $mutex
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
+// Safe read macro for WASM that handles reentrancy
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! read_lock {
+    ($mutex:expr) => {
+        $mutex.try_borrow()
+            .expect("RefCell borrow failed - likely reentrancy issue")
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! read_lock {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
+// Try-lock macro for reentrancy-safe operations
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! try_lock_mutex{
+    ($mutex:expr) => {
+        $mutex.ok()
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! try_lock_mutex {
+    ($mutex:expr) => {
+        Some($mutex.lock())
+    };
+}
+
+// Try-read macro for reentrancy-safe read operations
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! try_read_lock {
+    ($mutex:expr) => {
+        $mutex.try_borrow().ok()
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! try_read_lock {
+    ($mutex:expr) => {
+        Some($mutex.lock())
+    };
+}
+
 pub struct BlockStorage {
-    pub(super) cache: HashMap<u64, Vec<u8>>,
+    // WASM: RefCell for zero-cost interior mutability (single-threaded)
+    // Native: Mutex for thread safety
+    #[cfg(target_arch = "wasm32")]
+    pub(super) cache: RefCell<HashMap<u64, Vec<u8>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) cache: Mutex<HashMap<u64, Vec<u8>>>,
+    
+    #[cfg(target_arch = "wasm32")]
+    pub(super) dirty_blocks: Arc<RefCell<HashMap<u64, Vec<u8>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) dirty_blocks: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
-    pub(super) allocated_blocks: HashSet<u64>,
+    
+    #[cfg(target_arch = "wasm32")]
+    pub(super) allocated_blocks: RefCell<HashSet<u64>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) allocated_blocks: Mutex<HashSet<u64>>,
+    
+    #[cfg(target_arch = "wasm32")]
     #[allow(dead_code)]
-    pub(super) deallocated_blocks: HashSet<u64>,
-    pub(super) next_block_id: u64,
+    pub(super) deallocated_blocks: RefCell<HashSet<u64>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[allow(dead_code)]
+    pub(super) deallocated_blocks: Mutex<HashSet<u64>>,
+    pub(super) next_block_id: AtomicU64,
     pub(super) capacity: usize,
-    pub(super) lru_order: VecDeque<u64>,
+    
+    #[cfg(target_arch = "wasm32")]
+    pub(super) lru_order: RefCell<VecDeque<u64>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) lru_order: Mutex<VecDeque<u64>>,
+    
     // Checksum management (moved to metadata module)
     pub(super) checksum_manager: ChecksumManager,
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     pub(super) base_dir: PathBuf,
     pub(super) db_name: String,
+    
     // Background sync settings
-    pub(super) auto_sync_interval: Option<Duration>,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) auto_sync_interval: RefCell<Option<Duration>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) auto_sync_interval: Mutex<Option<Duration>>,
+    
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) last_auto_sync: Instant,
-    pub(super) policy: Option<SyncPolicy>,
+    
+    #[cfg(target_arch = "wasm32")]
+    pub(super) policy: RefCell<Option<SyncPolicy>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) policy: Mutex<Option<SyncPolicy>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) auto_sync_stop: Option<Arc<AtomicBool>>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -203,9 +312,9 @@ pub struct BlockStorage {
     // Startup recovery report
     pub(super) recovery_report: RecoveryReport,
     
-    // Leader election manager (WASM only)
+    // Leader election manager (WASM only) - wrapped in RefCell for interior mutability
     #[cfg(target_arch = "wasm32")]
-    pub(super) leader_election: Option<super::leader_election::LeaderElectionManager>,
+    pub leader_election: std::cell::RefCell<Option<super::leader_election::LeaderElectionManager>>,
     
     // Observability manager
     pub(super) observability: super::observability::ObservabilityManager,
@@ -224,9 +333,8 @@ impl BlockStorage {
         
         // Load existing data from GLOBAL_STORAGE to support multi-connection scenarios
         use crate::storage::vfs_sync::with_global_storage;
-        let (cache, allocated_blocks, max_block_id) = with_global_storage(|gs| {
-            let storage_map = gs.borrow();
-            if let Some(db_storage) = storage_map.get(db_name) {
+        let (cache, allocated_blocks, max_block_id) = with_global_storage(|storage_map| {
+            if let Some(db_storage) = storage_map.borrow().get(db_name) {
                 let cache = db_storage.clone();
                 let allocated = db_storage.keys().copied().collect::<HashSet<_>>();
                 let max_id = db_storage.keys().max().copied().unwrap_or(0);
@@ -241,9 +349,8 @@ impl BlockStorage {
         // CRITICAL: Always reload checksums from GLOBAL_METADATA since cache might be stale
         // This handles the case where import writes new data after close() reloaded cache
         use crate::storage::vfs_sync::with_global_metadata;
-        let checksum_manager = with_global_metadata(|gm| {
-            let metadata_map = gm.borrow();
-            if let Some(db_metadata) = metadata_map.get(db_name) {
+        let checksum_manager = with_global_metadata(|metadata_map| {
+            if let Some(db_metadata) = metadata_map.borrow().get(db_name) {
                 let mut checksums = HashMap::new();
                 let mut algos = HashMap::new();
                 for (block_id, meta) in db_metadata {
@@ -257,17 +364,17 @@ impl BlockStorage {
         });
         
         Self {
-            cache,
-            dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
-            allocated_blocks,
-            deallocated_blocks: HashSet::new(),
-            next_block_id: max_block_id + 1,
+            cache: RefCell::new(cache),
+            dirty_blocks: Arc::new(RefCell::new(HashMap::new())),
+            allocated_blocks: RefCell::new(allocated_blocks),
+            deallocated_blocks: RefCell::new(HashSet::new()),
+            next_block_id: AtomicU64::new(max_block_id + 1),
             capacity: 128,
-            lru_order: VecDeque::new(),
+            lru_order: RefCell::new(VecDeque::new()),
             checksum_manager,
             db_name: db_name.to_string(),
-            auto_sync_interval: None,
-            policy: None,
+            auto_sync_interval: RefCell::new(None),
+            policy: RefCell::new(None),
             #[cfg(not(target_arch = "wasm32"))]
             last_auto_sync: Instant::now(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -300,7 +407,7 @@ impl BlockStorage {
             sync_receiver: None,
             recovery_report: RecoveryReport::default(),
             #[cfg(target_arch = "wasm32")]
-            leader_election: None,
+            leader_election: std::cell::RefCell::new(None),
             observability: super::observability::ObservabilityManager::new(),
             #[cfg(feature = "telemetry")]
             metrics: None,
@@ -387,7 +494,10 @@ impl BlockStorage {
                 let mut map = HashMap::new();
                 #[cfg(any(test, debug_assertions))]
                 GLOBAL_METADATA_TEST.with(|meta| {
-                    let meta_map = meta.borrow();
+                    #[cfg(target_arch = "wasm32")]
+                    let meta_map = meta.borrow_mut();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let meta_map = meta.lock();
                     if let Some(db_meta) = meta_map.get(db_name) {
                         for (block_id, metadata) in db_meta.iter() {
                             map.insert(*block_id, metadata.checksum);
@@ -437,7 +547,10 @@ impl BlockStorage {
                 let mut map = HashMap::new();
                 #[cfg(any(test, debug_assertions))]
                 GLOBAL_METADATA_TEST.with(|meta| {
-                    let meta_map = meta.borrow();
+                    #[cfg(target_arch = "wasm32")]
+                    let meta_map = meta.borrow_mut();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let meta_map = meta.lock();
                     if let Some(db_meta) = meta_map.get(db_name) {
                         for (block_id, metadata) in db_meta.iter() {
                             map.insert(*block_id, metadata.algo);
@@ -488,8 +601,8 @@ impl BlockStorage {
 
         Ok(BlockStorage {
             db_name: db_name.to_string(),
-            cache: HashMap::new(),
-            lru_order: VecDeque::new(),
+            cache: Mutex::new(HashMap::new()),
+            lru_order: Mutex::new(VecDeque::new()),
             capacity: 1000,
             checksum_manager: ChecksumManager::with_data(
                 checksums_init,
@@ -497,11 +610,11 @@ impl BlockStorage {
                 checksum_algo_default,
             ),
             dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
-            allocated_blocks,
-            next_block_id,
-            deallocated_blocks: deallocated_blocks_init,
-            policy: None,
-            auto_sync_interval: None,
+            allocated_blocks: Mutex::new(allocated_blocks),
+            next_block_id: AtomicU64::new(next_block_id),
+            deallocated_blocks: Mutex::new(deallocated_blocks_init),
+            policy: Mutex::new(None),
+            auto_sync_interval: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
             last_auto_sync: Instant::now(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -533,6 +646,8 @@ impl BlockStorage {
             #[cfg(not(target_arch = "wasm32"))]
             sync_receiver: None,
             recovery_report: RecoveryReport::default(),
+            #[cfg(target_arch = "wasm32")]
+            leader_election: std::cell::RefCell::new(None),
             observability: super::observability::ObservabilityManager::new(),
             #[cfg(feature = "telemetry")]
             metrics: None,
@@ -562,7 +677,7 @@ impl BlockStorage {
     }
 
     pub(super) async fn get_blocks_for_verification(&self, mode: &RecoveryMode) -> Result<Vec<u64>, DatabaseError> {
-        let all_blocks: Vec<u64> = self.allocated_blocks.iter().copied().collect();
+        let all_blocks: Vec<u64> = lock_mutex!(self.allocated_blocks).iter().copied().collect();
         
         match mode {
             RecoveryMode::Full => Ok(all_blocks),
@@ -618,6 +733,9 @@ impl BlockStorage {
         {
             let mut found_data = None;
             vfs_sync::with_global_storage(|storage| {
+                #[cfg(target_arch = "wasm32")]
+                let storage_map = storage;
+                #[cfg(not(target_arch = "wasm32"))]
                 let storage_map = storage.borrow();
                 if let Some(db_storage) = storage_map.get(&self.db_name) {
                     if let Some(data) = db_storage.get(&block_id) {
@@ -634,9 +752,8 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         {
             let mut found_data = None;
-            vfs_sync::with_global_storage(|storage| {
-                let storage_map = storage.borrow();
-                if let Some(db_storage) = storage_map.get(&self.db_name) {
+            vfs_sync::with_global_storage(|storage_map| {
+                if let Some(db_storage) = storage_map.borrow().get(&self.db_name) {
                     if let Some(data) = db_storage.get(&block_id) {
                         found_data = Some(data.clone());
                     }
@@ -660,7 +777,7 @@ impl BlockStorage {
         // In a real implementation, this might involve restoring from backup or rebuilding
         
         // Remove from cache
-        self.cache.remove(&block_id);
+        lock_mutex!(self.cache).remove(&block_id);
         
         // Remove checksum metadata
         self.checksum_manager.remove_checksum(block_id);
@@ -689,9 +806,8 @@ impl BlockStorage {
         // Remove from WASM storage
         #[cfg(target_arch = "wasm32")]
         {
-            vfs_sync::with_global_storage(|storage| {
-                let mut storage_map = storage.borrow_mut();
-                if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
+            vfs_sync::with_global_storage(|storage_map| {
+                if let Some(db_storage) = storage_map.borrow_mut().get_mut(&self.db_name) {
                     db_storage.remove(&block_id);
                 }
             });
@@ -701,29 +817,42 @@ impl BlockStorage {
         Ok(true)
     }
 
-    pub(super) fn touch_lru(&mut self, block_id: u64) {
+    pub(super) fn touch_lru(&self, block_id: u64) {
         // Remove any existing occurrence
-        if let Some(pos) = self.lru_order.iter().position(|&id| id == block_id) {
-            self.lru_order.remove(pos);
+        let mut lru = lock_mutex!(self.lru_order);
+        if let Some(pos) = lru.iter().position(|&id| id == block_id) {
+            lru.remove(pos);
         }
         // Push as most-recent
-        self.lru_order.push_back(block_id);
+        lru.push_back(block_id);
     }
 
-    pub(super) fn evict_if_needed(&mut self) {
+    pub(super) fn evict_if_needed(&self) {
         // Evict clean LRU blocks until within capacity. Never evict dirty blocks.
-        while self.cache.len() > self.capacity {
-            // Find the least-recent block that is NOT dirty
-            let dirty_guard = self.dirty_blocks.lock();
-            let victim_pos = self
-                .lru_order
-                .iter()
-                .position(|id| !dirty_guard.contains_key(id));
-
-            match victim_pos {
-                Some(pos) => {
-                    let victim = self.lru_order.remove(pos).expect("valid pos");
-                    self.cache.remove(&victim);
+        loop {
+            // Check capacity and find victim in a single critical section
+            let victim_opt = {
+                let cache_guard = lock_mutex!(self.cache);
+                if cache_guard.len() <= self.capacity {
+                    break; // Within capacity, done
+                }
+                
+                // Find the least-recent block that is NOT dirty
+                let dirty_guard = lock_mutex!(self.dirty_blocks);
+                let mut lru_guard = lock_mutex!(self.lru_order);
+                
+                let victim_pos = lru_guard
+                    .iter()
+                    .position(|id| !dirty_guard.contains_key(id));
+                
+                victim_pos.map(|pos| lru_guard.remove(pos).expect("valid pos"))
+                // Guards are dropped here
+            };
+            
+            match victim_opt {
+                Some(victim) => {
+                    // Remove from cache (new lock acquisition)
+                    lock_mutex!(self.cache).remove(&victim);
                 }
                 None => {
                     // All blocks are dirty; cannot evict. Allow temporary overflow.
@@ -758,29 +887,61 @@ impl BlockStorage {
     }
 
     /// Synchronous block read for environments that require sync access (e.g., VFS callbacks)
-    pub fn read_block_sync(&mut self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
+    pub fn read_block_sync(&self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
         // Implementation moved to io_operations module
         super::io_operations::read_block_sync_impl(self, block_id)
     }
 
-    pub async fn read_block(&mut self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
+    pub async fn read_block(&self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
         // Delegate to synchronous implementation (immediately ready)
         self.read_block_sync(block_id)
     }
 
     /// Synchronous block write for environments that require sync access (e.g., VFS callbacks)
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_block_sync(&self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
+        super::io_operations::write_block_sync_impl(self, block_id, data)
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn write_block_sync(&mut self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
-        // Implementation moved to io_operations module
         super::io_operations::write_block_sync_impl(self, block_id, data)
     }
 
 
-    pub async fn write_block(&mut self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
-        // Delegate to synchronous implementation (immediately ready)
+    #[cfg(target_arch = "wasm32")]
+    pub async fn write_block(&self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         self.write_block_sync(block_id, data)
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn write_block(&mut self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
+        self.write_block_sync(block_id, data)?;
+        
+        // If threshold was hit and debounce is NOT enabled, perform inline sync
+        if self.threshold_hit.load(std::sync::atomic::Ordering::SeqCst) {
+            let has_debounce = lock_mutex!(self.policy).as_ref().and_then(|p| p.debounce_ms).is_some();
+            if !has_debounce {
+                log::debug!("Threshold hit without debounce: performing inline sync");
+                self.sync_implementation()?;
+                self.threshold_hit.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        
+        Ok(())
     }
 
     /// Synchronous batch write of blocks
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_blocks_sync(&self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
+        self.maybe_auto_sync();
+        for (block_id, data) in items {
+            self.write_block_sync(block_id, data)?;
+        }
+        Ok(())
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn write_blocks_sync(&mut self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
         self.maybe_auto_sync();
         for (block_id, data) in items {
@@ -790,12 +951,18 @@ impl BlockStorage {
     }
 
     /// Async batch write wrapper
+    #[cfg(target_arch = "wasm32")]
+    pub async fn write_blocks(&self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
+        self.write_blocks_sync(items)
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn write_blocks(&mut self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
         self.write_blocks_sync(items)
     }
 
     /// Synchronous batch read of blocks, preserving input order
-    pub fn read_blocks_sync(&mut self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+    pub fn read_blocks_sync(&self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
         self.maybe_auto_sync();
         let mut results = Vec::with_capacity(block_ids.len());
         for &id in block_ids {
@@ -805,7 +972,7 @@ impl BlockStorage {
     }
 
     /// Async batch read wrapper
-    pub async fn read_blocks(&mut self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+    pub async fn read_blocks(&self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
         self.read_blocks_sync(block_ids)
     }
 
@@ -825,14 +992,14 @@ impl BlockStorage {
     /// Check if this database has any blocks in storage (WASM only)
     #[cfg(target_arch = "wasm32")]
     pub fn has_any_blocks(&self) -> bool {
-        vfs_sync::with_global_storage(|gs| {
-            gs.borrow().get(&self.db_name).map_or(false, |blocks| !blocks.is_empty())
+        vfs_sync::with_global_storage(|storage_map| {
+            storage_map.borrow().get(&self.db_name).map_or(false, |blocks| !blocks.is_empty())
         })
     }
 
     pub async fn verify_block_checksum(&mut self, block_id: u64) -> Result<(), DatabaseError> {
         // If cached, verify directly against cached bytes
-        if let Some(bytes) = self.cache.get(&block_id).cloned() {
+        if let Some(bytes) = lock_mutex!(self.cache).get(&block_id).cloned() {
             return self.verify_against_stored_checksum(block_id, &bytes);
         }
         // Otherwise, a read will populate cache and also verify
@@ -840,15 +1007,15 @@ impl BlockStorage {
         self.verify_against_stored_checksum(block_id, &data)
     }
 
-    #[cfg(any(test, debug_assertions))]
-    pub fn get_block_metadata_for_testing(&self) -> HashMap<u64, (u64, u32, u64)> {
+    // Always available for testing (integration tests need this in release mode)
+    #[allow(unused_mut)]
+    pub fn get_block_metadata_for_testing(&mut self) -> HashMap<u64, (u64, u32, u64)> {
         // Returns map of block_id -> (checksum, version, last_modified_ms)
         #[cfg(target_arch = "wasm32")]
         {
             let mut out = HashMap::new();
-            vfs_sync::with_global_metadata(|meta| {
-                let meta_map = meta.borrow();
-                if let Some(db_meta) = meta_map.get(&self.db_name) {
+            vfs_sync::with_global_metadata(|meta_map| {
+                if let Some(db_meta) = meta_map.borrow().get(&self.db_name) {
                     for (bid, m) in db_meta.iter() {
                         out.insert(*bid, (m.checksum, m.version, m.last_modified_ms));
                     }
@@ -859,6 +1026,7 @@ impl BlockStorage {
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         {
             use std::io::Read;
+            use super::fs_persist::FsMeta;
             let mut out = HashMap::new();
             let base: PathBuf = self.base_dir.clone();
             let mut db_dir = base.clone();
@@ -868,8 +1036,10 @@ impl BlockStorage {
             if let Ok(mut f) = std::fs::File::open(&meta_path) {
                 let mut s = String::new();
                 if f.read_to_string(&mut s).is_ok() {
-                    if let Ok(parsed) = serde_json::from_str::<FsMeta>(&s) {
-                        for (bid, m) in parsed.entries.into_iter() { out.insert(bid, (m.checksum, m.version, m.last_modified_ms)); }
+                    if let Ok(meta) = serde_json::from_str::<FsMeta>(&s) {
+                        for (block_id, metadata) in meta.entries {
+                            out.insert(block_id, (metadata.checksum, metadata.version, metadata.last_modified_ms));
+                        }
                     }
                 }
             }
@@ -879,7 +1049,10 @@ impl BlockStorage {
         {
             let mut out = HashMap::new();
             GLOBAL_METADATA_TEST.with(|meta| {
-                let meta_map = meta.borrow();
+                #[cfg(target_arch = "wasm32")]
+                let meta_map = meta.borrow_mut();
+                #[cfg(not(target_arch = "wasm32"))]
+                let meta_map = meta.lock();
                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                     for (bid, m) in db_meta.iter() {
                         out.insert(*bid, (m.checksum, m.version, m.last_modified_ms));
@@ -890,7 +1063,7 @@ impl BlockStorage {
         }
     }
 
-    #[cfg(any(test, debug_assertions))]
+    // Always available for testing (integration tests need this in release mode)
     pub fn set_block_checksum_for_testing(&mut self, block_id: u64, checksum: u64) {
         self.checksum_manager.set_checksum_for_testing(block_id, checksum);
     }
@@ -902,23 +1075,33 @@ impl BlockStorage {
     }
 
 
+    #[cfg(target_arch = "wasm32")]
+    #[allow(invalid_reference_casting)]
+    pub async fn sync(&self) -> Result<(), DatabaseError> {
+        // WASM: Use unsafe cast to get mutable access
+        let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
+        let result = self_mut.sync_implementation();
+        // Give time for the spawned IndexedDB operations to complete
+        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)).await.ok();
+        result
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn sync(&mut self) -> Result<(), DatabaseError> {
-        // For WASM, we need to handle the async IndexedDB operations properly
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Call the sync implementation but handle the spawned async operations
-            let result = self.sync_implementation();
-            // Give time for the spawned IndexedDB operations to complete
-            wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)).await.ok();
-            result
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.sync_implementation()
-        }
+        self.sync_implementation()
     }
 
     /// Synchronous version of sync() for immediate persistence
+    #[cfg(target_arch = "wasm32")]
+    #[allow(invalid_reference_casting)]
+    pub fn sync_now(&self) -> Result<(), DatabaseError> {
+        // WASM can use &self due to RefCell interior mutability
+        // Cast self to mutable for the implementation
+        let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
+        self_mut.sync_implementation()
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn sync_now(&mut self) -> Result<(), DatabaseError> {
         self.sync_implementation()
     }
@@ -938,17 +1121,29 @@ impl BlockStorage {
 
     /// Async version of sync for WASM that properly awaits IndexedDB persistence
     #[cfg(target_arch = "wasm32")]
-    pub async fn sync_async(&mut self) -> Result<(), DatabaseError> {
+    pub async fn sync_async(&self) -> Result<(), DatabaseError> {
         super::wasm_indexeddb::sync_async(self).await
     }
 
     /// Drain all pending dirty blocks and stop background auto-sync (if enabled).
     /// Safe to call multiple times.
+    #[cfg(target_arch = "wasm32")]
+    #[allow(invalid_reference_casting)]
+    pub fn drain_and_shutdown(&self) {
+        // WASM: Use unsafe cast to get mutable access
+        let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
+        if let Err(e) = self_mut.sync_now() {
+            log::error!("drain_and_shutdown: sync_now failed: {}", e.message);
+        }
+        *lock_mutex!(self.auto_sync_interval) = None;
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn drain_and_shutdown(&mut self) {
         if let Err(e) = self.sync_now() {
             log::error!("drain_and_shutdown: sync_now failed: {}", e.message);
         }
-        self.auto_sync_interval = None;
+        *lock_mutex!(self.auto_sync_interval) = None;
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(stop) = &self.auto_sync_stop {
@@ -967,9 +1162,9 @@ impl BlockStorage {
         }
     }
 
-    pub fn clear_cache(&mut self) {
-        self.cache.clear();
-        self.lru_order.clear();
+    pub fn clear_cache(&self) {
+        lock_mutex!(self.cache).clear();
+        lock_mutex!(self.lru_order).clear();
     }
     
     /// Handle notification that the database has been imported
@@ -998,7 +1193,7 @@ impl BlockStorage {
         self.clear_cache();
         
         // Also clear dirty blocks since they're now stale
-        self.dirty_blocks.lock().clear();
+        lock_mutex!(self.dirty_blocks).clear();
         
         // Clear checksum manager's cache to reload from new metadata
         self.checksum_manager.clear_checksums();
@@ -1007,13 +1202,12 @@ impl BlockStorage {
         #[cfg(target_arch = "wasm32")]
         {
             use super::vfs_sync::with_global_allocation_map;
-            self.allocated_blocks = with_global_allocation_map(|gam| {
-                gam.borrow()
-                    .get(&self.db_name)
+            *lock_mutex!(self.allocated_blocks) = with_global_allocation_map(|gam| {
+                gam.borrow().get(&self.db_name)
                     .cloned()
                     .unwrap_or_else(std::collections::HashSet::new)
             });
-            log::debug!("Reloaded {} allocated blocks from global allocation map", self.allocated_blocks.len());
+            log::debug!("Reloaded {} allocated blocks from global allocation map", lock_mutex!(self.allocated_blocks).len());
             
             // Checksums are now managed by ChecksumManager, which loads from metadata on demand
             log::debug!("Checksum data will be reloaded from metadata on next verification");
@@ -1031,13 +1225,13 @@ impl BlockStorage {
                 if let Ok(content) = std::fs::read_to_string(&alloc_path) {
                     if let Ok(alloc_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(allocated_array) = alloc_data["allocated"].as_array() {
-                            self.allocated_blocks.clear();
+                            lock_mutex!(self.allocated_blocks).clear();
                             for block_id_val in allocated_array {
                                 if let Some(block_id) = block_id_val.as_u64() {
-                                    self.allocated_blocks.insert(block_id);
+                                    lock_mutex!(self.allocated_blocks).insert(block_id);
                                 }
                             }
-                            log::debug!("Reloaded {} allocated blocks from filesystem", self.allocated_blocks.len());
+                            log::debug!("Reloaded {} allocated blocks from filesystem", lock_mutex!(self.allocated_blocks).len());
                         }
                     }
                 }
@@ -1083,13 +1277,16 @@ impl BlockStorage {
                 // Native test mode: reload from GLOBAL_ALLOCATION_MAP
                 use super::vfs_sync::with_global_allocation_map;
                 
-                self.allocated_blocks = with_global_allocation_map(|gam| {
-                    gam.borrow()
-                        .get(&self.db_name)
+                *lock_mutex!(self.allocated_blocks) = with_global_allocation_map(|gam| {
+                    #[cfg(target_arch = "wasm32")]
+                    let map = gam;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let map = gam.borrow();
+                    map.get(&self.db_name)
                         .cloned()
                         .unwrap_or_else(std::collections::HashSet::new)
                 });
-                log::debug!("Reloaded {} allocated blocks from global allocation map (native test)", self.allocated_blocks.len());
+                log::debug!("Reloaded {} allocated blocks from global allocation map (native test)", lock_mutex!(self.allocated_blocks).len());
                 
                 // Checksums are managed by ChecksumManager, loaded from metadata on demand
                 log::debug!("Checksum data will be reloaded from metadata on next verification");
@@ -1103,22 +1300,32 @@ impl BlockStorage {
     
     /// Reload cache from GLOBAL_STORAGE (WASM only, for multi-connection support)
     #[cfg(target_arch = "wasm32")]
-    pub fn reload_cache_from_global_storage(&mut self) {
+    pub fn reload_cache_from_global_storage(&self) {
         use crate::storage::vfs_sync::{with_global_storage, with_global_metadata};
-        let fresh_cache = with_global_storage(|gs| {
-            let storage_map = gs.borrow();
-            if let Some(db_storage) = storage_map.get(&self.db_name) {
+        
+        log::info!("[RELOAD] Starting cache reload for: {}", self.db_name);
+        
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("[RELOAD] BlockStorage.db_name = {}", self.db_name).into());
+
+        let fresh_cache = with_global_storage(|storage_map| {
+            if let Some(db_storage) = storage_map.borrow().get(&self.db_name) {
+                log::info!("[RELOAD] Found {} blocks in GLOBAL_STORAGE", db_storage.len());
                 db_storage.clone()
             } else {
+                log::warn!("[RELOAD] No blocks found in GLOBAL_STORAGE for {}", self.db_name);
                 std::collections::HashMap::new()
             }
         });
-        
+
+        let block_count = fresh_cache.len();
+        log::info!("[RELOAD] Loading {} blocks into cache and marking as dirty", block_count);
+
         // CRITICAL: Also reload checksums from GLOBAL_METADATA to match the fresh cache
         // Without this, cached reads will verify against stale checksums (e.g., after import)
-        with_global_metadata(|gm| {
-            let metadata_map = gm.borrow();
-            if let Some(db_metadata) = metadata_map.get(&self.db_name) {
+        with_global_metadata(|metadata_map| {
+            if let Some(db_metadata) = metadata_map.borrow().get(&self.db_name) {
+                log::info!("[RELOAD] Found {} metadata entries", db_metadata.len());
                 // Clear existing checksums
                 self.checksum_manager.clear_checksums();
                 
@@ -1131,45 +1338,90 @@ impl BlockStorage {
                 }
                 self.checksum_manager.replace_all(new_checksums, new_algos);
             } else {
+                log::warn!("[RELOAD] No metadata found for {}", self.db_name);
                 // No metadata exists, clear checksums
                 self.checksum_manager.clear_checksums();
             }
         });
         
         // Replace cache contents while preserving LRU order for blocks that still exist
-        let old_lru = std::mem::replace(&mut self.lru_order, std::collections::VecDeque::new());
-        self.cache.clear();
+        let old_lru = {
+            let mut lru = lock_mutex!(self.lru_order);
+            std::mem::replace(&mut *lru, std::collections::VecDeque::new())
+        };
+        lock_mutex!(self.cache).clear();
         
-        // Insert new cache data
+        // Insert new cache data (no need to mark dirty - sync reads from GLOBAL_STORAGE)
         for (block_id, block_data) in fresh_cache {
-            self.cache.insert(block_id, block_data);
+            lock_mutex!(self.cache).insert(block_id, block_data);
         }
+        
+        log::info!("[RELOAD] Cache reloaded with {} blocks", lock_mutex!(self.cache).len());
         
         // Restore LRU order for blocks that still exist, then add new blocks
         for block_id in old_lru {
-            if self.cache.contains_key(&block_id) {
-                self.lru_order.push_back(block_id);
+            if lock_mutex!(self.cache).contains_key(&block_id) {
+                lock_mutex!(self.lru_order).push_back(block_id);
             }
         }
         
         // Add any new blocks not in the old LRU order
-        for &block_id in self.cache.keys() {
-            if !self.lru_order.contains(&block_id) {
-                self.lru_order.push_back(block_id);
+        let block_ids: Vec<u64> = lock_mutex!(self.cache).keys().copied().collect();
+        for block_id in block_ids {
+            if !lock_mutex!(self.lru_order).contains(&block_id) {
+                lock_mutex!(self.lru_order).push_back(block_id);
+            }
+        }
+        
+        log::info!("[RELOAD] Reload complete: {} blocks in cache, {} dirty", 
+                   lock_mutex!(self.cache).len(), 
+                   lock_mutex!(self.dirty_blocks).len());
+        
+        // CRITICAL DEBUG: Check if block 0 is valid SQLite header
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(block_0) = lock_mutex!(self.cache).get(&0) {
+                let is_valid = block_0.len() >= 16 && &block_0[0..16] == b"SQLite format 3\0";
+                web_sys::console::log_1(&format!("[RELOAD] Block 0 in cache: {} bytes, valid SQLite header: {}", block_0.len(), is_valid).into());
+                if block_0.len() >= 16 {
+                    web_sys::console::log_1(&format!("[RELOAD] Block 0 header [0..16]: {:02x?}", &block_0[0..16]).into());
+                }
+                
+                // CRITICAL: Check database size field at offset 24-27
+                if block_0.len() >= 28 {
+                    let db_size_bytes = [block_0[24], block_0[25], block_0[26], block_0[27]];
+                    let db_size_pages = u32::from_be_bytes(db_size_bytes);
+                    web_sys::console::log_1(&format!("[RELOAD] Database size field (offset 24-27): {} pages ({:02x?})", db_size_pages, db_size_bytes).into());
+                }
+                
+                // DUMP FULL HEADER for analysis
+                if block_0.len() >= 100 {
+                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [16-31]: {:02x?}", &block_0[16..32]).into());
+                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [32-47]: {:02x?}", &block_0[32..48]).into());
+                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [48-63]: {:02x?}", &block_0[48..64]).into());
+                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [64-79]: {:02x?}", &block_0[64..80]).into());
+                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [80-99]: {:02x?}", &block_0[80..100]).into());
+                }
+            } else {
+                web_sys::console::log_1(&format!("[RELOAD] ERROR: Block 0 NOT in cache after reload!").into());
             }
         }
     }
 
     pub fn get_cache_size(&self) -> usize {
-        self.cache.len()
+        lock_mutex!(self.cache).len()
     }
 
     pub fn get_dirty_count(&self) -> usize {
-        self.dirty_blocks.lock().len()
+        lock_mutex!(self.dirty_blocks).len()
+    }
+    
+    pub fn get_db_name(&self) -> &str {
+        &self.db_name
     }
 
     pub fn is_cached(&self, block_id: u64) -> bool {
-        self.cache.contains_key(&block_id)
+        lock_mutex!(self.cache).contains_key(&block_id)
     }
 
     /// Allocate a new block and return its ID
@@ -1184,7 +1436,7 @@ impl BlockStorage {
 
     /// Get the number of currently allocated blocks
     pub fn get_allocated_count(&self) -> usize {
-        self.allocated_blocks.len()
+        lock_mutex!(self.allocated_blocks).len()
     }
 
     /// Crash simulation: simulate crash during IndexedDB commit
@@ -1200,7 +1452,7 @@ impl BlockStorage {
             
             // Step 1: Write blocks to IndexedDB (simulate partial transaction completion)
             let dirty_blocks = {
-                let dirty = self.dirty_blocks.lock();
+                let dirty = lock_mutex!(self.dirty_blocks);
                 dirty.clone()
             };
             
@@ -1229,7 +1481,7 @@ impl BlockStorage {
                 log::info!("CRASH SIMULATION: Blocks written to IndexedDB, simulating crash before commit marker advance");
                 
                 // Clear dirty blocks (they're now in IndexedDB)
-                self.dirty_blocks.lock().clear();
+                lock_mutex!(self.dirty_blocks).clear();
                 
                 // DON'T advance commit marker - this simulates the crash
                 // In a real crash, the commit marker update would fail
@@ -1255,7 +1507,7 @@ impl BlockStorage {
         log::info!("CRASH SIMULATION: Starting partial crash simulation for {} blocks", blocks_to_write.len());
         
         let dirty_blocks = {
-            let dirty = self.dirty_blocks.lock();
+            let dirty = lock_mutex!(self.dirty_blocks);
             dirty.clone()
         };
         
@@ -1286,7 +1538,7 @@ impl BlockStorage {
             
             // Remove only the written blocks from dirty_blocks
             {
-                let mut dirty = self.dirty_blocks.lock();
+                let mut dirty = lock_mutex!(self.dirty_blocks);
                 for block_id in partial_blocks.keys() {
                     dirty.remove(block_id);
                 }
@@ -1352,12 +1604,11 @@ impl BlockStorage {
         // For now, we'll check the global metadata storage
         let mut inconsistent_blocks = Vec::new();
         
-        vfs_sync::with_global_metadata(|meta| {
-            let meta_map = meta.borrow();
-            if let Some(db_meta) = meta_map.get(&self.db_name) {
+        vfs_sync::with_global_metadata(|meta_map| {
+            if let Some(db_meta) = meta_map.borrow().get(&self.db_name) {
                 for (block_id, metadata) in db_meta.iter() {
                     if metadata.version as u64 > commit_marker {
-                        log::info!("CRASH RECOVERY: Found inconsistent block {} with version {} > marker {}", 
+                        log::info!("CRASH RECOVERY: Found inconsistent block {} with version {} > marker {}",
                                   block_id, metadata.version, commit_marker);
                         inconsistent_blocks.push((*block_id, metadata.version as u64));
                     }
@@ -1395,20 +1646,18 @@ impl BlockStorage {
         log::info!("CRASH RECOVERY: Rolling back {} inconsistent blocks", inconsistent_blocks.len());
         
         // Remove inconsistent blocks from global metadata
-        vfs_sync::with_global_metadata(|meta| {
-            let mut meta_map = meta.borrow_mut();
-            if let Some(db_meta) = meta_map.get_mut(&self.db_name) {
+        vfs_sync::with_global_metadata(|meta_map| {
+            if let Some(db_meta) = meta_map.borrow_mut().get_mut(&self.db_name) {
                 for (block_id, _) in inconsistent_blocks {
                     log::info!("CRASH RECOVERY: Removing inconsistent block {} from metadata", block_id);
                     db_meta.remove(block_id);
                 }
             }
         });
-        
+
         // Remove inconsistent blocks from global storage
-        vfs_sync::with_global_storage(|gs| {
-            let mut storage_map = gs.borrow_mut();
-            if let Some(db_storage) = storage_map.get_mut(&self.db_name) {
+        vfs_sync::with_global_storage(|storage_map| {
+            if let Some(db_storage) = storage_map.borrow_mut().get_mut(&self.db_name) {
                 for (block_id, _) in inconsistent_blocks {
                     log::info!("CRASH RECOVERY: Removing inconsistent block {} from global storage", block_id);
                     db_storage.remove(block_id);
@@ -1418,9 +1667,9 @@ impl BlockStorage {
         
         // Clear any cached data for these blocks
         for (block_id, _) in inconsistent_blocks {
-            self.cache.remove(block_id);
+            lock_mutex!(self.cache).remove(block_id);
             // Remove from LRU order
-            self.lru_order.retain(|&id| id != *block_id);
+            lock_mutex!(self.lru_order).retain(|&id| id != *block_id);
         }
         
         // Remove inconsistent blocks from IndexedDB to avoid accumulating orphaned data
@@ -1470,33 +1719,76 @@ impl BlockStorage {
     
     /// Start leader election process
     #[cfg(target_arch = "wasm32")]
-    pub async fn start_leader_election(&mut self) -> Result<(), DatabaseError> {
-        if self.leader_election.is_none() {
+    pub async fn start_leader_election(&self) -> Result<(), DatabaseError> {
+        if self.leader_election.borrow().is_none() {
+            log::debug!("BlockStorage::start_leader_election() - Creating new LeaderElectionManager for {}", self.db_name);
             let mut manager = super::leader_election::LeaderElectionManager::new(self.db_name.clone());
+            log::debug!("BlockStorage::start_leader_election() - Calling manager.start_election()");
             manager.start_election().await?;
-            self.leader_election = Some(manager);
+            log::debug!("BlockStorage::start_leader_election() - Election started, storing manager");
+            *self.leader_election.borrow_mut() = Some(manager);
         } else {
             // If election is already running, force leadership takeover (requestLeadership)
-            if let Some(ref mut manager) = self.leader_election {
+            log::debug!("BlockStorage::start_leader_election() - Election already exists, forcing leadership");
+            if let Some(ref mut manager) = *self.leader_election.borrow_mut() {
                 manager.force_become_leader().await?;
             }
         }
         Ok(())
     }
     
+    /// Check if this instance WAS the leader WITHOUT triggering re-election
+    /// Used during cleanup to avoid starting new elections
+    #[cfg(target_arch = "wasm32")]
+    pub fn was_leader(&self) -> bool {
+        self.leader_election.borrow()
+            .as_ref()
+            .map(|m| m.state.borrow().is_leader)
+            .unwrap_or(false)
+    }
+    
+    /// Stop heartbeat interval synchronously (for Drop implementation)
+    /// This is idempotent and safe to call multiple times
+    /// Silently skips if already stopped or if manager is borrowed
+    #[cfg(target_arch = "wasm32")]
+    pub fn stop_heartbeat_sync(&self) {
+        // Use try_borrow_mut to avoid deadlock when multiple DBs drop simultaneously
+        if let Ok(mut manager_ref) = self.leader_election.try_borrow_mut() {
+            if let Some(ref mut manager) = *manager_ref {
+                // Only clear if interval exists (idempotent)
+                if let Some(interval_id) = manager.heartbeat_interval.take() {
+                    if let Some(window) = web_sys::window() {
+                        window.clear_interval_with_handle(interval_id);
+                        web_sys::console::log_1(&format!("[DROP] Cleared heartbeat interval {} for {}", interval_id, self.db_name).into());
+                    }
+                }
+                // Also drop the closure to release Rc references
+                if manager.heartbeat_closure.take().is_some() {
+                    web_sys::console::log_1(&format!("[DROP] Released heartbeat closure for {}", self.db_name).into());
+                }
+            }
+        } else {
+            // Already borrowed (e.g., first DB is still dropping) - skip silently
+            web_sys::console::log_1(&format!("[DROP] Skipping heartbeat stop for {} (already handled)", self.db_name).into());
+        }
+    }
+    
     /// Check if this instance is the leader (with re-election on lease expiry)
     #[cfg(target_arch = "wasm32")]
-    pub async fn is_leader(&mut self) -> bool {
+    pub async fn is_leader(&self) -> bool {
         // Start leader election if not already started
-        if self.leader_election.is_none() {
-            log::debug!("Starting leader election for {}", self.db_name);
+        if self.leader_election.borrow().is_none() {
+            log::debug!("BlockStorage::is_leader() - Starting leader election for {}", self.db_name);
             if let Err(e) = self.start_leader_election().await {
                 log::error!("Failed to start leader election: {:?}", e);
                 return false;
             }
+            log::debug!("BlockStorage::is_leader() - Leader election started successfully");
+        } else {
+            log::debug!("BlockStorage::is_leader() - Leader election already exists for {}", self.db_name);
         }
         
-        if let Some(ref mut manager) = self.leader_election {
+        if let Some(ref mut manager) = *self.leader_election.borrow_mut() {
             let is_leader = manager.is_leader().await;
             
             // If no current leader (lease expired), trigger re-election
@@ -1528,8 +1820,9 @@ impl BlockStorage {
     
     /// Stop leader election (e.g., when tab is closing)
     #[cfg(target_arch = "wasm32")]
-    pub async fn stop_leader_election(&mut self) -> Result<(), DatabaseError> {
-        if let Some(mut manager) = self.leader_election.take() {
+    pub async fn stop_leader_election(&self) -> Result<(), DatabaseError> {
+        if let Some(mut manager) = self.leader_election.try_borrow_mut()
+            .expect("Failed to borrow leader_election in stop_leader_election").take() {
             manager.stop_election().await?;
         }
         Ok(())
@@ -1538,7 +1831,7 @@ impl BlockStorage {
     /// Send a leader heartbeat (for testing)
     #[cfg(target_arch = "wasm32")]
     pub async fn send_leader_heartbeat(&self) -> Result<(), DatabaseError> {
-        if let Some(ref manager) = self.leader_election {
+        if let Some(ref manager) = *self.leader_election.borrow() {
             manager.send_heartbeat().await
         } else {
             Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
@@ -1548,7 +1841,7 @@ impl BlockStorage {
     /// Get timestamp of last received leader heartbeat
     #[cfg(target_arch = "wasm32")]
     pub async fn get_last_leader_heartbeat(&self) -> Result<u64, DatabaseError> {
-        if let Some(ref manager) = self.leader_election {
+        if let Some(ref manager) = *self.leader_election.borrow() {
             Ok(manager.get_last_heartbeat().await)
         } else {
             Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
@@ -1635,12 +1928,12 @@ impl BlockStorage {
     
     /// Check if auto-sync is currently enabled
     pub fn is_auto_sync_enabled(&self) -> bool {
-        self.auto_sync_interval.is_some()
+        lock_mutex!(self.auto_sync_interval).is_some()
     }
     
     /// Get the current sync policy (if any)
     pub fn get_sync_policy(&self) -> Option<super::SyncPolicy> {
-        self.policy.clone()
+        lock_mutex!(self.policy).clone()
     }
     
     /// Force synchronization with durability guarantees
@@ -1695,10 +1988,10 @@ impl BlockStorage {
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
             base_dir: std::path::PathBuf::from("/tmp/test"),
             db_name: "test.db".to_string(),
-            auto_sync_interval: None,
+            auto_sync_interval: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
             last_auto_sync: std::time::Instant::now(),
-            policy: None,
+            policy: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
             auto_sync_stop: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1727,7 +2020,7 @@ impl BlockStorage {
             sync_receiver: None,
             recovery_report: RecoveryReport::default(),
             #[cfg(target_arch = "wasm32")]
-            leader_election: None,
+            leader_election: std::cell::RefCell::new(None),
             observability: super::observability::ObservabilityManager::new(),
             metrics: None,
         }

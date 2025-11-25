@@ -60,7 +60,7 @@ async fn test_transaction_commit_persists_across_instances() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
     
     // Use unique names to avoid interference from other tests
@@ -140,7 +140,7 @@ async fn test_transaction_rollback_discards_changes() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
     
     // Use unique names to avoid interference from other tests
@@ -194,7 +194,7 @@ async fn test_crash_consistency_uncommitted_is_not_visible() {
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
-        STORAGE_REGISTRY.with(|sr| sr.borrow_mut().clear());
+        STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
     
     // Use unique names to avoid interference from other tests

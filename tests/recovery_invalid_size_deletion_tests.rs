@@ -42,7 +42,7 @@ async fn test_recovery_deletes_invalid_sized_files_in_same_pass() {
 
     // Startup recovery should drop the metadata entry AND delete the invalid-sized file in the same run
     {
-        let b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
+        let mut b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
         let meta = b.get_block_metadata_for_testing();
         assert!(
             !meta.contains_key(&id1),

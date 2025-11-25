@@ -14,7 +14,7 @@ use absurder_sql::storage::BlockStorage;
 #[wasm_bindgen_test]
 async fn test_current_checksum_behavior_write_read() {
     // Test: Current behavior of checksum calculation and validation
-    let mut storage = BlockStorage::new("checksum_test.db").await.expect("Should create storage");
+    let storage = BlockStorage::new("checksum_test.db").await.expect("Should create storage");
 
     // Create test data (4096 bytes required)
     let mut test_data = vec![0u8; 4096];
@@ -34,7 +34,7 @@ async fn test_current_checksum_behavior_write_read() {
 #[wasm_bindgen_test]
 async fn test_current_checksum_behavior_multiple_blocks() {
     // Test: Current behavior with multiple blocks (each should have its own checksum)
-    let mut storage = BlockStorage::new("multi_checksum_test.db").await.expect("Should create storage");
+    let storage = BlockStorage::new("multi_checksum_test.db").await.expect("Should create storage");
 
     // Write multiple blocks with different data
     for i in 1..=3 {
@@ -62,7 +62,7 @@ async fn test_current_checksum_behavior_multiple_blocks() {
 #[wasm_bindgen_test]
 async fn test_current_checksum_behavior_data_corruption_detection() {
     // Test: Current behavior should detect data corruption via checksum mismatch
-    let mut storage = BlockStorage::new("corruption_test.db").await.expect("Should create storage");
+    let storage = BlockStorage::new("corruption_test.db").await.expect("Should create storage");
 
     let mut original_data = vec![0u8; 4096];
     original_data[0..15].copy_from_slice(b"original data  ");
@@ -84,7 +84,7 @@ async fn test_current_checksum_behavior_data_corruption_detection() {
 #[wasm_bindgen_test]
 async fn test_current_checksum_behavior_overwrite_block() {
     // Test: Current behavior when overwriting a block (checksum should update)
-    let mut storage = BlockStorage::new("overwrite_test.db").await.expect("Should create storage");
+    let storage = BlockStorage::new("overwrite_test.db").await.expect("Should create storage");
 
     // Write initial data
     let mut data1 = vec![0u8; 4096];
@@ -115,7 +115,7 @@ async fn test_current_checksum_behavior_across_instances() {
 
     // First instance - write data
     {
-        let mut storage1 = BlockStorage::new(db_name).await.expect("Should create first storage");
+        let storage1 = BlockStorage::new(db_name).await.expect("Should create first storage");
         let mut data = vec![0u8; 4096];
         data[0..18].copy_from_slice(b"persistent data   ");
 
@@ -125,7 +125,7 @@ async fn test_current_checksum_behavior_across_instances() {
 
     // Second instance - read same data (checksum should be preserved and validated)
     {
-        let mut storage2 = BlockStorage::new(db_name).await.expect("Should create second storage");
+        let storage2 = BlockStorage::new(db_name).await.expect("Should create second storage");
         let read_data = storage2.read_block(25).await.expect("Should read in second instance");
 
         let mut expected_data = vec![0u8; 4096];

@@ -32,7 +32,7 @@ async fn test_indexeddb_recovery_finalize_incomplete_transaction() {
     web_sys::console::log_1(&format!("Post-sync commit marker: {}", post_sync_marker).into());
     
     // Step 3: Create new instance - should trigger recovery scan
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Step 4: Recovery should detect and finalize the incomplete transaction
     // For now this will pass because we don't have recovery logic yet
@@ -76,7 +76,7 @@ async fn test_indexeddb_recovery_rollback_incomplete_transaction() {
     assert_eq!(pre_crash_marker, baseline_marker, "Commit marker should not advance before sync");
     
     // Step 3: Create new instance - should trigger recovery scan
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Step 4: Recovery should rollback incomplete transaction
     let recovered_marker = storage2.get_commit_marker();
@@ -118,7 +118,7 @@ async fn test_indexeddb_recovery_detect_corruption() {
     // This test validates the recovery contract
     
     // Step 3: Recovery scan should detect corruption
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Recovery should handle corruption gracefully
     // This will pass for now but should be enhanced with actual corruption detection
@@ -180,8 +180,8 @@ async fn test_indexeddb_recovery_multiple_databases() {
     let marker2 = storage2.get_commit_marker();
     
     // Create new instances - should recover independently
-    let mut recovered1 = BlockStorage::new(db_name1).await.expect("recover storage1");
-    let mut recovered2 = BlockStorage::new(db_name2).await.expect("recover storage2");
+    let recovered1 = BlockStorage::new(db_name1).await.expect("recover storage1");
+    let recovered2 = BlockStorage::new(db_name2).await.expect("recover storage2");
     
     // Each database should recover its own state independently
     assert_eq!(recovered1.get_commit_marker(), marker1, "DB1 should recover independently");
@@ -297,8 +297,8 @@ async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
     // Manually create inconsistent metadata (version 3 and 4, not sequential from marker 1)
     vfs_sync::with_global_metadata(|meta| {
         use absurder_sql::storage::{metadata::BlockMetadataPersist, metadata::ChecksumAlgorithm};
-        let mut meta_map = meta.borrow_mut();
-        let db_meta = meta_map.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
+        let mut binding = meta.borrow_mut();
+        let db_meta = binding.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
         db_meta.insert(block2, BlockMetadataPersist {
             version: 3, // Inconsistent version
             checksum: 0,
@@ -315,8 +315,8 @@ async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
     
     // Also add to global storage
     vfs_sync::with_global_storage(|gs| {
-        let mut storage_map = gs.borrow_mut();
-        let db_storage = storage_map.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
+        let mut binding = gs.borrow_mut();
+        let db_storage = binding.entry(db_name.to_string()).or_insert_with(std::collections::HashMap::new);
         db_storage.insert(block2, data2);
         db_storage.insert(block3, data3);
     });

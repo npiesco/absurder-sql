@@ -38,73 +38,74 @@ macro_rules! vfs_log {
 }
 
 #[cfg(target_arch = "wasm32")]
+use std::cell::UnsafeCell;
+
+#[cfg(target_arch = "wasm32")]
 thread_local! {
     // Registry of per-db BlockStorage so VFS callbacks can locate storage by db name
-    pub static STORAGE_REGISTRY: RefCell<std::collections::HashMap<String, Rc<RefCell<BlockStorage>>>> = RefCell::new(std::collections::HashMap::new());
+    // CRITICAL: Uses UnsafeCell to eliminate registry access reentrancy
+    // BlockStorage itself uses RefCell for interior mutability of its fields - no outer RefCell needed!
+    // SAFETY: WASM is single-threaded, no concurrent access possible
+    pub static STORAGE_REGISTRY: UnsafeCell<std::collections::HashMap<String, Rc<BlockStorage>>> = UnsafeCell::new(std::collections::HashMap::new());
+
+    // Track databases currently being initialized to prevent concurrent BlockStorage::new() calls
+    static INIT_IN_PROGRESS: RefCell<std::collections::HashSet<String>> = RefCell::new(std::collections::HashSet::new());
 }
 
 #[cfg(target_arch = "wasm32")]
-/// Async-safe helper to get storage from registry with retry on borrow conflicts
-/// Per INSTRUCTIONS.md: Zero Tolerance for Flakiness - handle RefCell conflicts gracefully
-pub(crate) fn try_get_storage_from_registry(db_name: &str) -> Option<Rc<RefCell<BlockStorage>>> {
-    const MAX_ATTEMPTS: u32 = 10;
-    
-    for attempt in 0..MAX_ATTEMPTS {
-        match STORAGE_REGISTRY.try_with(|reg| {
-            reg.try_borrow()
-                .ok()
-                .and_then(|registry| registry.get(db_name).cloned())
-        }) {
-            Ok(Some(storage)) => return Some(storage),
-            Ok(None) => return None, // DB not in registry
-            Err(_) => {
-                // RefCell borrow conflict - yield and retry
-                if attempt < MAX_ATTEMPTS - 1 {
-                    // In WASM, we can't actually sleep, but logging helps debug
-                    log::trace!("Registry borrow conflict on attempt {}, retrying", attempt + 1);
-                    continue;
-                }
+/// Get storage from registry - no outer borrow checking needed!
+/// BlockStorage uses RefCell for interior mutability of its fields
+/// SAFETY: WASM is single-threaded, no concurrent access possible
+pub(crate) fn try_get_storage_from_registry(db_name: &str) -> Option<Rc<BlockStorage>> {
+    STORAGE_REGISTRY.with(|reg| {
+        // SAFETY: WASM is single-threaded
+        unsafe {
+            let registry = &*reg.get();
+            registry.get(db_name).cloned()
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+/// Helper to get storage with fallback - used by Database methods
+pub fn get_storage_with_fallback(db_name: &str) -> Option<Rc<BlockStorage>> {
+    try_get_storage_from_registry(db_name)
+}
+
+#[cfg(target_arch = "wasm32")]
+/// Helper to remove storage from registry
+/// SAFETY: WASM is single-threaded, no concurrent access possible
+pub fn remove_storage_from_registry(db_name: &str) {
+    STORAGE_REGISTRY.with(|reg| {
+        // SAFETY: WASM is single-threaded
+        unsafe {
+            let registry = &mut *reg.get();
+            registry.remove(db_name);
+            // Also remove .db variant
+            if !db_name.ends_with(".db") {
+                registry.remove(&format!("{}.db", db_name));
             }
         }
-    }
-    
-    log::warn!("Failed to access STORAGE_REGISTRY for {} after {} attempts", db_name, MAX_ATTEMPTS);
-    None
+    });
 }
 
 #[cfg(target_arch = "wasm32")]
-/// Async-safe helper to check if storage exists in registry
+/// Check if storage exists in registry
+/// SAFETY: WASM is single-threaded, no concurrent access possible
 pub(crate) fn registry_contains_key(db_name: &str) -> bool {
-    const MAX_ATTEMPTS: u32 = 10;
-    
-    for attempt in 0..MAX_ATTEMPTS {
-        match STORAGE_REGISTRY.try_with(|reg| {
-            reg.try_borrow()
-                .ok()
-                .map(|registry| registry.contains_key(db_name))
-        }) {
-            Ok(Some(result)) => return result,
-            Ok(None) => {
-                if attempt < MAX_ATTEMPTS - 1 {
-                    continue;
-                }
-            }
-            Err(_) => {
-                if attempt < MAX_ATTEMPTS - 1 {
-                    continue;
-                }
-            }
+    STORAGE_REGISTRY.with(|reg| {
+        // SAFETY: WASM is single-threaded
+        unsafe {
+            let registry = &*reg.get();
+            registry.contains_key(db_name)
         }
-    }
-    
-    log::warn!("Failed to check STORAGE_REGISTRY for {} after {} attempts", db_name, MAX_ATTEMPTS);
-    false
+    })
 }
 
 /// Custom SQLite VFS implementation that uses IndexedDB for storage
 pub struct IndexedDBVFS {
     #[cfg(target_arch = "wasm32")]
-    storage: Rc<RefCell<BlockStorage>>,
+    storage: Rc<BlockStorage>,
     #[cfg(not(target_arch = "wasm32"))]
     _storage: Arc<Mutex<BlockStorage>>, // Not used in native mode (direct file I/O instead)
     #[allow(dead_code)]
@@ -117,35 +118,119 @@ impl IndexedDBVFS {
         
         #[cfg(target_arch = "wasm32")]
         {
-            // WASM: Use Rc<RefCell<>> for single-threaded environment
-            let existing_storage = STORAGE_REGISTRY.with(|reg| {
-                reg.borrow().get(db_name).cloned()
-            });
+            // Loop until we either get existing storage or successfully create new one
+            const MAX_WAIT_MS: u32 = 10000;
+            const POLL_INTERVAL_MS: u32 = 10;
+            let max_attempts = MAX_WAIT_MS / POLL_INTERVAL_MS;
             
-            let rc = if let Some(existing) = existing_storage {
-                log::info!("Reusing existing BlockStorage for database: {}", db_name);
-                // CRITICAL: Reload cache from GLOBAL_STORAGE to pick up any imported data
-                // Import writes to GLOBAL_STORAGE after close() has already reloaded stale cache
-                existing.borrow_mut().reload_cache_from_global_storage();
-                existing
-            } else {
-                log::info!("Creating new BlockStorage for database: {}", db_name);
-                let storage = BlockStorage::new(db_name).await?;
-                let rc = Rc::new(RefCell::new(storage));
-                
-                STORAGE_REGISTRY.with(|reg| {
-                    let mut registry = reg.borrow_mut();
-                    // Register with both "name" and "name.db" to handle both cases
-                    registry.insert(db_name.to_string(), rc.clone());
-                    if !db_name.ends_with(".db") {
-                        registry.insert(format!("{}.db", db_name), rc.clone());
+            for attempt in 0..max_attempts {
+                // CRITICAL: Try to atomically reserve init slot FIRST, then double-check registry
+                // This prevents the race where all tasks check registry (empty), then all try to reserve
+                let (reserved, existing_after_reserve) = INIT_IN_PROGRESS.with(|init| {
+                    let mut set = init.borrow_mut();
+                    if set.contains(db_name) {
+                        // Already being initialized by another task
+                        return (false, None);
                     }
+
+                    // Not currently initializing - reserve the slot
+                    set.insert(db_name.to_string());
+                    drop(set); // Release mut borrow before checking registry
+
+                    // Double-check registry in case someone registered between our last check
+                    let existing = STORAGE_REGISTRY.with(|reg| {
+                        // SAFETY: WASM is single-threaded
+                        unsafe {
+                            let registry = &*reg.get();
+                            registry.get(db_name).cloned()
+                        }
+                    });
+
+                    (true, existing)
                 });
                 
-                rc
-            };
+                if let Some(existing) = existing_after_reserve {
+                    // Someone registered while we were reserving - clear our reservation and use theirs
+                    INIT_IN_PROGRESS.with(|init| {
+                        let mut set = init.borrow_mut();
+                        set.remove(db_name);
+                    });
+                    log::info!("Reusing existing BlockStorage for database: {}", db_name);
+                    existing.reload_cache_from_global_storage();
+                    return Ok(Self { storage: existing, name: db_name.to_string() });
+                }
+                
+                if !reserved {
+                    // Someone else is initializing - wait
+                    web_sys::console::log_1(&format!("[VFS] {} - INIT already in progress, waiting (attempt {})", db_name, attempt).into());
+                    use wasm_bindgen_futures::JsFuture;
+                    let promise = js_sys::Promise::new(&mut |resolve, _| {
+                        web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(
+                            &resolve, POLL_INTERVAL_MS as i32
+                        ).unwrap();
+                    });
+                    JsFuture::from(promise).await.ok();
+                    continue;
+                }
+                
+                // We got the reservation - create BlockStorage
+                web_sys::console::log_1(&format!("[VFS] {} - ACQUIRED init reservation (attempt {})", db_name, attempt).into());
+                
+                // We have the reservation - create BlockStorage
+                log::info!("Creating new BlockStorage for database: {}", db_name);
+                web_sys::console::log_1(&format!("[VFS] {} - START BlockStorage::new()", db_name).into());
+                let storage_result = BlockStorage::new(db_name).await;
+                web_sys::console::log_1(&format!("[VFS] {} - END BlockStorage::new()", db_name).into());
 
-            Ok(Self { storage: rc, name: db_name.to_string() })
+                let storage = storage_result?;
+                let rc = Rc::new(storage);
+                
+                // Try to register - CRITICAL: Keep INIT_IN_PROGRESS set until AFTER registration
+                let registration_result = STORAGE_REGISTRY.with(|reg| {
+                    // SAFETY: WASM is single-threaded
+                    unsafe {
+                        let registry = &mut *reg.get();
+
+                        // Check if someone else registered while we were creating
+                        if let Some(winner) = registry.get(db_name).cloned() {
+                            web_sys::console::log_1(&format!("[VFS] {} - Someone else registered first, using theirs", db_name).into());
+                            return Err(winner); // Someone else won - use theirs
+                        }
+
+                        // We won - register ours
+                        web_sys::console::log_1(&format!("[VFS] {} - REGISTERED in STORAGE_REGISTRY", db_name).into());
+                        registry.insert(db_name.to_string(), rc.clone());
+                        if !db_name.ends_with(".db") {
+                            registry.insert(format!("{}.db", db_name), rc.clone());
+                        }
+                        Ok(())
+                    }
+                });
+
+                // NOW clear the reservation flag AFTER registration is complete
+                INIT_IN_PROGRESS.with(|init| {
+                    let mut set = init.borrow_mut();
+                    set.remove(db_name);
+                });
+                
+                return match registration_result {
+                    Ok(()) => {
+                        // We successfully registered our storage
+                        log::info!("Successfully registered new BlockStorage for {}", db_name);
+                        Ok(Self { storage: rc, name: db_name.to_string() })
+                    }
+                    Err(winner) => {
+                        // Someone else won - drop ours and use theirs
+                        log::info!("Lost registration race for {}, using winner's storage", db_name);
+                        drop(rc);
+                        winner.reload_cache_from_global_storage();
+                        Ok(Self { storage: winner, name: db_name.to_string() })
+                    }
+                };
+            }
+            
+            // If we get here, we timed out waiting
+            Err(DatabaseError::new("INIT_TIMEOUT", "Timed out waiting for database initialization"))
         }
         
         #[cfg(not(target_arch = "wasm32"))]
@@ -240,18 +325,18 @@ impl IndexedDBVFS {
     #[cfg(target_arch = "wasm32")]
     pub fn read_block_sync(&self, block_id: u64) -> Result<Vec<u8>, DatabaseError> {
         log::debug!("Sync read request for block: {}", block_id);
-        
-        let mut storage = self.storage.borrow_mut();
-        storage.read_block_sync(block_id)
+
+        // No outer borrow needed - BlockStorage uses RefCell for interior mutability
+        self.storage.read_block_sync(block_id)
     }
 
     /// Write a block to storage synchronously (called by SQLite) - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn write_block_sync(&self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         log::debug!("Sync write request for block: {}", block_id);
-        
-        let mut storage = self.storage.borrow_mut();
-        storage.write_block_sync(block_id, data)
+
+        // No outer borrow needed - BlockStorage uses RefCell for interior mutability
+        self.storage.write_block_sync(block_id, data)
     }
 
     /// Synchronize all dirty blocks to IndexedDB - WASM only
@@ -260,8 +345,7 @@ impl IndexedDBVFS {
         vfs_log!("{}","=== DEBUG: VFS SYNC METHOD CALLED ===");
         log::info!("Syncing VFS storage");
         vfs_log!("{}","DEBUG: VFS using WASM async sync path");
-        let mut storage = self.storage.borrow_mut();
-        let result = storage.sync_async().await;
+        let result = self.storage.sync_async().await;
         vfs_log!("{}","DEBUG: VFS async sync completed");
         result
     }
@@ -269,57 +353,49 @@ impl IndexedDBVFS {
     /// Enable periodic auto-sync with a simple interval (ms) - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn enable_auto_sync(&self, interval_ms: u64) {
-        let mut storage = self.storage.borrow_mut();
-        storage.enable_auto_sync(interval_ms);
+        self.storage.enable_auto_sync(interval_ms);
     }
 
     /// Enable auto-sync with a detailed policy - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn enable_auto_sync_with_policy(&self, policy: SyncPolicy) {
-        let mut storage = self.storage.borrow_mut();
-        storage.enable_auto_sync_with_policy(policy);
+        self.storage.enable_auto_sync_with_policy(policy);
     }
 
     /// Disable any active auto-sync - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn disable_auto_sync(&self) {
-        let mut storage = self.storage.borrow_mut();
-        storage.disable_auto_sync();
+        self.storage.disable_auto_sync();
     }
 
     /// Drain pending dirty blocks and stop background workers - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn drain_and_shutdown(&self) {
-        let mut storage = self.storage.borrow_mut();
-        storage.drain_and_shutdown();
+        self.storage.drain_and_shutdown();
     }
 
     /// Batch read helper - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn read_blocks_sync(&self, block_ids: &[u64]) -> Result<Vec<Vec<u8>>, DatabaseError> {
-        let mut storage = self.storage.borrow_mut();
-        storage.read_blocks_sync(block_ids)
+        self.storage.read_blocks_sync(block_ids)
     }
 
     /// Batch write helper - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn write_blocks_sync(&self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
-        let mut storage = self.storage.borrow_mut();
-        storage.write_blocks_sync(items)
+        self.storage.write_blocks_sync(items)
     }
 
     /// Inspect current dirty block count - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn get_dirty_count(&self) -> usize {
-        let storage = self.storage.borrow();
-        storage.get_dirty_count()
+        self.storage.get_dirty_count()
     }
 
     /// Inspect current cache size - WASM only
     #[cfg(target_arch = "wasm32")]
     pub fn get_cache_size(&self) -> usize {
-        let storage = self.storage.borrow();
-        storage.get_cache_size()
+        self.storage.get_cache_size()
     }
 
     /// Metrics: total syncs (native only)
@@ -355,12 +431,9 @@ impl Drop for IndexedDBVFS {
     fn drop(&mut self) {
         #[cfg(target_arch = "wasm32")]
         {
-            // Avoid panicking in Drop if there's an outstanding borrow
-            if let Ok(mut storage) = self.storage.try_borrow_mut() {
-                storage.drain_and_shutdown();
-            }
+            self.storage.drain_and_shutdown();
         }
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             // For native, shutdown via mutex lock
@@ -378,19 +451,21 @@ struct IndexedDBFile {
     filename: String,
     file_size: u64,
     current_position: u64,
-    // Ephemeral files cover SQLite aux files like "-journal", "-wal", "-shm"
+    // Ephemeral files cover SQLite aux files like "-journal" only (WAL uses shared storage)
     ephemeral: bool,
     ephemeral_buf: Vec<u8>,
     // Write buffering for transaction performance (absurd-sql inspired)
     write_buffer: HashMap<u64, Vec<u8>>,  // block_id -> data (O(1) lookup)
     transaction_active: bool,
     current_lock_level: i32,  // Track SQLite lock level
+    // Track if this is a WAL file (uses WAL_STORAGE instead of BlockStorage)
+    is_wal: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 impl IndexedDBFile {
-    fn new(filename: &str, ephemeral: bool) -> Self {
+    fn new(filename: &str, ephemeral: bool, is_wal: bool) -> Self {
         Self {
             filename: filename.to_string(),
             file_size: 0,
@@ -400,6 +475,7 @@ impl IndexedDBFile {
             write_buffer: HashMap::new(),
             transaction_active: false,
             current_lock_level: 0,  // SQLITE_LOCK_NONE
+            is_wal,
         }
     }
 
@@ -416,6 +492,25 @@ impl IndexedDBFile {
             return Ok(to_copy);
         }
         
+        // WAL files use dedicated WAL_STORAGE (bounded memory)
+        if self.is_wal {
+            return WAL_STORAGE.with(|wal| {
+                let wal_map = wal.borrow();
+                if let Some(wal_data) = wal_map.get(&self.filename) {
+                    let off = offset as usize;
+                    if off >= wal_data.len() { return Ok(0); }
+                    let available = wal_data.len() - off;
+                    let to_copy = std::cmp::min(available, buffer.len());
+                    buffer[..to_copy].copy_from_slice(&wal_data[off..off + to_copy]);
+                    self.current_position = offset + to_copy as u64;
+                    Ok(to_copy)
+                } else {
+                    Ok(0) // WAL not yet created
+                }
+            });
+        }
+        
+        // Non-WAL files use BlockStorage
         let Some(storage_rc) = try_get_storage_from_registry(&self.filename) else {
             return Err(DatabaseError::new("OPEN_ERROR", &format!("No storage found for {}", self.filename)));
         };
@@ -430,15 +525,8 @@ impl IndexedDBFile {
             let dest_end = buffer_offset + copy_len;
             
             if dest_end <= buffer.len() {
-                // Check write buffer first (absurd-sql pattern)
-                if let Some(buffered_data) = self.write_buffer.get(&block_id) {
-                    buffer[buffer_offset..dest_end].copy_from_slice(&buffered_data[block_start..block_end]);
-                    bytes_read += copy_len;
-                    buffer_offset += copy_len;
-                    continue;
-                }
-                // Not in buffer, read from storage
-                let block_data = storage_rc.borrow_mut().read_block_sync(block_id)?;
+                // Read directly from shared storage
+                let block_data = storage_rc.read_block_sync(block_id)?;
                 buffer[buffer_offset..dest_end].copy_from_slice(&block_data[block_start..block_end]);
                 bytes_read += copy_len;
                 buffer_offset += copy_len;
@@ -462,8 +550,36 @@ impl IndexedDBFile {
             return Ok(data.len());
         }
         
+        // WAL files use dedicated WAL_STORAGE (bounded memory, max 16MB per WAL)
+        // SQLite auto-checkpoints at default ~1000 pages, but bulk inserts can exceed this
+        // 16MB allows ~4000 rows of 4KB data between checkpoints
+        if self.is_wal {
+            const MAX_WAL_SIZE: usize = 16 * 1024 * 1024; // 16MB limit
+            return WAL_STORAGE.with(|wal| {
+                let mut wal_map = wal.borrow_mut();
+                let wal_data = wal_map.entry(self.filename.clone()).or_insert_with(Vec::new);
+
+                let end = offset as usize + data.len();
+                // Enforce max size to prevent OOM with multiple concurrent databases
+                if end > MAX_WAL_SIZE {
+                    return Err(DatabaseError::new("WAL_TOO_LARGE",
+                        &format!("WAL file {} exceeds {}MB limit (checkpoint required)", self.filename, MAX_WAL_SIZE / 1024 / 1024)));
+                }
+
+                if end > wal_data.len() {
+                    wal_data.resize(end, 0);
+                }
+                wal_data[offset as usize..end].copy_from_slice(data);
+                self.current_position = end as u64;
+                self.file_size = std::cmp::max(self.file_size, self.current_position);
+                Ok(data.len())
+            });
+        }
+        
         // KEY OPTIMIZATION: Buffer writes during transactions (absurd-sql strategy)
-        if self.transaction_active {
+        // CRITICAL: Only for ephemeral files. Non-ephemeral files share BlockStorage across
+        // multiple connections, so buffering breaks multi-connection visibility.
+        if self.transaction_active && false {  // DISABLED for multi-connection support
             #[cfg(target_arch = "wasm32")]
             vfs_log!("BUFFERED WRITE: offset={} len={} (transaction active)", offset, data.len());
             
@@ -496,8 +612,7 @@ impl IndexedDBFile {
                             buffered.clone()
                         } else {
                             // Read from storage
-                            let mut storage_mut = storage_rc.borrow_mut();
-                            storage_mut.read_block_sync(block_id)?
+                            storage_rc.read_block_sync(block_id)?
                         };
                         let mut block_data = existing;
                         block_data[block_start..block_end].copy_from_slice(&data[data_offset..src_end]);
@@ -529,10 +644,8 @@ impl IndexedDBFile {
         let mut bytes_written = 0;
         let mut data_offset = 0;
         for block_id in start_block..=end_block {
-            // Scope the borrow to avoid "already borrowed" panic
-            let mut block_data = {
-                storage_rc.borrow_mut().read_block_sync(block_id)?
-            };
+            // Read existing block data
+            let mut block_data = storage_rc.read_block_sync(block_id)?;
             let block_start = if block_id == start_block { (offset % BLOCK_SIZE as u64) as usize } else { 0 };
             let remaining_data = data.len() - data_offset;
             let available_space = BLOCK_SIZE - block_start;
@@ -558,10 +671,9 @@ impl IndexedDBFile {
                 }
                 
                 block_data[block_start..block_end].copy_from_slice(&data[data_offset..src_end]);
-                
-                // Debug: Log the final block data after modification (removed for performance)
-                
-                storage_rc.borrow_mut().write_block_sync(block_id, block_data)?;
+
+                // Write block
+                storage_rc.write_block_sync(block_id, block_data)?;
                 bytes_written += copy_len;
                 data_offset += copy_len;
             }
@@ -616,8 +728,9 @@ unsafe extern "C" fn x_open_simple(
         name_str
     };
     
-    // Determine if this is an ephemeral file (journal, WAL, etc.)
-    let ephemeral = db_name.contains("-journal") || db_name.contains("-wal") || db_name.contains("-shm");
+    // Determine if this is an ephemeral file (journal only, WAL uses shared storage)
+    let ephemeral = db_name.contains("-journal");
+    let is_wal = db_name.contains("-wal");
     
     // Simple VFS open - just initialize the file structure with our methods
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
@@ -627,7 +740,7 @@ unsafe extern "C" fn x_open_simple(
         (*vf).base.pMethods = methods_ptr;
         std::ptr::write(
             &mut (*vf).handle,
-            IndexedDBFile::new(&db_name, ephemeral),
+            IndexedDBFile::new(&db_name, ephemeral, is_wal),
         );
         
         // For non-ephemeral files, calculate and set correct file size based on existing data
@@ -676,11 +789,18 @@ unsafe extern "C" fn x_open(
     #[cfg(target_arch = "wasm32")]
     vfs_log!("VFS xOpen: Attempting to open file: '{}' (flags: {})", name_str, _flags);
     // Detect auxiliary files and map to base db
+    // CRITICAL: WAL uses shared WAL_STORAGE, SHM uses shared SHARED_MEMORY
+    // Only rollback journal is ephemeral (not used in WAL mode anyway)
     let mut ephemeral = false;
+    let mut is_wal = false;
     for suf in ["-journal", "-wal", "-shm"].iter() {
         if norm.ends_with(suf) {
+            if *suf == "-wal" {
+                is_wal = true;
+            }
             norm.truncate(norm.len() - suf.len());
-            ephemeral = true;
+            // Only rollback journal is ephemeral; WAL and SHM must be shared
+            ephemeral = *suf == "-journal";
             break;
         }
     }
@@ -704,9 +824,13 @@ unsafe extern "C" fn x_open(
             
             // Create BlockStorage synchronously for existing database
             let storage = BlockStorage::new_sync(&db_name);
-            let rc = Rc::new(RefCell::new(storage));
+            let rc = Rc::new(storage);
             STORAGE_REGISTRY.with(|reg| {
-                reg.borrow_mut().insert(db_name.clone(), rc);
+                // SAFETY: WASM is single-threaded
+                unsafe {
+                    let registry = &mut *reg.get();
+                    registry.insert(db_name.clone(), rc);
+                }
             });
         } else {
             log::error!("xOpen: no storage registered for base db '{}' and no existing data found. Call IndexedDBVFS::new(db).await first.", db_name);
@@ -726,7 +850,7 @@ unsafe extern "C" fn x_open(
         // Then initialize our handle
         std::ptr::write(
             &mut (*vf).handle,
-            IndexedDBFile::new(&db_name, ephemeral),
+            IndexedDBFile::new(&db_name, ephemeral, is_wal),
         );
         
         // For non-ephemeral files, calculate and set correct file size based on existing data
@@ -1025,8 +1149,7 @@ unsafe extern "C" fn x_close(_p_file: *mut sqlite_wasm_rs::sqlite3_file) -> c_in
     // Reload the cache from GLOBAL_STORAGE so next connection sees fresh data
     unsafe {
         if let Some(storage_rc) = try_get_storage_from_registry(&(*vf).handle.filename) {
-            storage_rc.borrow_mut().reload_cache_from_global_storage();
-            
+            storage_rc.reload_cache_from_global_storage();
             #[cfg(target_arch = "wasm32")]
             vfs_log!("VFS x_close: reloaded cache from GLOBAL_STORAGE for {}", (*vf).handle.filename);
         }
@@ -1045,9 +1168,36 @@ unsafe extern "C" fn x_read(
 ) -> c_int {
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
     let slice = unsafe { std::slice::from_raw_parts_mut(buf as *mut u8, amt as usize) };
+    
+    // CRITICAL DEBUG: Log ALL reads during database open
+    #[cfg(target_arch = "wasm32")]
+    {
+        let block_id = offset / 4096;
+        let page_id = offset / 4096;
+        web_sys::console::log_1(&format!("[VFS x_read] offset={}, amt={}, page={}, block={}", offset, amt, page_id, block_id).into());
+    }
+    
     let res = unsafe { (*vf).handle.read(slice, offset as u64) };
     match res {
         Ok(n) => {
+            // CRITICAL DEBUG: Check what data was actually read
+            #[cfg(target_arch = "wasm32")]
+            {
+                let block_id = offset / 4096;
+                web_sys::console::log_1(&format!("[VFS x_read] SUCCESS - read {} bytes from block {}", n, block_id).into());
+                
+                if offset == 0 && n >= 16 {
+                    let header_valid = &slice[0..16] == b"SQLite format 3\0";
+                    web_sys::console::log_1(&format!("[VFS x_read] Block 0 header valid: {}, bytes: {:02x?}", header_valid, &slice[0..16]).into());
+                    if n >= 100 {
+                        web_sys::console::log_1(&format!("[VFS x_read] Block 0 bytes[28-39]: {:02x?}", &slice[28..40]).into());
+                        web_sys::console::log_1(&format!("[VFS x_read] Block 0 bytes[40-60]: {:02x?}", &slice[40..60]).into());
+                        web_sys::console::log_1(&format!("[VFS x_read] Block 0 bytes[60-80]: {:02x?}", &slice[60..80]).into());
+                        web_sys::console::log_1(&format!("[VFS x_read] Block 0 bytes[80-100]: {:02x?}", &slice[80..100]).into());
+                    }
+                }
+            }
+            
             // If short read, zero-fill the remainder per SQLite contract
             if n < amt as usize {
                 for b in &mut slice[n..] { *b = 0; }
@@ -1055,7 +1205,16 @@ unsafe extern "C" fn x_read(
             // Always return OK for successful reads, even if short
             sqlite_wasm_rs::SQLITE_OK
         }
-        Err(_) => sqlite_wasm_rs::SQLITE_IOERR_READ,    
+        Err(e) => {
+            #[cfg(target_arch = "wasm32")]
+            {
+                let block_id = offset / 4096;
+                let page_id = offset / 4096;
+                web_sys::console::log_1(&format!("[VFS x_read] ERROR reading page {} (block {}) at offset {}: {:?}", page_id, block_id, offset, e).into());
+                web_sys::console::log_1(&format!("[VFS x_read] Requested {} bytes from offset {}", amt, offset).into());
+            }
+            sqlite_wasm_rs::SQLITE_IOERR_READ
+        }    
     }
 }
 
@@ -1102,8 +1261,33 @@ unsafe extern "C" fn x_truncate(p_file: *mut sqlite_wasm_rs::sqlite3_file, size:
                 (*vf).handle.ephemeral_buf.resize(new_len, 0);
             }
             (*vf).handle.file_size = size as u64;
-        } else {
+        } else if (*vf).handle.is_wal {
+            // WAL file truncate - actually truncate WAL_STORAGE
+            let new_len = size as usize;
+            WAL_STORAGE.with(|wal| {
+                let mut wal_map = wal.borrow_mut();
+                if let Some(wal_data) = wal_map.get_mut(&(*vf).handle.filename) {
+                    if new_len < wal_data.len() {
+                        wal_data.truncate(new_len);
+                    } else if new_len > wal_data.len() {
+                        wal_data.resize(new_len, 0);
+                    }
+                }
+            });
             (*vf).handle.file_size = size as u64;
+        } else {
+            // Non-ephemeral non-WAL file (main DB, SHM) - update size
+            // Blocks beyond new size remain in storage but are ignored during reads
+            // This is more efficient than deleting blocks, and SQLite will overwrite them later
+            let new_size = size as u64;
+            
+            #[cfg(target_arch = "wasm32")]
+            if new_size < (*vf).handle.file_size {
+                vfs_log!("VFS x_truncate: {} truncated from {} to {} bytes", 
+                         (*vf).handle.filename, (*vf).handle.file_size, new_size);
+            }
+            
+            (*vf).handle.file_size = new_size;
         }
     }
     sqlite_wasm_rs::SQLITE_OK
@@ -1115,23 +1299,25 @@ unsafe extern "C" fn x_sync(p_file: *mut sqlite_wasm_rs::sqlite3_file, _flags: c
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
     let vf_ref = unsafe { &*vf };
     
-    // Skip sync for ephemeral auxiliary files (WAL, journal, etc.)
+    // Skip sync for ephemeral auxiliary files (rollback journal only now)
     if vf_ref.handle.ephemeral {
         return sqlite_wasm_rs::SQLITE_OK;
     }
     
-    // For main database files, just advance commit marker in memory
+    // For main database files, advance commit marker in memory
+    // For WAL/SHM files, this is a no-op (they're already in shared BlockStorage)
     // Don't persist to IndexedDB on every sync - that's too slow
     // Auto-sync will handle periodic persistence
     let db_name = &vf_ref.handle.filename;
     
-    // Just advance the commit marker in memory
-    use crate::storage::vfs_sync::with_global_commit_marker;
-    with_global_commit_marker(|cm| {
-        let mut markers = cm.borrow_mut();
-        let current = markers.get(db_name).copied().unwrap_or(0);
-        markers.insert(db_name.to_string(), current + 1);
-    });
+    // Only advance commit marker for main database file (not WAL or SHM)
+    if !db_name.ends_with("-wal") && !db_name.ends_with("-shm") {
+        use crate::storage::vfs_sync::with_global_commit_marker;
+        with_global_commit_marker(|cm| {
+            let current = cm.borrow().get(db_name).copied().unwrap_or(0);
+            cm.borrow_mut().insert(db_name.to_string(), current + 1);
+        });
+    }
     
     sqlite_wasm_rs::SQLITE_OK
 }
@@ -1161,7 +1347,6 @@ unsafe extern "C" fn x_delete(
     _z_name: *const c_char,
     _sync_dir: c_int,
 ) -> c_int {
-    #[cfg(debug_assertions)]
     let name_str = if !_z_name.is_null() {
         match unsafe { std::ffi::CStr::from_ptr(_z_name) }.to_str() { 
             Ok(s) => s.to_string(), 
@@ -1173,7 +1358,16 @@ unsafe extern "C" fn x_delete(
     
     vfs_log!("VFS x_delete: file='{}'", name_str);
     
-    // Nothing to delete in our model; journals/WAL are ephemeral.
+    // Clean up WAL_STORAGE if deleting a WAL file
+    if name_str.ends_with("-wal") {
+        let db_name = name_str.strip_suffix("-wal").unwrap_or(&name_str);
+        WAL_STORAGE.with(|wal| {
+            let mut wal_map = wal.borrow_mut();
+            wal_map.remove(db_name);
+        });
+        vfs_log!("VFS x_delete: removed WAL storage for {}", db_name);
+    }
+    
     sqlite_wasm_rs::SQLITE_OK
 }
 
@@ -1208,7 +1402,11 @@ unsafe extern "C" fn x_access(
     } else {
         // For main database files, check if they exist in storage
         STORAGE_REGISTRY.with(|reg| {
-            reg.borrow().contains_key(&db_name)
+            // SAFETY: WASM is single-threaded
+            unsafe {
+                let registry = &*reg.get();
+                registry.contains_key(&db_name)
+            }
         }) || with_global_storage(|gs| {
             gs.borrow().get(&db_name).map(|db| !db.is_empty()).unwrap_or(false)
         })
@@ -1284,14 +1482,14 @@ unsafe extern "C" fn x_unlock(_p_file: *mut sqlite_wasm_rs::sqlite3_file, e_lock
             if let Some(storage_rc) = try_get_storage_from_registry(&(*vf).handle.filename) {
                 for (block_id, block_data) in (*vf).handle.write_buffer.drain() {
                     // Write buffered block to GLOBAL_STORAGE (memory only)
-                    if let Err(_e) = storage_rc.borrow_mut().write_block_sync(block_id, block_data) {
+                    if let Err(_e) = storage_rc.write_block_sync(block_id, block_data) {
                         vfs_log!("ERROR flushing block {}: {:?}", block_id, _e);
                     }
                 }
-                
+
                 // Clear the cache so subsequent reads see the fresh data
-                storage_rc.borrow_mut().clear_cache();
-                
+                storage_rc.clear_cache();
+
                 // NOTE: We do NOT sync to IndexedDB here!
                 // IndexedDB sync only happens on explicit x_sync() calls.
                 // This is the key optimization that makes absurd-sql fast.
@@ -1386,7 +1584,12 @@ unsafe extern "C" fn x_device_characteristics(_p_file: *mut sqlite_wasm_rs::sqli
 thread_local! {
     static SHARED_MEMORY: std::cell::RefCell<std::collections::HashMap<String, Box<Vec<u8>>>> = 
         std::cell::RefCell::new(std::collections::HashMap::new());
-    static SHARED_LOCKS: std::cell::RefCell<std::collections::HashMap<String, i32>> = 
+    // Track locks with (owner_pointer, flags) to allow same connection to reacquire but block others
+    static SHARED_LOCKS: std::cell::RefCell<std::collections::HashMap<String, (usize, i32)>> = 
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    // Shared WAL storage - simple Vec<u8> per database, max 8MB per WAL
+    // This is separate from BlockStorage to control memory usage
+    static WAL_STORAGE: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> = 
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -1409,7 +1612,7 @@ unsafe extern "C" fn x_shm_map(
     let result = SHARED_MEMORY.with(|shm| {
         let mut shm_map = shm.borrow_mut();
         let key = format!("{}_region_{}", db_name, i_region);
-        
+
         let entry = shm_map.entry(key).or_insert_with(|| {
             vfs_log!("Creating shared memory region {} for {}", i_region, db_name);
             // Allocate WAL shared memory: standard size is 32KB, but allocate what's requested
@@ -1420,23 +1623,20 @@ unsafe extern "C" fn x_shm_map(
             vec.resize(size, 0);
             Box::new(vec)
         });
-        
+
         // Never resize after creation - this would invalidate pointers returned to SQLite
         if entry.len() < sz_region as usize {
             vfs_log!("ERROR: Shared memory region {} too small ({} < {})", i_region, entry.len(), sz_region);
-            return Err(());
+            return sqlite_wasm_rs::SQLITE_ERROR;
         }
-        
+
         // Return pointer to the shared memory region
         // The Box keeps the Vec at a stable location
         unsafe { *pp = entry.as_mut_ptr() as *mut c_void; }
-        Ok(())
+        sqlite_wasm_rs::SQLITE_OK
     });
-    
-    match result {
-        Ok(()) => sqlite_wasm_rs::SQLITE_OK,
-        Err(()) => sqlite_wasm_rs::SQLITE_ERROR,
-    }
+
+    result
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1460,20 +1660,61 @@ unsafe extern "C" fn x_shm_lock(
     
     vfs_log!("VFS xShmLock: offset={} n={} flags={} ({}) for {}", offset, _n, flags, _lock_type, db_name);
     
-    // Browser environment is single-threaded, so locking is trivial
-    // Just track lock state for correctness
-    SHARED_LOCKS.with(|locks| {
+    // CRITICAL: Even in single-threaded JS, async tasks create concurrency
+    // Multiple Database instances (separate sqlite3* handles) can access same BlockStorage
+    // Must enforce mutual exclusion to prevent WAL corruption
+    let file_ptr = p_file as usize;
+    
+    SHARED_LOCKS.with(|locks| -> c_int {
         let mut lock_map = locks.borrow_mut();
         let key = format!("{}_{}", db_name, offset);
         
         if (flags & 1) != 0 {  // UNLOCK
-            lock_map.remove(&key);
-        } else {
-            lock_map.insert(key, flags);
+            // Only unlock if this connection owns the lock
+            if let Some(&(owner, _)) = lock_map.get(&key) {
+                if owner == file_ptr {
+                    lock_map.remove(&key);
+                }
+            }
+            return sqlite_wasm_rs::SQLITE_OK;
         }
-    });
-    
-    sqlite_wasm_rs::SQLITE_OK
+        
+        // Check for conflicting locks held by OTHER connections
+        if let Some(&(owner, existing_flags)) = lock_map.get(&key) {
+            if owner != file_ptr {
+                // Different connection holds the lock
+                // SQLITE_SHM_LOCK=2, SQLITE_SHM_SHARED=4, SQLITE_SHM_EXCLUSIVE=8
+                let is_lock_request = (flags & 2) != 0;
+                let is_shared_request = (flags & 4) != 0;
+                let is_exclusive_request = (flags & 8) != 0;
+                
+                let is_lock_held = (existing_flags & 2) != 0;
+                let is_shared_held = (existing_flags & 4) != 0;
+                let is_exclusive_held = (existing_flags & 8) != 0;
+                
+                // EXCLUSIVE conflicts with ANY existing lock
+                // SHARED conflicts with EXCLUSIVE
+                // LOCK conflicts with EXCLUSIVE
+                if is_exclusive_request {
+                    if is_lock_held || is_shared_held || is_exclusive_held {
+                        vfs_log!("VFS xShmLock: BLOCKED at offset {} - owner={:x} holder={:x} existing={} requested={}", 
+                                 offset, file_ptr, owner, existing_flags, flags);
+                        return sqlite_wasm_rs::SQLITE_BUSY;
+                    }
+                } else if is_exclusive_held {
+                    if is_lock_request || is_shared_request {
+                        vfs_log!("VFS xShmLock: BLOCKED at offset {} - owner={:x} holder={:x} existing={} requested={}", 
+                                 offset, file_ptr, owner, existing_flags, flags);
+                        return sqlite_wasm_rs::SQLITE_BUSY;
+                    }
+                }
+            }
+            // Same connection can upgrade/downgrade its own lock
+        }
+        
+        lock_map.insert(key, (file_ptr, flags));
+        sqlite_wasm_rs::SQLITE_OK
+    })
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1506,12 +1747,12 @@ unsafe extern "C" fn x_shm_unmap(
             let mut shm_map = shm.borrow_mut();
             shm_map.retain(|k, _| !k.starts_with(db_name));
         });
-        
+
         SHARED_LOCKS.with(|locks| {
             let mut lock_map = locks.borrow_mut();
             lock_map.retain(|k, _| !k.starts_with(db_name));
         });
-        
+
         vfs_log!("Deleted all shared memory regions for {}", db_name);
     }
     

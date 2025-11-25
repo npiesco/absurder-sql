@@ -41,7 +41,7 @@ async fn test_idempotent_writes_same_block_version() {
     assert_eq!(read_data, data, "Data should be identical after idempotent write");
     
     // Create new instance to verify cross-instance consistency
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     let read_data2 = storage2.read_block_sync(block_id).expect("read block from new instance");
     assert_eq!(read_data2, data, "Data should be consistent across instances");
 }
@@ -84,7 +84,7 @@ async fn test_idempotent_writes_concurrent_same_version() {
     
     // Create two storage instances
     let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Allocate block in first instance
     let block_id = storage1.allocate_block().await.expect("alloc block");
@@ -144,7 +144,7 @@ async fn test_idempotent_writes_checksum_consistency() {
     }
     
     // Final verification with new instance
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     let final_data = storage2.read_block_sync(block_id).expect("final read");
     assert_eq!(final_data, data, "Final data should be consistent across instances");
 }
@@ -205,7 +205,7 @@ async fn test_explicit_block_id_version_idempotency() {
     // In a proper idempotent system, this should not cause issues
     
     // Create another instance that might try to write the same version
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Both instances should see the same committed state
     let data1 = storage1.read_block_sync(block_id).expect("read from storage1");

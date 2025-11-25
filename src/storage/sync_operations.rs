@@ -1,6 +1,38 @@
 //! Sync operations for BlockStorage
 //! This module contains the core sync implementation logic
 
+// Reentrancy-safe lock macros
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in sync_operations.rs")
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! try_lock_mutex {
+    ($mutex:expr) => {
+        $mutex
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! try_lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
 use crate::types::DatabaseError;
 use super::block_storage::BlockStorage;
 
@@ -28,7 +60,7 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         let start = std::time::Instant::now();
         
         // Record sync start for observability
-        let dirty_count = storage.dirty_blocks.lock().len();
+        let dirty_count = lock_mutex!(storage.dirty_blocks).len();
         let dirty_bytes = dirty_count * super::block_storage::BLOCK_SIZE;
         storage.observability.record_sync_start(dirty_count, dirty_bytes);
         
@@ -42,7 +74,7 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions)), not(feature = "fs_persist")))]
         {
             // In release mode without fs_persist, just clear dirty blocks
-            storage.dirty_blocks.lock().clear();
+            lock_mutex!(storage.dirty_blocks).clear();
             storage.sync_count.fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
@@ -56,11 +88,11 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         // For native non-fs_persist builds (test/debug only), use simple in-memory sync with commit marker handling
         #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
         {
-            let current_dirty = storage.dirty_blocks.lock().len();
+            let current_dirty = lock_mutex!(storage.dirty_blocks).len();
             log::info!("Syncing {} dirty blocks (native non-fs_persist)", current_dirty);
             
             let to_persist: Vec<(u64, Vec<u8>)> = {
-                let dirty = storage.dirty_blocks.lock();
+                let dirty = lock_mutex!(storage.dirty_blocks);
                 dirty.iter().map(|(k,v)| (*k, v.clone())).collect()
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
@@ -68,6 +100,9 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             
             // Determine next commit version for native test path
             let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
+                #[cfg(target_arch = "wasm32")]
+                let cm = cm;
+                #[cfg(not(target_arch = "wasm32"))]
                 let cm = cm.borrow();
                 let current = cm.get(&storage.db_name).copied().unwrap_or(0);
                 current + 1
@@ -75,6 +110,9 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             
             // Store blocks in global test storage with versioning
             vfs_sync::with_global_storage(|gs| {
+                #[cfg(target_arch = "wasm32")]
+                let storage_map = gs;
+                #[cfg(not(target_arch = "wasm32"))]
                 let mut storage_map = gs.borrow_mut();
                 let db_storage = storage_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in to_persist {
@@ -84,7 +122,10 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             
             // Store metadata with per-commit versioning
             GLOBAL_METADATA_TEST.with(|meta| {
+                #[cfg(target_arch = "wasm32")]
                 let mut meta_map = meta.borrow_mut();
+                #[cfg(not(target_arch = "wasm32"))]
+                let mut meta_map = meta.lock();
                 let db_meta = meta_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
                     if let Some(checksum) = storage.checksum_manager.get_checksum(block_id) {
@@ -108,13 +149,16 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             
             // Atomically advance the commit marker after all data and metadata are persisted
             vfs_sync::with_global_commit_marker(|cm| {
+                #[cfg(target_arch = "wasm32")]
+                let cm_map = cm;
+                #[cfg(not(target_arch = "wasm32"))]
                 let mut cm_map = cm.borrow_mut();
                 cm_map.insert(storage.db_name.clone(), next_commit);
             });
             
             // Clear dirty blocks
             {
-                let mut dirty = storage.dirty_blocks.lock();
+                let mut dirty = lock_mutex!(storage.dirty_blocks);
                 dirty.clear();
             }
             
@@ -140,19 +184,19 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         #[cfg(target_arch = "wasm32")]
         {
             // WASM implementation
-            let current_dirty = storage.dirty_blocks.lock().len();
+            let current_dirty = lock_mutex!(storage.dirty_blocks).len();
             log::info!("Syncing {} dirty blocks (WASM)", current_dirty);
             
             // For WASM, persist dirty blocks to global storage
             let to_persist: Vec<(u64, Vec<u8>)> = {
-                let dirty = storage.dirty_blocks.lock();
+                let dirty = lock_mutex!(storage.dirty_blocks);
                 dirty.iter().map(|(k,v)| (*k, v.clone())).collect()
             };
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             // Determine next commit version so that all metadata written in this sync share the same version
             let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
-                let cm = cm.borrow();
-                let current = cm.get(&storage.db_name).copied().unwrap_or(0);
+                let cm = cm;
+                let current = cm.borrow().get(&storage.db_name).copied().unwrap_or(0);
                 current + 1
             });
             vfs_sync::with_global_storage(|gs| {
@@ -164,8 +208,7 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                         if existing != data {
                             // Check if existing data has committed metadata (version > 0)
                             let has_committed_metadata = vfs_sync::with_global_metadata(|meta| {
-                                let meta_map = meta.borrow();
-                                if let Some(db_meta) = meta_map.get(&storage.db_name) {
+                                if let Some(db_meta) = meta.borrow().get(&storage.db_name) {
                                     if let Some(metadata) = db_meta.get(block_id) {
                                         metadata.version > 0
                                     } else {
@@ -196,8 +239,8 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             });
             // Persist corresponding metadata entries
             vfs_sync::with_global_metadata(|meta| {
-                let mut meta_map = meta.borrow_mut();
-                let db_meta = meta_map.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
+                let mut meta_guard = meta.borrow_mut();
+                let db_meta = meta_guard.entry(storage.db_name.clone()).or_insert_with(HashMap::new);
                 for block_id in ids {
                     if let Some(checksum) = storage.checksum_manager.get_checksum(block_id) {
                         // Use the per-commit version so entries remain invisible until the commit marker advances
@@ -216,8 +259,8 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             });
             // Atomically advance the commit marker after all data and metadata are persisted
             vfs_sync::with_global_commit_marker(|cm| {
-                let mut cm_map = cm.borrow_mut();
-                cm_map.insert(storage.db_name.clone(), next_commit);
+                let cm_map = cm;
+                cm_map.borrow_mut().insert(storage.db_name.clone(), next_commit);
             });
             
             // Spawn async IndexedDB persistence (fire and forget for sync compatibility)
@@ -362,7 +405,7 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             });
             // Clear dirty blocks after successful persistence
             {
-                let mut dirty = storage.dirty_blocks.lock();
+                let mut dirty = lock_mutex!(storage.dirty_blocks);
                 dirty.clear();
             }
             
@@ -378,5 +421,5 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             
             storage.evict_if_needed();
             Ok(())
-        }
-    }
+}
+}

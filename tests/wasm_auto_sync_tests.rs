@@ -20,7 +20,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_wasm_auto_sync_basic_enablement() {
-    let mut storage = BlockStorage::new("wasm_auto_sync_basic").await.expect("create storage");
+    let storage = BlockStorage::new("wasm_auto_sync_basic").await.expect("create storage");
     
     // Should be able to enable auto-sync in WASM
     storage.enable_auto_sync(1000); // 1 second interval
@@ -37,7 +37,7 @@ async fn test_wasm_auto_sync_basic_enablement() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn test_wasm_auto_sync_with_policy() {
-    let mut storage = BlockStorage::new("wasm_auto_sync_policy").await.expect("create storage");
+    let storage = BlockStorage::new("wasm_auto_sync_policy").await.expect("create storage");
     
     let policy = SyncPolicy {
         interval_ms: Some(500),
@@ -159,7 +159,7 @@ async fn test_wasm_auto_sync_metrics() {
 #[wasm_bindgen_test]
 async fn test_wasm_auto_sync_multi_instance() {
     let mut storage1 = BlockStorage::new("wasm_auto_sync_multi").await.expect("create storage1");
-    let mut storage2 = BlockStorage::new("wasm_auto_sync_multi").await.expect("create storage2");
+    let storage2 = BlockStorage::new("wasm_auto_sync_multi").await.expect("create storage2");
     
     // Enable auto-sync on both instances (event-driven)
     storage1.enable_auto_sync(300);

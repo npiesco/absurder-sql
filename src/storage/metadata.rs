@@ -2,7 +2,29 @@
 //! This module contains the ACTUAL checksum and metadata logic moved from BlockStorage
 
 use std::collections::HashMap;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
+use parking_lot::Mutex;
 use crate::types::DatabaseError;
+
+// Reentrancy-safe lock macros
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in metadata.rs")
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
 
 #[cfg(target_arch = "wasm32")]
 #[allow(unused_imports)]
@@ -36,10 +58,16 @@ pub struct BlockMetadataPersist {
 
 /// Metadata manager that encapsulates the checksum logic extracted from BlockStorage
 pub struct ChecksumManager {
-    /// Per-block checksums (MOVED from BlockStorage.checksums)
-    checksums: HashMap<u64, u64>,
-    /// Per-block checksum algorithms (MOVED from BlockStorage.checksum_algos)
-    checksum_algos: HashMap<u64, ChecksumAlgorithm>,
+    #[cfg(target_arch = "wasm32")]
+    checksums: RefCell<HashMap<u64, u64>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    checksums: Mutex<HashMap<u64, u64>>,
+    
+    #[cfg(target_arch = "wasm32")]
+    checksum_algos: RefCell<HashMap<u64, ChecksumAlgorithm>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    checksum_algos: Mutex<HashMap<u64, ChecksumAlgorithm>>,
+    
     /// Default algorithm for new blocks (MOVED from BlockStorage.checksum_algo_default)
     checksum_algo_default: ChecksumAlgorithm,
 }
@@ -48,8 +76,16 @@ impl ChecksumManager {
     /// Create new checksum manager with default algorithm
     pub fn new(default_algorithm: ChecksumAlgorithm) -> Self {
         Self {
-            checksums: HashMap::new(),
-            checksum_algos: HashMap::new(),
+            #[cfg(target_arch = "wasm32")]
+            checksums: RefCell::new(HashMap::new()),
+            #[cfg(not(target_arch = "wasm32"))]
+            checksums: Mutex::new(HashMap::new()),
+            
+            #[cfg(target_arch = "wasm32")]
+            checksum_algos: RefCell::new(HashMap::new()),
+            #[cfg(not(target_arch = "wasm32"))]
+            checksum_algos: Mutex::new(HashMap::new()),
+            
             checksum_algo_default: default_algorithm,
         }
     }
@@ -61,8 +97,16 @@ impl ChecksumManager {
         default_algorithm: ChecksumAlgorithm,
     ) -> Self {
         Self {
-            checksums,
-            checksum_algos,
+            #[cfg(target_arch = "wasm32")]
+            checksums: RefCell::new(checksums),
+            #[cfg(not(target_arch = "wasm32"))]
+            checksums: Mutex::new(checksums),
+            
+            #[cfg(target_arch = "wasm32")]
+            checksum_algos: RefCell::new(checksum_algos),
+            #[cfg(not(target_arch = "wasm32"))]
+            checksum_algos: Mutex::new(checksum_algos),
+            
             checksum_algo_default: default_algorithm,
         }
     }
@@ -87,31 +131,34 @@ impl ChecksumManager {
     }
 
     /// Store checksum for a block (MOVED from lines 2442-2444)
-    pub fn store_checksum(&mut self, block_id: u64, data: &[u8]) {
-        let algo = self.checksum_algos
-            .get(&block_id)
-            .copied()
-            .unwrap_or(self.checksum_algo_default);
+    pub fn store_checksum(&self, block_id: u64, data: &[u8]) {
+        let algo = {
+            let algos = lock_mutex!(self.checksum_algos);
+            algos
+                .get(&block_id)
+                .copied()
+                .unwrap_or(self.checksum_algo_default)
+        };
         let csum = Self::compute_checksum_with(data, algo);
-        self.checksums.insert(block_id, csum);
-        self.checksum_algos.insert(block_id, algo);
+        lock_mutex!(self.checksums).insert(block_id, csum);
+        lock_mutex!(self.checksum_algos).insert(block_id, algo);
     }
 
     /// Validate checksum for a block (MOVED from lines 1843-1870)
     pub fn validate_checksum(&self, block_id: u64, data: &[u8]) -> Result<(), DatabaseError> {
-        if let Some(expected) = self.checksums.get(&block_id) {
-            let algo = self
-                .checksum_algos
+        let expected_opt = lock_mutex!(self.checksums).get(&block_id).copied();
+        if let Some(expected) = expected_opt {
+            let algo = lock_mutex!(self.checksum_algos)
                 .get(&block_id)
                 .copied()
                 .unwrap_or(self.checksum_algo_default);
             let actual = Self::compute_checksum_with(data, algo);
-            if *expected != actual {
+            if expected != actual {
                 // Try other known algorithms to detect algorithm mismatch (MOVED from lines 1851-1869)
                 let known_algos = [ChecksumAlgorithm::FastHash, ChecksumAlgorithm::CRC32];
                 for alt in known_algos.iter().copied().filter(|a| *a != algo) {
                     let alt_sum = Self::compute_checksum_with(data, alt);
-                    if *expected == alt_sum {
+                    if expected == alt_sum {
                         return Err(DatabaseError::new(
                             "ALGO_MISMATCH",
                             &format!(
@@ -134,19 +181,19 @@ impl ChecksumManager {
     }
 
     /// Remove checksum for a block (MOVED from lines 1709-1710)
-    pub fn remove_checksum(&mut self, block_id: u64) {
-        self.checksums.remove(&block_id);
-        self.checksum_algos.remove(&block_id);
+    pub fn remove_checksum(&self, block_id: u64) {
+        lock_mutex!(self.checksums).remove(&block_id);
+        lock_mutex!(self.checksum_algos).remove(&block_id);
     }
 
     /// Get checksum for a block
     pub fn get_checksum(&self, block_id: u64) -> Option<u64> {
-        self.checksums.get(&block_id).copied()
+        lock_mutex!(self.checksums).get(&block_id).copied()
     }
 
     /// Get algorithm for a block
     pub fn get_algorithm(&self, block_id: u64) -> ChecksumAlgorithm {
-        self.checksum_algos
+        lock_mutex!(self.checksum_algos)
             .get(&block_id)
             .copied()
             .unwrap_or(self.checksum_algo_default)
@@ -154,22 +201,22 @@ impl ChecksumManager {
 
     /// Replace all checksums (MOVED from lines 1331-1332, 1500-1501)
     pub fn replace_all(
-        &mut self,
+        &self,
         new_checksums: HashMap<u64, u64>,
         new_algos: HashMap<u64, ChecksumAlgorithm>,
     ) {
-        self.checksums = new_checksums;
-        self.checksum_algos = new_algos;
+        *lock_mutex!(self.checksums) = new_checksums;
+        *lock_mutex!(self.checksum_algos) = new_algos;
     }
 
-    /// Get reference to internal checksums map (for compatibility)
-    pub fn checksums(&self) -> &HashMap<u64, u64> {
-        &self.checksums
+    /// Get a clone of the internal checksums map (for compatibility)
+    pub fn checksums(&self) -> HashMap<u64, u64> {
+        lock_mutex!(self.checksums).clone()
     }
 
-    /// Get reference to internal algorithms map (for compatibility)
-    pub fn algorithms(&self) -> &HashMap<u64, ChecksumAlgorithm> {
-        &self.checksum_algos
+    /// Get a clone of the internal algorithms map (for compatibility)
+    pub fn algorithms(&self) -> HashMap<u64, ChecksumAlgorithm> {
+        lock_mutex!(self.checksum_algos).clone()
     }
 
     /// Get default algorithm
@@ -177,15 +224,14 @@ impl ChecksumManager {
         self.checksum_algo_default
     }
 
-    /// Set checksum for testing purposes
-    #[cfg(any(test, debug_assertions))]
-    pub fn set_checksum_for_testing(&mut self, block_id: u64, checksum: u64) {
-        self.checksums.insert(block_id, checksum);
+    /// Set checksum for testing purposes (always available for integration tests)
+    pub fn set_checksum_for_testing(&self, block_id: u64, checksum: u64) {
+        lock_mutex!(self.checksums).insert(block_id, checksum);
     }
     
     /// Clear all checksums (useful after database import)
-    pub fn clear_checksums(&mut self) {
-        self.checksums.clear();
-        self.checksum_algos.clear();
+    pub fn clear_checksums(&self) {
+        lock_mutex!(self.checksums).clear();
+        lock_mutex!(self.checksum_algos).clear();
     }
 }

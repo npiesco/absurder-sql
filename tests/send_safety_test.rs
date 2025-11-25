@@ -2,7 +2,11 @@
 /// This ensures the database can be safely sent between threads (required for Tauri commands)
 
 #[cfg(feature = "fs_persist")]
+use serial_test::serial;
+
+#[cfg(feature = "fs_persist")]
 #[tokio::test]
+#[serial]
 async fn test_sqlite_indexeddb_is_send() {
     use absurder_sql::{SqliteIndexedDB, DatabaseConfig};
     use tempfile::TempDir;
@@ -38,6 +42,7 @@ async fn test_sqlite_indexeddb_is_send() {
 
 #[cfg(feature = "fs_persist")]
 #[tokio::test]
+#[serial]
 async fn test_database_operations_across_threads() {
     use absurder_sql::{SqliteIndexedDB, DatabaseConfig};
     use tempfile::TempDir;

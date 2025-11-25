@@ -1,6 +1,22 @@
 //! Block storage information API for the AbsurderSQL Viewer
 //! Provides read-only access to block metadata and cache statistics
 
+// Reentrancy-safe lock macros
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow()
+            .expect("RefCell borrow failed - reentrancy detected in block_info.rs")
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
 use serde::{Serialize, Deserialize};
 use super::block_storage::BlockStorage;
 
@@ -28,19 +44,15 @@ pub struct BlockStorageInfo {
 
 impl BlockStorage {
     /// Get comprehensive block storage information for the viewer
-    pub fn get_storage_info(&self) -> BlockStorageInfo {
-        let dirty_guard = self.dirty_blocks.lock();
+    pub fn get_storage_info(&mut self) -> BlockStorageInfo {
+        // Get metadata for all allocated blocks
+        let metadata = self.get_block_metadata_for_testing();
         
+        let dirty_guard = lock_mutex!(self.dirty_blocks);
         let mut blocks: Vec<BlockInfo> = Vec::new();
         
-        // Get metadata for all allocated blocks
-        #[cfg(any(test, debug_assertions))]
-        let metadata = self.get_block_metadata_for_testing();
-        #[cfg(not(any(test, debug_assertions)))]
-        let metadata: std::collections::HashMap<u64, (u64, u32, u64)> = std::collections::HashMap::new(); // In production, we'd need a proper accessor
-        
-        for &block_id in &self.allocated_blocks {
-            let is_cached = self.cache.contains_key(&block_id);
+        for &block_id in lock_mutex!(self.allocated_blocks).iter() {
+            let is_cached = lock_mutex!(self.cache).contains_key(&block_id);
             let is_dirty = dirty_guard.contains_key(&block_id);
             
             let (checksum, version, last_modified_ms) = metadata
@@ -64,11 +76,11 @@ impl BlockStorage {
         
         BlockStorageInfo {
             db_name: self.db_name.clone(),
-            total_allocated_blocks: self.allocated_blocks.len(),
-            total_cached_blocks: self.cache.len(),
+            total_allocated_blocks: lock_mutex!(self.allocated_blocks).len(),
+            total_cached_blocks: lock_mutex!(self.cache).len(),
             total_dirty_blocks: dirty_guard.len(),
             cache_capacity: self.capacity,
-            next_block_id: self.next_block_id,
+            next_block_id: self.next_block_id.load(std::sync::atomic::Ordering::SeqCst),
             blocks,
         }
     }

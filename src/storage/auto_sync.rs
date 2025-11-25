@@ -1,10 +1,27 @@
+// Reentrancy-safe lock macros
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in auto_sync.rs")
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
-use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
 use crate::storage::SyncPolicy;
@@ -12,14 +29,20 @@ use crate::storage::SyncPolicy;
 use super::block_storage::SyncRequest;
 
 impl super::BlockStorage {
+    //! Background auto-sync functionality
+    //! Handles automatic background synchronization of dirty blocks
+
     /// Enable automatic background syncing of dirty blocks. Interval in milliseconds.
+    #[cfg(target_arch = "wasm32")]
+    pub fn enable_auto_sync(&self, interval_ms: u64) {
+        *lock_mutex!(self.policy) = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
+        *lock_mutex!(self.auto_sync_interval) = Some(std::time::Duration::from_millis(interval_ms));
+        log::info!("Auto-sync enabled: every {} ms", interval_ms);
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_auto_sync(&mut self, interval_ms: u64) {
-        self.auto_sync_interval = Some(Duration::from_millis(interval_ms));
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.last_auto_sync = Instant::now();
-        }
-        self.policy = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
+        *lock_mutex!(self.policy) = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
         log::info!("Auto-sync enabled: every {} ms", interval_ms);
         
         #[cfg(target_arch = "wasm32")]
@@ -51,10 +74,10 @@ impl super::BlockStorage {
                 while let Some(request) = receiver.recv().await {
                     match request {
                         SyncRequest::Timer(response_sender) => {
-                            if !dirty_blocks.lock().is_empty() {
+                            if !lock_mutex!(dirty_blocks).is_empty() {
                                 // Clear dirty blocks immediately - DETERMINISTIC RESULTS
                                 let start = std::time::Instant::now();
-                                dirty_blocks.lock().clear();
+                                lock_mutex!(dirty_blocks).clear();
                                 let elapsed = start.elapsed().as_millis() as u64;
                                 let elapsed = if elapsed == 0 { 1 } else { elapsed };
                                 last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
@@ -65,10 +88,10 @@ impl super::BlockStorage {
                             let _ = response_sender.send(());
                         },
                         SyncRequest::Debounce(response_sender) => {
-                            if !dirty_blocks.lock().is_empty() {
+                            if !lock_mutex!(dirty_blocks).is_empty() {
                                 // Clear dirty blocks immediately - DETERMINISTIC RESULTS
                                 let start = std::time::Instant::now();
-                                dirty_blocks.lock().clear();
+                                lock_mutex!(dirty_blocks).clear();
                                 let elapsed = start.elapsed().as_millis() as u64;
                                 let elapsed = if elapsed == 0 { 1 } else { elapsed };
                                 last_sync_duration_ms.store(elapsed, Ordering::SeqCst);
@@ -99,7 +122,7 @@ impl super::BlockStorage {
                         if stop_flag.load(Ordering::SeqCst) { break; }
                         // Check if sync is needed
                         let needs_sync = {
-                            let map = dirty.lock();
+                            let map = lock_mutex!(dirty);
                             !map.is_empty()
                         };
                         if needs_sync {
@@ -134,7 +157,7 @@ impl super::BlockStorage {
                         std::thread::sleep(interval);
                         if stop_flag.load(Ordering::SeqCst) { break; }
                         let needs_sync = {
-                            let map = dirty.lock();
+                            let map = lock_mutex!(dirty);
                             !map.is_empty()
                         };
                         if needs_sync {
@@ -160,13 +183,21 @@ impl super::BlockStorage {
     }
 
     /// Enable automatic background syncing using a SyncPolicy
+    #[cfg(target_arch = "wasm32")]
+    pub fn enable_auto_sync_with_policy(&self, policy: SyncPolicy) {
+        *lock_mutex!(self.policy) = Some(policy.clone());
+        *lock_mutex!(self.auto_sync_interval) = policy.interval_ms.map(std::time::Duration::from_millis);
+        log::info!("Auto-sync policy enabled");
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_auto_sync_with_policy(&mut self, policy: SyncPolicy) {
-        self.policy = Some(policy.clone());
+        *lock_mutex!(self.policy) = Some(policy.clone());
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.last_auto_sync = Instant::now();
         }
-        self.auto_sync_interval = policy.interval_ms.map(Duration::from_millis);
+        *lock_mutex!(self.auto_sync_interval) = policy.interval_ms.map(Duration::from_millis);
         log::info!("Auto-sync policy enabled: interval={:?}, max_dirty={:?}, max_bytes={:?}", policy.interval_ms, policy.max_dirty, policy.max_dirty_bytes);
         
         #[cfg(target_arch = "wasm32")]
@@ -203,10 +234,10 @@ impl super::BlockStorage {
                 while let Some(request) = receiver.recv().await {
                     match request {
                         SyncRequest::Timer(response_sender) => {
-                            if !dirty_blocks.lock().is_empty() {
+                            if !lock_mutex!(dirty_blocks).is_empty() {
                                 // Clear dirty blocks immediately - DETERMINISTIC RESULTS
                                 let start = std::time::Instant::now();
-                                dirty_blocks.lock().clear();
+                                lock_mutex!(dirty_blocks).clear();
                                 threshold_hit.store(false, Ordering::SeqCst);
                                 let elapsed = start.elapsed().as_millis() as u64;
                                 let elapsed = if elapsed == 0 { 1 } else { elapsed };
@@ -218,10 +249,10 @@ impl super::BlockStorage {
                             let _ = response_sender.send(());
                         },
                         SyncRequest::Debounce(response_sender) => {
-                            if !dirty_blocks.lock().is_empty() {
+                            if !lock_mutex!(dirty_blocks).is_empty() {
                                 // Clear dirty blocks immediately - DETERMINISTIC RESULTS
                                 let start = std::time::Instant::now();
-                                dirty_blocks.lock().clear();
+                                lock_mutex!(dirty_blocks).clear();
                                 threshold_hit.store(false, Ordering::SeqCst);
                                 let elapsed = start.elapsed().as_millis() as u64;
                                 let elapsed = if elapsed == 0 { 1 } else { elapsed };
@@ -405,8 +436,16 @@ impl super::BlockStorage {
     }
 
     /// Disable automatic background syncing.
+    #[cfg(target_arch = "wasm32")]
+    pub fn disable_auto_sync(&self) {
+        *lock_mutex!(self.policy) = None;
+        *lock_mutex!(self.auto_sync_interval) = None;
+        log::info!("Auto-sync disabled");
+    }
+    
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn disable_auto_sync(&mut self) {
-        self.auto_sync_interval = None;
+        *lock_mutex!(self.auto_sync_interval) = None;
         log::info!("Auto-sync disabled");
         
         #[cfg(target_arch = "wasm32")]
@@ -457,9 +496,9 @@ impl super::BlockStorage {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub(super) fn maybe_auto_sync(&mut self) {
+    pub(super) fn maybe_auto_sync(&self) {
         // Check if we should trigger threshold-based sync
-        if let Some(policy) = &self.policy {
+        if let Some(policy) = lock_mutex!(self.policy).clone() {
             let dirty_count = self.get_dirty_count();
             let dirty_bytes = dirty_count * super::BLOCK_SIZE;
             
@@ -470,7 +509,7 @@ impl super::BlockStorage {
                     // Spawn async sync
                     let db_name = self.db_name.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        if let Ok(mut storage) = super::BlockStorage::new(&db_name).await {
+                        if let Ok(storage) = super::BlockStorage::new(&db_name).await {
                             if let Err(e) = storage.sync().await {
                                 log::error!("WASM threshold sync failed: {}", e.message);
                             }
@@ -487,7 +526,7 @@ impl super::BlockStorage {
                     // Spawn async sync
                     let db_name = self.db_name.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        if let Ok(mut storage) = super::BlockStorage::new(&db_name).await {
+                        if let Ok(storage) = super::BlockStorage::new(&db_name).await {
                             if let Err(e) = storage.sync().await {
                                 log::error!("WASM threshold sync failed: {}", e.message);
                             }
@@ -499,7 +538,7 @@ impl super::BlockStorage {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn maybe_auto_sync(&mut self) {
+    pub(super) fn maybe_auto_sync(&self) {
         // Background sync is now handled by dedicated processor - NO MORE MAYBE
         // This function is now a no-op since sync happens IMMEDIATELY
     }

@@ -19,7 +19,7 @@ async fn test_request_leadership_forces_reelection() {
     
     // Create first instance - becomes leader
     web_sys::console::log_1(&"Creating leader instance...".into());
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
     sleep_ms(200).await;
     
     assert!(storage1.is_leader().await, "First instance should be leader");
@@ -27,7 +27,7 @@ async fn test_request_leadership_forces_reelection() {
     
     // Create second instance - becomes follower
     web_sys::console::log_1(&"Creating follower instance...".into());
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     sleep_ms(200).await;
     
     assert!(!storage2.is_leader().await, "Second instance should be follower");

@@ -51,7 +51,7 @@ fn test_block_storage_creation() {
 #[wasm_bindgen_test]
 async fn test_block_storage_read_write() {
     // Test basic read/write operations
-    let mut storage = BlockStorage::new("test_db_rw").await
+    let storage = BlockStorage::new("test_db_rw").await
         .expect("Should create storage");
     
     let test_data = vec![42u8; BLOCK_SIZE];
@@ -84,7 +84,7 @@ fn test_block_storage_read_write() {
 #[wasm_bindgen_test]
 async fn test_block_storage_cache() {
     // Test that caching works correctly
-    let mut storage = BlockStorage::new("test_db_cache").await
+    let storage = BlockStorage::new("test_db_cache").await
         .expect("Should create storage");
     
     let test_data = vec![123u8; BLOCK_SIZE];
@@ -116,7 +116,7 @@ fn test_block_storage_cache() {
 #[wasm_bindgen_test]
 async fn test_block_storage_sync() {
     // Test synchronization of dirty blocks
-    let mut storage = BlockStorage::new("test_db_sync").await
+    let storage = BlockStorage::new("test_db_sync").await
         .expect("Should create storage");
     
     let test_data1 = vec![1u8; BLOCK_SIZE];
@@ -149,7 +149,7 @@ fn test_block_storage_sync() {
 #[wasm_bindgen_test]
 async fn test_block_storage_invalid_size() {
     // Test that invalid block sizes are rejected
-    let mut storage = BlockStorage::new("test_db_invalid").await
+    let storage = BlockStorage::new("test_db_invalid").await
         .expect("Should create storage");
     
     let invalid_data = vec![1u8; BLOCK_SIZE - 1]; // Wrong size
@@ -172,9 +172,9 @@ fn test_block_storage_invalid_size() {
 #[wasm_bindgen_test]
 async fn test_multiple_databases() {
     // Test that multiple databases can coexist
-    let mut storage1 = BlockStorage::new("test_db_multi1").await
+    let storage1 = BlockStorage::new("test_db_multi1").await
         .expect("Should create storage1");
-    let mut storage2 = BlockStorage::new("test_db_multi2").await
+    let storage2 = BlockStorage::new("test_db_multi2").await
         .expect("Should create storage2");
     
     let data1 = vec![11u8; BLOCK_SIZE];
@@ -211,7 +211,7 @@ fn test_multiple_databases() {
 #[wasm_bindgen_test]
 async fn test_large_block_operations() {
     // Test operations with multiple blocks
-    let mut storage = BlockStorage::new("test_db_large").await
+    let storage = BlockStorage::new("test_db_large").await
         .expect("Should create storage");
     
     let num_blocks = 10;
@@ -254,7 +254,7 @@ async fn test_persistence_across_instances() {
     
     // Write with first instance
     {
-        let mut storage1 = BlockStorage::new(db_name).await
+        let storage1 = BlockStorage::new(db_name).await
             .expect("Should create storage1");
         storage1.write_block(block_id, test_data.clone()).await
             .expect("Should write block");
@@ -263,7 +263,7 @@ async fn test_persistence_across_instances() {
     
     // Read with second instance
     {
-        let mut storage2 = BlockStorage::new(db_name).await
+        let storage2 = BlockStorage::new(db_name).await
             .expect("Should create storage2");
         let read_data = storage2.read_block(block_id).await
             .expect("Should read block");
@@ -282,14 +282,14 @@ async fn test_indexeddb_transactional_visibility_across_instances() {
     let test_data = vec![37u8; BLOCK_SIZE];
 
     // Instance A: write but do not commit
-    let mut storage_a = BlockStorage::new(db_name).await
+    let storage_a = BlockStorage::new(db_name).await
         .expect("Should create storage A");
     storage_a.write_block(block_id, test_data.clone()).await
         .expect("Should write block in A");
 
     // Instance B: before commit, should see zeros
     {
-        let mut storage_b = BlockStorage::new(db_name).await
+        let storage_b = BlockStorage::new(db_name).await
             .expect("Should create storage B");
         let pre_commit = storage_b.read_block(block_id).await
             .expect("Should read block pre-commit");
@@ -301,7 +301,7 @@ async fn test_indexeddb_transactional_visibility_across_instances() {
 
     // Instance C: after commit, should see the data
     {
-        let mut storage_c = BlockStorage::new(db_name).await
+        let storage_c = BlockStorage::new(db_name).await
             .expect("Should create storage C");
         let post_commit = storage_c.read_block(block_id).await
             .expect("Should read block post-commit");

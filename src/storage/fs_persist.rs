@@ -1,3 +1,21 @@
+// Reentrancy-safe lock macros
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in fs_persist.rs")
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 use std::{env, fs, io::{Read, Write}, path::PathBuf};
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -41,7 +59,7 @@ impl super::BlockStorage {
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     pub(super) fn fs_persist_sync(&mut self) -> Result<(), DatabaseError> {
         // Record sync start for observability
-        let dirty_count = self.dirty_blocks.lock().len();
+        let dirty_count = lock_mutex!(self.dirty_blocks).len();
         let dirty_bytes = dirty_count * super::BLOCK_SIZE;
         self.observability.record_sync_start(dirty_count, dirty_bytes);
         
@@ -109,7 +127,7 @@ impl super::BlockStorage {
                     }
                 }
                 let meta_string = serde_json::to_string(&meta_val).unwrap_or_else(|_| "{}".into());
-                let allocated: std::collections::HashSet<u64> = self.allocated_blocks.clone();
+                let allocated: std::collections::HashSet<u64> = lock_mutex!(self.allocated_blocks).clone();
                 // Write metadata via commit marker: metadata.json.pending -> metadata.json
                 let mut meta_pending = db_dir.clone();
                 meta_pending.push("metadata.json.pending");
@@ -213,7 +231,7 @@ impl super::BlockStorage {
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             // Determine next commit version so that all metadata written in this sync share the same version
             let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
-                let cm = cm.borrow();
+                let cm = cm;
                 let current = cm.get(&self.db_name).copied().unwrap_or(0);
                 #[cfg(target_arch = "wasm32")]
                 log::debug!("Current commit marker for {}: {}", self.db_name, current);
@@ -222,7 +240,7 @@ impl super::BlockStorage {
             #[cfg(target_arch = "wasm32")]
             log::debug!("Next commit marker for {}: {}", self.db_name, next_commit);
             vfs_sync::with_global_storage(|storage| {
-                let mut storage_map = storage.borrow_mut();
+                let mut storage_map = storage.lock();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in &to_persist {
                     // Check if block already exists in global storage with committed data
@@ -230,7 +248,7 @@ impl super::BlockStorage {
                         if existing != data {
                             // Check if existing data has committed metadata (version > 0)
                             let has_committed_metadata = vfs_sync::with_global_metadata(|meta| {
-                                let meta_map = meta.borrow();
+                                let meta_map = meta.borrow_mut();
                                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                                     if let Some(metadata) = db_meta.get(block_id) {
                                         metadata.version > 0
@@ -298,7 +316,7 @@ impl super::BlockStorage {
             });
             // Atomically advance the commit marker after all data and metadata are persisted
             vfs_sync::with_global_commit_marker(|cm| {
-                let mut cm_map = cm.borrow_mut();
+                let cm_map = cm;
                 cm_map.insert(self.db_name.clone(), next_commit);
             });
             
@@ -360,7 +378,7 @@ impl super::BlockStorage {
                 
                 let success_tx = tx.clone();
                 let success_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
-                    if let Some(tx) = success_tx.borrow_mut().take() {
+                    if let Some(tx) = success_tx.lock().take() {
                         let target = event.target().unwrap();
                         let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
                         let result = request.result().unwrap();
@@ -370,7 +388,7 @@ impl super::BlockStorage {
                 
                 let error_tx = tx.clone();
                 let error_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
-                    if let Some(tx) = error_tx.borrow_mut().take() {
+                    if let Some(tx) = error_tx.lock().take() {
                         let _ = tx.send(Err(format!("IndexedDB open failed: {:?}", event)));
                     }
                 }) as Box<dyn FnMut(_)>);
@@ -424,14 +442,14 @@ impl super::BlockStorage {
                             
                             let tx_complete_tx = tx_tx.clone();
                             let tx_complete_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_event: web_sys::Event| {
-                                if let Some(tx) = tx_complete_tx.borrow_mut().take() {
+                                if let Some(tx) = tx_complete_tx.lock().take() {
                                     let _ = tx.send(Ok(()));
                                 }
                             }) as Box<dyn FnMut(_)>);
                             
                             let tx_error_tx = tx_tx.clone();
                             let tx_error_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
-                                if let Some(tx) = tx_error_tx.borrow_mut().take() {
+                                if let Some(tx) = tx_error_tx.lock().take() {
                                     let _ = tx.send(Err(format!("Transaction failed: {:?}", event)));
                                 }
                             }) as Box<dyn FnMut(_)>);
@@ -539,7 +557,7 @@ impl super::BlockStorage {
                 }
             }
             // Do not prune metadata based on allocated set; preserve entries for all persisted blocks
-            let allocated: std::collections::HashSet<u64> = self.allocated_blocks.clone();
+            let allocated: std::collections::HashSet<u64> = lock_mutex!(self.allocated_blocks).clone();
             // Save metadata (build entries array [[id, obj], ...])
             let mut entries_vec: Vec<serde_json::Value> = Vec::new();
             for (id, obj) in map.iter() {
@@ -660,11 +678,11 @@ impl super::BlockStorage {
             let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
             // Determine next commit version for the test-global path
             let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
-                let cm = cm.borrow();
+                let cm = cm;
                 cm.get(&self.db_name).copied().unwrap_or(0) + 1
             });
             vfs_sync::with_global_storage(|storage| {
-                let mut storage_map = storage.borrow_mut();
+                let mut storage_map = storage.lock();
                 let db_storage = storage_map.entry(self.db_name.clone()).or_insert_with(HashMap::new);
                 for (block_id, data) in &to_persist {
                     db_storage.insert(*block_id, data.clone());
@@ -693,7 +711,7 @@ impl super::BlockStorage {
             });
             // Advance commit marker after persisting all entries
             vfs_sync::with_global_commit_marker(|cm| {
-                let mut cm_map = cm.borrow_mut();
+                let cm_map = cm;
                 cm_map.insert(self.db_name.clone(), next_commit);
             });
         }

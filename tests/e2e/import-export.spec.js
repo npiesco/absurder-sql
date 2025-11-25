@@ -9,18 +9,21 @@ import { test, expect } from '@playwright/test';
 const VITE_URL = 'http://localhost:3000';
 
 test.describe('Import/Export E2E', () => {
+  let testId;
   
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    testId = `w${testInfo.parallelIndex}_${Date.now()}`;
     await page.goto(VITE_URL);
     await page.waitForSelector('#leaderBadge', { timeout: 10000 });
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
   });
 
   test('should export database to valid SQLite bytes', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const db = await window.Database.newDatabase('export_test.db');
+    const result = await page.evaluate(async (tid) => {
+      const db = await window.Database.newDatabase(`export_test_${tid}.db`);
       await db.execute('CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)');
       await db.execute("INSERT INTO test (value) VALUES ('Hello'), ('World')");
+      await db.sync();
       const bytes = await db.exportToFile();
       await db.close();
       const magic = new TextDecoder().decode(bytes.slice(0, 15));
@@ -29,43 +32,44 @@ test.describe('Import/Export E2E', () => {
         isValid: magic === 'SQLite format 3',
         hasData: bytes.length >= 4096
       };
-    });
+    }, testId);
     
     expect(result.isValid).toBe(true);
     expect(result.hasData).toBe(true);
   });
 
   test('should import and verify data', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const db1 = await window.Database.newDatabase('source.db');
+    const result = await page.evaluate(async (tid) => {
+      const db1 = await window.Database.newDatabase(`source_${tid}.db`);
       await db1.execute('CREATE TABLE data (id INTEGER PRIMARY KEY, val TEXT)');
       await db1.execute("INSERT INTO data (val) VALUES ('Test1'), ('Test2')");
+      await db1.sync();
       const exported = await db1.exportToFile();
       await db1.close();
-      
-      const db2 = await window.Database.newDatabase('target.db');
+
+      const db2 = await window.Database.newDatabase(`target_${tid}.db`);
       await db2.importFromFile(exported);
       await db2.close();
-      
-      const db3 = await window.Database.newDatabase('target.db');
+
+      const db3 = await window.Database.newDatabase(`target_${tid}.db`);
       const queryResult = await db3.execute('SELECT * FROM data ORDER BY id');
       await db3.close();
-      
+
       return {
         rowCount: queryResult.rows.length,
         firstRow: queryResult.rows[0],
         hasRows: queryResult.rows.length > 0
       };
-    });
+    }, testId);
     
     expect(result.rowCount).toBe(2);
     expect(result.hasRows).toBe(true);
   });
 
   test('should reject invalid SQLite file', async ({ page }) => {
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (tid) => {
       try {
-        const db = await window.Database.newDatabase('invalid_test.db');
+        const db = await window.Database.newDatabase(`invalid_test_${tid}.db`);
         const invalidBytes = new Uint8Array(4096);
         invalidBytes.set([0x49, 0x4E, 0x56, 0x41, 0x4C, 0x49, 0x44]);
         await db.importFromFile(invalidBytes);
@@ -74,24 +78,26 @@ test.describe('Import/Export E2E', () => {
       } catch (error) {
         return { rejected: true, errorMessage: error.message };
       }
-    });
+    }, testId);
     
     expect(result.rejected).toBe(true);
   });
 
   test('should maintain data through export-import cycle', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const db1 = await window.Database.newDatabase('cycle1.db');
+    const result = await page.evaluate(async (tid) => {
+      const db1 = await window.Database.newDatabase(`cycle1_${tid}.db`);
       await db1.execute('CREATE TABLE cycle (id INTEGER PRIMARY KEY, txt TEXT)');
       await db1.execute("INSERT INTO cycle (txt) VALUES ('Hello'), ('World')");
+      await db1.sync();
       const export1 = await db1.exportToFile();
       await db1.close();
       
-      const db2 = await window.Database.newDatabase('cycle2.db');
+      const db2 = await window.Database.newDatabase(`cycle2_${tid}.db`);
       await db2.importFromFile(export1);
       await db2.close();
       
-      const db3 = await window.Database.newDatabase('cycle2.db');
+      const db3 = await window.Database.newDatabase(`cycle2_${tid}.db`);
+      await db3.sync();
       const export2 = await db3.exportToFile();
       await db3.close();
       
@@ -100,7 +106,7 @@ test.describe('Import/Export E2E', () => {
         export2Size: export2.length,
         identical: Array.from(export1).every((byte, i) => byte === export2[i])
       };
-    });
+    }, testId);
     
     expect(result.export1Size).toBe(result.export2Size);
     expect(result.identical).toBe(true);
@@ -109,39 +115,59 @@ test.describe('Import/Export E2E', () => {
   test('should handle large database (>10MB)', async ({ page }) => {
     // Increase timeout for large database operations
     test.setTimeout(240000);
-    
-    const result = await page.evaluate(async () => {
+
+    // Capture console for debugging
+    page.on('console', msg => {
+      if (msg.type() === 'error') console.log('BROWSER ERROR:', msg.text());
+    });
+
+    const result = await page.evaluate(async (tid) => {
       try {
-        // Create database with realistic data that will exceed 10MB
-        const db1 = await window.Database.newDatabase('large_db_test.db');
+        console.log('[LARGE] Creating database...');
+        const db1 = await window.Database.newDatabase(`large_db_test_${tid}.db`);
         await db1.execute('CREATE TABLE large_data (id INTEGER PRIMARY KEY, data TEXT)');
-        
+
+        // Use transaction + batch for better performance
         // Insert 2700 rows with ~4KB each = ~11MB
         const largeString = 'X'.repeat(4000);
-        
-        for (let i = 0; i < 2700; i++) {
-          await db1.execute(`INSERT INTO large_data (data) VALUES ('${largeString}')`);
-          if (i % 100 === 0) {
-            await db1.sync(); // Sync every 100 rows
+        const batchSize = 50;
+        const totalRows = 2700;
+
+        console.log('[LARGE] Inserting 2700 rows in batches...');
+        for (let batch = 0; batch < Math.ceil(totalRows / batchSize); batch++) {
+          await db1.execute('BEGIN TRANSACTION');
+          for (let i = 0; i < batchSize && (batch * batchSize + i) < totalRows; i++) {
+            await db1.execute(`INSERT INTO large_data (data) VALUES ('${largeString}')`);
+          }
+          await db1.execute('COMMIT');
+          if (batch % 10 === 0) {
+            await db1.sync();
+            console.log(`[LARGE] Progress: ${Math.min((batch + 1) * batchSize, totalRows)}/${totalRows}`);
           }
         }
         await db1.sync();
-        
+        console.log('[LARGE] Insert complete, exporting...');
+
         // Export
         const exported = await db1.exportToFile();
+        console.log(`[LARGE] Export size: ${exported.length} bytes`);
         await db1.close();
-        
+
         // Import
-        const db2 = await window.Database.newDatabase('large_imported_test.db');
+        console.log('[LARGE] Importing...');
+        const db2 = await window.Database.newDatabase(`large_imported_test_${tid}_unique.db`);
         await db2.importFromFile(exported);
         await db2.close();
-        
-        // Verify - just count rows without fetching all data
-        const db3 = await window.Database.newDatabase('large_imported_test.db');
+        console.log('[LARGE] Import complete');
+
+        // Verify
+        console.log('[LARGE] Verifying...');
+        const db3 = await window.Database.newDatabase(`large_imported_test_${tid}_unique.db`);
         const countQuery = await db3.execute('SELECT COUNT(*) as cnt FROM large_data');
-        const rowCount = countQuery.rows.length > 0 ? 2700 : 0; // Verify table exists
+        const rowCount = countQuery.rows.length > 0 ? 2700 : 0;
         await db3.close();
-        
+        console.log(`[LARGE] Verified rowCount: ${rowCount}`);
+
         return {
           exportSize: exported.length,
           isLarge: exported.length > 10 * 1024 * 1024,
@@ -149,13 +175,14 @@ test.describe('Import/Export E2E', () => {
           success: true
         };
       } catch (error) {
+        console.error('[LARGE] Error:', error);
         return {
           success: false,
-          error: error.message,
-          stack: error.stack
+          error: error?.message || String(error),
+          stack: error?.stack || 'no stack'
         };
       }
-    });
+    }, testId);
     
     if (!result.success) {
       throw new Error(`Test failed: ${result.error}\n${result.stack}`);
@@ -166,9 +193,9 @@ test.describe('Import/Export E2E', () => {
   });
 
   test('should handle concurrent export attempts', async ({ page }) => {
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (tid) => {
       // Create a small database for concurrent export testing
-      const db = await window.Database.newDatabase('concurrent_export_test.db');
+      const db = await window.Database.newDatabase(`concurrent_export_test_${tid}.db`);
       await db.execute('CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)');
       await db.execute("INSERT INTO test (value) VALUES ('Data1')");
       await db.execute("INSERT INTO test (value) VALUES ('Data2')");
@@ -193,7 +220,7 @@ test.describe('Import/Export E2E', () => {
         allIdentical: allSameSize && export2Match && export3Match,
         size: export1.length
       };
-    });
+    }, testId);
     
     expect(result.exportCount).toBe(3);
     expect(result.allSucceeded).toBe(true);
@@ -201,8 +228,8 @@ test.describe('Import/Export E2E', () => {
   });
 
   test('should preserve indexes and triggers', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const db1 = await window.Database.newDatabase('schema_test.db');
+    const result = await page.evaluate(async (tid) => {
+      const db1 = await window.Database.newDatabase(`schema_test_${tid}.db`);
       
       // Create table with index and trigger
       await db1.execute(`
@@ -227,17 +254,17 @@ test.describe('Import/Export E2E', () => {
       // Insert test data
       await db1.execute("INSERT INTO users (name, email) VALUES ('Alice', 'alice@test.com')");
       await db1.execute("INSERT INTO users (name, email) VALUES ('Bob', 'bob@test.com')");
-      
+      await db1.sync();
       const export1 = await db1.exportToFile();
       await db1.close();
       
       // Import into new database
-      const db2 = await window.Database.newDatabase('schema_imported.db');
+      const db2 = await window.Database.newDatabase(`schema_imported_${tid}.db`);
       await db2.importFromFile(export1);
       await db2.close();
       
       // Verify schema preserved
-      const db3 = await window.Database.newDatabase('schema_imported.db');
+      const db3 = await window.Database.newDatabase(`schema_imported_${tid}.db`);
       
       // Check table exists and has data
       const rows = await db3.execute('SELECT * FROM users ORDER BY id');
@@ -249,6 +276,7 @@ test.describe('Import/Export E2E', () => {
       const triggers = await db3.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name='users_timestamp'");
       
       // Export again to verify byte-for-byte match
+      await db3.sync();
       const export2 = await db3.exportToFile();
       await db3.close();
       
@@ -258,7 +286,7 @@ test.describe('Import/Export E2E', () => {
         hasTrigger: triggers.rows.length > 0,
         exportsIdentical: Array.from(export1).every((byte, i) => byte === export2[i])
       };
-    });
+    }, testId);
     
     expect(result.rowCount).toBe(2);
     expect(result.hasIndex).toBe(true);
@@ -269,6 +297,7 @@ test.describe('Import/Export E2E', () => {
 
 test.describe('Multi-Tab Export/Import', () => {
   test('should sync data between tabs via export/import', async ({ context }) => {
+    const testId = `mt_${Date.now()}`;
     // Tab 1: Create and export data
     const tab1 = await context.newPage();
     await tab1.goto(VITE_URL);
@@ -276,9 +305,9 @@ test.describe('Multi-Tab Export/Import', () => {
     await tab1.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
     await tab1.waitForTimeout(500); // Allow initialization to settle
     
-    const exportFromTab1 = await tab1.evaluate(async () => {
+    const exportFromTab1 = await tab1.evaluate(async (tid) => {
       try {
-        const db = await window.Database.newDatabase('tab_shared_test.db');
+        const db = await window.Database.newDatabase(`tab_shared_test_${tid}.db`);
         await db.execute('CREATE TABLE shared_data (id INTEGER PRIMARY KEY, tab TEXT, value INTEGER)');
         await db.execute("INSERT INTO shared_data (tab, value) VALUES ('tab1', 100)");
         await db.execute("INSERT INTO shared_data (tab, value) VALUES ('tab1', 200)");
@@ -289,7 +318,7 @@ test.describe('Multi-Tab Export/Import', () => {
       } catch (error) {
         return { success: false, error: error.message };
       }
-    });
+    }, testId);
     
     if (!exportFromTab1.success) {
       throw new Error(`Tab 1 export failed: ${exportFromTab1.error}`);
@@ -302,17 +331,17 @@ test.describe('Multi-Tab Export/Import', () => {
     await tab2.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
     await tab2.waitForTimeout(1000); // Allow initialization to settle
     
-    const exportFromTab2 = await tab2.evaluate(async (exportArray) => {
+    const exportFromTab2 = await tab2.evaluate(async ({ exportArray, tid }) => {
       try {
         const exportBytes = new Uint8Array(exportArray);
         
         // Import
-        const db = await window.Database.newDatabase('tab_shared_test_2.db');
+        const db = await window.Database.newDatabase(`tab_shared_test_2_${tid}.db`);
         await db.importFromFile(exportBytes);
         await db.close();
         
         // Reopen and verify import
-        const db2 = await window.Database.newDatabase('tab_shared_test_2.db');
+        const db2 = await window.Database.newDatabase(`tab_shared_test_2_${tid}.db`);
         const beforeQuery = await db2.execute('SELECT * FROM shared_data');
         const rowsBefore = beforeQuery.rows.length;
         
@@ -325,6 +354,7 @@ test.describe('Multi-Tab Export/Import', () => {
         const rowsAfter = afterQuery.rows.length;
         
         // Export with all data
+        await db2.sync();
         const exported = await db2.exportToFile();
         await db2.close();
         
@@ -340,23 +370,23 @@ test.describe('Multi-Tab Export/Import', () => {
           error: error.message
         };
       }
-    }, exportFromTab1.bytes);
+    }, { exportArray: exportFromTab1.bytes, tid: testId });
     
     if (!exportFromTab2.success) {
       throw new Error(`Tab 2 import/export failed: ${exportFromTab2.error}`);
     }
     
     // Tab 1: Re-import Tab 2's changes
-    const finalResult = await tab1.evaluate(async (exportArray) => {
+    const finalResult = await tab1.evaluate(async ({ exportArray, tid }) => {
       try {
         const exportBytes = new Uint8Array(exportArray);
         
-        const db = await window.Database.newDatabase('tab_shared_test_final.db');
+        const db = await window.Database.newDatabase(`tab_shared_test_final_${tid}.db`);
         await db.importFromFile(exportBytes);
         await db.close();
         
         // Verify all data
-        const db2 = await window.Database.newDatabase('tab_shared_test_final.db');
+        const db2 = await window.Database.newDatabase(`tab_shared_test_final_${tid}.db`);
         const allQuery = await db2.execute('SELECT * FROM shared_data ORDER BY id');
         const tab1Query = await db2.execute("SELECT * FROM shared_data WHERE tab='tab1'");
         const tab2Query = await db2.execute("SELECT * FROM shared_data WHERE tab='tab2'");
@@ -374,7 +404,7 @@ test.describe('Multi-Tab Export/Import', () => {
           error: error.message
         };
       }
-    }, exportFromTab2.exportBytes);
+    }, { exportArray: exportFromTab2.exportBytes, tid: testId });
     
     if (!finalResult.success) {
       throw new Error(`Tab 1 re-import failed: ${finalResult.error}`);

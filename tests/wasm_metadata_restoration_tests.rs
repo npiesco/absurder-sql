@@ -110,7 +110,7 @@ async fn test_metadata_restoration_multiple_syncs() {
     // Step 3: Restart and verify latest metadata is restored
     drop(storage1);
     
-    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     let restored_all_metadata = storage2.get_block_metadata_for_testing();
     let restored_metadata = restored_all_metadata.get(&block_id)
         .expect("metadata should be restored");

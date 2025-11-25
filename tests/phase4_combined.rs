@@ -233,12 +233,13 @@ async fn test_concurrent_database_access() {
     
     db1.sync().await.expect("Should sync db1");
     
-    // Close db1 before opening db2 (SQLite doesn't support concurrent schema changes)
-    drop(db1);
-    
-    // Now open db2 - it should see the table created by db1
+    // Now open db2 - it will share the same SQLite connection with db1
+    // This is the NEW behavior: multiple Database instances to the same DB share connections
     let mut db2 = absurder_sql::Database::new(config2).await
         .expect("Should create database 2");
+    
+    // db1 and db2 now share the same connection - we can drop db1 without affecting db2
+    drop(db1);
     
     db2.execute("INSERT INTO concurrent_test (source) VALUES ('db2')").await
         .expect("Should insert with db2");

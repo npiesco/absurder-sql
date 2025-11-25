@@ -41,7 +41,7 @@ async fn test_indexeddb_atomic_sync_all_or_nothing() {
     assert!(post_sync_marker > initial_marker, "Commit marker should advance after sync");
     
     // Create new instance to verify cross-instance visibility
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // All blocks should be visible with correct data
     let read1 = storage2.read_block_sync(block1).expect("read block1");
@@ -110,7 +110,7 @@ async fn test_indexeddb_read_gating_by_commit_marker() {
     storage1.write_block(block_id, data.clone()).await.expect("write block");
     
     // Before sync, data should not be visible in new instance
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     let read_before_sync = storage2.read_block_sync(block_id);
     
     // Should return zeroed data or error since commit marker hasn't advanced
@@ -126,7 +126,7 @@ async fn test_indexeddb_read_gating_by_commit_marker() {
     // After sync, data should be visible
     storage1.sync().await.expect("sync");
     
-    let mut storage3 = BlockStorage::new(db_name).await.expect("create storage3");
+    let storage3 = BlockStorage::new(db_name).await.expect("create storage3");
     let read_after_sync = storage3.read_block_sync(block_id).expect("read after sync");
     assert_eq!(read_after_sync, data, "Data should be visible after sync");
 }
@@ -153,7 +153,7 @@ async fn test_indexeddb_cross_instance_persistence() {
     
     // Create completely new instance - should load data from IndexedDB
     {
-        let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+        let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
         web_sys::console::log_1(&format!("Storage2 commit marker: {}", storage2.get_commit_marker()).into());
         
         // This will fail until we implement IndexedDB persistence

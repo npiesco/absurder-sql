@@ -29,7 +29,7 @@ async fn test_native_metadata_persists_across_instances() {
     drop(s1);
 
     // Instance 2: metadata should be restored from native test globals
-    let mut s2 = BlockStorage::new(db_name)
+    let s2 = BlockStorage::new(db_name)
         .await
         .expect("create storage s2");
 

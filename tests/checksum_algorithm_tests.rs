@@ -100,7 +100,7 @@ async fn test_crc32_algo_selection_persisted_and_used_across_instances() {
 
     // Instance B: read and verify should succeed using persisted algorithm from metadata
     {
-        let mut b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
+        let b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
         // A simple read triggers verification in read path
         let bytes = b.read_block(1).await.expect("read block 1 in B");
         assert_eq!(bytes.len(), BLOCK_SIZE);
@@ -310,7 +310,7 @@ async fn test_algo_mismatch_triggers_verification_error() {
 
     // Instance B: read should now fail checksum verification due to algo mismatch
     {
-        let mut b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
+        let b = BlockStorage::new_with_capacity(db, 4).await.expect("create B");
         let res = b.read_block(5).await;
         assert!(res.is_err(), "expected checksum verification error after algo tamper");
     }

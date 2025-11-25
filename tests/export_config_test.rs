@@ -11,7 +11,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 async fn test_export_respects_config_size_limit() {
     // Create database with a very small export limit (1KB)
     let mut config = DatabaseConfig::default();
-    config.name = "export_config_test".to_string();
+    config.name = "export_config_test.db".to_string();
     config.max_export_size_bytes = Some(1024); // 1KB limit
     
     let mut db = Database::new(config).await.unwrap();
@@ -48,7 +48,7 @@ async fn test_export_respects_config_size_limit() {
 async fn test_export_succeeds_within_size_limit() {
     // Create database with a generous export limit (10MB)
     let mut config = DatabaseConfig::default();
-    config.name = "export_config_small_test".to_string();
+    config.name = "export_config_small_test.db".to_string();
     config.max_export_size_bytes = Some(10 * 1024 * 1024); // 10MB limit
     
     let mut db = Database::new(config).await.unwrap();
@@ -74,7 +74,7 @@ async fn test_export_succeeds_within_size_limit() {
 async fn test_export_with_none_limit_allows_large_exports() {
     // Create database with no export limit
     let mut config = DatabaseConfig::default();
-    config.name = "export_config_unlimited_test".to_string();
+    config.name = "export_config_unlimited_test.db".to_string();
     config.max_export_size_bytes = None; // No limit
     
     let mut db = Database::new(config).await.unwrap();

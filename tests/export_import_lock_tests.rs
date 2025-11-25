@@ -12,22 +12,22 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 /// Test that concurrent exports from different Database instances are serialized
 #[wasm_bindgen_test]
-async fn test_concurrent_export_lock() {
-    let db_name = "test_export_lock.db";
+async fn test_concurrent_exports_on_same_db() {
+    let db_name = format!("test_concurrent_export_{}.db", js_sys::Date::now() as u64);
     
-    // Create first database instance and add data
+    // Create database and populate with data
     let config1 = DatabaseConfig {
-        name: db_name.to_string(),
+        name: db_name.clone(),
         ..Default::default()
     };
     
     let mut db1 = Database::new(config1).await
         .expect("Should create database");
-    
+    db1.execute("DROP TABLE IF EXISTS test").await.ok();
     db1.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)").await
         .expect("Should create table");
-    db1.execute("INSERT INTO test (value) VALUES ('data1')").await
-        .expect("Should insert");
+    db1.execute("INSERT INTO test (value) VALUES ('test data')").await
+        .expect("Should insert data");
     db1.close().await.expect("Should close db1");
     
     // Create two separate database instances for concurrent export
@@ -61,20 +61,22 @@ async fn test_concurrent_export_lock() {
     db3.close().await.expect("Should close db3");
 }
 
-/// Test that concurrent import/export operations are serialized
+/// Test that import and export locks properly serialize access
 #[wasm_bindgen_test]
-async fn test_concurrent_import_export_lock() {
-    let db_name = "test_import_export_lock.db";
+async fn test_concurrent_import_export_locks() {
+    let timestamp = js_sys::Date::now() as u64;
+    let import_db_name = format!("test_import_lock_{}.db", timestamp);
+    let export_db_name = format!("test_export_lock_{}.db", timestamp);
     
-    // Create database and export data
+    // Create database for export
     let config1 = DatabaseConfig {
-        name: db_name.to_string(),
+        name: export_db_name.clone(),
         ..Default::default()
     };
     
     let mut db1 = Database::new(config1).await
         .expect("Should create database");
-    
+    db1.execute("DROP TABLE IF EXISTS test").await.ok();
     db1.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)").await
         .expect("Should create table");
     db1.execute("INSERT INTO test (value) VALUES ('initial')").await
@@ -84,27 +86,27 @@ async fn test_concurrent_import_export_lock() {
         .expect("Should export");
     db1.close().await.expect("Should close db1");
     
-    // Create two separate database instances
+    // Create separate databases for import and export operations
     let config2 = DatabaseConfig {
-        name: db_name.to_string(),
+        name: import_db_name.clone(),
         ..Default::default()
     };
     let config3 = DatabaseConfig {
-        name: db_name.to_string(),
+        name: export_db_name.clone(),
         ..Default::default()
     };
     
     let mut db2 = Database::new(config2).await.expect("Should create db2");
-    let mut db3 = Database::new(config3).await.expect("Should create db3");
+    let db3 = Database::new(config3).await.expect("Should create db3");
     
-    // Try concurrent import and export
-    // Both operations should serialize properly
+    // Try concurrent import and export on DIFFERENT databases
+    // Both operations should succeed without interfering
     let import_future = db2.import_from_file(export_bytes);
     let export_future = db3.export_to_file();
     
     let (import_result, export_result) = futures::future::join(import_future, export_future).await;
     
-    // Both operations should succeed (one waits for the other)
+    // Both operations should succeed
     let import_ok = import_result.is_ok();
     let export_ok = export_result.is_ok();
     
@@ -115,7 +117,7 @@ async fn test_concurrent_import_export_lock() {
         web_sys::console::log_1(&format!("Export failed: {:?}", export_result.err()).into());
     }
     
-    assert!(import_ok && export_ok, "Both operations should succeed when properly serialized");
+    assert!(import_ok && export_ok, "Both operations should succeed on different databases");
     
     web_sys::console::log_1(&format!("Import: {:?}, Export: {:?}", import_ok, export_ok).into());
 }

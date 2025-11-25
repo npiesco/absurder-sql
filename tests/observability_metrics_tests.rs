@@ -82,7 +82,7 @@ async fn test_comprehensive_metrics_wasm() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
 async fn test_error_rate_tracking() {
-    let mut storage = BlockStorage::new("error_test").await.expect("create storage");
+    let storage = BlockStorage::new("error_test").await.expect("create storage");
     
     // Simulate some errors by trying to read non-existent blocks
     let _ = storage.read_block(999).await; // Should increment error count

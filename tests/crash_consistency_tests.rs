@@ -62,7 +62,7 @@ async fn test_crash_finalize_pending_metadata_when_data_present() {
 
     // Restart with startup recovery: expect it to finalize the pending commit
     let opts = RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report };
-    let mut s2 = BlockStorage::new_with_recovery_options(db, opts)
+    let s2 = BlockStorage::new_with_recovery_options(db, opts)
         .await
         .expect("reopen with recovery");
 
@@ -287,7 +287,7 @@ async fn test_crash_finalize_pending_atomic_multi_block() {
 
     // Restart: expect finalize to v2 (both blocks)
     let opts = RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report };
-    let mut s2 = BlockStorage::new_with_recovery_options(db, opts)
+    let s2 = BlockStorage::new_with_recovery_options(db, opts)
         .await
         .expect("reopen with recovery");
 

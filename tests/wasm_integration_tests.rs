@@ -346,7 +346,9 @@ async fn test_database_multi_instance_leader() {
     // Simulate separate JS context by clearing registry and creating new instance
     // This simulates what would happen in a separate browser tab
     STORAGE_REGISTRY.with(|reg| {
-        reg.borrow_mut().clear();
+        unsafe {
+            (&mut *reg.get()).clear();
+        }
         log::debug!("Cleared STORAGE_REGISTRY to simulate new tab");
     });
     
@@ -1125,7 +1127,9 @@ async fn test_concurrent_tabs_export_import() {
     
     // Clear registry to simulate separate tab context
     STORAGE_REGISTRY.with(|reg| {
-        reg.borrow_mut().clear();
+        unsafe {
+            (&mut *reg.get()).clear();
+        }
     });
     
     let config2 = DatabaseConfig {
@@ -1178,7 +1182,9 @@ async fn test_concurrent_tabs_export_import() {
     
     // Clear registry again to simulate Tab 1 context
     STORAGE_REGISTRY.with(|reg| {
-        reg.borrow_mut().clear();
+        unsafe {
+            (&mut *reg.get()).clear();
+        }
     });
     
     let config1b = DatabaseConfig {

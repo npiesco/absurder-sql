@@ -19,7 +19,7 @@ async fn test_basic_leader_election() {
     let db_name = "leader_election_test";
     
     // Create first instance - should become leader
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
     
     // Wait a moment for leader election to complete
     sleep_ms(100).await;
@@ -28,7 +28,7 @@ async fn test_basic_leader_election() {
     assert!(storage1.is_leader().await, "First instance should become leader");
     
     // Create second instance - should become follower
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     
     // Wait a moment for leader election to complete
     sleep_ms(100).await;
@@ -49,12 +49,12 @@ async fn test_leader_lease_expiry_handover() {
     let db_name = "lease_expiry_test";
     
     // Create first instance - should become leader
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
     sleep_ms(100).await;
     assert!(storage1.is_leader().await, "First instance should become leader");
     
     // Create second instance - should be follower
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     sleep_ms(100).await;
     assert!(!storage2.is_leader().await, "Second instance should be follower");
     
@@ -77,9 +77,9 @@ async fn test_multiple_instances_single_leader() {
     let db_name = "multiple_instances_test";
     
     // Create multiple instances
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
-    let mut storage3 = BlockStorage::new(db_name).await.expect("create storage3");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage3 = BlockStorage::new(db_name).await.expect("create storage3");
     
     // Wait for leader election to stabilize
     sleep_ms(200).await;
@@ -103,12 +103,12 @@ async fn test_broadcast_channel_communication() {
     let db_name = "broadcast_test";
     
     // Create leader instance
-    let mut storage1 = BlockStorage::new(db_name).await.expect("create storage1");
+    let storage1 = BlockStorage::new(db_name).await.expect("create storage1");
     sleep_ms(100).await;
     assert!(storage1.is_leader().await, "First instance should become leader");
     
     // Create follower instance
-    let mut storage2 = BlockStorage::new(db_name).await.expect("create storage2");
+    let storage2 = BlockStorage::new(db_name).await.expect("create storage2");
     sleep_ms(100).await;
     assert!(!storage2.is_leader().await, "Second instance should be follower");
     

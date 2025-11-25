@@ -79,7 +79,7 @@ async fn test_recovery_drops_metadata_for_missing_files() {
 
     // Startup recovery should drop the metadata entry
     {
-        let b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
+        let mut b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
         let meta = b.get_block_metadata_for_testing();
         assert!(!meta.contains_key(&id1), "metadata for missing block should be dropped");
     }
@@ -116,7 +116,7 @@ async fn test_recovery_idempotent_on_second_run() {
 
     // First recovery run
     {
-        let b1 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B1");
+        let mut b1 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B1");
         let meta1 = b1.get_block_metadata_for_testing();
         assert!(!meta1.contains_key(&id1), "first recovery should drop dangling metadata");
         // ensure stray removed
@@ -129,7 +129,7 @@ async fn test_recovery_idempotent_on_second_run() {
 
     // Second recovery run should be a no-op and succeed
     {
-        let b2 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B2");
+        let mut b2 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B2");
         let meta2 = b2.get_block_metadata_for_testing();
         assert!(!meta2.contains_key(&id1), "second recovery should remain without the dropped entry");
         // no stray should reappear

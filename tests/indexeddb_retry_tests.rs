@@ -34,7 +34,7 @@ async fn test_quota_exceeded_error_detection() {
 async fn test_retry_transient_failures() {
     // Create a test database
     let config = DatabaseConfig {
-        name: "test_retry_db".to_string(),
+        name: "test_retry_db.db".to_string(),
         cache_size: Some(1000),
         ..Default::default()
     };
@@ -154,7 +154,7 @@ async fn test_quota_exceeded_no_retry() {
 #[wasm_bindgen_test]
 async fn test_success_on_first_attempt() {
     let config = DatabaseConfig {
-        name: "test_first_attempt_db".to_string(),
+        name: "test_first_attempt_db.db".to_string(),
         cache_size: Some(1000),
         ..Default::default()
     };

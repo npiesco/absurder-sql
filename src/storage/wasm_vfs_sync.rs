@@ -6,13 +6,11 @@ use super::vfs_sync;
 use super::BlockStorage;
 
 /// Register a BlockStorage instance for VFS sync callbacks
+/// NOTE: This function is deprecated. Use indexeddb_vfs::STORAGE_REGISTRY directly.
 #[cfg(target_arch = "wasm32")]
-pub fn register_storage_for_vfs_sync(db_name: &str, storage: std::rc::Weak<std::cell::RefCell<BlockStorage>>) {
-    vfs_sync::with_storage_registry(|registry| {
-        let mut registry = registry.borrow_mut();
-        registry.insert(db_name.to_string(), storage);
-        web_sys::console::log_1(&format!("VFS: Registered storage instance for {}", db_name).into());
-    });
+pub fn register_storage_for_vfs_sync(_db_name: &str, _storage: std::rc::Weak<std::cell::RefCell<BlockStorage>>) {
+    // This function is no longer used - registration happens in indexeddb_vfs::open_or_create
+    // Kept as no-op for backwards compatibility during refactoring
 }
 
 /// Trigger a sync for a specific database from VFS
@@ -23,10 +21,9 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     
     // Advance the commit marker to make writes visible
     let _next_commit = vfs_sync::with_global_commit_marker(|cm| {
-        let mut cm = cm.borrow_mut();
-        let current = cm.get(db_name).copied().unwrap_or(0);
+        let current = cm.borrow().get(db_name).copied().unwrap_or(0);
         let new_marker = current + 1;
-        cm.insert(db_name.to_string(), new_marker);
+        cm.borrow_mut().insert(db_name.to_string(), new_marker);
         web_sys::console::log_1(&format!("VFS sync: Advanced commit marker for {} from {} to {}", db_name, current, new_marker).into());
         new_marker
     });
@@ -36,13 +33,13 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     
     // CRITICAL: Collect blocks BEFORE spawning async task to avoid timing issues
     let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
-        let storage_map = storage.borrow();
+        let storage_map = storage;
         
         // DEBUG: Log all keys in GLOBAL_STORAGE
         //web_sys::console::log_1(&format!("VFS sync: GLOBAL_STORAGE keys: {:?}", storage_map.keys().collect::<Vec<_>>()).into());
         //web_sys::console::log_1(&format!("VFS sync: Looking for key: {}", db_name_clone).into());
-        
-        let blocks = if let Some(db_storage) = storage_map.get(&db_name_clone) {
+
+        let blocks = if let Some(db_storage) = storage_map.borrow().get(&db_name_clone) {
             //web_sys::console::log_1(&format!("VFS sync: Found {} blocks for {}", db_storage.len(), db_name_clone).into());
             db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
         } else {
@@ -52,8 +49,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
 
         // Also collect metadata
         let metadata = vfs_sync::with_global_metadata(|meta| {
-            let meta_map = meta.borrow();
-            if let Some(db_meta) = meta_map.get(&db_name_clone) {
+            if let Some(db_meta) = meta.borrow().get(&db_name_clone) {
                 db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -66,8 +62,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     if !blocks_to_persist.is_empty() {
         wasm_bindgen_futures::spawn_local(async move {
             let next_commit = vfs_sync::with_global_commit_marker(|cm| {
-                let cm = cm.borrow();
-                cm.get(&db_name_clone).copied().unwrap_or(0)
+                cm.borrow().get(&db_name_clone).copied().unwrap_or(0)
             });
 
             web_sys::console::log_1(&format!("VFS sync: Persisting {} blocks to IndexedDB with commit marker {}", blocks_to_persist.len(), next_commit).into());
@@ -102,18 +97,17 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
 pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
     // Advance the commit marker to make writes visible
     let next_commit = vfs_sync::with_global_commit_marker(|cm| {
-        let mut cm = cm.borrow_mut();
-        let current = cm.get(db_name).copied().unwrap_or(0);
+        let current = cm.borrow().get(db_name).copied().unwrap_or(0);
         let new_marker = current + 1;
-        cm.insert(db_name.to_string(), new_marker);
+        cm.borrow_mut().insert(db_name.to_string(), new_marker);
         web_sys::console::log_1(&format!("VFS sync: Advanced commit marker for {} from {} to {}", db_name, current, new_marker).into());
         new_marker
     });
 
     // Collect all data from global storage for this database
     let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
-        let storage_map = storage.borrow();
-        let blocks = if let Some(db_storage) = storage_map.get(db_name) {
+        let storage_map = storage;
+        let blocks = if let Some(db_storage) = storage_map.borrow().get(db_name) {
             db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
         } else {
             Vec::new()
@@ -121,8 +115,7 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
 
         // Also collect metadata
         let metadata = vfs_sync::with_global_metadata(|meta| {
-            let meta_map = meta.borrow();
-            if let Some(db_meta) = meta_map.get(db_name) {
+            if let Some(db_meta) = meta.borrow().get(db_name) {
                 db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
             } else {
                 Vec::new()

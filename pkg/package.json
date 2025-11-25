@@ -1,11 +1,11 @@
 {
-  "name": "@npiesco/absurder-sql",
+  "name": "absurder-sql",
   "type": "module",
   "collaborators": [
     "Nicholas G. Piesco"
   ],
   "description": "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql",
-  "version": "0.1.17",
+  "version": "0.1.12",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",

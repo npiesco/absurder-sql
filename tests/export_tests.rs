@@ -2,6 +2,23 @@
 //!
 //! Tests the conversion between IndexedDB block storage and standard SQLite .db files
 
+// Lock macro for accessing Mutex-wrapped fields uniformly across WASM and native
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut().expect("RefCell borrow failed")
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.borrow_mut()
+    };
+}
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::*;
 
@@ -152,7 +169,7 @@ async fn test_database_export_to_file() {
     
     // Create a test database
     let config = DatabaseConfig {
-        name: "test_export".to_string(),
+        name: "test_export.db".to_string(),
         version: None,
         cache_size: None,
         page_size: None,
@@ -205,7 +222,7 @@ async fn test_export_multi_table_database() {
     use absurder_sql::{Database, DatabaseConfig};
     
     let config = DatabaseConfig {
-        name: "test_multi_export".to_string(),
+        name: "test_multi_export.db".to_string(),
         version: None,
         cache_size: None,
         page_size: None,
@@ -385,7 +402,7 @@ fn test_clear_database_storage() {
     
     // Manually populate GLOBAL_STORAGE with test data
     with_global_storage(|gs| {
-        let mut storage = gs.borrow_mut();
+        let mut storage = lock_mutex!(gs);
         let mut blocks = HashMap::new();
         blocks.insert(0, vec![1, 2, 3, 4]);
         blocks.insert(1, vec![5, 6, 7, 8]);
@@ -397,9 +414,9 @@ fn test_clear_database_storage() {
     {
         use absurder_sql::storage::vfs_sync::with_global_metadata;
         use absurder_sql::storage::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
-        
+
         with_global_metadata(|gm| {
-            let mut metadata = gm.borrow_mut();
+            let mut metadata = gm.lock();  // Metadata uses Mutex in native builds
             let mut meta_map = HashMap::new();
             meta_map.insert(0, BlockMetadataPersist {
                 checksum: 123,
@@ -413,13 +430,13 @@ fn test_clear_database_storage() {
     
     // Populate GLOBAL_COMMIT_MARKER
     with_global_commit_marker(|gcm| {
-        let mut markers = gcm.borrow_mut();
+        let mut markers = lock_mutex!(gcm);
         markers.insert(db_name.to_string(), 42);
     });
     
     // Populate GLOBAL_ALLOCATION_MAP
     with_global_allocation_map(|gam| {
-        let mut alloc = gam.borrow_mut();
+        let mut alloc = lock_mutex!(gam);
         let mut ids = std::collections::HashSet::new();
         ids.insert(0);
         ids.insert(1);
@@ -428,7 +445,7 @@ fn test_clear_database_storage() {
     
     // Verify data exists
     with_global_storage(|gs| {
-        let storage = gs.borrow();
+        let storage = lock_mutex!(gs);
         assert!(storage.contains_key(db_name));
         assert_eq!(storage.get(db_name).unwrap().len(), 2);
     });
@@ -439,7 +456,7 @@ fn test_clear_database_storage() {
     
     // Verify storage is cleared
     with_global_storage(|gs| {
-        let storage = gs.borrow();
+        let storage = lock_mutex!(gs);
         assert!(!storage.contains_key(db_name) || storage.get(db_name).unwrap().is_empty());
     });
     
@@ -448,20 +465,20 @@ fn test_clear_database_storage() {
     {
         use absurder_sql::storage::vfs_sync::with_global_metadata;
         with_global_metadata(|gm| {
-            let metadata = gm.borrow();
+            let metadata = gm.lock();  // Metadata uses Mutex in native builds
             assert!(!metadata.contains_key(db_name) || metadata.get(db_name).unwrap().is_empty());
         });
     }
     
     // Verify commit marker is cleared
     with_global_commit_marker(|gcm| {
-        let markers = gcm.borrow();
+        let markers = lock_mutex!(gcm);
         assert!(!markers.contains_key(db_name) || markers.get(db_name) == Some(&0));
     });
     
     // Verify allocation map is cleared
     with_global_allocation_map(|gam| {
-        let alloc = gam.borrow();
+        let alloc = lock_mutex!(gam);
         assert!(!alloc.contains_key(db_name) || alloc.get(db_name).unwrap().is_empty());
     });
 }
@@ -572,7 +589,7 @@ fn test_clear_database_isolation() {
     
     // Populate two databases
     with_global_storage(|gs| {
-        let mut storage = gs.borrow_mut();
+        let mut storage = lock_mutex!(gs);
         
         let mut blocks1 = HashMap::new();
         blocks1.insert(0, vec![1, 2, 3, 4]);
@@ -589,13 +606,13 @@ fn test_clear_database_isolation() {
     
     // Verify db1 is cleared
     with_global_storage(|gs| {
-        let storage = gs.borrow();
+        let storage = lock_mutex!(gs);
         assert!(!storage.contains_key(db1) || storage.get(db1).unwrap().is_empty());
     });
     
     // Verify db2 is NOT affected
     with_global_storage(|gs| {
-        let storage = gs.borrow();
+        let storage = lock_mutex!(gs);
         assert!(storage.contains_key(db2));
         assert_eq!(storage.get(db2).unwrap().len(), 1);
         assert_eq!(storage.get(db2).unwrap().get(&0).unwrap(), &vec![5, 6, 7, 8]);

@@ -20,9 +20,16 @@ test.describe('Example Files Smoke Tests', () => {
     // Wait for WASM to initialize
     await page.waitForSelector('#output', { timeout: 10000 });
     
-    // Check that demo ran (it shows demo completion message)
+    // Wait for demo to run - check for query results
+    await page.waitForFunction(() => {
+      const output = document.querySelector('#output');
+      return output && output.textContent.includes('Final user count');
+    }, { timeout: 15000 });
+    
+    // Check that demo ran (shows query results)
     const output = await page.locator('#output').textContent();
-    expect(output).toContain('Demo complete');
+    expect(output).toContain('SELECT * FROM users');
+    expect(output).toContain('Final user count');
     
     // Should not have any errors
     expect(errors).toHaveLength(0);

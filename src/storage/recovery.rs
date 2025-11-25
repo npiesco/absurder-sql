@@ -4,6 +4,24 @@
 use crate::types::DatabaseError;
 use super::block_storage::{BlockStorage, RecoveryOptions, RecoveryMode, CorruptionAction, RecoveryReport};
 
+// Lock macro for accessing BlockStorage Mutex-wrapped fields
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.try_borrow_mut()
+            .expect("RefCell borrow failed - reentrancy detected in recovery.rs")
+    };
+}
+
+#[allow(unused_macros)]
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 use std::collections::HashMap;
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -286,14 +304,20 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
         }
 
         // Reconcile allocations to the metadata IDs
-        if storage.allocated_blocks != kept_ids {
-            storage.allocated_blocks = kept_ids.clone();
-            storage.next_block_id = storage.allocated_blocks.iter().copied().max().unwrap_or(0) + 1;
+        let needs_update = {
+            let allocated = lock_mutex!(storage.allocated_blocks);
+            *allocated != kept_ids
+        };
+        
+        if needs_update {
+            *lock_mutex!(storage.allocated_blocks) = kept_ids.clone();
+            let max_id = lock_mutex!(storage.allocated_blocks).iter().copied().max().unwrap_or(0);
+            storage.next_block_id.store(max_id + 1, std::sync::atomic::Ordering::SeqCst);
 
             // Persist allocations.json atomically via temp rename
             let alloc_path = db_dir.join("allocations.json");
             let alloc_tmp = db_dir.join("allocations.json.tmp");
-            let mut allocated_vec: Vec<u64> = storage.allocated_blocks.iter().copied().collect();
+            let mut allocated_vec: Vec<u64> = lock_mutex!(storage.allocated_blocks).iter().copied().collect();
             allocated_vec.sort_unstable();
             let alloc_json = serde_json::json!({ "allocated": allocated_vec });
             if let Ok(mut f) = fs::File::create(&alloc_tmp) {
@@ -305,7 +329,8 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
             if let Ok(f) = fs::File::open(&alloc_path) { let _ = f.sync_all(); }
             #[cfg(unix)]
             if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) { let _ = dirf.sync_all(); }
-            log::info!("[fs] Rewrote allocations.json after reconciliation; allocated={}", storage.allocated_blocks.len());
+            let allocated_len = lock_mutex!(storage.allocated_blocks).len();
+            log::info!("[fs] Rewrote allocations.json after reconciliation; allocated={}", allocated_len);
         }
     }
 

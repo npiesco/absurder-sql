@@ -28,6 +28,8 @@ pub struct LeaderElectionManager {
     pub state: Rc<RefCell<LeaderElectionState>>,
     broadcast_channel: Option<BroadcastChannel>,
     pub heartbeat_interval: Option<i32>,
+    pub heartbeat_closure: Option<Closure<dyn FnMut()>>,
+    message_listener: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
     lease_duration_ms: u64,
 }
 
@@ -52,29 +54,73 @@ impl LeaderElectionManager {
             })),
             broadcast_channel: None,
             heartbeat_interval: None,
-            lease_duration_ms: 5000, // 5 seconds
+            heartbeat_closure: None,
+            message_listener: None,
+            lease_duration_ms: 1000, // 1 second - fast leader election
         }
     }
     
     /// Start leader election process using localStorage coordination
     pub async fn start_election(&mut self) -> Result<(), DatabaseError> {
-        log::debug!("Starting localStorage-based leader election for {}", self.state.borrow().db_name);
-        
-        // Create BroadcastChannel for heartbeats (optional, for monitoring)
+        log::debug!("LeaderElectionManager::start_election() - Starting for {}", self.state.borrow().db_name);
+
+        // Create BroadcastChannel for EVENT-BASED leader election
         let channel_name = format!("datasync_leader_{}", self.state.borrow().db_name);
+        log::debug!("LeaderElectionManager::start_election() - Creating BroadcastChannel: {}", channel_name);
         let broadcast_channel = BroadcastChannel::new(&channel_name)
             .map_err(|_| DatabaseError::new("LEADER_ELECTION_ERROR", "Failed to create BroadcastChannel"))?;
-        
+
+        // Set up EVENT LISTENER for leadership change messages
+        let state_clone = self.state.clone();
+        let listener = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
+            if let Ok(data) = event.data().dyn_into::<js_sys::JsString>() {
+                let message: String = data.into();
+
+                // Parse message: "LEADER_CLAIMED:instance_id:timestamp"
+                if let Some(parts) = message.strip_prefix("LEADER_CLAIMED:") {
+                    let parts: Vec<&str> = parts.split(':').collect();
+                    if parts.len() == 2 {
+                        let new_leader_id = parts[0];
+                        if let Ok(_timestamp) = parts[1].parse::<u64>() {
+                            let mut state = state_clone.borrow_mut();
+                            let my_instance_id = state.instance_id.clone();
+
+                            if new_leader_id == my_instance_id {
+                                // We're the leader!
+                                state.is_leader = true;
+                                state.leader_id = Some(new_leader_id.to_string());
+                                log::info!("EVENT: Became leader for {} via BroadcastChannel", state.db_name);
+                            } else {
+                                // Someone else is leader
+                                state.is_leader = false;
+                                state.leader_id = Some(new_leader_id.to_string());
+                                log::debug!("EVENT: {} is now leader for {}", new_leader_id, state.db_name);
+                            }
+                        }
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(web_sys::MessageEvent)>);
+
+        broadcast_channel.set_onmessage(Some(listener.as_ref().unchecked_ref()));
+        self.message_listener = Some(listener);
         self.broadcast_channel = Some(broadcast_channel);
-        
+
         // Use localStorage for atomic coordination - no delays needed
+        log::debug!("LeaderElectionManager::start_election() - Calling try_become_leader()");
         self.try_become_leader().await?;
-        
+
         // Start heartbeat if we're leader
-        if self.state.borrow().is_leader {
+        let is_leader = self.state.borrow().is_leader;
+        web_sys::console::log_1(&format!("LeaderElectionManager::start_election() - After try_become_leader, is_leader={}", is_leader).into());
+        if is_leader {
+            web_sys::console::log_1(&"LeaderElectionManager::start_election() - Calling start_heartbeat()".into());
             self.start_heartbeat()?;
+            web_sys::console::log_1(&"LeaderElectionManager::start_election() - Heartbeat started".into());
+        } else {
+            web_sys::console::log_1(&"LeaderElectionManager::start_election() - Not leader, skipping heartbeat".into());
         }
-        
+
         Ok(())
     }
     
@@ -113,18 +159,20 @@ impl LeaderElectionManager {
         let instance_data = format!("{}:{}", my_instance_id, current_time);
         
         // Get existing instances
-        let existing_instances = storage.get_item(&instances_key).unwrap().unwrap_or_default();
+        let existing_instances = storage.get_item(&instances_key)
+            .map_err(|e| DatabaseError::new("LEADER_ELECTION_ERROR", &format!("Failed to get instances: {:?}", e)))?
+            .unwrap_or_default();
         let mut all_instances: Vec<String> = if existing_instances.is_empty() {
             Vec::new()
         } else {
             existing_instances.split(',').map(|s| s.to_string()).collect()
         };
-        
+
         // Add ourselves if not already present
         if !all_instances.iter().any(|inst| inst.starts_with(&format!("{}:", my_instance_id))) {
             all_instances.push(instance_data);
         }
-        
+
         // Clean up expired instances (older than 10 seconds)
         let cutoff_time = current_time - 10000;
         all_instances.retain(|inst| {
@@ -138,10 +186,11 @@ impl LeaderElectionManager {
                 false
             }
         });
-        
+
         // Update instances list
         let instances_str = all_instances.join(",");
-        storage.set_item(&instances_key, &instances_str).unwrap();
+        storage.set_item(&instances_key, &instances_str)
+            .map_err(|e| DatabaseError::new("LEADER_ELECTION_ERROR", &format!("Failed to set instances: {:?}", e)))?;
         
         // Step 2: Determine leader based on lowest instance ID
         let mut instance_ids: Vec<String> = all_instances.iter()
@@ -186,16 +235,27 @@ impl LeaderElectionManager {
                 
                 // Atomically claim leadership (no valid existing leader)
                 let leader_data = format!("{}:{}", my_instance_id, current_time);
-                storage.set_item(&leader_key, &leader_data).unwrap();
-                
+                storage.set_item(&leader_key, &leader_data)
+                    .map_err(|e| DatabaseError::new("LEADER_ELECTION_ERROR", &format!("Failed to set leader: {:?}", e)))?;
+
                 let mut state = self.state.borrow_mut();
                 state.is_leader = true;
                 state.leader_id = Some(my_instance_id.clone());
                 state.lease_expiry = current_time + self.lease_duration_ms;
                 drop(state);
-                
+
                 log::info!("Became leader for {} with ID {}", db_name, my_instance_id);
-                
+
+                // BROADCAST EVENT: Leadership claimed - NO POLLING NEEDED!
+                if let Some(ref channel) = self.broadcast_channel {
+                    let message = format!("LEADER_CLAIMED:{}:{}", my_instance_id, current_time);
+                    if let Err(e) = channel.post_message(&JsValue::from_str(&message)) {
+                        log::warn!("Failed to broadcast leadership claim: {:?}", e);
+                    } else {
+                        log::debug!("EVENT: Broadcasted leadership claim for {}", db_name);
+                    }
+                }
+
                 // Start heartbeat to maintain lease
                 if self.heartbeat_interval.is_none() {
                     let _ = self.start_heartbeat();
@@ -227,6 +287,40 @@ impl LeaderElectionManager {
     
     /// Start sending heartbeats as leader using localStorage
     pub fn start_heartbeat(&mut self) -> Result<(), DatabaseError> {
+        web_sys::console::log_1(&"start_heartbeat() called".into());
+        
+        // CRITICAL: Send initial heartbeat IMMEDIATELY
+        let state = self.state.borrow();
+        web_sys::console::log_1(&format!("start_heartbeat: is_leader={}, db_name={}", state.is_leader, state.db_name).into());
+        
+        if state.is_leader {
+            let current_time = Date::now() as u64;
+            
+            let window = web_sys::window()
+                .ok_or_else(|| DatabaseError::new("LEADER_ELECTION_ERROR", "Window unavailable"))?;
+            let storage = window.local_storage()
+                .map_err(|_| DatabaseError::new("LEADER_ELECTION_ERROR", "localStorage unavailable"))?
+                .ok_or_else(|| DatabaseError::new("LEADER_ELECTION_ERROR", "localStorage is None"))?;
+            
+            let leader_key = format!("datasync_leader_{}", state.db_name);
+            let leader_data = format!("{}:{}", state.instance_id, current_time);
+            
+            web_sys::console::log_1(&format!("Writing heartbeat: key={}, data={}", leader_key, leader_data).into());
+            
+            storage.set_item(&leader_key, &leader_data)
+                .map_err(|e| {
+                    web_sys::console::error_1(&format!("Failed to write initial heartbeat: {:?}", e).into());
+                    DatabaseError::new("LEADER_ELECTION_ERROR", "Failed to write initial heartbeat")
+                })?;
+            
+            web_sys::console::log_1(&format!("Sent initial heartbeat for {} from leader {}", 
+                state.db_name, state.instance_id).into());
+        } else {
+            web_sys::console::warn_1(&"start_heartbeat called but is_leader=false".into());
+        }
+        drop(state);
+        
+        // Now set up interval for periodic updates
         let state_clone = self.state.clone();
         
         let closure = Closure::wrap(Box::new(move || {
@@ -271,29 +365,48 @@ impl LeaderElectionManager {
             )
             .map_err(|_| DatabaseError::new("LEADER_ELECTION_ERROR", "Failed to start heartbeat interval"))?;
         
-        closure.forget();
+        // CRITICAL: Store closure instead of forgetting it, so it can be properly cleaned up
         self.heartbeat_interval = Some(interval_id);
+        self.heartbeat_closure = Some(closure);
         
         Ok(())
     }
     
     /// Stop leader election (e.g., when tab is closing)
     pub async fn stop_election(&mut self) -> Result<(), DatabaseError> {
+        // CRITICAL: Check if already stopped (idempotent)
+        if self.heartbeat_interval.is_none() && self.heartbeat_closure.is_none() {
+            web_sys::console::log_1(&"[STOP] Already stopped - skipping".into());
+            return Ok(());
+        }
+        
         let state = self.state.borrow();
         let db_name = state.db_name.clone();
         let instance_id = state.instance_id.clone();
         let was_leader = state.is_leader;
         drop(state);
         
-        log::debug!("Stopping leader election for {}", db_name);
+        log::info!("[STOP] Stopping leader election for {} (was_leader: {})", db_name, was_leader);
         
-        // Clear heartbeat interval
+        // CRITICAL: Clear interval and closure FIRST to release Rc references
         if let Some(interval_id) = self.heartbeat_interval.take() {
+            web_sys::console::log_1(&format!("[STOP] Clearing interval {} for {}", interval_id, db_name).into());
             if let Some(window) = web_sys::window() {
                 window.clear_interval_with_handle(interval_id);
             }
         }
         
+        // Drop the closure to release any Rc<RefCell<State>> references
+        if let Some(_closure) = self.heartbeat_closure.take() {
+            web_sys::console::log_1(&format!("[STOP] Dropped heartbeat closure for {}", db_name).into());
+        }
+
+        // CRITICAL: Close the BroadcastChannel to prevent test interference
+        if let Some(channel) = self.broadcast_channel.take() {
+            channel.close();
+            web_sys::console::log_1(&format!("[STOP] Closed BroadcastChannel for {}", db_name).into());
+        }
+
         // Remove ourselves from localStorage instances list
         let Some(window) = web_sys::window() else {
             log::warn!("Window unavailable during cleanup");

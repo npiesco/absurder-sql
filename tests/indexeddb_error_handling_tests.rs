@@ -175,7 +175,7 @@ async fn test_missing_indexeddb_support_handled() {
 async fn test_concurrent_access_errors() {
     use absurder_sql::Database;
     
-    let db_name = "test_concurrent_db";
+    let db_name = "test_concurrent_db.db";
     
     // Create database instance
     let _db = Database::new_wasm(db_name.to_string()).await
