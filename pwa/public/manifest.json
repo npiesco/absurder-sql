@@ -1,0 +1,26 @@
+{
+  "name": "AbsurderSQL - SQLite Admin Tool",
+  "short_name": "AbsurderSQL",
+  "description": "Browser-based SQLite database admin tool with zero server setup",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["development", "utilities"],
+  "screenshots": []
+}
