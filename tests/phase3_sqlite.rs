@@ -323,8 +323,8 @@ async fn test_multiple_data_types() {
 
     // Insert data with all types
     db.execute(
-        "INSERT INTO type_test (int_val, real_val, text_val, blob_val, null_val) 
-                VALUES (42, 3.14159, 'hello world', X'DEADBEEF', NULL)",
+        "INSERT INTO type_test (int_val, real_val, text_val, blob_val, null_val)
+                VALUES (42, 3.25, 'hello world', X'DEADBEEF', NULL)",
     )
     .await
     .expect("Should insert mixed types");
@@ -346,7 +346,7 @@ async fn test_multiple_data_types() {
             ColumnValue::Blob(blob),
             ColumnValue::Null,
         ] => {
-            assert!((pi - 3.14159).abs() < 0.00001);
+            assert!((pi - 3.25).abs() < 0.00001);
             assert_eq!(text, "hello world");
             assert_eq!(blob, &[0xDE, 0xAD, 0xBE, 0xEF]);
         }
