@@ -140,17 +140,17 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Use latest npm (OIDC-ready)
+        run: |
+          npm install -g npm@latest
+          npm --version
+
       - name: Build WASM
         run: npm run build
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ''
-          NPM_CONFIG_USERCONFIG: ''
         run: |
           set +e
-          # Clear any auth that might interfere with OIDC
-          rm -f ~/.npmrc /home/runner/work/_temp/.npmrc 2>/dev/null || true
           npm publish --access public --provenance
           EXIT_CODE=$?
           set -e
