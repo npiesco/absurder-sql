@@ -112,6 +112,9 @@ jobs:
   publish-npm:
     runs-on: ubuntu-latest
     needs: [validate-version, test-wasm]
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -133,9 +136,7 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
   # Create GitHub Release
   create-release:
