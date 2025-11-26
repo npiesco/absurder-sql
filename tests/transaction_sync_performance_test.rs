@@ -1,6 +1,5 @@
 /// Test to verify that sync operations are deferred during transactions
 /// This test SHOULD FAIL initially, proving the performance issue
-
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[cfg(test)]
 mod transaction_sync_tests {
