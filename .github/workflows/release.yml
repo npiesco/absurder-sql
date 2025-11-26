@@ -90,11 +90,8 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Run WASM tests
-        run: wasm-pack test --headless --chrome
+        run: wasm-pack test --headless --chrome --release
 
   # Publish to crates.io
   publish-crates:
@@ -109,7 +106,7 @@ jobs:
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --verbose
+        run: cargo publish --verbose --allow-dirty
 
   # Publish to npm
   publish-npm:
