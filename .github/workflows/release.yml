@@ -146,7 +146,11 @@ jobs:
 
       - name: Publish to npm
         run: |
-          npm publish --access public --provenance || {
+          npm publish --access public --provenance 2>&1 | tee /tmp/npm-publish.log || {
+            echo "=== NPM DEBUG LOG ==="
+            cat ~/.npm/_logs/*.log 2>/dev/null || echo "No debug logs found"
+            echo "=== END DEBUG LOG ==="
+
             PUBLISHED=$(npm view @npiesco/absurder-sql version 2>/dev/null || echo "")
             if [ "$PUBLISHED" = "${{ needs.validate-version.outputs.version }}" ]; then
               echo "Version ${{ needs.validate-version.outputs.version }} already published to npm, skipping"
