@@ -1,9 +1,9 @@
 // Metrics tests: sync counter increments on timer and debounce-driven flushes
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage, SyncPolicy};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -36,7 +36,10 @@ async fn test_sync_counter_increments_on_timer_flush() {
     // Expect at least one background sync and no dirty blocks
     assert_eq!(storage.get_dirty_count(), 0);
     // New API under test
-    assert!(storage.get_sync_count() >= 1, "expected sync counter to increment after timer flush");
+    assert!(
+        storage.get_sync_count() >= 1,
+        "expected sync counter to increment after timer flush"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -72,7 +75,10 @@ async fn test_sync_counter_increments_on_debounce_flush() {
 
     // Expect a debounce-triggered flush and a recorded sync count
     assert_eq!(storage.get_dirty_count(), 0);
-    assert!(storage.get_sync_count() >= 1, "expected sync counter to increment after debounce flush");
+    assert!(
+        storage.get_sync_count() >= 1,
+        "expected sync counter to increment after debounce flush"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -93,8 +99,15 @@ async fn test_timer_vs_debounce_counters() {
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
     assert_eq!(storage.get_dirty_count(), 0);
     // New granular APIs under test
-    assert!(storage.get_timer_sync_count() >= 1, "expected timer counter to increment");
-    assert_eq!(storage.get_debounce_sync_count(), 0, "debounce counter should remain zero");
+    assert!(
+        storage.get_timer_sync_count() >= 1,
+        "expected timer counter to increment"
+    );
+    assert_eq!(
+        storage.get_debounce_sync_count(),
+        0,
+        "debounce counter should remain zero"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -127,5 +140,8 @@ async fn test_last_sync_duration_is_set() {
 
     assert_eq!(storage.get_dirty_count(), 0);
     assert!(storage.get_debounce_sync_count() >= 1);
-    assert!(storage.get_last_sync_duration_ms() > 0, "expected last sync duration to be recorded");
+    assert!(
+        storage.get_last_sync_duration_ms() > 0,
+        "expected last sync duration to be recorded"
+    );
 }

@@ -4,11 +4,11 @@
 #![cfg(target_arch = "wasm32")]
 #![allow(unused_imports)]
 
-use wasm_bindgen_test::*;
-use absurder_sql::vfs::IndexedDBVFS;
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use absurder_sql::types::DatabaseError;
+use absurder_sql::vfs::IndexedDBVFS;
 use std::ffi::CString;
+use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -21,12 +21,7 @@ unsafe fn open_with_vfs(filename: &str, vfs_name: &str) -> (*mut sqlite_wasm_rs:
     let vfs_c = CString::new(vfs_name).unwrap();
     let flags = sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE;
     let rc = unsafe {
-        sqlite_wasm_rs::sqlite3_open_v2(
-            fname_c.as_ptr(),
-            &mut db as *mut _,
-            flags,
-            vfs_c.as_ptr(),
-        )
+        sqlite_wasm_rs::sqlite3_open_v2(fname_c.as_ptr(), &mut db as *mut _, flags, vfs_c.as_ptr())
     };
     (db, rc)
 }
@@ -34,7 +29,15 @@ unsafe fn open_with_vfs(filename: &str, vfs_name: &str) -> (*mut sqlite_wasm_rs:
 /// Execute a SQL statement on an open db
 unsafe fn exec_sql(db: *mut sqlite_wasm_rs::sqlite3, sql: &str) -> i32 {
     let sql_c = CString::new(sql).unwrap();
-    unsafe { sqlite_wasm_rs::sqlite3_exec(db, sql_c.as_ptr(), None, std::ptr::null_mut(), std::ptr::null_mut()) }
+    unsafe {
+        sqlite_wasm_rs::sqlite3_exec(
+            db,
+            sql_c.as_ptr(),
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
 }
 
 // --- Tests ------------------------------------------------------------------
@@ -44,17 +47,31 @@ unsafe fn exec_sql(db: *mut sqlite_wasm_rs::sqlite3, sql: &str) -> i32 {
 #[wasm_bindgen_test]
 async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
     // Arrange: VFS registration
-    let vfs = IndexedDBVFS::new("cm_lag_across.db").await.expect("create VFS");
+    let vfs = IndexedDBVFS::new("cm_lag_across.db")
+        .await
+        .expect("create VFS");
     vfs.register("indexeddb").expect("register VFS");
 
     // Writer instance: create table and begin transaction but DON'T commit (simulate crash)
     let (db1, rc1) = unsafe { open_with_vfs("file:cm_lag_across.db", "indexeddb") };
     assert_eq!(rc1, sqlite_wasm_rs::SQLITE_OK, "open db1");
     unsafe {
-        assert_eq!(exec_sql(db1, "PRAGMA journal_mode=WAL;"), sqlite_wasm_rs::SQLITE_OK);
-        assert_eq!(exec_sql(db1, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(
+            exec_sql(db1, "PRAGMA journal_mode=WAL;"),
+            sqlite_wasm_rs::SQLITE_OK
+        );
+        assert_eq!(
+            exec_sql(
+                db1,
+                "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);"
+            ),
+            sqlite_wasm_rs::SQLITE_OK
+        );
         assert_eq!(exec_sql(db1, "BEGIN IMMEDIATE;"), sqlite_wasm_rs::SQLITE_OK);
-        assert_eq!(exec_sql(db1, "INSERT INTO t (v) VALUES ('uncommitted');"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(
+            exec_sql(db1, "INSERT INTO t (v) VALUES ('uncommitted');"),
+            sqlite_wasm_rs::SQLITE_OK
+        );
         // DON'T COMMIT - simulate crash by closing without commit
         sqlite_wasm_rs::sqlite3_close(db1);
     }
@@ -63,10 +80,19 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
     let (db2, rc2) = unsafe { open_with_vfs("file:cm_lag_across.db", "indexeddb") };
     assert_eq!(rc2, sqlite_wasm_rs::SQLITE_OK, "open db2");
     unsafe {
-        let _ = exec_sql(db2, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);");
+        let _ = exec_sql(
+            db2,
+            "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);",
+        );
         let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
         let q = CString::new("SELECT COUNT(*) FROM t;").unwrap();
-        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(db2, q.as_ptr(), -1, &mut stmt, std::ptr::null_mut());
+        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(
+            db2,
+            q.as_ptr(),
+            -1,
+            &mut stmt,
+            std::ptr::null_mut(),
+        );
         assert_eq!(prep_rc, sqlite_wasm_rs::SQLITE_OK, "prepare select");
 
         let step_rc = sqlite_wasm_rs::sqlite3_step(stmt);
@@ -76,7 +102,10 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
 
         // EXPECTED for our custom VFS: 0 before sync (uncommitted data should be invisible)
         web_sys::console::log_1(&format!("Count before sync: {}", count_before).into());
-        assert_eq!(count_before, 0, "uncommitted data must be invisible due to commit marker gating");
+        assert_eq!(
+            count_before, 0,
+            "uncommitted data must be invisible due to commit marker gating"
+        );
         sqlite_wasm_rs::sqlite3_close(db2);
     }
 
@@ -85,11 +114,11 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
     vfs.sync().await.expect("vfs sync");
     log::debug!("vfs.sync().await completed successfully");
     log::info!("After VFS sync, commit marker should have advanced");
-    
+
     // Debug: Check commit marker value after sync
     let commit_marker_after = {
-        use std::collections::HashMap;
         use std::cell::RefCell;
+        use std::collections::HashMap;
         thread_local! {
             static GLOBAL_COMMIT_MARKER: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
         }
@@ -105,12 +134,21 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
     assert_eq!(rc3, sqlite_wasm_rs::SQLITE_OK, "open db3");
     unsafe {
         // Ensure table exists first
-        let _ = exec_sql(db3, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);");
-        
+        let _ = exec_sql(
+            db3,
+            "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);",
+        );
+
         let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
         let q = CString::new("SELECT COUNT(*) FROM t;").unwrap();
-        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(db3, q.as_ptr(), -1, &mut stmt, std::ptr::null_mut());
-        
+        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(
+            db3,
+            q.as_ptr(),
+            -1,
+            &mut stmt,
+            std::ptr::null_mut(),
+        );
+
         if prep_rc != sqlite_wasm_rs::SQLITE_OK {
             // Get error message for debugging
             let err_msg = sqlite_wasm_rs::sqlite3_errmsg(db3);
@@ -121,13 +159,20 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
             };
             panic!("SQLite prepare failed with code {}: {}", prep_rc, err_str);
         }
-        
-        assert_eq!(prep_rc, sqlite_wasm_rs::SQLITE_OK, "prepare select after sync");
+
+        assert_eq!(
+            prep_rc,
+            sqlite_wasm_rs::SQLITE_OK,
+            "prepare select after sync"
+        );
         let step_rc = sqlite_wasm_rs::sqlite3_step(stmt);
         assert_eq!(step_rc, sqlite_wasm_rs::SQLITE_ROW, "select count row");
         let count_after = sqlite_wasm_rs::sqlite3_column_int64(stmt, 0);
         web_sys::console::log_1(&format!("Count after sync: {}", count_after).into());
-        assert_eq!(count_after, 0, "uncommitted data should remain invisible even after VFS sync");
+        assert_eq!(
+            count_after, 0,
+            "uncommitted data should remain invisible even after VFS sync"
+        );
         sqlite_wasm_rs::sqlite3_finalize(stmt);
         sqlite_wasm_rs::sqlite3_close(db3);
     }
@@ -137,7 +182,9 @@ async fn test_commit_marker_lag_zeroed_reads_until_sync_across_instances() {
 /// and verify data is not visible on reopen. This validates atomic commit semantics even with multi-block presence.
 #[wasm_bindgen_test]
 async fn test_mid_commit_crash_partial_multi_block_invisible_on_reopen() {
-    let vfs = IndexedDBVFS::new("crash_partial.db").await.expect("create VFS");
+    let vfs = IndexedDBVFS::new("crash_partial.db")
+        .await
+        .expect("create VFS");
     vfs.register("indexeddb").expect("register VFS");
 
     // 1) Begin transaction and write a large blob (ensure multi-page/multi-block effects)
@@ -145,16 +192,31 @@ async fn test_mid_commit_crash_partial_multi_block_invisible_on_reopen() {
     assert_eq!(rc1, sqlite_wasm_rs::SQLITE_OK, "open db1");
     let big_blob = vec![0xABu8; BLOCK_SIZE * 8]; // 8 blocks worth of data
     unsafe {
-        assert_eq!(exec_sql(db1, "PRAGMA journal_mode=WAL;"), sqlite_wasm_rs::SQLITE_OK);
-        assert_eq!(exec_sql(db1, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v BLOB);"), sqlite_wasm_rs::SQLITE_OK);
+        assert_eq!(
+            exec_sql(db1, "PRAGMA journal_mode=WAL;"),
+            sqlite_wasm_rs::SQLITE_OK
+        );
+        assert_eq!(
+            exec_sql(
+                db1,
+                "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v BLOB);"
+            ),
+            sqlite_wasm_rs::SQLITE_OK
+        );
 
         // Begin transaction and insert large blob but don't commit
         assert_eq!(exec_sql(db1, "BEGIN IMMEDIATE;"), sqlite_wasm_rs::SQLITE_OK);
-        
+
         // Prepare insert with parameter to send large blob
         let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
         let ins = CString::new("INSERT INTO t (v) VALUES (?1);").unwrap();
-        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(db1, ins.as_ptr(), -1, &mut stmt, std::ptr::null_mut());
+        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(
+            db1,
+            ins.as_ptr(),
+            -1,
+            &mut stmt,
+            std::ptr::null_mut(),
+        );
         assert_eq!(prep_rc, sqlite_wasm_rs::SQLITE_OK, "prepare insert blob");
         sqlite_wasm_rs::sqlite3_bind_blob(
             stmt,
@@ -164,7 +226,11 @@ async fn test_mid_commit_crash_partial_multi_block_invisible_on_reopen() {
             sqlite_wasm_rs::SQLITE_TRANSIENT(),
         );
         let step_rc = sqlite_wasm_rs::sqlite3_step(stmt);
-        assert!(step_rc == sqlite_wasm_rs::SQLITE_DONE || step_rc == sqlite_wasm_rs::SQLITE_ROW, "insert step rc={}", step_rc);
+        assert!(
+            step_rc == sqlite_wasm_rs::SQLITE_DONE || step_rc == sqlite_wasm_rs::SQLITE_ROW,
+            "insert step rc={}",
+            step_rc
+        );
         sqlite_wasm_rs::sqlite3_finalize(stmt);
 
         // Simulate crash: do NOT COMMIT; drop connection immediately
@@ -177,13 +243,25 @@ async fn test_mid_commit_crash_partial_multi_block_invisible_on_reopen() {
     unsafe {
         let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
         let q = CString::new("SELECT COUNT(*) FROM t;").unwrap();
-        let _ = exec_sql(db2, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v BLOB);");
-        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(db2, q.as_ptr(), -1, &mut stmt, std::ptr::null_mut());
+        let _ = exec_sql(
+            db2,
+            "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v BLOB);",
+        );
+        let prep_rc = sqlite_wasm_rs::sqlite3_prepare_v2(
+            db2,
+            q.as_ptr(),
+            -1,
+            &mut stmt,
+            std::ptr::null_mut(),
+        );
         assert_eq!(prep_rc, sqlite_wasm_rs::SQLITE_OK, "prepare count");
         let step_rc = sqlite_wasm_rs::sqlite3_step(stmt);
         assert_eq!(step_rc, sqlite_wasm_rs::SQLITE_ROW, "select count row");
         let count = sqlite_wasm_rs::sqlite3_column_int64(stmt, 0);
-        assert_eq!(count, 0, "uncommitted multi-block write must not be visible due to commit marker gating");
+        assert_eq!(
+            count, 0,
+            "uncommitted multi-block write must not be visible due to commit marker gating"
+        );
         sqlite_wasm_rs::sqlite3_finalize(stmt);
         sqlite_wasm_rs::sqlite3_close(db2);
     }
@@ -210,5 +288,8 @@ async fn test_block_write_versions_idempotent_across_syncs() {
     s.sync().await.expect("sync #2 with no changes");
     let meta2 = s.get_block_metadata_for_testing();
     let v2 = meta2.get(&bid).map(|t| t.1 as u64).unwrap_or(0);
-    assert_eq!(v2, v1, "version must be unchanged when syncing with no new writes");
+    assert_eq!(
+        v2, v1,
+        "version must be unchanged when syncing with no new writes"
+    );
 }

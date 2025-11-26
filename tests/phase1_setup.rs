@@ -3,8 +3,8 @@
 
 #![allow(unused_imports)]
 
-use wasm_bindgen_test::*;
 use absurder_sql::*;
+use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -33,13 +33,13 @@ async fn test_database_config_creation() {
 fn test_database_config_creation() {
     // Test that we can create a database configuration
     let config = DatabaseConfig::default();
-    
+
     assert_eq!(config.name, "default.db");
     assert_eq!(config.version, Some(1));
     assert_eq!(config.cache_size, Some(10_000));
     assert_eq!(config.page_size, Some(4096));
     assert_eq!(config.auto_vacuum, Some(true));
-    
+
     println!("Database config creation test passed");
 }
 
@@ -62,11 +62,11 @@ fn test_custom_database_config() {
         journal_mode: Some("DELETE".to_string()),
         max_export_size_bytes: Some(2 * 1024 * 1024 * 1024),
     };
-    
+
     assert_eq!(config.name, "test.db");
     assert_eq!(config.version, Some(2));
     assert_eq!(config.cache_size, Some(5_000));
-    
+
     println!("Custom database config test passed");
 }
 
@@ -85,7 +85,7 @@ fn test_column_value_types() {
     let _real_val = ColumnValue::Real(3.14);
     let _text_val = ColumnValue::Text("hello".to_string());
     let _blob_val = ColumnValue::Blob(vec![1, 2, 3, 4]);
-    
+
     // Only test rusqlite conversions on non-wasm targets
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -95,21 +95,29 @@ fn test_column_value_types() {
         let rusqlite_real = _real_val.to_rusqlite_value();
         let rusqlite_text = _text_val.to_rusqlite_value();
         let rusqlite_blob = _blob_val.to_rusqlite_value();
-        
+
         // Test conversion back from rusqlite values
         let back_to_null = ColumnValue::from_rusqlite_value(&rusqlite_null);
         let back_to_int = ColumnValue::from_rusqlite_value(&rusqlite_int);
         let back_to_real = ColumnValue::from_rusqlite_value(&rusqlite_real);
         let back_to_text = ColumnValue::from_rusqlite_value(&rusqlite_text);
         let back_to_blob = ColumnValue::from_rusqlite_value(&rusqlite_blob);
-        
+
         // Verify round-trip conversion works
-        match (back_to_null, back_to_int, back_to_real, back_to_text, back_to_blob) {
-            (ColumnValue::Null, 
-             ColumnValue::Integer(42), 
-             ColumnValue::Real(val), 
-             ColumnValue::Text(text), 
-             ColumnValue::Blob(blob)) => {
+        match (
+            back_to_null,
+            back_to_int,
+            back_to_real,
+            back_to_text,
+            back_to_blob,
+        ) {
+            (
+                ColumnValue::Null,
+                ColumnValue::Integer(42),
+                ColumnValue::Real(val),
+                ColumnValue::Text(text),
+                ColumnValue::Blob(blob),
+            ) => {
                 assert!((val - 3.14).abs() < 0.001);
                 assert_eq!(text, "hello");
                 assert_eq!(blob, vec![1, 2, 3, 4]);
@@ -117,7 +125,7 @@ fn test_column_value_types() {
             _ => panic!("Column value conversion failed"),
         }
     }
-    
+
     println!("Column value types test passed");
 }
 
@@ -135,10 +143,10 @@ fn test_error_types() {
     assert_eq!(error.code, "TEST_ERROR");
     assert_eq!(error.message, "This is a test error");
     assert_eq!(error.sql, None);
-    
+
     let error_with_sql = error.with_sql("SELECT * FROM test");
     assert_eq!(error_with_sql.sql, Some("SELECT * FROM test".to_string()));
-    
+
     println!("Error types test passed");
 }
 
@@ -153,7 +161,7 @@ async fn test_typescript_compatibility() {
 fn test_typescript_compatibility() {
     // Test that types can be serialized/deserialized
     let _config = DatabaseConfig::default();
-    
+
     // In native environment, we'll just verify the struct can be created
     println!("TypeScript compatibility test passed");
 }
@@ -169,14 +177,14 @@ async fn test_compilation_requirements() {
 fn test_compilation_requirements() {
     // Test that all required features compile
     use absurder_sql::*;
-    
+
     // Test that we can access all public APIs
     let _config = DatabaseConfig::default();
     let _error = DatabaseError::new("TEST", "test");
     let _value = ColumnValue::Null;
-    
+
     // Test that logging works
     log::info!("Compilation test running");
-    
+
     println!("Compilation requirements test passed");
 }

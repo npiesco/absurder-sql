@@ -1,7 +1,7 @@
 #![cfg(all(target_arch = "wasm32", feature = "telemetry"))]
 
+use absurder_sql::telemetry::{SpanBuilder, WasmSpanExporter};
 use wasm_bindgen_test::*;
-use absurder_sql::telemetry::{WasmSpanExporter, SpanBuilder};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -11,18 +11,20 @@ mod telemetry_auto_export_tests {
 
     #[wasm_bindgen_test]
     async fn test_auto_export_on_batch_threshold() {
-        let mut exporter = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string())
-            .with_batch_size(3);
+        let mut exporter =
+            WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string()).with_batch_size(3);
 
         // Add 2 spans - should not trigger auto-export
         exporter.buffer_span(SpanBuilder::new("span_1".to_string()).build());
         exporter.buffer_span(SpanBuilder::new("span_2".to_string()).build());
-        
+
         assert_eq!(exporter.buffered_count(), 2);
 
         // Add 3rd span - should trigger auto-export
-        let result = exporter.buffer_span_async(SpanBuilder::new("span_3".to_string()).build()).await;
-        
+        let result = exporter
+            .buffer_span_async(SpanBuilder::new("span_3".to_string()).build())
+            .await;
+
         // Export should succeed (even if endpoint isn't reachable, it should try)
         // After export attempt, buffer should be managed based on success/failure
         assert!(result.is_ok() || result.is_err()); // Either outcome is valid for test
@@ -41,7 +43,7 @@ mod telemetry_auto_export_tests {
         // If auto-export is enabled and working, buffer might be cleared
         // (depending on if the mock endpoint is available)
         let count = exporter.buffered_count();
-        
+
         // Buffer should either be cleared (success) or still have spans (failure)
         assert!(count == 0 || count == 2);
     }
@@ -61,7 +63,7 @@ mod telemetry_auto_export_tests {
 
         // Manual flush should still work
         let _ = exporter.flush().await;
-        
+
         // Result depends on network availability, but method should be callable
     }
 
@@ -69,21 +71,22 @@ mod telemetry_auto_export_tests {
     async fn test_auto_export_configuration() {
         let exporter1 = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string())
             .with_auto_export(true);
-        
+
         assert!(exporter1.is_auto_export_enabled());
 
         let exporter2 = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string())
             .with_auto_export(false);
-        
+
         assert!(!exporter2.is_auto_export_enabled());
     }
 
     #[wasm_bindgen_test]
     async fn test_export_error_handling() {
         // Use invalid endpoint to test error handling
-        let mut exporter = WasmSpanExporter::new("http://invalid-endpoint-12345.example.com/traces".to_string())
-            .with_batch_size(2)
-            .with_auto_export(true);
+        let mut exporter =
+            WasmSpanExporter::new("http://invalid-endpoint-12345.example.com/traces".to_string())
+                .with_batch_size(2)
+                .with_auto_export(true);
 
         // Add spans
         exporter.buffer_span(SpanBuilder::new("span_1".to_string()).build());
@@ -97,8 +100,8 @@ mod telemetry_auto_export_tests {
 
     #[wasm_bindgen_test]
     async fn test_batch_size_zero_disables_auto_export() {
-        let mut exporter = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string())
-            .with_batch_size(0);
+        let mut exporter =
+            WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string()).with_batch_size(0);
 
         // Add many spans
         for i in 0..10 {
@@ -115,7 +118,7 @@ mod telemetry_auto_export_tests {
 
         // Should be able to get export statistics
         let stats = exporter.get_export_stats();
-        
+
         assert_eq!(stats.total_exports, 0);
         assert_eq!(stats.successful_exports, 0);
         assert_eq!(stats.failed_exports, 0);
@@ -123,17 +126,17 @@ mod telemetry_auto_export_tests {
 
     #[wasm_bindgen_test]
     async fn test_export_statistics_tracking() {
-        let mut exporter = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string())
-            .with_batch_size(2);
+        let mut exporter =
+            WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string()).with_batch_size(2);
 
         // Add spans and trigger export
         exporter.buffer_span(SpanBuilder::new("span_1".to_string()).build());
         exporter.buffer_span(SpanBuilder::new("span_2".to_string()).build());
-        
+
         let _ = exporter.flush().await;
 
         let stats = exporter.get_export_stats();
-        
+
         // Should have attempted at least one export
         assert!(stats.total_exports >= 1 || stats.total_exports == 0); // Either attempted or not
     }

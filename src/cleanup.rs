@@ -5,9 +5,12 @@ use crate::types::DatabaseError;
 
 #[cfg(target_arch = "wasm32")]
 pub async fn cleanup_all_state(db_name: &str) -> Result<(), DatabaseError> {
-    use crate::storage::vfs_sync::{with_global_storage, with_global_metadata, with_global_commit_marker, with_global_allocation_map};
-    use crate::vfs::indexeddb_vfs::remove_storage_from_registry;
     use crate::connection_pool;
+    use crate::storage::vfs_sync::{
+        with_global_allocation_map, with_global_commit_marker, with_global_metadata,
+        with_global_storage,
+    };
+    use crate::vfs::indexeddb_vfs::remove_storage_from_registry;
 
     log::info!("CLEANUP: Starting complete cleanup for {}", db_name);
 
@@ -64,34 +67,42 @@ pub async fn cleanup_all_state(db_name: &str) -> Result<(), DatabaseError> {
 
 #[cfg(target_arch = "wasm32")]
 fn validate_cleanup(db_name: &str) -> Result<(), DatabaseError> {
-    use crate::storage::vfs_sync::{with_global_storage, with_global_metadata};
-    use crate::vfs::indexeddb_vfs::try_get_storage_from_registry;
     use crate::connection_pool;
+    use crate::storage::vfs_sync::{with_global_metadata, with_global_storage};
+    use crate::vfs::indexeddb_vfs::try_get_storage_from_registry;
 
     // Validate storage registry is clear
     if try_get_storage_from_registry(db_name).is_some() {
-        return Err(DatabaseError::new("CLEANUP_FAILED", "Storage still in registry"));
+        return Err(DatabaseError::new(
+            "CLEANUP_FAILED",
+            "Storage still in registry",
+        ));
     }
 
     // Validate connection pool is clear
     if connection_pool::connection_exists(db_name) {
-        return Err(DatabaseError::new("CLEANUP_FAILED", "Connection still in pool"));
+        return Err(DatabaseError::new(
+            "CLEANUP_FAILED",
+            "Connection still in pool",
+        ));
     }
 
     // Validate global storage is clear
-    let has_storage = with_global_storage(|gs| {
-        gs.borrow().contains_key(db_name)
-    });
+    let has_storage = with_global_storage(|gs| gs.borrow().contains_key(db_name));
     if has_storage {
-        return Err(DatabaseError::new("CLEANUP_FAILED", "Global storage not cleared"));
+        return Err(DatabaseError::new(
+            "CLEANUP_FAILED",
+            "Global storage not cleared",
+        ));
     }
 
     // Validate global metadata is clear
-    let has_metadata = with_global_metadata(|gm| {
-        gm.borrow().contains_key(db_name)
-    });
+    let has_metadata = with_global_metadata(|gm| gm.borrow().contains_key(db_name));
     if has_metadata {
-        return Err(DatabaseError::new("CLEANUP_FAILED", "Global metadata not cleared"));
+        return Err(DatabaseError::new(
+            "CLEANUP_FAILED",
+            "Global metadata not cleared",
+        ));
     }
 
     Ok(())

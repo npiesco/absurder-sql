@@ -1,8 +1,8 @@
 /// Test with three databases like the original failing test
 #[cfg(target_arch = "wasm32")]
 mod three_db_concurrent_tests {
-    use wasm_bindgen_test::*;
     use absurder_sql::{Database, DatabaseConfig};
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -42,7 +42,9 @@ mod three_db_concurrent_tests {
             .expect("Failed to create table");
 
         // Sync to ensure table is visible to other databases
-        db1.sync().await.expect("Failed to sync after table creation");
+        db1.sync()
+            .await
+            .expect("Failed to sync after table creation");
 
         web_sys::console::log_1(&"Created table and synced".into());
 
@@ -61,7 +63,9 @@ mod three_db_concurrent_tests {
         }
 
         // Don't force non-leader writes - let normal leader election work
-        web_sys::console::log_1(&"Starting concurrent writes (without forcing non-leader writes)...".into());
+        web_sys::console::log_1(
+            &"Starting concurrent writes (without forcing non-leader writes)...".into(),
+        );
 
         // Execute concurrent INSERTs
         let insert1 = db1.execute("INSERT INTO test_data (value) VALUES ('value1')");
@@ -70,7 +74,15 @@ mod three_db_concurrent_tests {
 
         let (r1, r2, r3) = futures::join!(insert1, insert2, insert3);
 
-        web_sys::console::log_1(&format!("Results: db1={:?}, db2={:?}, db3={:?}", r1.is_ok(), r2.is_ok(), r3.is_ok()).into());
+        web_sys::console::log_1(
+            &format!(
+                "Results: db1={:?}, db2={:?}, db3={:?}",
+                r1.is_ok(),
+                r2.is_ok(),
+                r3.is_ok()
+            )
+            .into(),
+        );
 
         // Check results
         assert!(r1.is_ok(), "db1 insert should succeed: {:?}", r1.err());

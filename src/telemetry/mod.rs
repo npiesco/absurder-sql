@@ -32,16 +32,18 @@
 
 pub mod config;
 pub mod metrics;
-pub mod tracer;
 pub mod span_recorder;
+pub mod tracer;
 pub mod wasm_exporter;
 
 // Re-export main types
 pub use config::TelemetryConfig;
 pub use metrics::Metrics;
+pub use span_recorder::{
+    RecordedSpan, Sampler, SpanBuilder, SpanContext, SpanRecorder, SpanStatus,
+};
 pub use tracer::TracerProvider;
-pub use span_recorder::{SpanRecorder, RecordedSpan, SpanBuilder, SpanStatus, SpanContext, Sampler};
-#[cfg(target_arch = "wasm32")]
-pub use wasm_exporter::{WasmSpanExporter, ExportStats};
 #[cfg(not(target_arch = "wasm32"))]
 pub use wasm_exporter::WasmSpanExporter;
+#[cfg(target_arch = "wasm32")]
+pub use wasm_exporter::{ExportStats, WasmSpanExporter};

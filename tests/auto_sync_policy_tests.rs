@@ -1,9 +1,9 @@
 // Threshold-based auto-sync tests using SyncPolicy
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage, SyncPolicy};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 

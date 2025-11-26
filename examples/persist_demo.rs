@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Writing data...");
     let block1 = storage.allocate_block().await?;
     let block2 = storage.allocate_block().await?;
-    
+
     storage.write_block(block1, vec![1u8; 4096]).await?;
     storage.write_block(block2, vec![2u8; 4096]).await?;
     println!("Wrote 2 blocks (block {} and {})", block1, block2);
@@ -27,22 +27,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage.sync().await?;
     println!("Data persisted to disk");
     println!("  Files created:");
-    println!("    - ./absurdersql_storage/my_database/blocks/block_{}.bin", block1);
-    println!("    - ./absurdersql_storage/my_database/blocks/block_{}.bin", block2);
+    println!(
+        "    - ./absurdersql_storage/my_database/blocks/block_{}.bin",
+        block1
+    );
+    println!(
+        "    - ./absurdersql_storage/my_database/blocks/block_{}.bin",
+        block2
+    );
     println!("    - ./absurdersql_storage/my_database/metadata.json");
     println!("    - ./absurdersql_storage/my_database/allocations.json");
 
     // Close and reopen
     drop(storage);
     println!("\n🔄 Reopening database from disk...");
-    
+
     let storage2 = BlockStorage::new("my_database").await?;
     println!("Database reopened");
 
     // Read persisted data
     let data1 = storage2.read_block(block1).await?;
     let data2 = storage2.read_block(block2).await?;
-    
+
     println!("\nRead persisted data:");
     println!("  Block {}: first byte = {}", block1, data1[0]);
     println!("  Block {}: first byte = {}", block2, data2[0]);

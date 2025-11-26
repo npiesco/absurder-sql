@@ -1,8 +1,8 @@
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, SyncPolicy, BLOCK_SIZE};
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage, SyncPolicy};
 
-use tempfile::TempDir;
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -20,7 +20,11 @@ async fn test_tokio_interval_triggers_flush_on_time_advance() {
     storage.write_block(block_id, data).await.unwrap();
 
     // Ensure we have one dirty block
-    assert_eq!(storage.get_dirty_count(), 1, "precondition: one dirty block");
+    assert_eq!(
+        storage.get_dirty_count(),
+        1,
+        "precondition: one dirty block"
+    );
 
     // Enable auto-sync with interval; debounce disabled to make timer the trigger
     let policy = SyncPolicy {
@@ -40,8 +44,15 @@ async fn test_tokio_interval_triggers_flush_on_time_advance() {
     tokio::task::yield_now().await;
 
     // Assert: dirty blocks flushed and timer sync counter incremented
-    assert_eq!(storage.get_dirty_count(), 0, "dirty blocks should be flushed by tokio interval");
-    assert!(storage.get_timer_sync_count() >= 1, "timer sync count should increment");
+    assert_eq!(
+        storage.get_dirty_count(),
+        0,
+        "dirty blocks should be flushed by tokio interval"
+    );
+    assert!(
+        storage.get_timer_sync_count() >= 1,
+        "timer sync count should increment"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -69,9 +80,21 @@ async fn test_threshold_triggers_immediate_flush_without_debounce() {
     storage.write_block(block_id, data).await.unwrap();
 
     // Assert: no dirty blocks remain; debounce/timer counters unchanged
-    assert_eq!(storage.get_dirty_count(), 0, "threshold should flush immediately without debounce");
-    assert_eq!(storage.get_timer_sync_count(), 0, "timer syncs should not be used");
-    assert_eq!(storage.get_debounce_sync_count(), 0, "debounce syncs should not be used");
+    assert_eq!(
+        storage.get_dirty_count(),
+        0,
+        "threshold should flush immediately without debounce"
+    );
+    assert_eq!(
+        storage.get_timer_sync_count(),
+        0,
+        "timer syncs should not be used"
+    );
+    assert_eq!(
+        storage.get_debounce_sync_count(),
+        0,
+        "debounce syncs should not be used"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -106,6 +129,13 @@ async fn test_debounce_flushes_after_idle_following_threshold() {
     tokio::task::yield_now().await;
 
     // Assert: dirty blocks flushed and debounce metric incremented
-    assert_eq!(storage.get_dirty_count(), 0, "debounce should flush after idle period following threshold");
-    assert!(storage.get_debounce_sync_count() >= 1, "debounce sync count should increment");
+    assert_eq!(
+        storage.get_dirty_count(),
+        0,
+        "debounce should flush after idle period following threshold"
+    );
+    assert!(
+        storage.get_debounce_sync_count() >= 1,
+        "debounce sync count should increment"
+    );
 }

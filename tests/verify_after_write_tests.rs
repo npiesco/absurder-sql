@@ -1,9 +1,9 @@
 // verify_after_write behavior tests
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage, SyncPolicy};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -32,7 +32,10 @@ async fn test_verify_after_write_success_on_clean_state() {
 
     // Second write to same block should also pass (pre-write verify succeeds)
     let data2 = vec![4u8; BLOCK_SIZE];
-    storage.write_block(1, data2).await.expect("second write ok");
+    storage
+        .write_block(1, data2)
+        .await
+        .expect("second write ok");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -56,7 +59,10 @@ async fn test_verify_after_write_blocks_write_on_prior_checksum_mismatch() {
     storage.enable_auto_sync_with_policy(policy_off);
 
     let data = vec![7u8; BLOCK_SIZE];
-    storage.write_block(2, data).await.expect("initial write ok");
+    storage
+        .write_block(2, data)
+        .await
+        .expect("initial write ok");
 
     // Corrupt the stored checksum to simulate prior data corruption
     let wrong = 123456789u64;
@@ -80,5 +86,9 @@ async fn test_verify_after_write_blocks_write_on_prior_checksum_mismatch() {
     assert_eq!(err.code, "CHECKSUM_MISMATCH");
 
     // Since write failed early, dirty set should not grow
-    assert_eq!(storage.get_dirty_count(), 1, "dirty set should still reflect the prior write only");
+    assert_eq!(
+        storage.get_dirty_count(),
+        1,
+        "dirty set should still reflect the prior write only"
+    );
 }

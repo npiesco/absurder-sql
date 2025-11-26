@@ -1,0 +1,3 @@
+module.exports=[18622,(a,b,c)=>{b.exports=a.x("next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",()=>require("next/dist/compiled/next-server/app-page-turbo.runtime.prod.js"))},76686,(a,b,c)=>{"use strict";b.exports=a.r(18622)},97863,(a,b,c)=>{"use strict";b.exports=a.r(76686).vendored["react-ssr"].React},30435,a=>{"use strict";var b=a.i(97863);function c(){return(0,b.useEffect)(()=>{},[]),null}a.s(["ServiceWorkerRegistration",()=>c])}];
+
+//# sourceMappingURL=%5Broot-of-the-server%5D__5fe3bdba._.js.map

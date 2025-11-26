@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::*;
 use crate::types::DatabaseError;
+use wasm_bindgen::prelude::*;
 
 /// Utility functions for the SQLite IndexedDB library
 
@@ -29,19 +29,19 @@ pub fn console_log(message: &str) {
 pub fn format_bytes(bytes: usize) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
     const THRESHOLD: f64 = 1024.0;
-    
+
     if bytes == 0 {
         return "0 B".to_string();
     }
-    
+
     let mut size = bytes as f64;
     let mut unit_index = 0;
-    
+
     while size >= THRESHOLD && unit_index < UNITS.len() - 1 {
         size /= THRESHOLD;
         unit_index += 1;
     }
-    
+
     if unit_index == 0 {
         format!("{} {}", bytes, UNITS[unit_index])
     } else {
@@ -59,23 +59,26 @@ pub fn generate_id() -> String {
 /// Validate SQL query for security
 pub fn validate_sql(sql: &str) -> Result<(), String> {
     let sql_lower = sql.to_lowercase();
-    
+
     // Basic security checks
     let dangerous_keywords = ["drop", "delete", "truncate", "alter"];
-    
+
     for keyword in dangerous_keywords {
         if sql_lower.contains(keyword) {
-            return Err(format!("Potentially dangerous SQL keyword detected: {}", keyword));
+            return Err(format!(
+                "Potentially dangerous SQL keyword detected: {}",
+                keyword
+            ));
         }
     }
-    
+
     Ok(())
 }
 
 /// Check available memory on the current system
 ///
 /// Returns memory information if available, None if memory info cannot be determined.
-/// 
+///
 /// # Platform Support
 /// - **Native (Linux)**: Reads /proc/meminfo for available memory
 /// - **Native (macOS)**: Uses sysctl for memory statistics
@@ -100,7 +103,7 @@ pub fn check_available_memory() -> Option<MemoryInfo> {
         // WASM/Browser environment - try to use Performance.memory API
         check_memory_wasm()
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     {
         // Native environment - use platform-specific APIs
@@ -112,24 +115,24 @@ pub fn check_available_memory() -> Option<MemoryInfo> {
 #[cfg(target_arch = "wasm32")]
 fn check_memory_wasm() -> Option<MemoryInfo> {
     // WASM/Browser environment - return conservative estimates
-    // 
+    //
     // WASM linear memory is limited to 4GB max, but browsers typically
     // impose lower limits. We use 2GB as a safe conservative estimate
     // for available memory to prevent OOM errors.
     //
     // Note: Performance.memory API is Chrome-only and non-standard,
     // so we provide a conservative estimate instead.
-    
+
     let estimated_total: u64 = 2 * 1024 * 1024 * 1024; // 2GB total estimate
     let estimated_available: u64 = 1536 * 1024 * 1024; // 1.5GB available estimate
     let estimated_used: u64 = estimated_total - estimated_available;
-    
+
     log::debug!(
         "WASM memory estimate (conservative): {} MB available, {} MB total",
         estimated_available / (1024 * 1024),
         estimated_total / (1024 * 1024)
     );
-    
+
     Some(MemoryInfo {
         available_bytes: estimated_available,
         total_bytes: Some(estimated_total),
@@ -144,17 +147,17 @@ fn check_memory_native() -> Option<MemoryInfo> {
     {
         check_memory_linux()
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         check_memory_macos()
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         check_memory_windows()
     }
-    
+
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         // Unsupported platform - return conservative estimate
@@ -166,12 +169,12 @@ fn check_memory_native() -> Option<MemoryInfo> {
 #[cfg(target_os = "linux")]
 fn check_memory_linux() -> Option<MemoryInfo> {
     use std::fs;
-    
+
     let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
-    
+
     let mut mem_available = None;
     let mut mem_total = None;
-    
+
     for line in meminfo.lines() {
         if line.starts_with("MemAvailable:") {
             mem_available = line
@@ -186,16 +189,16 @@ fn check_memory_linux() -> Option<MemoryInfo> {
                 .and_then(|s| s.parse::<u64>().ok())
                 .map(|kb| kb * 1024); // Convert KB to bytes
         }
-        
+
         if mem_available.is_some() && mem_total.is_some() {
             break;
         }
     }
-    
+
     let available_bytes = mem_available?;
     let total = mem_total;
     let used = total.map(|t| t.saturating_sub(available_bytes));
-    
+
     Some(MemoryInfo {
         available_bytes,
         total_bytes: total,
@@ -207,15 +210,15 @@ fn check_memory_linux() -> Option<MemoryInfo> {
 #[cfg(target_os = "macos")]
 fn check_memory_macos() -> Option<MemoryInfo> {
     use std::process::Command;
-    
+
     // Get total memory
     let vm_stat_output = Command::new("vm_stat").output().ok()?;
     let vm_stat_str = String::from_utf8_lossy(&vm_stat_output.stdout);
-    
+
     let mut page_size = 4096u64; // Default page size
     let mut pages_free = 0u64;
     let mut pages_inactive = 0u64;
-    
+
     for line in vm_stat_str.lines() {
         if line.contains("page size of") {
             if let Some(size_str) = line.split("page size of ").nth(1) {
@@ -237,21 +240,18 @@ fn check_memory_macos() -> Option<MemoryInfo> {
                 .unwrap_or(0);
         }
     }
-    
+
     let available_bytes = (pages_free + pages_inactive) * page_size;
-    
+
     // Get total memory
-    let total_output = Command::new("sysctl")
-        .arg("hw.memsize")
-        .output()
-        .ok()?;
-    
+    let total_output = Command::new("sysctl").arg("hw.memsize").output().ok()?;
+
     let total_str = String::from_utf8_lossy(&total_output.stdout);
     let total_bytes = total_str
         .split(':')
         .nth(1)
         .and_then(|s| s.trim().parse().ok());
-    
+
     Some(MemoryInfo {
         available_bytes,
         total_bytes,
@@ -297,15 +297,15 @@ pub fn estimate_export_memory_requirement(database_size_bytes: u64) -> u64 {
     // 2. Block read buffers: ~10-20MB for batch reads
     // 3. Intermediate concatenation: ~database_size_bytes * 0.5 (worst case)
     // 4. Safety margin: 20%
-    
+
     const BLOCK_BUFFER_SIZE: u64 = 20 * 1024 * 1024; // 20MB for block buffers
     const OVERHEAD_MULTIPLIER: f64 = 1.5; // 50% overhead for intermediate buffers
     const SAFETY_MARGIN: f64 = 1.2; // 20% safety margin
-    
+
     let base_requirement = database_size_bytes as f64 * OVERHEAD_MULTIPLIER;
     let with_buffers = base_requirement + BLOCK_BUFFER_SIZE as f64;
     let with_safety = with_buffers * SAFETY_MARGIN;
-    
+
     with_safety as u64
 }
 
@@ -334,13 +334,13 @@ pub fn estimate_export_memory_requirement(database_size_bytes: u64) -> u64 {
 /// ```
 pub fn validate_memory_for_export(database_size_bytes: u64) -> Result<(), DatabaseError> {
     let required_memory = estimate_export_memory_requirement(database_size_bytes);
-    
+
     match check_available_memory() {
         Some(mem_info) => {
             if mem_info.available_bytes < required_memory {
                 let available_mb = mem_info.available_bytes as f64 / (1024.0 * 1024.0);
                 let required_mb = required_memory as f64 / (1024.0 * 1024.0);
-                
+
                 return Err(DatabaseError::new(
                     "INSUFFICIENT_MEMORY",
                     &format!(
@@ -350,14 +350,14 @@ pub fn validate_memory_for_export(database_size_bytes: u64) -> Result<(), Databa
                     ),
                 ));
             }
-            
+
             // Memory is sufficient
             log::info!(
                 "Memory check passed: {} MB available, {} MB required for export",
                 mem_info.available_bytes / (1024 * 1024),
                 required_memory / (1024 * 1024)
             );
-            
+
             Ok(())
         }
         None => {
@@ -367,7 +367,7 @@ pub fn validate_memory_for_export(database_size_bytes: u64) -> Result<(), Databa
                 Monitor memory usage carefully.",
                 database_size_bytes / (1024 * 1024)
             );
-            
+
             Ok(())
         }
     }

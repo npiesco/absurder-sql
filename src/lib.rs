@@ -1,13 +1,21 @@
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-#[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 // Conditional rusqlite import: same crate, different features
 // Make this public so child crates can use it
 // When encryption is enabled, rusqlite uses bundled-sqlcipher-vendored-openssl feature
 // When bundled-sqlite is enabled, rusqlite uses bundled feature
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "bundled-sqlite", feature = "encryption", feature = "encryption-commoncrypto", feature = "encryption-ios")))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    any(
+        feature = "bundled-sqlite",
+        feature = "encryption",
+        feature = "encryption-commoncrypto",
+        feature = "encryption-ios"
+    )
+))]
 pub extern crate rusqlite;
 
 // Enable better panic messages and memory allocation
@@ -28,10 +36,9 @@ pub fn init_logger() {
     let log_level = log::Level::Debug;
     #[cfg(not(debug_assertions))]
     let log_level = log::Level::Info;
-    
-    console_log::init_with_level(log_level)
-        .expect("Failed to initialize console_log");
-    
+
+    console_log::init_with_level(log_level).expect("Failed to initialize console_log");
+
     log::info!("AbsurderSQL logging initialized at level: {:?}", log_level);
 }
 
@@ -51,14 +58,14 @@ fn normalize_db_name(name: &str) -> String {
 }
 
 // Module declarations
-pub mod types;
-pub mod storage;
-pub mod vfs;
 mod cleanup;
 #[cfg(target_arch = "wasm32")]
 pub mod connection_pool;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod database;
+pub mod storage;
+pub mod types;
+pub mod vfs;
 #[cfg(not(target_arch = "wasm32"))]
 pub use database::PreparedStatement;
 pub mod utils;
@@ -73,7 +80,7 @@ pub use database::SqliteIndexedDB;
 // WASM: Track databases currently being opened to serialize SQLite connection initialization
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    static DB_OPEN_IN_PROGRESS: std::cell::RefCell<std::collections::HashSet<String>> = 
+    static DB_OPEN_IN_PROGRESS: std::cell::RefCell<std::collections::HashSet<String>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
@@ -82,7 +89,7 @@ thread_local! {
 pub type Database = SqliteIndexedDB;
 
 pub use types::DatabaseConfig;
-pub use types::{QueryResult, ColumnValue, DatabaseError, TransactionOptions, Row};
+pub use types::{ColumnValue, DatabaseError, QueryResult, Row, TransactionOptions};
 
 // Re-export VFS
 pub use vfs::indexeddb_vfs::IndexedDBVFS;
@@ -110,9 +117,11 @@ pub struct Database {
     #[wasm_bindgen(skip)]
     allow_non_leader_writes: bool,
     #[wasm_bindgen(skip)]
-    optimistic_updates_manager: std::cell::RefCell<crate::storage::optimistic_updates::OptimisticUpdatesManager>,
+    optimistic_updates_manager:
+        std::cell::RefCell<crate::storage::optimistic_updates::OptimisticUpdatesManager>,
     #[wasm_bindgen(skip)]
-    coordination_metrics_manager: std::cell::RefCell<crate::storage::coordination_metrics::CoordinationMetricsManager>,
+    coordination_metrics_manager:
+        std::cell::RefCell<crate::storage::coordination_metrics::CoordinationMetricsManager>,
     #[wasm_bindgen(skip)]
     #[cfg(feature = "telemetry")]
     metrics: Option<crate::telemetry::Metrics>,
@@ -141,12 +150,12 @@ impl Database {
     /// Check if a SQL statement is a write operation
     fn is_write_operation(sql: &str) -> bool {
         let upper = sql.trim().to_uppercase();
-        upper.starts_with("INSERT") 
+        upper.starts_with("INSERT")
             || upper.starts_with("UPDATE")
             || upper.starts_with("DELETE")
             || upper.starts_with("REPLACE")
     }
-    
+
     /// Get metrics for observability
     ///
     /// Returns a reference to the Metrics instance for tracking queries, errors, and performance
@@ -154,50 +163,56 @@ impl Database {
     pub fn metrics(&self) -> Option<&crate::telemetry::Metrics> {
         self.metrics.as_ref()
     }
-    
+
     /// Check write permission - only leader can write (unless override enabled)
     async fn check_write_permission(&mut self, sql: &str) -> Result<(), DatabaseError> {
         if !Self::is_write_operation(sql) {
             // Not a write operation, allow it
             return Ok(());
         }
-        
+
         // Check if non-leader writes are allowed
         if self.allow_non_leader_writes {
             log::info!("WRITE_ALLOWED: Non-leader writes enabled for {}", self.name);
             return Ok(());
         }
-        
+
         // Check if this instance is the leader
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        
+
         let db_name = &self.name;
         let storage_rc = get_storage_with_fallback(db_name);
-        
+
         if let Some(storage) = storage_rc {
-            let is_leader = with_storage_async!(storage, "check_write_permission", |s| s.is_leader())
-                .ok_or_else(|| DatabaseError::new("BORROW_CONFLICT", "Failed to check leader status"))?;
-            
+            let is_leader = with_storage_async!(storage, "check_write_permission", |s| s
+                .is_leader())
+            .ok_or_else(|| {
+                DatabaseError::new("BORROW_CONFLICT", "Failed to check leader status")
+            })?;
+
             if !is_leader {
                 log::error!("WRITE_DENIED: Instance is not leader for {}", db_name);
                 return Err(DatabaseError::new(
                     "WRITE_PERMISSION_DENIED",
-                    "Only the leader tab can write to this database. Use db.isLeader() to check status or call db.allowNonLeaderWrites(true) for single-tab mode."
+                    "Only the leader tab can write to this database. Use db.isLeader() to check status or call db.allowNonLeaderWrites(true) for single-tab mode.",
                 ));
             }
-            
+
             log::info!("WRITE_ALLOWED: Instance is leader for {}", db_name);
             Ok(())
         } else {
             // No storage found - allow by default (single-instance mode)
-            log::info!("WRITE_ALLOWED: No storage found for {} (single-instance mode)", db_name);
+            log::info!(
+                "WRITE_ALLOWED: No storage found for {} (single-instance mode)",
+                db_name
+            );
             Ok(())
         }
     }
-    
+
     pub async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
-        use std::ffi::{CString, CStr};
-        
+        use std::ffi::{CStr, CString};
+
         log::info!("Database::new called for {}", config.name);
 
         // CRITICAL: Use DRY helper to normalize name WITH .db extension
@@ -227,7 +242,7 @@ impl Database {
             let _vfs = crate::vfs::IndexedDBVFS::new(&normalized_name).await?;
             log::info!("BlockStorage ensured for {}", normalized_name);
         }
-        
+
         // CRITICAL: Synchronize SQLite connection opening to prevent WAL initialization conflicts
         // Wait if another task is currently opening a connection to this database
         #[cfg(target_arch = "wasm32")]
@@ -235,7 +250,7 @@ impl Database {
             const MAX_OPEN_WAIT_MS: u32 = 1000; // Reduced from 5000 - 1s is sufficient
             const OPEN_POLL_MS: u32 = 10;
             let max_open_attempts = MAX_OPEN_WAIT_MS / OPEN_POLL_MS;
-            
+
             for attempt in 0..max_open_attempts {
                 let can_open = DB_OPEN_IN_PROGRESS.with(|opens| {
                     let mut set = opens.borrow_mut();
@@ -246,24 +261,36 @@ impl Database {
                         true // We got it
                     }
                 });
-                
+
                 if can_open {
-                    web_sys::console::log_1(&format!("[DB] {} - ACQUIRED sqlite open lock", config.name).into());
+                    web_sys::console::log_1(
+                        &format!("[DB] {} - ACQUIRED sqlite open lock", config.name).into(),
+                    );
                     break;
                 } else {
-                    web_sys::console::log_1(&format!("[DB] {} - Waiting for sqlite open (attempt {})", config.name, attempt).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "[DB] {} - Waiting for sqlite open (attempt {})",
+                            config.name, attempt
+                        )
+                        .into(),
+                    );
                     use wasm_bindgen_futures::JsFuture;
                     let promise = js_sys::Promise::new(&mut |resolve, _| {
-                        web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(
-                            &resolve, OPEN_POLL_MS as i32
-                        ).unwrap();
+                        web_sys::window()
+                            .unwrap()
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                &resolve,
+                                OPEN_POLL_MS as i32,
+                            )
+                            .unwrap();
                     });
                     JsFuture::from(promise).await.ok();
                     continue;
                 }
             }
         }
-        
+
         // Use connection pooling to share connections between instances
         let (connection_state, db) = {
             let vfs_name_str = vfs_name.clone(); // Capture the VFS name to use in closure
@@ -276,24 +303,34 @@ impl Database {
                 let vfs_cstr = CString::new(vfs_name_str.as_str())
                     .map_err(|_| "Invalid VFS name".to_string())?;
 
-                log::info!("Opening database: {} with VFS: {}", filename_copy, vfs_name_str);
-                
+                log::info!(
+                    "Opening database: {} with VFS: {}",
+                    filename_copy,
+                    vfs_name_str
+                );
+
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(&format!("[OPEN] About to call sqlite3_open_v2...").into());
-                
+
                 let ret = unsafe {
                     sqlite_wasm_rs::sqlite3_open_v2(
                         db_name.as_ptr(),
                         &mut db as *mut _,
                         sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
-                        vfs_cstr.as_ptr()
+                        vfs_cstr.as_ptr(),
                     )
                 };
-                
+
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("[OPEN] sqlite3_open_v2 returned: {}", ret).into());
-                
-                log::info!("sqlite3_open_v2 returned: {} for database: {}", ret, filename_copy);
+                web_sys::console::log_1(
+                    &format!("[OPEN] sqlite3_open_v2 returned: {}", ret).into(),
+                );
+
+                log::info!(
+                    "sqlite3_open_v2 returned: {} for database: {}",
+                    ret,
+                    filename_copy
+                );
 
                 if ret != sqlite_wasm_rs::SQLITE_OK {
                     let err_msg = unsafe {
@@ -304,20 +341,30 @@ impl Database {
                             "Unknown error".to_string()
                         }
                     };
-                    
+
                     #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("[OPEN] ERROR - sqlite3_open_v2 FAILED: ret={}, err={}", ret, err_msg).into());
-                    
-                    return Err(format!("Failed to open database with IndexedDB VFS: {}", err_msg));
+                    web_sys::console::log_1(
+                        &format!(
+                            "[OPEN] ERROR - sqlite3_open_v2 FAILED: ret={}, err={}",
+                            ret, err_msg
+                        )
+                        .into(),
+                    );
+
+                    return Err(format!(
+                        "Failed to open database with IndexedDB VFS: {}",
+                        err_msg
+                    ));
                 }
 
                 log::info!("Database opened successfully with IndexedDB VFS");
                 Ok(db)
-            }).map_err(|e| DatabaseError::new("CONNECTION_POOL_ERROR", &e))?;
+            })
+            .map_err(|e| DatabaseError::new("CONNECTION_POOL_ERROR", &e))?;
             let db_ptr = state.db.get();
             (state, db_ptr)
         };
-        
+
         // Apply configuration options via PRAGMA statements
         let exec_sql = |db: *mut sqlite_wasm_rs::sqlite3, sql: &str| -> Result<(), DatabaseError> {
             let c_sql = CString::new(sql)
@@ -329,7 +376,7 @@ impl Database {
                     c_sql.as_ptr(),
                     None,
                     std::ptr::null_mut(),
-                    std::ptr::null_mut()
+                    std::ptr::null_mut(),
                 )
             };
 
@@ -343,7 +390,10 @@ impl Database {
                     }
                 };
                 log::warn!("Failed to execute SQL '{}': {}", sql, err_msg);
-                return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to execute: {}", err_msg)));
+                return Err(DatabaseError::new(
+                    "SQLITE_ERROR",
+                    &format!("Failed to execute: {}", err_msg),
+                ));
             }
             Ok(())
         };
@@ -359,22 +409,22 @@ impl Database {
             log::debug!("Setting page_size to {}", page_size);
             exec_sql(db, &format!("PRAGMA page_size = {}", page_size))?;
         }
-        
+
         // Apply cache_size
         if let Some(cache_size) = config.cache_size {
             log::debug!("Setting cache_size to {}", cache_size);
             exec_sql(db, &format!("PRAGMA cache_size = {}", cache_size))?;
         }
-        
+
         // Apply journal_mode
         // WAL mode is now fully supported via shared memory (xShm*) implementation
         if let Some(ref journal_mode) = config.journal_mode {
             log::debug!("Setting journal_mode to {}", journal_mode);
-            
+
             let pragma_sql = format!("PRAGMA journal_mode = {}", journal_mode);
             let c_sql = CString::new(pragma_sql.as_str())
                 .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL statement"))?;
-            
+
             let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
             let ret = unsafe {
                 sqlite_wasm_rs::sqlite3_prepare_v2(
@@ -382,10 +432,10 @@ impl Database {
                     c_sql.as_ptr(),
                     -1,
                     &mut stmt as *mut _,
-                    std::ptr::null_mut()
+                    std::ptr::null_mut(),
                 )
             };
-            
+
             if ret == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
                 let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
                 if step_ret == sqlite_wasm_rs::SQLITE_ROW {
@@ -396,11 +446,12 @@ impl Database {
                                 .to_string_lossy()
                                 .to_uppercase()
                         };
-                        
+
                         if result_mode != journal_mode.to_uppercase() {
                             log::warn!(
                                 "journal_mode {} requested but SQLite set {}",
-                                journal_mode, result_mode
+                                journal_mode,
+                                result_mode
                             );
                         } else {
                             log::info!("journal_mode successfully set to {}", result_mode);
@@ -412,28 +463,36 @@ impl Database {
                 log::warn!("Failed to prepare journal_mode PRAGMA");
             }
         }
-        
+
         // Apply auto_vacuum (must be set before any tables are created)
         if let Some(auto_vacuum) = config.auto_vacuum {
             let vacuum_mode = if auto_vacuum { 1 } else { 0 }; // 0=none, 1=full, 2=incremental
             log::debug!("Setting auto_vacuum to {}", vacuum_mode);
             exec_sql(db, &format!("PRAGMA auto_vacuum = {}", vacuum_mode))?;
         }
-        
+
         log::info!("Database configuration applied successfully");
-        
+
         // Initialize metrics for telemetry
         #[cfg(feature = "telemetry")]
-        let metrics = crate::telemetry::Metrics::new()
-            .map_err(|e| DatabaseError::new("METRICS_ERROR", &format!("Failed to initialize metrics: {}", e)))?;
-        
+        let metrics = crate::telemetry::Metrics::new().map_err(|e| {
+            DatabaseError::new(
+                "METRICS_ERROR",
+                &format!("Failed to initialize metrics: {}", e),
+            )
+        })?;
+
         let database = Database {
             connection_state,
-            name: normalized_name.clone(),  // CRITICAL: Use normalized name WITH .db to match registry
+            name: normalized_name.clone(), // CRITICAL: Use normalized name WITH .db to match registry
             on_data_change_callback: None,
             allow_non_leader_writes: false,
-            optimistic_updates_manager: std::cell::RefCell::new(crate::storage::optimistic_updates::OptimisticUpdatesManager::new()),
-            coordination_metrics_manager: std::cell::RefCell::new(crate::storage::coordination_metrics::CoordinationMetricsManager::new()),
+            optimistic_updates_manager: std::cell::RefCell::new(
+                crate::storage::optimistic_updates::OptimisticUpdatesManager::new(),
+            ),
+            coordination_metrics_manager: std::cell::RefCell::new(
+                crate::storage::coordination_metrics::CoordinationMetricsManager::new(),
+            ),
             #[cfg(feature = "telemetry")]
             metrics: Some(metrics),
             #[cfg(feature = "telemetry")]
@@ -442,7 +501,7 @@ impl Database {
             span_context: Some(crate::telemetry::SpanContext::new()),
             max_export_size_bytes: config.max_export_size_bytes,
         };
-        
+
         // CRITICAL: Release the SQLite open lock ONLY after Database is fully constructed
         // This ensures WAL initialization and all setup completes before another instance can start
         #[cfg(target_arch = "wasm32")]
@@ -450,12 +509,13 @@ impl Database {
             DB_OPEN_IN_PROGRESS.with(|opens| {
                 opens.borrow_mut().remove(&config.name);
             });
-            web_sys::console::log_1(&format!("[DB] {} - RELEASED sqlite open lock", config.name).into());
+            web_sys::console::log_1(
+                &format!("[DB] {} - RELEASED sqlite open lock", config.name).into(),
+            );
         }
-        
+
         Ok(database)
     }
-    
 
     /// Open a database with a specific VFS using connection pooling
     pub async fn open_with_vfs(filename: &str, vfs_name: &str) -> Result<Self, DatabaseError> {
@@ -472,15 +532,14 @@ impl Database {
             let mut db: *mut sqlite_wasm_rs::sqlite3 = std::ptr::null_mut();
             let db_name = CString::new(normalized_name.clone())
                 .map_err(|_| "Invalid database name".to_string())?;
-            let vfs_cstr = CString::new(vfs_name)
-                .map_err(|_| "Invalid VFS name".to_string())?;
+            let vfs_cstr = CString::new(vfs_name).map_err(|_| "Invalid VFS name".to_string())?;
 
             let ret = unsafe {
                 sqlite_wasm_rs::sqlite3_open_v2(
                     db_name.as_ptr(),
                     &mut db as *mut _,
                     sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
-                    vfs_cstr.as_ptr()
+                    vfs_cstr.as_ptr(),
                 )
             };
 
@@ -489,7 +548,9 @@ impl Database {
                     unsafe {
                         let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
                         if !msg_ptr.is_null() {
-                            std::ffi::CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+                            std::ffi::CStr::from_ptr(msg_ptr)
+                                .to_string_lossy()
+                                .into_owned()
                         } else {
                             "Unknown error".to_string()
                         }
@@ -501,22 +562,35 @@ impl Database {
             }
 
             Ok(db)
-        }).map_err(|e| DatabaseError::new("OPEN_ERROR", &e))?;
+        })
+        .map_err(|e| DatabaseError::new("OPEN_ERROR", &e))?;
 
-        log::info!("Successfully opened database {} with VFS {}", normalized_name, vfs_name);
+        log::info!(
+            "Successfully opened database {} with VFS {}",
+            normalized_name,
+            vfs_name
+        );
 
         // Initialize metrics for telemetry
         #[cfg(feature = "telemetry")]
-        let metrics = crate::telemetry::Metrics::new()
-            .map_err(|e| DatabaseError::new("METRICS_ERROR", &format!("Failed to initialize metrics: {}", e)))?;
+        let metrics = crate::telemetry::Metrics::new().map_err(|e| {
+            DatabaseError::new(
+                "METRICS_ERROR",
+                &format!("Failed to initialize metrics: {}", e),
+            )
+        })?;
 
         Ok(Database {
             connection_state,
-            name: normalized_name,  // CRITICAL: Store normalized name WITH .db
+            name: normalized_name, // CRITICAL: Store normalized name WITH .db
             on_data_change_callback: None,
             allow_non_leader_writes: false,
-            optimistic_updates_manager: std::cell::RefCell::new(crate::storage::optimistic_updates::OptimisticUpdatesManager::new()),
-            coordination_metrics_manager: std::cell::RefCell::new(crate::storage::coordination_metrics::CoordinationMetricsManager::new()),
+            optimistic_updates_manager: std::cell::RefCell::new(
+                crate::storage::optimistic_updates::OptimisticUpdatesManager::new(),
+            ),
+            coordination_metrics_manager: std::cell::RefCell::new(
+                crate::storage::coordination_metrics::CoordinationMetricsManager::new(),
+            ),
             #[cfg(feature = "telemetry")]
             metrics: Some(metrics),
             #[cfg(feature = "telemetry")]
@@ -528,49 +602,57 @@ impl Database {
     }
 
     pub async fn execute_internal(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
-        use std::ffi::{CString, CStr};
+        use std::ffi::{CStr, CString};
         let start_time = js_sys::Date::now();
-        
+
         // Create span for query execution and enter context
         #[cfg(feature = "telemetry")]
         let span = if self.span_recorder.is_some() {
-            let query_type = sql.trim().split_whitespace().next().unwrap_or("UNKNOWN").to_uppercase();
+            let query_type = sql
+                .trim()
+                .split_whitespace()
+                .next()
+                .unwrap_or("UNKNOWN")
+                .to_uppercase();
             let mut builder = crate::telemetry::SpanBuilder::new("execute_query".to_string())
                 .with_attribute("query_type", query_type.clone())
                 .with_attribute("sql", sql.to_string());
-            
+
             // Attach baggage from context
             if let Some(ref context) = self.span_context {
                 builder = builder.with_baggage_from_context(context);
             }
-            
+
             let span = builder.build();
-            
+
             // Enter span context
             if let Some(ref context) = self.span_context {
                 context.enter_span(span.span_id.clone());
             }
-            
+
             Some(span)
         } else {
             None
         };
-        
+
         // Track query execution metrics
         #[cfg(feature = "telemetry")]
         #[cfg(feature = "telemetry")]
         if let Some(metrics) = &self.metrics {
             metrics.queries_total().inc();
         }
-        
+
         // Validate connection pointer before using it
         if self.db().is_null() {
-            return Err(DatabaseError::new("NULL_CONNECTION", "Database connection is null"));
+            return Err(DatabaseError::new(
+                "NULL_CONNECTION",
+                "Database connection is null",
+            ));
         }
-        
+
         let sql_cstr = CString::new(sql)
             .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL string"))?;
-        
+
         if sql.trim().to_uppercase().starts_with("SELECT") {
             let mut stmt = std::ptr::null_mut();
             let ret = unsafe {
@@ -579,10 +661,10 @@ impl Database {
                     sql_cstr.as_ptr(),
                     -1,
                     &mut stmt,
-                    std::ptr::null_mut()
+                    std::ptr::null_mut(),
                 )
             };
-            
+
             if ret != sqlite_wasm_rs::SQLITE_OK {
                 // Get actual error message from SQLite
                 let err_msg = unsafe {
@@ -596,7 +678,7 @@ impl Database {
 
                 // Track error
                 #[cfg(feature = "telemetry")]
-        #[cfg(feature = "telemetry")]
+                #[cfg(feature = "telemetry")]
                 if let Some(metrics) = &self.metrics {
                     metrics.errors_total().inc();
                 }
@@ -604,7 +686,10 @@ impl Database {
                 // Finish span with error
                 #[cfg(feature = "telemetry")]
                 if let Some(mut s) = span {
-                    s.status = crate::telemetry::SpanStatus::Error(format!("Failed to prepare: {}", err_msg));
+                    s.status = crate::telemetry::SpanStatus::Error(format!(
+                        "Failed to prepare: {}",
+                        err_msg
+                    ));
                     s.end_time_ms = Some(js_sys::Date::now());
                     if let Some(recorder) = &self.span_recorder {
                         recorder.record_span(s);
@@ -616,13 +701,17 @@ impl Database {
                     }
                 }
 
-                return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to prepare statement: {}", err_msg)).with_sql(sql));
+                return Err(DatabaseError::new(
+                    "SQLITE_ERROR",
+                    &format!("Failed to prepare statement: {}", err_msg),
+                )
+                .with_sql(sql));
             }
-            
+
             let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
             let mut columns = Vec::new();
             let mut rows = Vec::new();
-            
+
             // Get column names
             for i in 0..column_count {
                 let col_name = unsafe {
@@ -630,12 +719,14 @@ impl Database {
                     if name_ptr.is_null() {
                         format!("col_{}", i)
                     } else {
-                        std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
+                        std::ffi::CStr::from_ptr(name_ptr)
+                            .to_string_lossy()
+                            .into_owned()
                     }
                 };
                 columns.push(col_name);
             }
-            
+
             // Execute and fetch rows
             loop {
                 let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
@@ -649,30 +740,35 @@ impl Database {
                                 sqlite_wasm_rs::SQLITE_INTEGER => {
                                     let val = sqlite_wasm_rs::sqlite3_column_int64(stmt, i);
                                     ColumnValue::Integer(val)
-                                },
+                                }
                                 sqlite_wasm_rs::SQLITE_FLOAT => {
                                     let val = sqlite_wasm_rs::sqlite3_column_double(stmt, i);
                                     ColumnValue::Real(val)
-                                },
+                                }
                                 sqlite_wasm_rs::SQLITE_TEXT => {
                                     let text_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, i);
                                     if text_ptr.is_null() {
                                         ColumnValue::Null
                                     } else {
-                                        let text = std::ffi::CStr::from_ptr(text_ptr as *const i8).to_string_lossy().into_owned();
+                                        let text = std::ffi::CStr::from_ptr(text_ptr as *const i8)
+                                            .to_string_lossy()
+                                            .into_owned();
                                         ColumnValue::Text(text)
                                     }
-                                },
+                                }
                                 sqlite_wasm_rs::SQLITE_BLOB => {
                                     let blob_ptr = sqlite_wasm_rs::sqlite3_column_blob(stmt, i);
                                     let blob_size = sqlite_wasm_rs::sqlite3_column_bytes(stmt, i);
                                     if blob_ptr.is_null() || blob_size == 0 {
                                         ColumnValue::Blob(vec![])
                                     } else {
-                                        let blob_slice = std::slice::from_raw_parts(blob_ptr as *const u8, blob_size as usize);
+                                        let blob_slice = std::slice::from_raw_parts(
+                                            blob_ptr as *const u8,
+                                            blob_size as usize,
+                                        );
                                         ColumnValue::Blob(blob_slice.to_vec())
                                     }
-                                },
+                                }
                                 _ => ColumnValue::Null,
                             }
                         };
@@ -695,23 +791,27 @@ impl Database {
                     };
                     unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
                     // Track error
-        #[cfg(feature = "telemetry")]
+                    #[cfg(feature = "telemetry")]
                     if let Some(metrics) = &self.metrics {
                         metrics.errors_total().inc();
                     }
-                    return Err(DatabaseError::new("SQLITE_ERROR", &format!("Error executing SELECT statement: {}", err_msg)).with_sql(sql));
+                    return Err(DatabaseError::new(
+                        "SQLITE_ERROR",
+                        &format!("Error executing SELECT statement: {}", err_msg),
+                    )
+                    .with_sql(sql));
                 }
             }
-            
+
             unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
             let execution_time_ms = js_sys::Date::now() - start_time;
-            
+
             // Track query duration
-        #[cfg(feature = "telemetry")]
+            #[cfg(feature = "telemetry")]
             if let Some(metrics) = &self.metrics {
                 metrics.query_duration().observe(execution_time_ms);
             }
-            
+
             Ok(QueryResult {
                 columns,
                 rows,
@@ -728,10 +828,10 @@ impl Database {
                     sql_cstr.as_ptr(),
                     -1,
                     &mut stmt,
-                    std::ptr::null_mut()
+                    std::ptr::null_mut(),
                 )
             };
-            
+
             if ret != sqlite_wasm_rs::SQLITE_OK {
                 // Get actual error message from SQLite
                 let err_msg = unsafe {
@@ -744,18 +844,22 @@ impl Database {
                 };
 
                 // Track error
-        #[cfg(feature = "telemetry")]
+                #[cfg(feature = "telemetry")]
                 if let Some(metrics) = &self.metrics {
                     metrics.errors_total().inc();
                 }
-                return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to prepare statement: {}", err_msg)).with_sql(sql));
+                return Err(DatabaseError::new(
+                    "SQLITE_ERROR",
+                    &format!("Failed to prepare statement: {}", err_msg),
+                )
+                .with_sql(sql));
             }
-            
+
             // Get column info for PRAGMA statements that return results
             let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
             let mut columns = Vec::new();
             let mut rows = Vec::new();
-            
+
             if column_count > 0 {
                 // This is a PRAGMA or other statement that returns rows
                 for i in 0..column_count {
@@ -764,12 +868,14 @@ impl Database {
                         if name_ptr.is_null() {
                             format!("column_{}", i)
                         } else {
-                            std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
+                            std::ffi::CStr::from_ptr(name_ptr)
+                                .to_string_lossy()
+                                .into_owned()
                         }
                     };
                     columns.push(col_name);
                 }
-                
+
                 // Fetch all rows
                 loop {
                     let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
@@ -784,13 +890,16 @@ impl Database {
                                         if text_ptr.is_null() {
                                             ColumnValue::Null
                                         } else {
-                                            let text = std::ffi::CStr::from_ptr(text_ptr as *const i8).to_string_lossy().into_owned();
+                                            let text =
+                                                std::ffi::CStr::from_ptr(text_ptr as *const i8)
+                                                    .to_string_lossy()
+                                                    .into_owned();
                                             ColumnValue::Text(text)
                                         }
-                                    },
-                                    sqlite_wasm_rs::SQLITE_INTEGER => {
-                                        ColumnValue::Integer(sqlite_wasm_rs::sqlite3_column_int64(stmt, i))
-                                    },
+                                    }
+                                    sqlite_wasm_rs::SQLITE_INTEGER => ColumnValue::Integer(
+                                        sqlite_wasm_rs::sqlite3_column_int64(stmt, i),
+                                    ),
                                     _ => ColumnValue::Null,
                                 }
                             };
@@ -813,11 +922,15 @@ impl Database {
                         };
                         unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
                         // Track error
-        #[cfg(feature = "telemetry")]
+                        #[cfg(feature = "telemetry")]
                         if let Some(metrics) = &self.metrics {
                             metrics.errors_total().inc();
                         }
-                        return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to execute statement: {}", err_msg)).with_sql(sql));
+                        return Err(DatabaseError::new(
+                            "SQLITE_ERROR",
+                            &format!("Failed to execute statement: {}", err_msg),
+                        )
+                        .with_sql(sql));
                     }
                 }
             } else {
@@ -837,50 +950,57 @@ impl Database {
                     };
                     unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
                     // Track error
-        #[cfg(feature = "telemetry")]
+                    #[cfg(feature = "telemetry")]
                     if let Some(metrics) = &self.metrics {
                         metrics.errors_total().inc();
                     }
-                    return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to execute statement: {}", err_msg)).with_sql(sql));
+                    return Err(DatabaseError::new(
+                        "SQLITE_ERROR",
+                        &format!("Failed to execute statement: {}", err_msg),
+                    )
+                    .with_sql(sql));
                 }
             }
-            
+
             // Finalize to complete the statement
             unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-            
+
             let affected_rows = unsafe { sqlite_wasm_rs::sqlite3_changes(self.db()) } as u32;
             let last_insert_id = if sql.trim().to_uppercase().starts_with("INSERT") {
                 Some(unsafe { sqlite_wasm_rs::sqlite3_last_insert_rowid(self.db()) })
             } else {
                 None
             };
-            
+
             let execution_time_ms = js_sys::Date::now() - start_time;
-            
+
             // Track query duration
-        #[cfg(feature = "telemetry")]
+            #[cfg(feature = "telemetry")]
             if let Some(metrics) = &self.metrics {
                 metrics.query_duration().observe(execution_time_ms);
             }
-            
+
             // Finish span successfully
             #[cfg(feature = "telemetry")]
             if let Some(mut s) = span {
                 s.status = crate::telemetry::SpanStatus::Ok;
                 s.end_time_ms = Some(js_sys::Date::now());
-                s.attributes.insert("duration_ms".to_string(), execution_time_ms.to_string());
-                s.attributes.insert("affected_rows".to_string(), affected_rows.to_string());
-                s.attributes.insert("row_count".to_string(), rows.len().to_string());
+                s.attributes
+                    .insert("duration_ms".to_string(), execution_time_ms.to_string());
+                s.attributes
+                    .insert("affected_rows".to_string(), affected_rows.to_string());
+                s.attributes
+                    .insert("row_count".to_string(), rows.len().to_string());
                 if let Some(recorder) = &self.span_recorder {
                     recorder.record_span(s);
                 }
-                
+
                 // Exit span context
                 if let Some(ref context) = self.span_context {
                     context.exit_span();
                 }
             }
-            
+
             Ok(QueryResult {
                 columns,
                 rows,
@@ -890,15 +1010,24 @@ impl Database {
             })
         }
     }
-    
-    pub async fn execute_with_params_internal(&mut self, sql: &str, params: &[ColumnValue]) -> Result<QueryResult, DatabaseError> {
-        use std::ffi::{CString, CStr};
+
+    pub async fn execute_with_params_internal(
+        &mut self,
+        sql: &str,
+        params: &[ColumnValue],
+    ) -> Result<QueryResult, DatabaseError> {
+        use std::ffi::{CStr, CString};
         let start_time = js_sys::Date::now();
-        
+
         // Create span for query execution
         #[cfg(feature = "telemetry")]
         let span = if self.span_recorder.is_some() {
-            let query_type = sql.trim().split_whitespace().next().unwrap_or("UNKNOWN").to_uppercase();
+            let query_type = sql
+                .trim()
+                .split_whitespace()
+                .next()
+                .unwrap_or("UNKNOWN")
+                .to_uppercase();
             let span = crate::telemetry::SpanBuilder::new("execute_query".to_string())
                 .with_attribute("query_type", query_type.clone())
                 .with_attribute("sql", sql.to_string())
@@ -907,20 +1036,20 @@ impl Database {
         } else {
             None
         };
-        
+
         // Ensure metrics are propagated to BlockStorage before execution
         #[cfg(feature = "telemetry")]
         self.ensure_metrics_propagated();
-        
+
         // Track query execution metrics
         #[cfg(feature = "telemetry")]
         if let Some(metrics) = &self.metrics {
             metrics.queries_total().inc();
         }
-        
+
         let sql_cstr = CString::new(sql)
             .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL string"))?;
-        
+
         let mut stmt = std::ptr::null_mut();
         let ret = unsafe {
             sqlite_wasm_rs::sqlite3_prepare_v2(
@@ -928,10 +1057,10 @@ impl Database {
                 sql_cstr.as_ptr(),
                 -1,
                 &mut stmt,
-                std::ptr::null_mut()
+                std::ptr::null_mut(),
             )
         };
-        
+
         if ret != sqlite_wasm_rs::SQLITE_OK {
             // Get actual error message from SQLite
             let err_msg = unsafe {
@@ -944,7 +1073,7 @@ impl Database {
             };
 
             // Track error
-        #[cfg(feature = "telemetry")]
+            #[cfg(feature = "telemetry")]
             if let Some(metrics) = &self.metrics {
                 metrics.errors_total().inc();
             }
@@ -952,16 +1081,21 @@ impl Database {
             // Finish span with error
             #[cfg(feature = "telemetry")]
             if let Some(mut s) = span {
-                s.status = crate::telemetry::SpanStatus::Error(format!("Failed to prepare: {}", err_msg));
+                s.status =
+                    crate::telemetry::SpanStatus::Error(format!("Failed to prepare: {}", err_msg));
                 s.end_time_ms = Some(js_sys::Date::now());
                 if let Some(recorder) = &self.span_recorder {
                     recorder.record_span(s);
                 }
             }
 
-            return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to prepare statement: {}", err_msg)).with_sql(sql));
+            return Err(DatabaseError::new(
+                "SQLITE_ERROR",
+                &format!("Failed to prepare statement: {}", err_msg),
+            )
+            .with_sql(sql));
         }
-        
+
         // Bind parameters
         let mut text_cstrings = Vec::new(); // Keep CStrings alive
         for (i, param) in params.iter().enumerate() {
@@ -969,8 +1103,12 @@ impl Database {
             let bind_ret = unsafe {
                 match param {
                     ColumnValue::Null => sqlite_wasm_rs::sqlite3_bind_null(stmt, param_index),
-                    ColumnValue::Integer(val) => sqlite_wasm_rs::sqlite3_bind_int64(stmt, param_index, *val),
-                    ColumnValue::Real(val) => sqlite_wasm_rs::sqlite3_bind_double(stmt, param_index, *val),
+                    ColumnValue::Integer(val) => {
+                        sqlite_wasm_rs::sqlite3_bind_int64(stmt, param_index, *val)
+                    }
+                    ColumnValue::Real(val) => {
+                        sqlite_wasm_rs::sqlite3_bind_double(stmt, param_index, *val)
+                    }
                     ColumnValue::Text(val) => {
                         // Sanitize string by removing null bytes (SQLite text shouldn't contain them)
                         let sanitized = val.replace('\0', "");
@@ -978,44 +1116,44 @@ impl Database {
                         let text_cstr = CString::new(sanitized.as_str())
                             .expect("CString::new should not fail after null byte removal");
                         let result = sqlite_wasm_rs::sqlite3_bind_text(
-                            stmt, 
-                            param_index, 
-                            text_cstr.as_ptr(), 
-                            sanitized.len() as i32, 
-                            sqlite_wasm_rs::SQLITE_TRANSIENT()
+                            stmt,
+                            param_index,
+                            text_cstr.as_ptr(),
+                            sanitized.len() as i32,
+                            sqlite_wasm_rs::SQLITE_TRANSIENT(),
                         );
                         text_cstrings.push(text_cstr); // Keep alive
                         result
-                    },
-                    ColumnValue::Blob(val) => {
-                        sqlite_wasm_rs::sqlite3_bind_blob(
-                            stmt, 
-                            param_index, 
-                            val.as_ptr() as *const _, 
-                            val.len() as i32, 
-                            sqlite_wasm_rs::SQLITE_TRANSIENT()
-                        )
-                    },
+                    }
+                    ColumnValue::Blob(val) => sqlite_wasm_rs::sqlite3_bind_blob(
+                        stmt,
+                        param_index,
+                        val.as_ptr() as *const _,
+                        val.len() as i32,
+                        sqlite_wasm_rs::SQLITE_TRANSIENT(),
+                    ),
                     _ => sqlite_wasm_rs::sqlite3_bind_null(stmt, param_index),
                 }
             };
-            
+
             if bind_ret != sqlite_wasm_rs::SQLITE_OK {
                 unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
                 // Track error
-        #[cfg(feature = "telemetry")]
+                #[cfg(feature = "telemetry")]
                 if let Some(metrics) = &self.metrics {
                     metrics.errors_total().inc();
                 }
-                return Err(DatabaseError::new("SQLITE_ERROR", "Failed to bind parameter").with_sql(sql));
+                return Err(
+                    DatabaseError::new("SQLITE_ERROR", "Failed to bind parameter").with_sql(sql),
+                );
             }
         }
-        
+
         if sql.trim().to_uppercase().starts_with("SELECT") {
             let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
             let mut columns = Vec::new();
             let mut rows = Vec::new();
-            
+
             // Get column names
             for i in 0..column_count {
                 let col_name = unsafe {
@@ -1023,12 +1161,14 @@ impl Database {
                     if name_ptr.is_null() {
                         format!("col_{}", i)
                     } else {
-                        std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
+                        std::ffi::CStr::from_ptr(name_ptr)
+                            .to_string_lossy()
+                            .into_owned()
                     }
                 };
                 columns.push(col_name);
             }
-            
+
             // Execute and fetch rows
             loop {
                 let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
@@ -1042,30 +1182,35 @@ impl Database {
                                 sqlite_wasm_rs::SQLITE_INTEGER => {
                                     let val = sqlite_wasm_rs::sqlite3_column_int64(stmt, i);
                                     ColumnValue::Integer(val)
-                                },
+                                }
                                 sqlite_wasm_rs::SQLITE_FLOAT => {
                                     let val = sqlite_wasm_rs::sqlite3_column_double(stmt, i);
                                     ColumnValue::Real(val)
-                                },
+                                }
                                 sqlite_wasm_rs::SQLITE_TEXT => {
                                     let text_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, i);
                                     if text_ptr.is_null() {
                                         ColumnValue::Null
                                     } else {
-                                        let text = std::ffi::CStr::from_ptr(text_ptr as *const i8).to_string_lossy().into_owned();
+                                        let text = std::ffi::CStr::from_ptr(text_ptr as *const i8)
+                                            .to_string_lossy()
+                                            .into_owned();
                                         ColumnValue::Text(text)
                                     }
-                                },
+                                }
                                 sqlite_wasm_rs::SQLITE_BLOB => {
                                     let blob_ptr = sqlite_wasm_rs::sqlite3_column_blob(stmt, i);
                                     let blob_size = sqlite_wasm_rs::sqlite3_column_bytes(stmt, i);
                                     if blob_ptr.is_null() || blob_size == 0 {
                                         ColumnValue::Blob(vec![])
                                     } else {
-                                        let blob_slice = std::slice::from_raw_parts(blob_ptr as *const u8, blob_size as usize);
+                                        let blob_slice = std::slice::from_raw_parts(
+                                            blob_ptr as *const u8,
+                                            blob_size as usize,
+                                        );
                                         ColumnValue::Blob(blob_slice.to_vec())
                                     }
-                                },
+                                }
                                 _ => ColumnValue::Null,
                             }
                         };
@@ -1088,37 +1233,42 @@ impl Database {
                     };
                     unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
                     // Track error
-        #[cfg(feature = "telemetry")]
+                    #[cfg(feature = "telemetry")]
                     if let Some(metrics) = &self.metrics {
                         metrics.errors_total().inc();
                     }
-                    return Err(DatabaseError::new("SQLITE_ERROR", &format!("Error executing SELECT statement: {}", err_msg)).with_sql(sql));
+                    return Err(DatabaseError::new(
+                        "SQLITE_ERROR",
+                        &format!("Error executing SELECT statement: {}", err_msg),
+                    )
+                    .with_sql(sql));
                 }
             }
-            
+
             unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-            
-            
+
             let execution_time_ms = js_sys::Date::now() - start_time;
-            
+
             // Track query duration
-        #[cfg(feature = "telemetry")]
+            #[cfg(feature = "telemetry")]
             if let Some(metrics) = &self.metrics {
                 metrics.query_duration().observe(execution_time_ms);
             }
-            
+
             // Finish span successfully for SELECT query
             #[cfg(feature = "telemetry")]
             if let Some(mut s) = span {
                 s.status = crate::telemetry::SpanStatus::Ok;
                 s.end_time_ms = Some(js_sys::Date::now());
-                s.attributes.insert("duration_ms".to_string(), execution_time_ms.to_string());
-                s.attributes.insert("row_count".to_string(), rows.len().to_string());
+                s.attributes
+                    .insert("duration_ms".to_string(), execution_time_ms.to_string());
+                s.attributes
+                    .insert("row_count".to_string(), rows.len().to_string());
                 if let Some(recorder) = &self.span_recorder {
                     recorder.record_span(s);
                 }
             }
-            
+
             Ok(QueryResult {
                 columns,
                 rows,
@@ -1129,13 +1279,13 @@ impl Database {
         } else {
             // Non-SELECT statements
             let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
-                // Track error
-        #[cfg(feature = "telemetry")]
-                if let Some(metrics) = &self.metrics {
-                    metrics.errors_total().inc();
-                }
+            // Track error
+            #[cfg(feature = "telemetry")]
+            if let Some(metrics) = &self.metrics {
+                metrics.errors_total().inc();
+            }
             unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-            
+
             if step_ret != sqlite_wasm_rs::SQLITE_DONE {
                 let err_msg = unsafe {
                     let err_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
@@ -1147,14 +1297,17 @@ impl Database {
                         "Unknown SQLite error".to_string()
                     }
                 };
-                return Err(DatabaseError::new("SQLITE_ERROR", &format!("Failed to execute statement: {}", err_msg)).with_sql(sql));
+                return Err(DatabaseError::new(
+                    "SQLITE_ERROR",
+                    &format!("Failed to execute statement: {}", err_msg),
+                )
+                .with_sql(sql));
             }
-            
-            
+
             let execution_time_ms = js_sys::Date::now() - start_time;
-            
+
             // Track query duration
-        #[cfg(feature = "telemetry")]
+            #[cfg(feature = "telemetry")]
             if let Some(metrics) = &self.metrics {
                 metrics.query_duration().observe(execution_time_ms);
             }
@@ -1164,19 +1317,21 @@ impl Database {
             } else {
                 None
             };
-            
+
             // Finish span successfully
             #[cfg(feature = "telemetry")]
             if let Some(mut s) = span {
                 s.status = crate::telemetry::SpanStatus::Ok;
                 s.end_time_ms = Some(js_sys::Date::now());
-                s.attributes.insert("duration_ms".to_string(), execution_time_ms.to_string());
-                s.attributes.insert("affected_rows".to_string(), affected_rows.to_string());
+                s.attributes
+                    .insert("duration_ms".to_string(), execution_time_ms.to_string());
+                s.attributes
+                    .insert("affected_rows".to_string(), affected_rows.to_string());
                 if let Some(recorder) = &self.span_recorder {
                     recorder.record_span(s);
                 }
             }
-            
+
             Ok(QueryResult {
                 columns: vec![],
                 rows: vec![],
@@ -1186,7 +1341,7 @@ impl Database {
             })
         }
     }
-    
+
     /// Set telemetry metrics for this database instance
     #[cfg(feature = "telemetry")]
     pub fn set_metrics(&mut self, metrics: Option<crate::telemetry::Metrics>) {
@@ -1218,13 +1373,13 @@ impl Database {
         #[cfg(target_arch = "wasm32")]
         {
             use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-            
+
             if self.metrics.is_none() {
                 return;
             }
-            
+
             let db_name = &self.name;
-            
+
             if let Some(storage_rc) = get_storage_with_fallback(db_name) {
                 use crate::vfs::indexeddb_vfs::with_storage_borrow_mut;
                 let _ = with_storage_borrow_mut(&storage_rc, "set_metrics", |storage| {
@@ -1234,41 +1389,52 @@ impl Database {
             }
         }
     }
-    
+
     pub async fn close_internal(&mut self) -> Result<(), DatabaseError> {
         log::info!("CLOSE_INTERNAL STARTED for: {}", self.name);
-        
+
         // Check if connection is already null (e.g., after import force-close)
         if self.connection_state.db.get().is_null() {
-            log::info!("Connection already null for {}, skipping close operations", self.name);
+            log::info!(
+                "Connection already null for {}, skipping close operations",
+                self.name
+            );
             return Ok(());
         }
-        
+
         // Checkpoint WAL data before close using PASSIVE mode (non-blocking)
         log::info!("Checkpointing WAL before close: {}", self.name);
-        let _ = self.execute_internal("PRAGMA wal_checkpoint(PASSIVE)").await;
+        let _ = self
+            .execute_internal("PRAGMA wal_checkpoint(PASSIVE)")
+            .await;
         log::info!("WAL checkpoint completed for: {}", self.name);
-        
+
         // Sync to IndexedDB before closing to ensure data persists
         log::info!("Syncing database before close: {}", self.name);
         self.sync_internal().await?;
         log::info!("Sync completed for: {}", self.name);
-        
-        web_sys::console::log_1(&format!("CLOSE: About to stop leader election for {}", self.name).into());
-        
+
+        web_sys::console::log_1(
+            &format!("CLOSE: About to stop leader election for {}", self.name).into(),
+        );
+
         // Stop leader election before closing
         #[cfg(target_arch = "wasm32")]
         {
             use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-            
+
             let db_name = &self.name;
-            web_sys::console::log_1(&format!("STOP_ELECTION: Getting storage for {}", db_name).into());
+            web_sys::console::log_1(
+                &format!("STOP_ELECTION: Getting storage for {}", db_name).into(),
+            );
             log::info!("STOP_ELECTION: Getting storage for {}", db_name);
             let storage_rc = get_storage_with_fallback(db_name);
-            
+
             if let Some(storage_rc) = storage_rc {
                 log::info!("STOP_ELECTION: Found storage for {}, calling stop", db_name);
-                match with_storage_async!(storage_rc, "stop_leader_election", |storage| storage.stop_leader_election()) {
+                match with_storage_async!(storage_rc, "stop_leader_election", |storage| storage
+                    .stop_leader_election())
+                {
                     Some(Ok(())) => {
                         log::info!("STOP_ELECTION: Successfully stopped for {}", db_name);
                     }
@@ -1289,50 +1455,55 @@ impl Database {
         // The Drop impl will handle releasing the connection when the Database instance is dropped
         // Calling it here would cause a double-release when both close() and Drop are called
 
-        log::info!("Closed database: {} (connection will be released on Drop)", self.name);
+        log::info!(
+            "Closed database: {} (connection will be released on Drop)",
+            self.name
+        );
         Ok(())
     }
-    
+
     /// Query database and return rows (alias for execute that returns rows)
     pub async fn query(&mut self, sql: &str) -> Result<Vec<Row>, DatabaseError> {
         let result = self.execute_internal(sql).await?;
         Ok(result.rows)
     }
-    
+
     pub async fn sync_internal(&mut self) -> Result<(), DatabaseError> {
         // Start timing for telemetry
         #[cfg(all(target_arch = "wasm32", feature = "telemetry"))]
         let start_time = js_sys::Date::now();
-        
+
         // Create span for VFS sync operation with automatic context linking
         #[cfg(feature = "telemetry")]
         let span = if self.span_recorder.is_some() {
             let mut builder = crate::telemetry::SpanBuilder::new("vfs_sync".to_string())
                 .with_attribute("operation", "sync");
-            
+
             // Automatically link to parent span via context and copy baggage
             if let Some(ref context) = self.span_context {
-                builder = builder.with_context(context).with_baggage_from_context(context);
+                builder = builder
+                    .with_context(context)
+                    .with_baggage_from_context(context);
             }
-            
+
             let span = builder.build();
-            
+
             // Enter this span's context
             if let Some(ref context) = self.span_context {
                 context.enter_span(span.span_id.clone());
             }
-            
+
             Some(span)
         } else {
             None
         };
-        
+
         // Track sync operation start
         #[cfg(feature = "telemetry")]
         if let Some(ref metrics) = self.metrics {
             metrics.sync_operations_total().inc();
         }
-        
+
         // Track blocks persisted for span attributes
         #[cfg(feature = "telemetry")]
         let mut blocks_count = 0;
@@ -1357,52 +1528,92 @@ impl Database {
                 let current = cm_ref.get(storage_name).copied().unwrap_or(0);
                 let new_marker = current + 1;
                 cm_ref.insert(storage_name.to_string(), new_marker);
-                log::debug!("Advanced commit marker for {} from {} to {}", storage_name, current, new_marker);
+                log::debug!(
+                    "Advanced commit marker for {} from {} to {}",
+                    storage_name,
+                    current,
+                    new_marker
+                );
                 new_marker
             });
-            
-            web_sys::console::log_1(&format!("[SYNC] Collecting blocks from GLOBAL_STORAGE for: {}", storage_name).into());
-            let (blocks_to_persist, metadata_to_persist) = vfs_sync::with_global_storage(|storage| {
-                #[cfg(target_arch = "wasm32")]
-                let storage_map = storage.borrow();
-                #[cfg(not(target_arch = "wasm32"))]
-                let storage_map = storage.lock();
 
-                let blocks = if let Some(db_storage) = storage_map.get(storage_name) {
-                    let count = db_storage.len();
-                    web_sys::console::log_1(&format!("[SYNC] Found {} blocks in GLOBAL_STORAGE", count).into());
-                    db_storage.iter().map(|(&id, data)| (id, data.clone())).collect::<Vec<_>>()
-                } else {
-                    web_sys::console::log_1(&format!("[SYNC] No blocks found in GLOBAL_STORAGE for {}", storage_name).into());
-                    Vec::new()
-                };
-
-                let metadata = vfs_sync::with_global_metadata(|meta| {
+            web_sys::console::log_1(
+                &format!(
+                    "[SYNC] Collecting blocks from GLOBAL_STORAGE for: {}",
+                    storage_name
+                )
+                .into(),
+            );
+            let (blocks_to_persist, metadata_to_persist) =
+                vfs_sync::with_global_storage(|storage| {
                     #[cfg(target_arch = "wasm32")]
-                    let meta_map = meta.borrow();
+                    let storage_map = storage.borrow();
                     #[cfg(not(target_arch = "wasm32"))]
-                    let meta_map = meta.lock();
-                    if let Some(db_meta) = meta_map.get(storage_name) {
-                        let count = db_meta.len();
-                        web_sys::console::log_1(&format!("[SYNC] Found {} metadata entries", count).into());
-                        db_meta.iter().map(|(&id, metadata)| (id, metadata.checksum)).collect::<Vec<_>>()
+                    let storage_map = storage.lock();
+
+                    let blocks = if let Some(db_storage) = storage_map.get(storage_name) {
+                        let count = db_storage.len();
+                        web_sys::console::log_1(
+                            &format!("[SYNC] Found {} blocks in GLOBAL_STORAGE", count).into(),
+                        );
+                        db_storage
+                            .iter()
+                            .map(|(&id, data)| (id, data.clone()))
+                            .collect::<Vec<_>>()
                     } else {
-                        web_sys::console::log_1(&format!("[SYNC] No metadata found").into());
+                        web_sys::console::log_1(
+                            &format!(
+                                "[SYNC] No blocks found in GLOBAL_STORAGE for {}",
+                                storage_name
+                            )
+                            .into(),
+                        );
                         Vec::new()
-                    }
+                    };
+
+                    let metadata = vfs_sync::with_global_metadata(|meta| {
+                        #[cfg(target_arch = "wasm32")]
+                        let meta_map = meta.borrow();
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let meta_map = meta.lock();
+                        if let Some(db_meta) = meta_map.get(storage_name) {
+                            let count = db_meta.len();
+                            web_sys::console::log_1(
+                                &format!("[SYNC] Found {} metadata entries", count).into(),
+                            );
+                            db_meta
+                                .iter()
+                                .map(|(&id, metadata)| (id, metadata.checksum))
+                                .collect::<Vec<_>>()
+                        } else {
+                            web_sys::console::log_1(&format!("[SYNC] No metadata found").into());
+                            Vec::new()
+                        }
+                    });
+
+                    (blocks, metadata)
                 });
 
-                (blocks, metadata)
-            });
-            
-            web_sys::console::log_1(&format!("[SYNC] Preparing to persist {} blocks to IndexedDB", blocks_to_persist.len()).into());
-            
+            web_sys::console::log_1(
+                &format!(
+                    "[SYNC] Preparing to persist {} blocks to IndexedDB",
+                    blocks_to_persist.len()
+                )
+                .into(),
+            );
+
             if !blocks_to_persist.is_empty() {
                 #[cfg(feature = "telemetry")]
                 {
                     blocks_count = blocks_to_persist.len();
                 }
-                web_sys::console::log_1(&format!("[SYNC] Persisting {} blocks to IndexedDB", blocks_to_persist.len()).into());
+                web_sys::console::log_1(
+                    &format!(
+                        "[SYNC] Persisting {} blocks to IndexedDB",
+                        blocks_to_persist.len()
+                    )
+                    .into(),
+                );
                 crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
                     storage_name,
                     blocks_to_persist,
@@ -1412,35 +1623,43 @@ impl Database {
                     self.span_recorder.clone(),
                     #[cfg(feature = "telemetry")]
                     span.as_ref().map(|s| s.span_id.clone()),
-                ).await?;
-                web_sys::console::log_1(&format!("[SYNC] Successfully persisted to IndexedDB").into());
+                )
+                .await?;
+                web_sys::console::log_1(
+                    &format!("[SYNC] Successfully persisted to IndexedDB").into(),
+                );
             } else {
-                web_sys::console::log_1(&format!("[SYNC] WARNING: No blocks to persist - GLOBAL_STORAGE is empty!").into());
+                web_sys::console::log_1(
+                    &format!("[SYNC] WARNING: No blocks to persist - GLOBAL_STORAGE is empty!")
+                        .into(),
+                );
             }
-            
+
             // Send notification after successful sync
-            use crate::storage::broadcast_notifications::{BroadcastNotification, send_change_notification};
-            
+            use crate::storage::broadcast_notifications::{
+                BroadcastNotification, send_change_notification,
+            };
+
             let notification = BroadcastNotification::DataChanged {
                 db_name: self.name.clone(),
                 timestamp: js_sys::Date::now() as u64,
             };
-            
+
             log::debug!("Sending DataChanged notification for {}", self.name);
-            
+
             if let Err(e) = send_change_notification(&notification) {
                 log::warn!("Failed to send change notification: {}", e);
                 // Don't fail the sync if notification fails
             }
         }
-        
+
         // Record sync duration
         #[cfg(all(target_arch = "wasm32", feature = "telemetry"))]
         if let Some(ref metrics) = self.metrics {
             let duration_ms = js_sys::Date::now() - start_time;
             metrics.sync_duration().observe(duration_ms);
         }
-        
+
         // Finish span successfully
         #[cfg(feature = "telemetry")]
         if let Some(mut s) = span {
@@ -1449,7 +1668,8 @@ impl Database {
             {
                 s.end_time_ms = Some(js_sys::Date::now());
                 let duration_ms = s.end_time_ms.unwrap() - s.start_time_ms;
-                s.attributes.insert("duration_ms".to_string(), duration_ms.to_string());
+                s.attributes
+                    .insert("duration_ms".to_string(), duration_ms.to_string());
             }
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -1459,19 +1679,21 @@ impl Database {
                     .as_millis() as f64;
                 s.end_time_ms = Some(now);
                 let duration_ms = s.end_time_ms.unwrap() - s.start_time_ms;
-                s.attributes.insert("duration_ms".to_string(), duration_ms.to_string());
+                s.attributes
+                    .insert("duration_ms".to_string(), duration_ms.to_string());
             }
-            s.attributes.insert("blocks_persisted".to_string(), blocks_count.to_string());
+            s.attributes
+                .insert("blocks_persisted".to_string(), blocks_count.to_string());
             if let Some(recorder) = &self.span_recorder {
                 recorder.record_span(s);
             }
-            
+
             // Exit span context
             if let Some(ref context) = self.span_context {
                 context.exit_span();
             }
         }
-        
+
         Ok(())
     }
 }
@@ -1488,7 +1710,7 @@ impl Drop for Database {
         crate::connection_pool::release_connection(pool_key);
 
         web_sys::console::log_1(&format!("DROP: Connection released for {}", self.name).into());
-        
+
         // CRITICAL: Stop heartbeat interval synchronously to prevent leaks
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
         if let Some(storage_rc) = get_storage_with_fallback(&self.name) {
@@ -1501,24 +1723,41 @@ impl Drop for Database {
                     if let Some(interval_id) = manager.heartbeat_interval.take() {
                         if let Some(window) = web_sys::window() {
                             window.clear_interval_with_handle(interval_id);
-                            web_sys::console::log_1(&format!("DROP: Cleared heartbeat interval {} for {}", interval_id, self.name).into());
+                            web_sys::console::log_1(
+                                &format!(
+                                    "DROP: Cleared heartbeat interval {} for {}",
+                                    interval_id, self.name
+                                )
+                                .into(),
+                            );
                         }
                     }
                     // Drop closure to release Rc references
                     if manager.heartbeat_closure.take().is_some() {
-                        web_sys::console::log_1(&format!("DROP: Released heartbeat closure for {}", self.name).into());
+                        web_sys::console::log_1(
+                            &format!("DROP: Released heartbeat closure for {}", self.name).into(),
+                        );
                     }
                 }
             } else {
                 // Manager already borrowed - skip (first DB is cleaning up)
-                web_sys::console::log_1(&format!("[DROP] Skipping {} (heartbeat already stopped by shared DB)", self.name).into());
+                web_sys::console::log_1(
+                    &format!(
+                        "[DROP] Skipping {} (heartbeat already stopped by shared DB)",
+                        self.name
+                    )
+                    .into(),
+                );
             }
         }
-        
+
         // Keep BlockStorage in STORAGE_REGISTRY so multiple Database instances
         // with the same name share the same BlockStorage and leader election state
         // Blocks persist in GLOBAL_STORAGE across Database instances
-        log::debug!("Closed database: {} (BlockStorage remains in registry)", self.name);
+        log::debug!(
+            "Closed database: {} (BlockStorage remains in registry)",
+            self.name
+        );
     }
 }
 
@@ -1534,7 +1773,7 @@ impl Database {
         } else {
             format!("{}.db", name)
         };
-        
+
         let config = DatabaseConfig {
             name: normalized_name.clone(),
             version: Some(1),
@@ -1544,35 +1783,35 @@ impl Database {
             journal_mode: Some("WAL".to_string()),
             max_export_size_bytes: Some(2 * 1024 * 1024 * 1024), // 2GB default
         };
-        
+
         let db = Database::new(config)
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
-        
+
         // Start listening for write queue requests (leader will process them)
         Self::start_write_queue_listener(&normalized_name)?;
-        
+
         Ok(db)
     }
-    
+
     /// Get the database name
     #[wasm_bindgen(getter)]
     pub fn name(&self) -> String {
         self.name.clone()
     }
-    
+
     /// Get all database names stored in IndexedDB
-    /// 
+    ///
     /// Returns an array of database names (sorted alphabetically)
     #[wasm_bindgen(js_name = "getAllDatabases")]
     pub async fn get_all_databases() -> Result<JsValue, JsValue> {
-        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         use crate::storage::vfs_sync::with_global_storage;
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         use std::collections::HashSet;
-        
+
         log::info!("getAllDatabases called");
         let mut db_names = HashSet::new();
-        
+
         // Get databases from persistent list (localStorage)
         match Self::get_persistent_database_list() {
             Ok(persistent_list) => {
@@ -1586,20 +1825,18 @@ impl Database {
                 log::warn!("Failed to get persistent list: {:?}", e);
             }
         }
-        
+
         // Get databases from STORAGE_REGISTRY (currently open)
         // SAFETY: WASM is single-threaded, no concurrent access possible
-        STORAGE_REGISTRY.with(|reg| {
-            unsafe {
-                let registry = &*reg.get();
-                log::info!("STORAGE_REGISTRY has {} entries", registry.len());
-                for key in registry.keys() {
-                    log::info!("Found in STORAGE_REGISTRY: {}", key);
-                    db_names.insert(key.clone());
-                }
+        STORAGE_REGISTRY.with(|reg| unsafe {
+            let registry = &*reg.get();
+            log::info!("STORAGE_REGISTRY has {} entries", registry.len());
+            for key in registry.keys() {
+                log::info!("Found in STORAGE_REGISTRY: {}", key);
+                db_names.insert(key.clone());
             }
         });
-        
+
         // Get databases from GLOBAL_STORAGE (in-memory persistent storage)
         with_global_storage(|storage| {
             let storage_borrow = storage.borrow();
@@ -1609,45 +1846,47 @@ impl Database {
                 db_names.insert(key.clone());
             }
         });
-        
+
         log::info!("Total unique databases found: {}", db_names.len());
-        
+
         // Convert to sorted vector
         let mut result_vec: Vec<String> = db_names.into_iter().collect();
         result_vec.sort();
-        
+
         // Convert to JavaScript array
         let js_array = js_sys::Array::new();
         for name in &result_vec {
             log::info!("Returning database: {}", name);
             js_array.push(&JsValue::from_str(name));
         }
-        
+
         log::info!("getAllDatabases returning {} databases", result_vec.len());
-        
+
         Ok(js_array.into())
     }
-    
+
     /// Delete a database from storage
-    /// 
+    ///
     /// Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
     #[wasm_bindgen(js_name = "deleteDatabase")]
     pub async fn delete_database(name: String) -> Result<(), JsValue> {
-        use crate::storage::vfs_sync::{with_global_storage, with_global_metadata, with_global_commit_marker};
-        
+        use crate::storage::vfs_sync::{
+            with_global_commit_marker, with_global_metadata, with_global_storage,
+        };
+
         // Normalize database name
         let normalized_name = if name.ends_with(".db") {
             name.clone()
         } else {
             format!("{}.db", name)
         };
-        
+
         log::info!("Deleting database: {}", normalized_name);
-        
+
         // Remove from STORAGE_REGISTRY
         use crate::vfs::indexeddb_vfs::remove_storage_from_registry;
         remove_storage_from_registry(&normalized_name);
-        
+
         // Remove from GLOBAL_STORAGE
         with_global_storage(|gs| {
             #[cfg(target_arch = "wasm32")]
@@ -1656,7 +1895,7 @@ impl Database {
             let mut storage = gs.lock();
             storage.remove(&normalized_name);
         });
-        
+
         // Remove from GLOBAL_METADATA
         with_global_metadata(|gm| {
             #[cfg(target_arch = "wasm32")]
@@ -1665,43 +1904,45 @@ impl Database {
             let mut metadata = gm.lock();
             metadata.remove(&normalized_name);
         });
-        
+
         // Remove from commit markers
         with_global_commit_marker(|cm| {
             #[cfg(target_arch = "wasm32")]
             let mut markers = cm.borrow_mut();
             #[cfg(not(target_arch = "wasm32"))]
             let mut markers = cm.lock();
-            log::info!("Cleared commit marker for {} from GLOBAL storage", normalized_name);
+            log::info!(
+                "Cleared commit marker for {} from GLOBAL storage",
+                normalized_name
+            );
             markers.remove(&normalized_name);
         });
-        
+
         // Delete from IndexedDB
         let idb_name = format!("absurder_{}", normalized_name);
-        let _delete_promise = js_sys::eval(&format!(
-            "indexedDB.deleteDatabase('{}')",
-            idb_name
-        )).map_err(|e| JsValue::from_str(&format!("Failed to delete IndexedDB: {:?}", e)))?;
-        
+        let _delete_promise = js_sys::eval(&format!("indexedDB.deleteDatabase('{}')", idb_name))
+            .map_err(|e| JsValue::from_str(&format!("Failed to delete IndexedDB: {:?}", e)))?;
+
         log::info!("Database deleted: {}", normalized_name);
-        
+
         // Remove from persistent list
         Self::remove_database_from_persistent_list(&normalized_name)?;
-        
+
         Ok(())
     }
-    
+
     /// Add database name to persistent list in localStorage
     #[allow(dead_code)]
     fn add_database_to_persistent_list(db_name: &str) -> Result<(), JsValue> {
         log::info!("add_database_to_persistent_list called for: {}", db_name);
-        
+
         let window = web_sys::window().ok_or_else(|| {
             log::error!("No window object");
             JsValue::from_str("No window")
         })?;
-        
-        let storage = window.local_storage()
+
+        let storage = window
+            .local_storage()
             .map_err(|e| {
                 log::error!("Failed to get localStorage: {:?}", e);
                 JsValue::from_str("No localStorage")
@@ -1710,15 +1951,15 @@ impl Database {
                 log::error!("localStorage not available");
                 JsValue::from_str("localStorage not available")
             })?;
-        
+
         let key = "absurder_db_list";
         let existing = storage.get_item(key).map_err(|e| {
             log::error!("Failed to read localStorage key {}: {:?}", key, e);
             JsValue::from_str("Failed to read localStorage")
         })?;
-        
+
         log::debug!("Existing localStorage value: {:?}", existing);
-        
+
         let mut db_list: Vec<String> = if let Some(json_str) = existing {
             match serde_json::from_str(&json_str) {
                 Ok(list) => {
@@ -1734,63 +1975,71 @@ impl Database {
             log::debug!("No existing list, creating new");
             Vec::new()
         };
-        
+
         if !db_list.contains(&db_name.to_string()) {
             db_list.push(db_name.to_string());
             db_list.sort();
             log::debug!("Updated list: {:?}", db_list);
-            
+
             let json_str = serde_json::to_string(&db_list).map_err(|e| {
                 log::error!("Failed to serialize list: {}", e);
                 JsValue::from_str("Failed to serialize")
             })?;
-            
+
             log::debug!("Writing to localStorage: {}", json_str);
-            
+
             storage.set_item(key, &json_str).map_err(|e| {
                 log::error!("Failed to write to localStorage: {:?}", e);
                 JsValue::from_str("Failed to write localStorage")
             })?;
-            
+
             log::info!("Successfully added {} to persistent database list", db_name);
         } else {
             log::info!("{} already in persistent list", db_name);
         }
-        
+
         Ok(())
     }
-    
+
     /// Remove database name from persistent list in localStorage
     fn remove_database_from_persistent_list(db_name: &str) -> Result<(), JsValue> {
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
-        let storage = window.local_storage()
+        let storage = window
+            .local_storage()
             .map_err(|_| JsValue::from_str("No localStorage"))?
             .ok_or_else(|| JsValue::from_str("localStorage not available"))?;
-        
+
         let key = "absurder_db_list";
-        let existing = storage.get_item(key).map_err(|_| JsValue::from_str("Failed to read localStorage"))?;
-        
+        let existing = storage
+            .get_item(key)
+            .map_err(|_| JsValue::from_str("Failed to read localStorage"))?;
+
         if let Some(json_str) = existing {
-            let mut db_list: Vec<String> = serde_json::from_str(&json_str).unwrap_or_else(|_| Vec::new());
+            let mut db_list: Vec<String> =
+                serde_json::from_str(&json_str).unwrap_or_else(|_| Vec::new());
             db_list.retain(|name| name != db_name);
-            let json_str = serde_json::to_string(&db_list).map_err(|_| JsValue::from_str("Failed to serialize"))?;
-            storage.set_item(key, &json_str).map_err(|_| JsValue::from_str("Failed to write localStorage"))?;
+            let json_str = serde_json::to_string(&db_list)
+                .map_err(|_| JsValue::from_str("Failed to serialize"))?;
+            storage
+                .set_item(key, &json_str)
+                .map_err(|_| JsValue::from_str("Failed to write localStorage"))?;
             log::info!("Removed {} from persistent database list", db_name);
         }
-        
+
         Ok(())
     }
-    
+
     /// Get database names from persistent list in localStorage
     fn get_persistent_database_list() -> Result<Vec<String>, JsValue> {
         log::info!("get_persistent_database_list called");
-        
+
         let window = web_sys::window().ok_or_else(|| {
             log::error!("No window object");
             JsValue::from_str("No window")
         })?;
-        
-        let storage = window.local_storage()
+
+        let storage = window
+            .local_storage()
             .map_err(|e| {
                 log::error!("Failed to get localStorage: {:?}", e);
                 JsValue::from_str("No localStorage")
@@ -1799,19 +2048,22 @@ impl Database {
                 log::error!("localStorage not available");
                 JsValue::from_str("localStorage not available")
             })?;
-        
+
         let key = "absurder_db_list";
         let existing = storage.get_item(key).map_err(|e| {
             log::error!("Failed to read localStorage key {}: {:?}", key, e);
             JsValue::from_str("Failed to read localStorage")
         })?;
-        
+
         log::debug!("Read from localStorage: {:?}", existing);
-        
+
         if let Some(json_str) = existing {
             match serde_json::from_str::<Vec<String>>(&json_str) {
                 Ok(db_list) => {
-                    log::info!("Successfully parsed {} databases from localStorage", db_list.len());
+                    log::info!(
+                        "Successfully parsed {} databases from localStorage",
+                        db_list.len()
+                    );
                     log::debug!("Database list: {:?}", db_list);
                     Ok(db_list)
                 }
@@ -1825,44 +2077,50 @@ impl Database {
             Ok(Vec::new())
         }
     }
-    
+
     /// Start listening for write queue requests (leader processes these)
     fn start_write_queue_listener(db_name: &str) -> Result<(), JsValue> {
-        use crate::storage::write_queue::{register_write_queue_listener, WriteQueueMessage, WriteResponse};
+        use crate::storage::write_queue::{
+            WriteQueueMessage, WriteResponse, register_write_queue_listener,
+        };
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        
+
         let db_name_clone = db_name.to_string();
-        
+
         let callback = Closure::wrap(Box::new(move |msg: JsValue| {
             let db_name_inner = db_name_clone.clone();
-            
+
             // Parse the message
             if let Ok(json_str) = js_sys::JSON::stringify(&msg) {
                 if let Some(json_str) = json_str.as_string() {
                     if let Ok(message) = serde_json::from_str::<WriteQueueMessage>(&json_str) {
                         if let WriteQueueMessage::WriteRequest(request) = message {
                             log::debug!("Leader received write request: {}", request.request_id);
-                            
+
                             // Check if we're the leader
                             let storage_rc = get_storage_with_fallback(&db_name_inner);
-                            
+
                             if let Some(storage) = storage_rc {
                                 // Spawn async task to process the write
                                 wasm_bindgen_futures::spawn_local(async move {
-                                    let is_leader = with_storage_async!(storage, "write_queue_is_leader", |s| s.is_leader());
+                                    let is_leader = with_storage_async!(
+                                        storage,
+                                        "write_queue_is_leader",
+                                        |s| s.is_leader()
+                                    );
                                     if is_leader.is_none() {
                                         log::error!("Failed to check leader status");
                                         return;
                                     }
                                     let is_leader = is_leader.unwrap();
-                                    
+
                                     if !is_leader {
                                         log::error!("Not leader, ignoring write request");
                                         return;
                                     }
-                                    
+
                                     log::debug!("Processing write request as leader");
-                                    
+
                                     // Create a temporary database instance to execute the SQL
                                     match Database::new_wasm(db_name_inner.clone()).await {
                                         Ok(mut db) => {
@@ -1872,14 +2130,23 @@ impl Database {
                                                     // Send success response
                                                     let response = WriteResponse::Success {
                                                         request_id: request.request_id.clone(),
-                                                        affected_rows: result.affected_rows as usize,
+                                                        affected_rows: result.affected_rows
+                                                            as usize,
                                                     };
-                                                    
+
                                                     use crate::storage::write_queue::send_write_response;
-                                                    if let Err(e) = send_write_response(&db_name_inner, response) {
-                                                        log::error!("Failed to send response: {}", e);
+                                                    if let Err(e) = send_write_response(
+                                                        &db_name_inner,
+                                                        response,
+                                                    ) {
+                                                        log::error!(
+                                                            "Failed to send response: {}",
+                                                            e
+                                                        );
                                                     } else {
-                                                        log::info!("Write response sent successfully");
+                                                        log::info!(
+                                                            "Write response sent successfully"
+                                                        );
                                                     }
                                                 }
                                                 Err(e) => {
@@ -1888,16 +2155,25 @@ impl Database {
                                                         request_id: request.request_id.clone(),
                                                         error_message: e.to_string(),
                                                     };
-                                                    
+
                                                     use crate::storage::write_queue::send_write_response;
-                                                    if let Err(e) = send_write_response(&db_name_inner, response) {
-                                                        log::error!("Failed to send error response: {}", e);
+                                                    if let Err(e) = send_write_response(
+                                                        &db_name_inner,
+                                                        response,
+                                                    ) {
+                                                        log::error!(
+                                                            "Failed to send error response: {}",
+                                                            e
+                                                        );
                                                     }
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            log::error!("Failed to create db for write processing: {:?}", e);
+                                            log::error!(
+                                                "Failed to create db for write processing: {:?}",
+                                                e
+                                            );
                                         }
                                     }
                                 });
@@ -1907,13 +2183,14 @@ impl Database {
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
-        
+
         let callback_fn = callback.as_ref().unchecked_ref();
-        register_write_queue_listener(db_name, callback_fn)
-            .map_err(|e| JsValue::from_str(&format!("Failed to register write queue listener: {}", e)))?;
-        
+        register_write_queue_listener(db_name, callback_fn).map_err(|e| {
+            JsValue::from_str(&format!("Failed to register write queue listener: {}", e))
+        })?;
+
         callback.forget();
-        
+
         Ok(())
     }
 
@@ -1924,14 +2201,19 @@ impl Database {
             .await
             .map_err(|e| JsValue::from_str(&format!("Write permission denied: {}", e)))?;
 
-        let result = self.execute_internal(sql)
+        let result = self
+            .execute_internal(sql)
             .await
             .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
         serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     #[wasm_bindgen(js_name = "executeWithParams")]
-    pub async fn execute_with_params(&mut self, sql: &str, params: JsValue) -> Result<JsValue, JsValue> {
+    pub async fn execute_with_params(
+        &mut self,
+        sql: &str,
+        params: JsValue,
+    ) -> Result<JsValue, JsValue> {
         let params: Vec<ColumnValue> = serde_wasm_bindgen::from_value(params)
             .map_err(|e| JsValue::from_str(&format!("Invalid parameters: {}", e)))?;
 
@@ -1940,7 +2222,8 @@ impl Database {
             .await
             .map_err(|e| JsValue::from_str(&format!("Write permission denied: {}", e)))?;
 
-        let result = self.execute_with_params_internal(sql, &params)
+        let result = self
+            .execute_with_params_internal(sql, &params)
             .await
             .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
         serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
@@ -1967,7 +2250,8 @@ impl Database {
         // CRITICAL: Single source of truth for ALL cleanup
         #[cfg(target_arch = "wasm32")]
         {
-            crate::cleanup::cleanup_all_state(pool_key).await
+            crate::cleanup::cleanup_all_state(pool_key)
+                .await
                 .map_err(|e| JsValue::from_str(&format!("Cleanup failed: {}", e)))?;
         }
         log::info!("Force closed and removed connection for: {}", self.name);
@@ -1990,10 +2274,10 @@ impl Database {
     }
 
     /// Export database to SQLite .db file format
-    /// 
+    ///
     /// Returns the complete database as a Uint8Array that can be downloaded
     /// or saved as a standard SQLite .db file.
-    /// 
+    ///
     /// # Example
     /// ```javascript
     /// const dbBytes = await db.exportToFile();
@@ -2008,13 +2292,13 @@ impl Database {
     pub async fn export_to_file(&self) -> Result<js_sys::Uint8Array, JsValue> {
         let db_name = self.name.clone();
         let max_export_size = self.max_export_size_bytes;
-        
+
         log::info!("[EXPORT] ===== Step 1: Acquiring lock");
-        
+
         // Acquire lock FIRST to serialize operations
         let _guard = weblocks::acquire(&db_name, weblocks::AcquireOptions::exclusive()).await?;
         log::info!("[EXPORT] ===== Step 2: Lock acquired");
-        
+
         // Get storage and sync AFTER lock - this ensures only one export syncs at a time
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
         log::info!("[EXPORT] ===== Step 3: Getting storage");
@@ -2028,7 +2312,7 @@ impl Database {
         {
             storage_rc.reload_cache_from_global_storage();
         }
-        
+
         // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
         // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
         log::info!("[EXPORT] ===== Step 5: Checkpointing WAL");
@@ -2057,7 +2341,10 @@ impl Database {
 
         log::info!("[EXPORT] ===== Step 6: Starting sync");
         // Sync to ensure all data is persisted before export
-        storage_rc.sync().await.map_err(|e| JsValue::from_str(&format!("Sync failed: {}", e)))?;
+        storage_rc
+            .sync()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Sync failed: {}", e)))?;
         log::info!("[EXPORT] ===== Step 7: Sync complete");
 
         // Export with configured size limit
@@ -2076,7 +2363,7 @@ impl Database {
 
         let uint8_array = js_sys::Uint8Array::new_with_length(db_bytes.len() as u32);
         uint8_array.copy_from(&db_bytes);
-        
+
         Ok(uint8_array)
     }
 
@@ -2084,40 +2371,46 @@ impl Database {
     #[wasm_bindgen(js_name = "testLock")]
     pub async fn test_lock(&self, value: u32) -> Result<u32, JsValue> {
         let lock_name = format!("{}.lock_test", self.name);
-        
-        log::info!("[LOCK-TEST] Acquiring lock: {} with value: {}", lock_name, value);
+
+        log::info!(
+            "[LOCK-TEST] Acquiring lock: {} with value: {}",
+            lock_name,
+            value
+        );
         let _guard = weblocks::acquire(&lock_name, weblocks::AcquireOptions::exclusive()).await?;
         log::info!("[LOCK-TEST] Lock acquired, processing value: {}", value);
-        
+
         // Simulate some work
         let result = value + 1;
-        
+
         // Small delay to test serialization
         let delay_promise = js_sys::Promise::new(&mut |resolve, _reject| {
             let window = web_sys::window().unwrap();
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                resolve.unchecked_ref(),
-                10
-            );
+            let _ = window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(resolve.unchecked_ref(), 10);
         });
         wasm_bindgen_futures::JsFuture::from(delay_promise).await?;
-        
-        log::info!("[LOCK-TEST] Lock releasing for: {} with result: {}", lock_name, result);
+
+        log::info!(
+            "[LOCK-TEST] Lock releasing for: {} with result: {}",
+            lock_name,
+            result
+        );
         Ok(result)
     }
 
     /// Import SQLite database from .db file bytes
-    /// 
+    ///
     /// Replaces the current database contents with the imported data.
     /// This will close the current database connection and clear all existing data.
-    /// 
+    ///
     /// # Arguments
     /// * `file_data` - SQLite .db file as Uint8Array
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` - Import successful
     /// * `Err(JsValue)` - Import failed (invalid file, validation error, etc.)
-    /// 
+    ///
     /// # Example
     /// ```javascript
     /// // From file input
@@ -2125,12 +2418,12 @@ impl Database {
     /// const file = fileInput.files[0];
     /// const arrayBuffer = await file.arrayBuffer();
     /// const uint8Array = new Uint8Array(arrayBuffer);
-    /// 
+    ///
     /// await db.importFromFile(uint8Array);
-    /// 
+    ///
     /// // Database is now replaced - you may need to reopen connections
     /// ```
-    /// 
+    ///
     /// # Warning
     /// This operation is destructive and will replace all existing database data.
     /// **IMPORTANT:** You MUST call `db.close()` after import and reopen the database
@@ -2151,16 +2444,16 @@ impl Database {
         // Must use force_close to remove from connection pool, not just decrement ref_count
         // Otherwise new Database instances will reuse stale SQLite connection
         log::debug!("Force-closing database connection before import");
-        
+
         // First do normal close to cleanup leader election etc
-        self.close_internal().await.map_err(|e| {
-            JsValue::from_str(&format!("Failed to close before import: {}", e))
-        })?;
-        
+        self.close_internal()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to close before import: {}", e)))?;
+
         // Then force-remove from connection pool
         let pool_key = self.name.trim_end_matches(".db");
         crate::connection_pool::force_close_connection(pool_key);
-        
+
         // Mark our connection as null since we force-closed it
         self.connection_state.db.set(std::ptr::null_mut());
         log::debug!("Removed connection from pool for import");
@@ -2177,7 +2470,7 @@ impl Database {
 
         // Note: Database connection is closed. User must create a new Database instance
         // to use the imported data. This matches main branch behavior.
-        
+
         Ok(())
     }
 
@@ -2185,30 +2478,31 @@ impl Database {
     #[wasm_bindgen(js_name = "waitForLeadership")]
     pub async fn wait_for_leadership(&mut self) -> Result<(), JsValue> {
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        
+
         // Track leader election attempt
         #[cfg(feature = "telemetry")]
         if let Some(ref metrics) = self.metrics {
             metrics.leader_election_attempts_total().inc();
         }
-        
+
         let db_name = &self.name;
         let start_time = js_sys::Date::now();
-        
+
         let timeout_ms = 5000.0; // 5 second timeout
-        
+
         loop {
             let storage_rc = get_storage_with_fallback(db_name);
-            
+
             if let Some(storage) = storage_rc {
-                let is_leader = match with_storage_async!(storage, "wait_for_leadership", |s| s.is_leader()) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                
+                let is_leader =
+                    match with_storage_async!(storage, "wait_for_leadership", |s| s.is_leader()) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
                 if is_leader {
                     log::info!("Became leader for {}", db_name);
-                    
+
                     // Record telemetry on successful leadership acquisition
                     #[cfg(feature = "telemetry")]
                     if let Some(ref metrics) = self.metrics {
@@ -2217,11 +2511,11 @@ impl Database {
                         metrics.is_leader().set(1.0);
                         metrics.leadership_changes_total().inc();
                     }
-                    
+
                     return Ok(());
                 }
             }
-            
+
             // Check timeout
             if js_sys::Date::now() - start_time > timeout_ms {
                 // Record telemetry on timeout
@@ -2230,10 +2524,10 @@ impl Database {
                     let duration_ms = js_sys::Date::now() - start_time;
                     metrics.leader_election_duration().observe(duration_ms);
                 }
-                
+
                 return Err(JsValue::from_str("Timeout waiting for leadership"));
             }
-            
+
             // Wait a bit before checking again
             let promise = js_sys::Promise::new(&mut |resolve, _| {
                 let window = web_sys::window().expect("should have window");
@@ -2247,39 +2541,47 @@ impl Database {
     #[wasm_bindgen(js_name = "requestLeadership")]
     pub async fn request_leadership(&mut self) -> Result<(), JsValue> {
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        
+
         let db_name = &self.name;
         log::debug!("Requesting leadership for {}", db_name);
-        
+
         // Record telemetry data before the request
         #[cfg(feature = "telemetry")]
         let telemetry_data = if self.metrics.is_some() {
             let start_time = js_sys::Date::now();
-            let was_leader = self.is_leader_wasm().await.ok()
+            let was_leader = self
+                .is_leader_wasm()
+                .await
+                .ok()
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            
+
             if let Some(ref metrics) = self.metrics {
                 metrics.leader_elections_total().inc();
             }
-            
+
             Some((start_time, was_leader))
         } else {
             None
         };
-        
+
         let storage_rc = get_storage_with_fallback(db_name);
-        
+
         if let Some(storage) = storage_rc {
             {
                 // Trigger leader election
-                let result = with_storage_async!(storage, "request_leadership", |s| s.start_leader_election())
-                    .ok_or_else(|| JsValue::from_str("Failed to acquire storage lock for leadership request"))?;
-                result.map_err(|e| JsValue::from_str(&format!("Failed to request leadership: {}", e)))?;
-                        
+                let result = with_storage_async!(storage, "request_leadership", |s| s
+                    .start_leader_election())
+                .ok_or_else(|| {
+                    JsValue::from_str("Failed to acquire storage lock for leadership request")
+                })?;
+                result.map_err(|e| {
+                    JsValue::from_str(&format!("Failed to request leadership: {}", e))
+                })?;
+
                 log::debug!("Re-election triggered for {}", db_name);
             } // Drop the borrow here
-            
+
             // Record telemetry after election (after dropping borrow)
             #[cfg(feature = "telemetry")]
             if let Some((start_time, was_leader)) = telemetry_data {
@@ -2287,25 +2589,33 @@ impl Database {
                     // Record election duration
                     let duration_ms = js_sys::Date::now() - start_time;
                     metrics.leader_election_duration().observe(duration_ms);
-                    
+
                     // Check if leadership status changed
-                    let is_leader_now = self.is_leader_wasm().await.ok()
+                    let is_leader_now = self
+                        .is_leader_wasm()
+                        .await
+                        .ok()
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    
+
                     // Update is_leader gauge
-                    metrics.is_leader().set(if is_leader_now { 1.0 } else { 0.0 });
-                    
+                    metrics
+                        .is_leader()
+                        .set(if is_leader_now { 1.0 } else { 0.0 });
+
                     // Track leadership changes
                     if was_leader != is_leader_now {
                         metrics.leadership_changes_total().inc();
                     }
                 }
             }
-            
+
             Ok(())
         } else {
-            Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+            Err(JsValue::from_str(&format!(
+                "No storage found for database: {}",
+                db_name
+            )))
         }
     }
 
@@ -2313,15 +2623,20 @@ impl Database {
     #[wasm_bindgen(js_name = "getLeaderInfo")]
     pub async fn get_leader_info(&mut self) -> Result<JsValue, JsValue> {
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        
+
         let db_name = &self.name;
-        
+
         let storage_rc = get_storage_with_fallback(db_name);
-        
+
         if let Some(storage) = storage_rc {
             let is_leader = with_storage_async!(storage, "get_leader_info", |s| s.is_leader())
-                .ok_or_else(|| JsValue::from_str(&format!("Failed to access storage for database: {}", db_name)))?;
-            
+                .ok_or_else(|| {
+                    JsValue::from_str(&format!(
+                        "Failed to access storage for database: {}",
+                        db_name
+                    ))
+                })?;
+
             // Get leader info - we'll use simpler data for now
             // Real implementation would need public getters on BlockStorage
             let leader_id_str = if is_leader {
@@ -2329,80 +2644,94 @@ impl Database {
             } else {
                 "unknown".to_string()
             };
-            
+
             // Create JavaScript object
             let obj = js_sys::Object::new();
             js_sys::Reflect::set(&obj, &"isLeader".into(), &JsValue::from_bool(is_leader))?;
             js_sys::Reflect::set(&obj, &"leaderId".into(), &JsValue::from_str(&leader_id_str))?;
-            js_sys::Reflect::set(&obj, &"leaseExpiry".into(), &JsValue::from_f64(js_sys::Date::now()))?;
-            
+            js_sys::Reflect::set(
+                &obj,
+                &"leaseExpiry".into(),
+                &JsValue::from_f64(js_sys::Date::now()),
+            )?;
+
             Ok(obj.into())
         } else {
-            Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+            Err(JsValue::from_str(&format!(
+                "No storage found for database: {}",
+                db_name
+            )))
         }
     }
 
     /// Queue a write operation to be executed by the leader
-    /// 
+    ///
     /// Non-leader tabs can use this to request writes from the leader.
     /// The write is forwarded via BroadcastChannel and executed by the leader.
-    /// 
+    ///
     /// # Arguments
     /// * `sql` - SQL statement to execute (must be a write operation)
-    /// 
+    ///
     /// # Returns
     /// Result indicating success or failure
     #[wasm_bindgen(js_name = "queueWrite")]
     pub async fn queue_write(&mut self, sql: String) -> Result<(), JsValue> {
         self.queue_write_with_timeout(sql, 5000).await
     }
-    
+
     /// Queue a write operation with a specific timeout
-    /// 
+    ///
     /// # Arguments
     /// * `sql` - SQL statement to execute
     /// * `timeout_ms` - Timeout in milliseconds
     #[wasm_bindgen(js_name = "queueWriteWithTimeout")]
-    pub async fn queue_write_with_timeout(&mut self, sql: String, timeout_ms: u32) -> Result<(), JsValue> {
-        use crate::storage::write_queue::{send_write_request, WriteResponse, WriteQueueMessage};
+    pub async fn queue_write_with_timeout(
+        &mut self,
+        sql: String,
+        timeout_ms: u32,
+    ) -> Result<(), JsValue> {
+        use crate::storage::write_queue::{WriteQueueMessage, WriteResponse, send_write_request};
         use std::cell::RefCell;
         use std::rc::Rc;
-        
+
         log::debug!("Queuing write: {}", sql);
-        
+
         // Check if we're the leader - if so, just execute directly
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
         let is_leader = {
             let storage_rc = get_storage_with_fallback(&self.name);
-            
+
             if let Some(storage) = storage_rc {
-                with_storage_async!(storage, "queue_write_is_leader", |s| s.is_leader()).unwrap_or(false)
+                with_storage_async!(storage, "queue_write_is_leader", |s| s.is_leader())
+                    .unwrap_or(false)
             } else {
                 false
             }
         };
-        
+
         if is_leader {
             log::debug!("We are leader, executing directly");
-            return self.execute_internal(&sql).await
+            return self
+                .execute_internal(&sql)
+                .await
                 .map(|_| ())
                 .map_err(|e| JsValue::from_str(&format!("Execute failed: {}", e)));
         }
-        
+
         // Send write request to leader
         let request_id = send_write_request(&self.name, &sql)
             .map_err(|e| JsValue::from_str(&format!("Failed to send write request: {}", e)))?;
-        
+
         log::debug!("Write request sent with ID: {}", request_id);
-        
+
         // Wait for response with timeout
         let response_received = Rc::new(RefCell::new(false));
         let response_error = Rc::new(RefCell::new(None::<String>));
-        
+
         let response_received_clone = response_received.clone();
         let response_error_clone = response_error.clone();
         let request_id_clone = request_id.clone();
-        
+
         // Set up listener for response
         let callback = Closure::wrap(Box::new(move |msg: JsValue| {
             // Parse the message
@@ -2417,7 +2746,10 @@ impl Database {
                                         log::debug!("Write response received: Success");
                                     }
                                 }
-                                WriteResponse::Error { request_id, error_message } => {
+                                WriteResponse::Error {
+                                    request_id,
+                                    error_message,
+                                } => {
                                     if request_id == request_id_clone {
                                         *response_received_clone.borrow_mut() = true;
                                         *response_error_clone.borrow_mut() = Some(error_message);
@@ -2430,20 +2762,20 @@ impl Database {
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
-        
+
         // Register listener
         use crate::storage::write_queue::register_write_queue_listener;
         let callback_fn = callback.as_ref().unchecked_ref();
         register_write_queue_listener(&self.name, callback_fn)
             .map_err(|e| JsValue::from_str(&format!("Failed to register listener: {}", e)))?;
-        
+
         // Keep callback alive
         callback.forget();
-        
+
         // Wait for response with polling (timeout_ms)
         let start_time = js_sys::Date::now();
         let timeout_f64 = timeout_ms as f64;
-        
+
         loop {
             // Check if response received
             if *response_received.borrow() {
@@ -2453,21 +2785,24 @@ impl Database {
                 log::info!("Write completed successfully");
                 return Ok(());
             }
-            
+
             // Check timeout
             let elapsed = js_sys::Date::now() - start_time;
             if elapsed > timeout_f64 {
                 return Err(JsValue::from_str("Write request timed out"));
             }
-            
+
             // Wait a bit before checking again
             wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
                 if let Some(window) = web_sys::window() {
-                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100);
+                    let _ =
+                        window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100);
                 } else {
                     log::error!("Window unavailable in timeout handler");
                 }
-            })).await.ok();
+            }))
+            .await
+            .ok();
         }
     }
 
@@ -2475,23 +2810,31 @@ impl Database {
     pub async fn is_leader_wasm(&self) -> Result<JsValue, JsValue> {
         // Get the storage from STORAGE_REGISTRY
         use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        
+
         let db_name = &self.name;
         log::debug!("isLeader() called for database: {} (self.name)", db_name);
-        
+
         let storage_rc = get_storage_with_fallback(db_name);
-        
+
         if let Some(storage) = storage_rc {
             log::debug!("Found storage for {}, calling is_leader()", db_name);
             let is_leader = with_storage_async!(storage, "is_leader_wasm", |s| s.is_leader())
-                .ok_or_else(|| JsValue::from_str(&format!("Failed to access storage for database: {}", db_name)))?;
+                .ok_or_else(|| {
+                    JsValue::from_str(&format!(
+                        "Failed to access storage for database: {}",
+                        db_name
+                    ))
+                })?;
             log::debug!("is_leader() = {} for {}", is_leader, db_name);
-            
+
             // Return as JsValue boolean
             Ok(JsValue::from_bool(is_leader))
         } else {
             log::error!("ERROR: No storage found for database: {}", db_name);
-            Err(JsValue::from_str(&format!("No storage found for database: {}", db_name)))
+            Err(JsValue::from_str(&format!(
+                "No storage found for database: {}",
+                db_name
+            )))
         }
     }
 
@@ -2504,17 +2847,18 @@ impl Database {
     #[wasm_bindgen(js_name = "onDataChange")]
     pub fn on_data_change_wasm(&mut self, callback: &js_sys::Function) -> Result<(), JsValue> {
         log::debug!("Registering onDataChange callback for {}", self.name);
-        
+
         // Store the callback
         self.on_data_change_callback = Some(callback.clone());
-        
+
         // Register listener for BroadcastChannel notifications from other tabs
         use crate::storage::broadcast_notifications::register_change_listener;
-        
+
         let db_name = &self.name;
-        register_change_listener(db_name, callback)
-            .map_err(|e| JsValue::from_str(&format!("Failed to register change listener: {}", e)))?;
-        
+        register_change_listener(db_name, callback).map_err(|e| {
+            JsValue::from_str(&format!("Failed to register change listener: {}", e))
+        })?;
+
         log::debug!("onDataChange callback registered for {}", self.name);
         Ok(())
     }
@@ -2522,8 +2866,13 @@ impl Database {
     /// Enable or disable optimistic updates mode
     #[wasm_bindgen(js_name = "enableOptimisticUpdates")]
     pub async fn enable_optimistic_updates(&mut self, enabled: bool) -> Result<(), JsValue> {
-        self.optimistic_updates_manager.borrow_mut().set_enabled(enabled);
-        log::debug!("Optimistic updates {}", if enabled { "enabled" } else { "disabled" });
+        self.optimistic_updates_manager
+            .borrow_mut()
+            .set_enabled(enabled);
+        log::debug!(
+            "Optimistic updates {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
         Ok(())
     }
 
@@ -2536,7 +2885,10 @@ impl Database {
     /// Track an optimistic write
     #[wasm_bindgen(js_name = "trackOptimisticWrite")]
     pub async fn track_optimistic_write(&mut self, sql: String) -> Result<String, JsValue> {
-        let id = self.optimistic_updates_manager.borrow_mut().track_write(sql);
+        let id = self
+            .optimistic_updates_manager
+            .borrow_mut()
+            .track_write(sql);
         Ok(id)
     }
 
@@ -2556,7 +2908,9 @@ impl Database {
     /// Enable or disable coordination metrics tracking
     #[wasm_bindgen(js_name = "enableCoordinationMetrics")]
     pub async fn enable_coordination_metrics(&mut self, enabled: bool) -> Result<(), JsValue> {
-        self.coordination_metrics_manager.borrow_mut().set_enabled(enabled);
+        self.coordination_metrics_manager
+            .borrow_mut()
+            .set_enabled(enabled);
         Ok(())
     }
 
@@ -2569,35 +2923,45 @@ impl Database {
     /// Record a leadership change
     #[wasm_bindgen(js_name = "recordLeadershipChange")]
     pub async fn record_leadership_change(&mut self, became_leader: bool) -> Result<(), JsValue> {
-        self.coordination_metrics_manager.borrow_mut().record_leadership_change(became_leader);
+        self.coordination_metrics_manager
+            .borrow_mut()
+            .record_leadership_change(became_leader);
         Ok(())
     }
 
     /// Record a notification latency in milliseconds
     #[wasm_bindgen(js_name = "recordNotificationLatency")]
     pub async fn record_notification_latency(&mut self, latency_ms: f64) -> Result<(), JsValue> {
-        self.coordination_metrics_manager.borrow_mut().record_notification_latency(latency_ms);
+        self.coordination_metrics_manager
+            .borrow_mut()
+            .record_notification_latency(latency_ms);
         Ok(())
     }
 
     /// Record a write conflict (non-leader write attempt)
     #[wasm_bindgen(js_name = "recordWriteConflict")]
     pub async fn record_write_conflict(&mut self) -> Result<(), JsValue> {
-        self.coordination_metrics_manager.borrow_mut().record_write_conflict();
+        self.coordination_metrics_manager
+            .borrow_mut()
+            .record_write_conflict();
         Ok(())
     }
 
     /// Record a follower refresh
     #[wasm_bindgen(js_name = "recordFollowerRefresh")]
     pub async fn record_follower_refresh(&mut self) -> Result<(), JsValue> {
-        self.coordination_metrics_manager.borrow_mut().record_follower_refresh();
+        self.coordination_metrics_manager
+            .borrow_mut()
+            .record_follower_refresh();
         Ok(())
     }
 
     /// Get coordination metrics as JSON string
     #[wasm_bindgen(js_name = "getCoordinationMetrics")]
     pub async fn get_coordination_metrics(&self) -> Result<String, JsValue> {
-        self.coordination_metrics_manager.borrow().get_metrics_json()
+        self.coordination_metrics_manager
+            .borrow()
+            .get_metrics_json()
             .map_err(|e| JsValue::from_str(&e))
     }
 
@@ -2719,18 +3083,32 @@ impl WasmColumnValue {
     // --- Rust-friendly alias constructors used in wasm tests ---
     // These mirror the create* methods but with simpler names and
     // argument types matching test usage.
-    pub fn null() -> WasmColumnValue { Self::create_null() }
+    pub fn null() -> WasmColumnValue {
+        Self::create_null()
+    }
 
     // Tests call integer(42.0), so accept f64 and cast to i64.
-    pub fn integer(value: f64) -> WasmColumnValue { Self::create_integer(value as i64) }
+    pub fn integer(value: f64) -> WasmColumnValue {
+        Self::create_integer(value as i64)
+    }
 
-    pub fn real(value: f64) -> WasmColumnValue { Self::create_real(value) }
+    pub fn real(value: f64) -> WasmColumnValue {
+        Self::create_real(value)
+    }
 
-    pub fn text(value: String) -> WasmColumnValue { Self::create_text(value) }
+    pub fn text(value: String) -> WasmColumnValue {
+        Self::create_text(value)
+    }
 
-    pub fn blob(value: Vec<u8>) -> WasmColumnValue { Self::create_blob(&value) }
+    pub fn blob(value: Vec<u8>) -> WasmColumnValue {
+        Self::create_blob(&value)
+    }
 
-    pub fn big_int(value: String) -> WasmColumnValue { Self::create_bigint(&value) }
+    pub fn big_int(value: String) -> WasmColumnValue {
+        Self::create_bigint(&value)
+    }
 
-    pub fn date(timestamp_ms: f64) -> WasmColumnValue { Self::create_date(timestamp_ms) }
+    pub fn date(timestamp_ms: f64) -> WasmColumnValue {
+        Self::create_date(timestamp_ms)
+    }
 }

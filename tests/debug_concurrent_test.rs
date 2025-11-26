@@ -1,8 +1,8 @@
 /// Debug test to understand concurrent storage issues
 #[cfg(target_arch = "wasm32")]
 mod debug_concurrent {
-    use wasm_bindgen_test::*;
     use absurder_sql::{Database, DatabaseConfig};
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -43,7 +43,9 @@ mod debug_concurrent {
         web_sys::console::log_1(&"db1: Table created".into());
 
         // Check what db1 sees
-        let db1_check = db1.execute("SELECT name FROM sqlite_master WHERE type='table'").await;
+        let db1_check = db1
+            .execute("SELECT name FROM sqlite_master WHERE type='table'")
+            .await;
         web_sys::console::log_1(&format!("db1 sees tables: {:?}", db1_check).into());
 
         // Force WAL checkpoint
@@ -58,7 +60,9 @@ mod debug_concurrent {
 
         // Check what db2 sees
         web_sys::console::log_1(&"db2: Checking tables...".into());
-        let db2_check = db2.execute("SELECT name FROM sqlite_master WHERE type='table'").await;
+        let db2_check = db2
+            .execute("SELECT name FROM sqlite_master WHERE type='table'")
+            .await;
         web_sys::console::log_1(&format!("db2 sees tables: {:?}", db2_check).into());
 
         // Try to select from table with db2
@@ -71,7 +75,9 @@ mod debug_concurrent {
 
         // Check what db3 sees
         web_sys::console::log_1(&"db3: Checking tables...".into());
-        let db3_check = db3.execute("SELECT name FROM sqlite_master WHERE type='table'").await;
+        let db3_check = db3
+            .execute("SELECT name FROM sqlite_master WHERE type='table'")
+            .await;
         web_sys::console::log_1(&format!("db3 sees tables: {:?}", db3_check).into());
 
         assert!(result2.is_ok(), "db2 should see table");

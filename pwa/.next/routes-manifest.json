@@ -1,0 +1,188 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/db",
+      "regex": "^/db(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db(?:/)?$"
+    },
+    {
+      "page": "/db/browse",
+      "regex": "^/db/browse(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/browse(?:/)?$"
+    },
+    {
+      "page": "/db/charts",
+      "regex": "^/db/charts(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/charts(?:/)?$"
+    },
+    {
+      "page": "/db/columns",
+      "regex": "^/db/columns(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/columns(?:/)?$"
+    },
+    {
+      "page": "/db/dashboard",
+      "regex": "^/db/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/dashboard(?:/)?$"
+    },
+    {
+      "page": "/db/designer",
+      "regex": "^/db/designer(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/designer(?:/)?$"
+    },
+    {
+      "page": "/db/diagram",
+      "regex": "^/db/diagram(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/diagram(?:/)?$"
+    },
+    {
+      "page": "/db/diff",
+      "regex": "^/db/diff(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/diff(?:/)?$"
+    },
+    {
+      "page": "/db/grep",
+      "regex": "^/db/grep(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/grep(?:/)?$"
+    },
+    {
+      "page": "/db/import-csv",
+      "regex": "^/db/import\\-csv(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/import\\-csv(?:/)?$"
+    },
+    {
+      "page": "/db/query",
+      "regex": "^/db/query(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/query(?:/)?$"
+    },
+    {
+      "page": "/db/schema",
+      "regex": "^/db/schema(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/schema(?:/)?$"
+    },
+    {
+      "page": "/db/search",
+      "regex": "^/db/search(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/search(?:/)?$"
+    },
+    {
+      "page": "/db/storage",
+      "regex": "^/db/storage(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/storage(?:/)?$"
+    },
+    {
+      "page": "/db/triggers",
+      "regex": "^/db/triggers(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/triggers(?:/)?$"
+    },
+    {
+      "page": "/db/views",
+      "regex": "^/db/views(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/db/views(?:/)?$"
+    },
+    {
+      "page": "/error-test",
+      "regex": "^/error\\-test(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/error\\-test(?:/)?$"
+    },
+    {
+      "page": "/favicon.ico",
+      "regex": "^/favicon\\.ico(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/favicon\\.ico(?:/)?$"
+    },
+    {
+      "page": "/hooks-test",
+      "regex": "^/hooks\\-test(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/hooks\\-test(?:/)?$"
+    },
+    {
+      "page": "/provider-test",
+      "regex": "^/provider\\-test(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/provider\\-test(?:/)?$"
+    },
+    {
+      "page": "/test",
+      "regex": "^/test(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/test(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

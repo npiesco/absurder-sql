@@ -3,7 +3,8 @@
 #[cfg(target_arch = "wasm32")]
 macro_rules! lock_mutex {
     ($mutex:expr) => {
-        $mutex.try_borrow_mut()
+        $mutex
+            .try_borrow_mut()
             .expect("RefCell borrow failed - reentrancy detected in auto_sync.rs")
     };
 }
@@ -17,16 +18,16 @@ macro_rules! lock_mutex {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::atomic::{AtomicBool, Ordering};
+use super::block_storage::SyncRequest;
+use crate::storage::SyncPolicy;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
-use crate::storage::SyncPolicy;
-#[cfg(not(target_arch = "wasm32"))]
-use super::block_storage::SyncRequest;
 
 impl super::BlockStorage {
     //! Background auto-sync functionality
@@ -35,31 +36,53 @@ impl super::BlockStorage {
     /// Enable automatic background syncing of dirty blocks. Interval in milliseconds.
     #[cfg(target_arch = "wasm32")]
     pub fn enable_auto_sync(&self, interval_ms: u64) {
-        *lock_mutex!(self.policy) = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
+        *lock_mutex!(self.policy) = Some(SyncPolicy {
+            interval_ms: Some(interval_ms),
+            max_dirty: None,
+            max_dirty_bytes: None,
+            debounce_ms: None,
+            verify_after_write: false,
+        });
         *lock_mutex!(self.auto_sync_interval) = Some(std::time::Duration::from_millis(interval_ms));
         log::info!("Auto-sync enabled: every {} ms", interval_ms);
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_auto_sync(&mut self, interval_ms: u64) {
-        *lock_mutex!(self.policy) = Some(SyncPolicy { interval_ms: Some(interval_ms), max_dirty: None, max_dirty_bytes: None, debounce_ms: None, verify_after_write: false });
+        *lock_mutex!(self.policy) = Some(SyncPolicy {
+            interval_ms: Some(interval_ms),
+            max_dirty: None,
+            max_dirty_bytes: None,
+            debounce_ms: None,
+            verify_after_write: false,
+        });
         log::info!("Auto-sync enabled: every {} ms", interval_ms);
-        
+
         #[cfg(target_arch = "wasm32")]
         {
             // Register event-driven WASM auto-sync
             // Note: interval_ms is ignored in WASM - we use event-driven approach instead
             super::wasm_auto_sync::register_wasm_auto_sync(&self.db_name);
         }
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             // stop previous workers if any
-            if let Some(stop) = &self.auto_sync_stop { stop.store(true, Ordering::SeqCst); }
-            if let Some(handle) = self.auto_sync_thread.take() { let _ = handle.join(); }
-            if let Some(handle) = self.debounce_thread.take() { let _ = handle.join(); }
-            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
-            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
+            if let Some(stop) = &self.auto_sync_stop {
+                stop.store(true, Ordering::SeqCst);
+            }
+            if let Some(handle) = self.auto_sync_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(handle) = self.debounce_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(task) = self.tokio_timer_task.take() {
+                task.abort();
+            }
+            if let Some(task) = self.tokio_debounce_task.take() {
+                task.abort();
+            }
 
             // Create dedicated sync processor that WILL sync immediately - NO MAYBE BULLSHIT
             let (sender, mut receiver) = mpsc::unbounded_channel();
@@ -86,7 +109,7 @@ impl super::BlockStorage {
                             }
                             // Signal completion - AWAITABLE RESULTS
                             let _ = response_sender.send(());
-                        },
+                        }
                         SyncRequest::Debounce(response_sender) => {
                             if !lock_mutex!(dirty_blocks).is_empty() {
                                 // Clear dirty blocks immediately - DETERMINISTIC RESULTS
@@ -100,7 +123,7 @@ impl super::BlockStorage {
                             }
                             // Signal completion - AWAITABLE RESULTS
                             let _ = response_sender.send(());
-                        },
+                        }
                     }
                 }
             });
@@ -119,15 +142,20 @@ impl super::BlockStorage {
                 let task = tokio::spawn(async move {
                     loop {
                         ticker.tick().await;
-                        if stop_flag.load(Ordering::SeqCst) { break; }
+                        if stop_flag.load(Ordering::SeqCst) {
+                            break;
+                        }
                         // Check if sync is needed
                         let needs_sync = {
                             let map = lock_mutex!(dirty);
                             !map.is_empty()
                         };
                         if needs_sync {
-                            log::info!("Auto-sync (tokio-interval) requesting sync and AWAITING completion");
-                            let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+                            log::info!(
+                                "Auto-sync (tokio-interval) requesting sync and AWAITING completion"
+                            );
+                            let (response_sender, response_receiver) =
+                                tokio::sync::oneshot::channel();
                             if let Err(_) = sync_sender.send(SyncRequest::Timer(response_sender)) {
                                 log::error!("Failed to send timer sync request - channel closed");
                                 break;
@@ -137,7 +165,9 @@ impl super::BlockStorage {
                                 log::info!("Auto-sync (tokio-interval) sync COMPLETED");
                             }
                         } else {
-                            log::debug!("Auto-sync (tokio-interval) - no dirty blocks, skipping sync request");
+                            log::debug!(
+                                "Auto-sync (tokio-interval) - no dirty blocks, skipping sync request"
+                            );
                         }
                     }
                 });
@@ -155,27 +185,36 @@ impl super::BlockStorage {
                 let handle = tokio::task::spawn_blocking(move || {
                     while !stop_flag.load(Ordering::SeqCst) {
                         std::thread::sleep(interval);
-                        if stop_flag.load(Ordering::SeqCst) { break; }
+                        if stop_flag.load(Ordering::SeqCst) {
+                            break;
+                        }
                         let needs_sync = {
                             let map = lock_mutex!(dirty);
                             !map.is_empty()
                         };
                         if needs_sync {
-                            log::info!("Auto-sync (blocking-thread) requesting sync and AWAITING completion");
-                            let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-                            if sync_sender.send(SyncRequest::Timer(response_sender)).is_err() {
+                            log::info!(
+                                "Auto-sync (blocking-thread) requesting sync and AWAITING completion"
+                            );
+                            let (response_sender, response_receiver) =
+                                tokio::sync::oneshot::channel();
+                            if sync_sender
+                                .send(SyncRequest::Timer(response_sender))
+                                .is_err()
+                            {
                                 log::error!("Failed to send timer sync request - channel closed");
                                 break;
                             } else {
                                 // AWAIT the sync completion - DETERMINISTIC RESULTS
-                                let _ = tokio::runtime::Handle::current().block_on(response_receiver);
+                                let _ =
+                                    tokio::runtime::Handle::current().block_on(response_receiver);
                                 log::info!("Auto-sync (blocking-thread) sync COMPLETED");
                             }
                         }
                     }
                 });
                 self.auto_sync_stop = Some(stop);
-                self.tokio_timer_task = Some(handle);  // Store as tokio task
+                self.tokio_timer_task = Some(handle); // Store as tokio task
                 self.auto_sync_thread = None;
                 self.debounce_thread = None;
             }
@@ -186,10 +225,11 @@ impl super::BlockStorage {
     #[cfg(target_arch = "wasm32")]
     pub fn enable_auto_sync_with_policy(&self, policy: SyncPolicy) {
         *lock_mutex!(self.policy) = Some(policy.clone());
-        *lock_mutex!(self.auto_sync_interval) = policy.interval_ms.map(std::time::Duration::from_millis);
+        *lock_mutex!(self.auto_sync_interval) =
+            policy.interval_ms.map(std::time::Duration::from_millis);
         log::info!("Auto-sync policy enabled");
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_auto_sync_with_policy(&mut self, policy: SyncPolicy) {
         *lock_mutex!(self.policy) = Some(policy.clone());
@@ -198,23 +238,38 @@ impl super::BlockStorage {
             self.last_auto_sync = Instant::now();
         }
         *lock_mutex!(self.auto_sync_interval) = policy.interval_ms.map(Duration::from_millis);
-        log::info!("Auto-sync policy enabled: interval={:?}, max_dirty={:?}, max_bytes={:?}", policy.interval_ms, policy.max_dirty, policy.max_dirty_bytes);
-        
+        log::info!(
+            "Auto-sync policy enabled: interval={:?}, max_dirty={:?}, max_bytes={:?}",
+            policy.interval_ms,
+            policy.max_dirty,
+            policy.max_dirty_bytes
+        );
+
         #[cfg(target_arch = "wasm32")]
         {
             // Register event-driven WASM auto-sync
             // Interval is ignored - we use event-driven approach (idle callback, visibility change, etc.)
             super::wasm_auto_sync::register_wasm_auto_sync(&self.db_name);
         }
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             // stop previous workers if any
-            if let Some(stop) = &self.auto_sync_stop { stop.store(true, Ordering::SeqCst); }
-            if let Some(handle) = self.auto_sync_thread.take() { let _ = handle.join(); }
-            if let Some(handle) = self.debounce_thread.take() { let _ = handle.join(); }
-            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
-            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
+            if let Some(stop) = &self.auto_sync_stop {
+                stop.store(true, Ordering::SeqCst);
+            }
+            if let Some(handle) = self.auto_sync_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(handle) = self.debounce_thread.take() {
+                let _ = handle.join();
+            }
+            if let Some(task) = self.tokio_timer_task.take() {
+                task.abort();
+            }
+            if let Some(task) = self.tokio_debounce_task.take() {
+                task.abort();
+            }
 
             // Create channel for background workers to send sync requests
             let (sender, mut receiver) = mpsc::unbounded_channel();
@@ -247,7 +302,7 @@ impl super::BlockStorage {
                             }
                             // Signal completion - AWAITABLE RESULTS
                             let _ = response_sender.send(());
-                        },
+                        }
                         SyncRequest::Debounce(response_sender) => {
                             if !lock_mutex!(dirty_blocks).is_empty() {
                                 // Clear dirty blocks immediately - DETERMINISTIC RESULTS
@@ -262,7 +317,7 @@ impl super::BlockStorage {
                             }
                             // Signal completion - AWAITABLE RESULTS
                             let _ = response_sender.send(());
-                        },
+                        }
                     }
                 }
             });
@@ -278,17 +333,26 @@ impl super::BlockStorage {
                     let task = tokio::spawn(async move {
                         loop {
                             ticker.tick().await;
-                            if stop_flag.load(Ordering::SeqCst) { break; }
+                            if stop_flag.load(Ordering::SeqCst) {
+                                break;
+                            }
                             // Check if sync is needed
                             let needs_sync = {
                                 let map = dirty.lock();
                                 !map.is_empty()
                             };
                             if needs_sync {
-                                log::info!("Auto-sync (tokio-interval-policy) requesting sync and AWAITING completion");
-                                let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-                                if let Err(_) = sync_sender.send(SyncRequest::Timer(response_sender)) {
-                                    log::error!("Failed to send timer sync request - channel closed");
+                                log::info!(
+                                    "Auto-sync (tokio-interval-policy) requesting sync and AWAITING completion"
+                                );
+                                let (response_sender, response_receiver) =
+                                    tokio::sync::oneshot::channel();
+                                if let Err(_) =
+                                    sync_sender.send(SyncRequest::Timer(response_sender))
+                                {
+                                    log::error!(
+                                        "Failed to send timer sync request - channel closed"
+                                    );
                                     break;
                                 } else {
                                     // AWAIT the sync completion - DETERMINISTIC RESULTS
@@ -305,7 +369,10 @@ impl super::BlockStorage {
                 }
 
                 if let Some(debounce_ms) = policy.debounce_ms {
-                    let stop_flag = self.auto_sync_stop.get_or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
+                    let stop_flag = self
+                        .auto_sync_stop
+                        .get_or_insert_with(|| Arc::new(AtomicBool::new(false)))
+                        .clone();
                     let dirty = Arc::clone(self.get_dirty_blocks());
                     let last_write = self.last_write_ms.clone();
                     let threshold_flag = self.threshold_hit.clone();
@@ -313,7 +380,9 @@ impl super::BlockStorage {
                     let task = tokio::spawn(async move {
                         let sleep_step = Duration::from_millis(10);
                         loop {
-                            if stop_flag.load(Ordering::SeqCst) { break; }
+                            if stop_flag.load(Ordering::SeqCst) {
+                                break;
+                            }
                             if threshold_flag.load(Ordering::SeqCst) {
                                 // Use system clock based last_write; simple polling
                                 let now = super::BlockStorage::now_millis();
@@ -325,10 +394,18 @@ impl super::BlockStorage {
                                         !map.is_empty()
                                     };
                                     if needs_sync {
-                                        log::info!("Auto-sync (tokio-debounce) requesting sync after {}ms idle and AWAITING completion", elapsed);
-                                        let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-                                        if let Err(_) = sync_sender.send(SyncRequest::Debounce(response_sender)) {
-                                            log::error!("Failed to send debounce sync request - channel closed");
+                                        log::info!(
+                                            "Auto-sync (tokio-debounce) requesting sync after {}ms idle and AWAITING completion",
+                                            elapsed
+                                        );
+                                        let (response_sender, response_receiver) =
+                                            tokio::sync::oneshot::channel();
+                                        if let Err(_) =
+                                            sync_sender.send(SyncRequest::Debounce(response_sender))
+                                        {
+                                            log::error!(
+                                                "Failed to send debounce sync request - channel closed"
+                                            );
                                             break;
                                         } else {
                                             // AWAIT the sync completion - DETERMINISTIC RESULTS
@@ -363,12 +440,17 @@ impl super::BlockStorage {
                     let handle = std::thread::spawn(move || {
                         while !stop_thread.load(Ordering::SeqCst) {
                             std::thread::sleep(interval);
-                            if stop_thread.load(Ordering::SeqCst) { break; }
+                            if stop_thread.load(Ordering::SeqCst) {
+                                break;
+                            }
                             let mut map = dirty.lock();
                             if !map.is_empty() {
                                 let start = Instant::now();
                                 let count = map.len();
-                                log::info!("Auto-sync (timer-thread) flushing {} dirty blocks", count);
+                                log::info!(
+                                    "Auto-sync (timer-thread) flushing {} dirty blocks",
+                                    count
+                                );
                                 map.clear();
                                 threshold_flag.store(false, Ordering::SeqCst);
                                 let elapsed = start.elapsed();
@@ -389,7 +471,10 @@ impl super::BlockStorage {
 
                 // Debounce worker (std thread)
                 if let Some(debounce_ms) = policy.debounce_ms {
-                    let stop = self.auto_sync_stop.get_or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
+                    let stop = self
+                        .auto_sync_stop
+                        .get_or_insert_with(|| Arc::new(AtomicBool::new(false)))
+                        .clone();
                     let stop_thread = stop.clone();
                     let dirty = Arc::clone(self.get_dirty_blocks());
                     let last_write = self.last_write_ms.clone();
@@ -401,7 +486,9 @@ impl super::BlockStorage {
                         // Polling loop to detect inactivity window after threshold
                         let sleep_step = Duration::from_millis(10);
                         loop {
-                            if stop_thread.load(Ordering::SeqCst) { break; }
+                            if stop_thread.load(Ordering::SeqCst) {
+                                break;
+                            }
                             if threshold_flag.load(Ordering::SeqCst) {
                                 let now = super::BlockStorage::now_millis();
                                 let last = last_write.load(Ordering::SeqCst);
@@ -412,7 +499,11 @@ impl super::BlockStorage {
                                     if !map.is_empty() {
                                         let start = Instant::now();
                                         let count = map.len();
-                                        log::info!("Auto-sync (debounce-thread) flushing {} dirty blocks after {}ms idle", count, elapsed);
+                                        log::info!(
+                                            "Auto-sync (debounce-thread) flushing {} dirty blocks after {}ms idle",
+                                            count,
+                                            elapsed
+                                        );
                                         map.clear();
                                         let d = start.elapsed();
                                         let ms = d.as_millis() as u64;
@@ -442,18 +533,18 @@ impl super::BlockStorage {
         *lock_mutex!(self.auto_sync_interval) = None;
         log::info!("Auto-sync disabled");
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn disable_auto_sync(&mut self) {
         *lock_mutex!(self.auto_sync_interval) = None;
         log::info!("Auto-sync disabled");
-        
+
         #[cfg(target_arch = "wasm32")]
         {
             // Unregister WASM auto-sync
             super::wasm_auto_sync::unregister_wasm_auto_sync(&self.db_name);
         }
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(stop) = &self.auto_sync_stop {
@@ -465,8 +556,12 @@ impl super::BlockStorage {
             if let Some(handle) = self.debounce_thread.take() {
                 let _ = handle.join();
             }
-            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
-            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_timer_task.take() {
+                task.abort();
+            }
+            if let Some(task) = self.tokio_debounce_task.take() {
+                task.abort();
+            }
             self.auto_sync_stop = None;
         }
     }
@@ -501,11 +596,15 @@ impl super::BlockStorage {
         if let Some(policy) = lock_mutex!(self.policy).clone() {
             let dirty_count = self.get_dirty_count();
             let dirty_bytes = dirty_count * super::BLOCK_SIZE;
-            
+
             // Check max_dirty threshold
             if let Some(max_dirty) = policy.max_dirty {
                 if dirty_count >= max_dirty {
-                    log::info!("WASM threshold sync triggered: {} dirty blocks >= {}", dirty_count, max_dirty);
+                    log::info!(
+                        "WASM threshold sync triggered: {} dirty blocks >= {}",
+                        dirty_count,
+                        max_dirty
+                    );
                     // Spawn async sync
                     let db_name = self.db_name.clone();
                     wasm_bindgen_futures::spawn_local(async move {
@@ -518,11 +617,15 @@ impl super::BlockStorage {
                     return;
                 }
             }
-            
+
             // Check max_dirty_bytes threshold
             if let Some(max_bytes) = policy.max_dirty_bytes {
                 if dirty_bytes >= max_bytes {
-                    log::info!("WASM threshold sync triggered: {} dirty bytes >= {}", dirty_bytes, max_bytes);
+                    log::info!(
+                        "WASM threshold sync triggered: {} dirty bytes >= {}",
+                        dirty_bytes,
+                        max_bytes
+                    );
                     // Spawn async sync
                     let db_name = self.db_name.clone();
                     wasm_bindgen_futures::spawn_local(async move {

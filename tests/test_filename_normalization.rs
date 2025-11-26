@@ -1,8 +1,8 @@
 /// Test to debug filename normalization issues
 #[cfg(target_arch = "wasm32")]
 mod filename_tests {
-    use wasm_bindgen_test::*;
     use absurder_sql::{Database, DatabaseConfig};
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -48,9 +48,10 @@ mod filename_tests {
         // Small delay to ensure sync completes
         use wasm_bindgen_futures::JsFuture;
         let promise = js_sys::Promise::new(&mut |resolve, _| {
-            web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(
-                &resolve, 100
-            ).unwrap();
+            web_sys::window()
+                .unwrap()
+                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
+                .unwrap();
         });
         JsFuture::from(promise).await.ok();
 

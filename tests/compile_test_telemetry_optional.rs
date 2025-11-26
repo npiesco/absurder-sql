@@ -9,7 +9,7 @@
 fn test_telemetry_module_not_available() {
     // This line should cause a compilation error if telemetry module exists:
     // use absurder_sql::telemetry::Metrics;
-    
+
     // If we get here without error, telemetry is properly optional
 }
 
@@ -18,7 +18,7 @@ fn test_telemetry_module_not_available() {
 #[allow(dead_code)]
 fn test_telemetry_module_available() {
     use absurder_sql::telemetry::Metrics;
-    
+
     let _ = Metrics::new();
     // If this compiles, telemetry feature works correctly
 }

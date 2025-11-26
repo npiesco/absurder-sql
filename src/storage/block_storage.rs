@@ -1,25 +1,35 @@
-use std::collections::{HashMap, HashSet, VecDeque};
 #[allow(unused_imports)]
-use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
+use super::metadata::BlockMetadataPersist;
+use super::metadata::{ChecksumAlgorithm, ChecksumManager};
+#[cfg(any(
+    target_arch = "wasm32",
+    all(
+        not(target_arch = "wasm32"),
+        any(test, debug_assertions),
+        not(feature = "fs_persist")
+    )
+))]
+use super::vfs_sync;
+use crate::types::DatabaseError;
 #[cfg(target_arch = "wasm32")]
-use std::cell::RefCell;
+use js_sys::Date;
 #[cfg(not(target_arch = "wasm32"))]
 use parking_lot::Mutex;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
+#[allow(unused_imports)]
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-#[cfg(target_arch = "wasm32")]
-use js_sys::Date;
-use crate::types::DatabaseError;
-use super::metadata::{ChecksumManager, ChecksumAlgorithm};
-#[allow(unused_imports)]
-use super::metadata::BlockMetadataPersist;
-#[cfg(any(target_arch = "wasm32", all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist"))))]
-use super::vfs_sync;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::task::JoinHandle as TokioJoinHandle;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::task::JoinHandle as TokioJoinHandle;
 
 // FS persistence imports (native only when feature is enabled)
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -88,17 +98,23 @@ pub struct RecoveryReport {
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[allow(dead_code)]
-struct FsMeta { entries: Vec<(u64, BlockMetadataPersist)> }
+struct FsMeta {
+    entries: Vec<(u64, BlockMetadataPersist)>,
+}
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[allow(dead_code)]
-struct FsAlloc { allocated: Vec<u64> }
+struct FsAlloc {
+    allocated: Vec<u64>,
+}
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[allow(dead_code)]
-struct FsDealloc { tombstones: Vec<u64> }
+struct FsDealloc {
+    tombstones: Vec<u64>,
+}
 
 // Metadata mirror for native builds
 #[cfg(not(target_arch = "wasm32"))]
@@ -156,7 +172,8 @@ const METADATA_STORE: &str = "metadata";
 #[cfg(target_arch = "wasm32")]
 macro_rules! lock_mutex {
     ($mutex:expr) => {
-        $mutex.try_borrow_mut()
+        $mutex
+            .try_borrow_mut()
             .expect("RefCell borrow failed - reentrancy detected in block_storage.rs")
     };
 }
@@ -182,7 +199,8 @@ macro_rules! lock_mutex {
 #[cfg(target_arch = "wasm32")]
 macro_rules! read_lock {
     ($mutex:expr) => {
-        $mutex.try_borrow()
+        $mutex
+            .try_borrow()
             .expect("RefCell borrow failed - likely reentrancy issue")
     };
 }
@@ -198,7 +216,7 @@ macro_rules! read_lock {
 // Try-lock macro for reentrancy-safe operations
 #[allow(unused_macros)]
 #[cfg(target_arch = "wasm32")]
-macro_rules! try_lock_mutex{
+macro_rules! try_lock_mutex {
     ($mutex:expr) => {
         $mutex.ok()
     };
@@ -236,17 +254,17 @@ pub struct BlockStorage {
     pub(super) cache: RefCell<HashMap<u64, Vec<u8>>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) cache: Mutex<HashMap<u64, Vec<u8>>>,
-    
+
     #[cfg(target_arch = "wasm32")]
     pub(super) dirty_blocks: Arc<RefCell<HashMap<u64, Vec<u8>>>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) dirty_blocks: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
-    
+
     #[cfg(target_arch = "wasm32")]
     pub(super) allocated_blocks: RefCell<HashSet<u64>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) allocated_blocks: Mutex<HashSet<u64>>,
-    
+
     #[cfg(target_arch = "wasm32")]
     #[allow(dead_code)]
     pub(super) deallocated_blocks: RefCell<HashSet<u64>>,
@@ -255,27 +273,27 @@ pub struct BlockStorage {
     pub(super) deallocated_blocks: Mutex<HashSet<u64>>,
     pub(super) next_block_id: AtomicU64,
     pub(super) capacity: usize,
-    
+
     #[cfg(target_arch = "wasm32")]
     pub(super) lru_order: RefCell<VecDeque<u64>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) lru_order: Mutex<VecDeque<u64>>,
-    
+
     // Checksum management (moved to metadata module)
     pub(super) checksum_manager: ChecksumManager,
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     pub(super) base_dir: PathBuf,
     pub(super) db_name: String,
-    
+
     // Background sync settings
     #[cfg(target_arch = "wasm32")]
     pub(super) auto_sync_interval: RefCell<Option<Duration>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) auto_sync_interval: Mutex<Option<Duration>>,
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) last_auto_sync: Instant,
-    
+
     #[cfg(target_arch = "wasm32")]
     pub(super) policy: RefCell<Option<SyncPolicy>>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -311,14 +329,14 @@ pub struct BlockStorage {
 
     // Startup recovery report
     pub(super) recovery_report: RecoveryReport,
-    
+
     // Leader election manager (WASM only) - wrapped in RefCell for interior mutability
     #[cfg(target_arch = "wasm32")]
     pub leader_election: std::cell::RefCell<Option<super::leader_election::LeaderElectionManager>>,
-    
+
     // Observability manager
     pub(super) observability: super::observability::ObservabilityManager,
-    
+
     // Telemetry metrics (optional)
     #[cfg(feature = "telemetry")]
     pub(super) metrics: Option<crate::telemetry::Metrics>,
@@ -329,8 +347,11 @@ impl BlockStorage {
     /// Used for auto-registration in VFS when existing data is detected
     #[cfg(target_arch = "wasm32")]
     pub fn new_sync(db_name: &str) -> Self {
-        log::info!("Creating BlockStorage synchronously for database: {}", db_name);
-        
+        log::info!(
+            "Creating BlockStorage synchronously for database: {}",
+            db_name
+        );
+
         // Load existing data from GLOBAL_STORAGE to support multi-connection scenarios
         use crate::storage::vfs_sync::with_global_storage;
         let (cache, allocated_blocks, max_block_id) = with_global_storage(|storage_map| {
@@ -343,9 +364,14 @@ impl BlockStorage {
                 (HashMap::new(), HashSet::new(), 0)
             }
         });
-        
-        log::info!("Loaded {} blocks from GLOBAL_STORAGE for {} (max_block_id={})", cache.len(), db_name, max_block_id);
-        
+
+        log::info!(
+            "Loaded {} blocks from GLOBAL_STORAGE for {} (max_block_id={})",
+            cache.len(),
+            db_name,
+            max_block_id
+        );
+
         // CRITICAL: Always reload checksums from GLOBAL_METADATA since cache might be stale
         // This handles the case where import writes new data after close() reloaded cache
         use crate::storage::vfs_sync::with_global_metadata;
@@ -362,7 +388,7 @@ impl BlockStorage {
                 ChecksumManager::new(ChecksumAlgorithm::FastHash)
             }
         });
-        
+
         Self {
             cache: RefCell::new(cache),
             dirty_blocks: Arc::new(RefCell::new(HashMap::new())),
@@ -382,7 +408,10 @@ impl BlockStorage {
             #[cfg(not(target_arch = "wasm32"))]
             auto_sync_thread: None,
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
-            base_dir: std::path::PathBuf::from(std::env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string())),
+            base_dir: std::path::PathBuf::from(
+                std::env::var("ABSURDERSQL_FS_BASE")
+                    .unwrap_or_else(|_| "./test_storage".to_string()),
+            ),
             #[cfg(not(target_arch = "wasm32"))]
             debounce_thread: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -422,7 +451,7 @@ impl BlockStorage {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(db_name: &str) -> Result<Self, DatabaseError> {
         log::info!("Creating BlockStorage for database: {}", db_name);
-        
+
         // Initialize allocation tracking for native
         let (allocated_blocks, next_block_id) = {
             #[cfg(feature = "fs_persist")]
@@ -430,12 +459,13 @@ impl BlockStorage {
                 // fs_persist: restore allocation from filesystem
                 let mut allocated_blocks = HashSet::new();
                 let mut next_block_id: u64 = 1;
-                
-                let base_path = std::env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+
+                let base_path = std::env::var("ABSURDERSQL_FS_BASE")
+                    .unwrap_or_else(|_| "./test_storage".to_string());
                 let mut alloc_path = std::path::PathBuf::from(base_path);
                 alloc_path.push(db_name);
                 alloc_path.push("allocations.json");
-                
+
                 if let Ok(content) = std::fs::read_to_string(&alloc_path) {
                     if let Ok(alloc_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(allocated_array) = alloc_data["allocated"].as_array() {
@@ -448,10 +478,10 @@ impl BlockStorage {
                         }
                     }
                 }
-                
+
                 (allocated_blocks, next_block_id)
             }
-            
+
             #[cfg(not(feature = "fs_persist"))]
             {
                 // Native test mode: use default allocation
@@ -464,18 +494,24 @@ impl BlockStorage {
             #[cfg(feature = "fs_persist")]
             {
                 let mut map = HashMap::new();
-                let base_path = std::env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let base_path = std::env::var("ABSURDERSQL_FS_BASE")
+                    .unwrap_or_else(|_| "./test_storage".to_string());
                 let mut meta_path = std::path::PathBuf::from(base_path);
                 meta_path.push(db_name);
                 meta_path.push("metadata.json");
-                
+
                 if let Ok(content) = std::fs::read_to_string(&meta_path) {
                     if let Ok(meta_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(entries) = meta_data["entries"].as_array() {
                             for entry in entries {
                                 if let Some(arr) = entry.as_array() {
-                                    if let (Some(block_id), Some(obj)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
-                                        if let Some(checksum) = obj.get("checksum").and_then(|v| v.as_u64()) {
+                                    if let (Some(block_id), Some(obj)) = (
+                                        arr.get(0).and_then(|v| v.as_u64()),
+                                        arr.get(1).and_then(|v| v.as_object()),
+                                    ) {
+                                        if let Some(checksum) =
+                                            obj.get("checksum").and_then(|v| v.as_u64())
+                                        {
                                             map.insert(block_id, checksum);
                                         }
                                     }
@@ -486,7 +522,7 @@ impl BlockStorage {
                 }
                 map
             }
-            
+
             #[cfg(not(feature = "fs_persist"))]
             {
                 // Native test mode: restore checksums from global test storage
@@ -512,18 +548,24 @@ impl BlockStorage {
             #[cfg(feature = "fs_persist")]
             {
                 let mut map = HashMap::new();
-                let base_path = std::env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let base_path = std::env::var("ABSURDERSQL_FS_BASE")
+                    .unwrap_or_else(|_| "./test_storage".to_string());
                 let mut meta_path = std::path::PathBuf::from(base_path);
                 meta_path.push(db_name);
                 meta_path.push("metadata.json");
-                
+
                 if let Ok(content) = std::fs::read_to_string(&meta_path) {
                     if let Ok(meta_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(entries) = meta_data["entries"].as_array() {
                             for entry in entries {
                                 if let Some(arr) = entry.as_array() {
-                                    if let (Some(block_id), Some(obj)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
-                                        let algo = obj.get("algo").and_then(|v| v.as_str())
+                                    if let (Some(block_id), Some(obj)) = (
+                                        arr.get(0).and_then(|v| v.as_u64()),
+                                        arr.get(1).and_then(|v| v.as_object()),
+                                    ) {
+                                        let algo = obj
+                                            .get("algo")
+                                            .and_then(|v| v.as_str())
                                             .and_then(|s| match s {
                                                 "CRC32" => Some(ChecksumAlgorithm::CRC32),
                                                 "FastHash" => Some(ChecksumAlgorithm::FastHash),
@@ -539,7 +581,7 @@ impl BlockStorage {
                 }
                 map
             }
-            
+
             #[cfg(not(feature = "fs_persist"))]
             {
                 // Native test mode: restore algorithms from global test storage
@@ -575,7 +617,8 @@ impl BlockStorage {
             #[cfg(feature = "fs_persist")]
             {
                 let mut set = HashSet::new();
-                let base_path = std::env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string());
+                let base_path = std::env::var("ABSURDERSQL_FS_BASE")
+                    .unwrap_or_else(|_| "./test_storage".to_string());
                 let mut path = std::path::PathBuf::from(base_path);
                 path.push(db_name);
                 let mut dealloc_path = path.clone();
@@ -622,7 +665,10 @@ impl BlockStorage {
             #[cfg(not(target_arch = "wasm32"))]
             auto_sync_thread: None,
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
-            base_dir: std::path::PathBuf::from(std::env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./test_storage".to_string())),
+            base_dir: std::path::PathBuf::from(
+                std::env::var("ABSURDERSQL_FS_BASE")
+                    .unwrap_or_else(|_| "./test_storage".to_string()),
+            ),
             #[cfg(not(target_arch = "wasm32"))]
             debounce_thread: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -660,11 +706,14 @@ impl BlockStorage {
         Ok(s)
     }
 
-    pub async fn new_with_recovery_options(db_name: &str, recovery_opts: RecoveryOptions) -> Result<Self, DatabaseError> {
+    pub async fn new_with_recovery_options(
+        db_name: &str,
+        recovery_opts: RecoveryOptions,
+    ) -> Result<Self, DatabaseError> {
         let mut storage = Self::new(db_name).await?;
-        
+
         storage.perform_startup_recovery(recovery_opts).await?;
-        
+
         Ok(storage)
     }
 
@@ -672,13 +721,19 @@ impl BlockStorage {
         &self.recovery_report
     }
 
-    async fn perform_startup_recovery(&mut self, opts: RecoveryOptions) -> Result<(), DatabaseError> {
+    async fn perform_startup_recovery(
+        &mut self,
+        opts: RecoveryOptions,
+    ) -> Result<(), DatabaseError> {
         super::recovery::perform_startup_recovery(self, opts).await
     }
 
-    pub(super) async fn get_blocks_for_verification(&self, mode: &RecoveryMode) -> Result<Vec<u64>, DatabaseError> {
+    pub(super) async fn get_blocks_for_verification(
+        &self,
+        mode: &RecoveryMode,
+    ) -> Result<Vec<u64>, DatabaseError> {
         let all_blocks: Vec<u64> = lock_mutex!(self.allocated_blocks).iter().copied().collect();
-        
+
         match mode {
             RecoveryMode::Full => Ok(all_blocks),
             RecoveryMode::Sample { count } => {
@@ -692,12 +747,18 @@ impl BlockStorage {
         }
     }
 
-    pub(super) async fn verify_block_integrity(&mut self, block_id: u64) -> Result<bool, DatabaseError> {
+    pub(super) async fn verify_block_integrity(
+        &mut self,
+        block_id: u64,
+    ) -> Result<bool, DatabaseError> {
         // Read the block data
         let data = match self.read_block_from_storage(block_id).await {
             Ok(data) => data,
             Err(_) => {
-                log::warn!("Could not read block {} for integrity verification", block_id);
+                log::warn!(
+                    "Could not read block {} for integrity verification",
+                    block_id
+                );
                 return Ok(false);
             }
         };
@@ -706,7 +767,11 @@ impl BlockStorage {
         match self.verify_against_stored_checksum(block_id, &data) {
             Ok(()) => Ok(true),
             Err(e) => {
-                log::warn!("Block {} failed checksum verification: {}", block_id, e.message);
+                log::warn!(
+                    "Block {} failed checksum verification: {}",
+                    block_id,
+                    e.message
+                );
                 Ok(false)
             }
         }
@@ -720,7 +785,7 @@ impl BlockStorage {
             blocks_dir.push(&self.db_name);
             blocks_dir.push("blocks");
             let block_file = blocks_dir.join(format!("block_{}.bin", block_id));
-            
+
             if let Ok(data) = std::fs::read(&block_file) {
                 if data.len() == BLOCK_SIZE {
                     return Ok(data);
@@ -729,7 +794,11 @@ impl BlockStorage {
         }
 
         // Fallback to test storage for native tests
-        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+        #[cfg(all(
+            not(target_arch = "wasm32"),
+            any(test, debug_assertions),
+            not(feature = "fs_persist")
+        ))]
         {
             let mut found_data = None;
             vfs_sync::with_global_storage(|storage| {
@@ -766,22 +835,25 @@ impl BlockStorage {
 
         Err(DatabaseError::new(
             "BLOCK_NOT_FOUND",
-            &format!("Block {} not found in storage", block_id)
+            &format!("Block {} not found in storage", block_id),
         ))
     }
 
-    pub(super) async fn repair_corrupted_block(&mut self, block_id: u64) -> Result<bool, DatabaseError> {
+    pub(super) async fn repair_corrupted_block(
+        &mut self,
+        block_id: u64,
+    ) -> Result<bool, DatabaseError> {
         log::info!("Attempting to repair corrupted block {}", block_id);
-        
+
         // For now, repair by removing the corrupted block and clearing its metadata
         // In a real implementation, this might involve restoring from backup or rebuilding
-        
+
         // Remove from cache
         lock_mutex!(self.cache).remove(&block_id);
-        
+
         // Remove checksum metadata
         self.checksum_manager.remove_checksum(block_id);
-        
+
         // Remove from filesystem if fs_persist is enabled
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         {
@@ -791,9 +863,13 @@ impl BlockStorage {
             let block_file = blocks_dir.join(format!("block_{}.bin", block_id));
             let _ = std::fs::remove_file(&block_file);
         }
-        
+
         // Remove from test storage
-        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+        #[cfg(all(
+            not(target_arch = "wasm32"),
+            any(test, debug_assertions),
+            not(feature = "fs_persist")
+        ))]
         {
             vfs_sync::with_global_storage(|storage| {
                 let mut storage_map = storage.borrow_mut();
@@ -802,7 +878,7 @@ impl BlockStorage {
                 }
             });
         }
-        
+
         // Remove from WASM storage
         #[cfg(target_arch = "wasm32")]
         {
@@ -812,8 +888,11 @@ impl BlockStorage {
                 }
             });
         }
-        
-        log::info!("Corrupted block {} has been removed (repair completed)", block_id);
+
+        log::info!(
+            "Corrupted block {} has been removed (repair completed)",
+            block_id
+        );
         Ok(true)
     }
 
@@ -836,19 +915,19 @@ impl BlockStorage {
                 if cache_guard.len() <= self.capacity {
                     break; // Within capacity, done
                 }
-                
+
                 // Find the least-recent block that is NOT dirty
                 let dirty_guard = lock_mutex!(self.dirty_blocks);
                 let mut lru_guard = lock_mutex!(self.lru_order);
-                
+
                 let victim_pos = lru_guard
                     .iter()
                     .position(|id| !dirty_guard.contains_key(id));
-                
+
                 victim_pos.map(|pos| lru_guard.remove(pos).expect("valid pos"))
                 // Guards are dropped here
             };
-            
+
             match victim_opt {
                 Some(victim) => {
                     // Remove from cache (new lock acquisition)
@@ -902,32 +981,35 @@ impl BlockStorage {
     pub fn write_block_sync(&self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         super::io_operations::write_block_sync_impl(self, block_id, data)
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn write_block_sync(&mut self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         super::io_operations::write_block_sync_impl(self, block_id, data)
     }
 
-
     #[cfg(target_arch = "wasm32")]
     pub async fn write_block(&self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         self.write_block_sync(block_id, data)
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn write_block(&mut self, block_id: u64, data: Vec<u8>) -> Result<(), DatabaseError> {
         self.write_block_sync(block_id, data)?;
-        
+
         // If threshold was hit and debounce is NOT enabled, perform inline sync
         if self.threshold_hit.load(std::sync::atomic::Ordering::SeqCst) {
-            let has_debounce = lock_mutex!(self.policy).as_ref().and_then(|p| p.debounce_ms).is_some();
+            let has_debounce = lock_mutex!(self.policy)
+                .as_ref()
+                .and_then(|p| p.debounce_ms)
+                .is_some();
             if !has_debounce {
                 log::debug!("Threshold hit without debounce: performing inline sync");
                 self.sync_implementation()?;
-                self.threshold_hit.store(false, std::sync::atomic::Ordering::SeqCst);
+                self.threshold_hit
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
             }
         }
-        
+
         Ok(())
     }
 
@@ -940,7 +1022,7 @@ impl BlockStorage {
         }
         Ok(())
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn write_blocks_sync(&mut self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
         self.maybe_auto_sync();
@@ -955,7 +1037,7 @@ impl BlockStorage {
     pub async fn write_blocks(&self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
         self.write_blocks_sync(items)
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn write_blocks(&mut self, items: Vec<(u64, Vec<u8>)>) -> Result<(), DatabaseError> {
         self.write_blocks_sync(items)
@@ -978,7 +1060,9 @@ impl BlockStorage {
 
     /// Get block checksum for verification
     pub fn get_block_checksum(&self, block_id: u64) -> Option<u32> {
-        self.checksum_manager.get_checksum(block_id).map(|checksum| checksum as u32)
+        self.checksum_manager
+            .get_checksum(block_id)
+            .map(|checksum| checksum as u32)
     }
 
     /// Get current commit marker for this database (WASM only, for testing)
@@ -993,7 +1077,10 @@ impl BlockStorage {
     #[cfg(target_arch = "wasm32")]
     pub fn has_any_blocks(&self) -> bool {
         vfs_sync::with_global_storage(|storage_map| {
-            storage_map.borrow().get(&self.db_name).map_or(false, |blocks| !blocks.is_empty())
+            storage_map
+                .borrow()
+                .get(&self.db_name)
+                .map_or(false, |blocks| !blocks.is_empty())
         })
     }
 
@@ -1025,8 +1112,8 @@ impl BlockStorage {
         }
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         {
-            use std::io::Read;
             use super::fs_persist::FsMeta;
+            use std::io::Read;
             let mut out = HashMap::new();
             let base: PathBuf = self.base_dir.clone();
             let mut db_dir = base.clone();
@@ -1038,14 +1125,25 @@ impl BlockStorage {
                 if f.read_to_string(&mut s).is_ok() {
                     if let Ok(meta) = serde_json::from_str::<FsMeta>(&s) {
                         for (block_id, metadata) in meta.entries {
-                            out.insert(block_id, (metadata.checksum, metadata.version, metadata.last_modified_ms));
+                            out.insert(
+                                block_id,
+                                (
+                                    metadata.checksum,
+                                    metadata.version,
+                                    metadata.last_modified_ms,
+                                ),
+                            );
                         }
                     }
                 }
             }
             out
         }
-        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+        #[cfg(all(
+            not(target_arch = "wasm32"),
+            any(test, debug_assertions),
+            not(feature = "fs_persist")
+        ))]
         {
             let mut out = HashMap::new();
             GLOBAL_METADATA_TEST.with(|meta| {
@@ -1065,7 +1163,8 @@ impl BlockStorage {
 
     // Always available for testing (integration tests need this in release mode)
     pub fn set_block_checksum_for_testing(&mut self, block_id: u64, checksum: u64) {
-        self.checksum_manager.set_checksum_for_testing(block_id, checksum);
+        self.checksum_manager
+            .set_checksum_for_testing(block_id, checksum);
     }
 
     /// Getter for dirty_blocks for fs_persist and auto_sync modules
@@ -1074,7 +1173,6 @@ impl BlockStorage {
         &self.dirty_blocks
     }
 
-
     #[cfg(target_arch = "wasm32")]
     #[allow(invalid_reference_casting)]
     pub async fn sync(&self) -> Result<(), DatabaseError> {
@@ -1082,10 +1180,14 @@ impl BlockStorage {
         let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
         let result = self_mut.sync_implementation();
         // Give time for the spawned IndexedDB operations to complete
-        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)).await.ok();
+        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
+            &wasm_bindgen::JsValue::UNDEFINED,
+        ))
+        .await
+        .ok();
         result
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn sync(&mut self) -> Result<(), DatabaseError> {
         self.sync_implementation()
@@ -1100,7 +1202,7 @@ impl BlockStorage {
         let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
         self_mut.sync_implementation()
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn sync_now(&mut self) -> Result<(), DatabaseError> {
         self.sync_implementation()
@@ -1117,7 +1219,6 @@ impl BlockStorage {
     pub fn sync_blocks_only(&mut self) -> Result<(), DatabaseError> {
         super::wasm_vfs_sync::sync_blocks_only(self)
     }
-
 
     /// Async version of sync for WASM that properly awaits IndexedDB persistence
     #[cfg(target_arch = "wasm32")]
@@ -1137,7 +1238,7 @@ impl BlockStorage {
         }
         *lock_mutex!(self.auto_sync_interval) = None;
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn drain_and_shutdown(&mut self) {
         if let Err(e) = self.sync_now() {
@@ -1155,8 +1256,12 @@ impl BlockStorage {
             if let Some(handle) = self.debounce_thread.take() {
                 let _ = handle.join();
             }
-            if let Some(task) = self.tokio_timer_task.take() { task.abort(); }
-            if let Some(task) = self.tokio_debounce_task.take() { task.abort(); }
+            if let Some(task) = self.tokio_timer_task.take() {
+                task.abort();
+            }
+            if let Some(task) = self.tokio_debounce_task.take() {
+                task.abort();
+            }
             self.auto_sync_stop = None;
             self.threshold_hit.store(false, Ordering::SeqCst);
         }
@@ -1166,16 +1271,16 @@ impl BlockStorage {
         lock_mutex!(self.cache).clear();
         lock_mutex!(self.lru_order).clear();
     }
-    
+
     /// Handle notification that the database has been imported
-    /// 
+    ///
     /// This method should be called after a database import to ensure
     /// that any cached data is invalidated and fresh data is read from storage.
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` - Cache cleared successfully
     /// * `Err(DatabaseError)` - If cache clearing fails
-    /// 
+    ///
     /// # Example
     /// ```rust,no_run
     /// # use absurder_sql::storage::block_storage::BlockStorage;
@@ -1187,32 +1292,39 @@ impl BlockStorage {
     /// # }
     /// ```
     pub async fn on_database_import(&mut self) -> Result<(), DatabaseError> {
-        log::info!("Clearing cache for database '{}' after import", self.db_name);
-        
+        log::info!(
+            "Clearing cache for database '{}' after import",
+            self.db_name
+        );
+
         // Clear the LRU cache to force re-reading from storage
         self.clear_cache();
-        
+
         // Also clear dirty blocks since they're now stale
         lock_mutex!(self.dirty_blocks).clear();
-        
+
         // Clear checksum manager's cache to reload from new metadata
         self.checksum_manager.clear_checksums();
-        
+
         // Reload allocated blocks from global storage/allocation map
         #[cfg(target_arch = "wasm32")]
         {
             use super::vfs_sync::with_global_allocation_map;
             *lock_mutex!(self.allocated_blocks) = with_global_allocation_map(|gam| {
-                gam.borrow().get(&self.db_name)
+                gam.borrow()
+                    .get(&self.db_name)
                     .cloned()
                     .unwrap_or_else(std::collections::HashSet::new)
             });
-            log::debug!("Reloaded {} allocated blocks from global allocation map", lock_mutex!(self.allocated_blocks).len());
-            
+            log::debug!(
+                "Reloaded {} allocated blocks from global allocation map",
+                lock_mutex!(self.allocated_blocks).len()
+            );
+
             // Checksums are now managed by ChecksumManager, which loads from metadata on demand
             log::debug!("Checksum data will be reloaded from metadata on next verification");
         }
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             #[cfg(feature = "fs_persist")]
@@ -1221,7 +1333,7 @@ impl BlockStorage {
                 let mut alloc_path = self.base_dir.clone();
                 alloc_path.push(&self.db_name);
                 alloc_path.push("allocations.json");
-                
+
                 if let Ok(content) = std::fs::read_to_string(&alloc_path) {
                     if let Ok(alloc_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(allocated_array) = alloc_data["allocated"].as_array() {
@@ -1231,22 +1343,25 @@ impl BlockStorage {
                                     lock_mutex!(self.allocated_blocks).insert(block_id);
                                 }
                             }
-                            log::debug!("Reloaded {} allocated blocks from filesystem", lock_mutex!(self.allocated_blocks).len());
+                            log::debug!(
+                                "Reloaded {} allocated blocks from filesystem",
+                                lock_mutex!(self.allocated_blocks).len()
+                            );
                         }
                     }
                 }
-                
+
                 // Reload checksums from filesystem metadata.json
                 let mut meta_path = self.base_dir.clone();
                 meta_path.push(&self.db_name);
                 meta_path.push("metadata.json");
-                
+
                 if let Ok(content) = std::fs::read_to_string(&meta_path) {
                     if let Ok(meta_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(entries) = meta_data["entries"].as_array() {
                             let mut new_checksums = HashMap::new();
                             let mut new_algos = HashMap::new();
-                            
+
                             for entry in entries {
                                 if let (Some(block_id), Some(checksum), Some(algo_str)) = (
                                     entry[0].as_u64(),
@@ -1254,7 +1369,7 @@ impl BlockStorage {
                                     entry[1]["algo"].as_str(),
                                 ) {
                                     new_checksums.insert(block_id, checksum);
-                                    
+
                                     let algo = match algo_str {
                                         "CRC32" => super::metadata::ChecksumAlgorithm::CRC32,
                                         _ => super::metadata::ChecksumAlgorithm::FastHash,
@@ -1262,21 +1377,25 @@ impl BlockStorage {
                                     new_algos.insert(block_id, algo);
                                 }
                             }
-                            
-                            self.checksum_manager.replace_all(new_checksums.clone(), new_algos);
-                            log::debug!("Reloaded {} checksums from filesystem metadata", new_checksums.len());
+
+                            self.checksum_manager
+                                .replace_all(new_checksums.clone(), new_algos);
+                            log::debug!(
+                                "Reloaded {} checksums from filesystem metadata",
+                                new_checksums.len()
+                            );
                         }
                     }
                 } else {
                     log::debug!("No metadata file found, checksums will be empty after import");
                 }
             }
-            
+
             #[cfg(not(feature = "fs_persist"))]
             {
                 // Native test mode: reload from GLOBAL_ALLOCATION_MAP
                 use super::vfs_sync::with_global_allocation_map;
-                
+
                 *lock_mutex!(self.allocated_blocks) = with_global_allocation_map(|gam| {
                     #[cfg(target_arch = "wasm32")]
                     let map = gam;
@@ -1286,40 +1405,57 @@ impl BlockStorage {
                         .cloned()
                         .unwrap_or_else(std::collections::HashSet::new)
                 });
-                log::debug!("Reloaded {} allocated blocks from global allocation map (native test)", lock_mutex!(self.allocated_blocks).len());
-                
+                log::debug!(
+                    "Reloaded {} allocated blocks from global allocation map (native test)",
+                    lock_mutex!(self.allocated_blocks).len()
+                );
+
                 // Checksums are managed by ChecksumManager, loaded from metadata on demand
                 log::debug!("Checksum data will be reloaded from metadata on next verification");
             }
         }
-        
-        log::info!("Cache and allocation state refreshed for '{}'", self.db_name);
-        
+
+        log::info!(
+            "Cache and allocation state refreshed for '{}'",
+            self.db_name
+        );
+
         Ok(())
     }
-    
+
     /// Reload cache from GLOBAL_STORAGE (WASM only, for multi-connection support)
     #[cfg(target_arch = "wasm32")]
     pub fn reload_cache_from_global_storage(&self) {
-        use crate::storage::vfs_sync::{with_global_storage, with_global_metadata};
-        
+        use crate::storage::vfs_sync::{with_global_metadata, with_global_storage};
+
         log::info!("[RELOAD] Starting cache reload for: {}", self.db_name);
-        
+
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("[RELOAD] BlockStorage.db_name = {}", self.db_name).into());
+        web_sys::console::log_1(
+            &format!("[RELOAD] BlockStorage.db_name = {}", self.db_name).into(),
+        );
 
         let fresh_cache = with_global_storage(|storage_map| {
             if let Some(db_storage) = storage_map.borrow().get(&self.db_name) {
-                log::info!("[RELOAD] Found {} blocks in GLOBAL_STORAGE", db_storage.len());
+                log::info!(
+                    "[RELOAD] Found {} blocks in GLOBAL_STORAGE",
+                    db_storage.len()
+                );
                 db_storage.clone()
             } else {
-                log::warn!("[RELOAD] No blocks found in GLOBAL_STORAGE for {}", self.db_name);
+                log::warn!(
+                    "[RELOAD] No blocks found in GLOBAL_STORAGE for {}",
+                    self.db_name
+                );
                 std::collections::HashMap::new()
             }
         });
 
         let block_count = fresh_cache.len();
-        log::info!("[RELOAD] Loading {} blocks into cache and marking as dirty", block_count);
+        log::info!(
+            "[RELOAD] Loading {} blocks into cache and marking as dirty",
+            block_count
+        );
 
         // CRITICAL: Also reload checksums from GLOBAL_METADATA to match the fresh cache
         // Without this, cached reads will verify against stale checksums (e.g., after import)
@@ -1328,7 +1464,7 @@ impl BlockStorage {
                 log::info!("[RELOAD] Found {} metadata entries", db_metadata.len());
                 // Clear existing checksums
                 self.checksum_manager.clear_checksums();
-                
+
                 // Load checksums from metadata
                 let mut new_checksums = std::collections::HashMap::new();
                 let mut new_algos = std::collections::HashMap::new();
@@ -1343,28 +1479,31 @@ impl BlockStorage {
                 self.checksum_manager.clear_checksums();
             }
         });
-        
+
         // Replace cache contents while preserving LRU order for blocks that still exist
         let old_lru = {
             let mut lru = lock_mutex!(self.lru_order);
             std::mem::replace(&mut *lru, std::collections::VecDeque::new())
         };
         lock_mutex!(self.cache).clear();
-        
+
         // Insert new cache data (no need to mark dirty - sync reads from GLOBAL_STORAGE)
         for (block_id, block_data) in fresh_cache {
             lock_mutex!(self.cache).insert(block_id, block_data);
         }
-        
-        log::info!("[RELOAD] Cache reloaded with {} blocks", lock_mutex!(self.cache).len());
-        
+
+        log::info!(
+            "[RELOAD] Cache reloaded with {} blocks",
+            lock_mutex!(self.cache).len()
+        );
+
         // Restore LRU order for blocks that still exist, then add new blocks
         for block_id in old_lru {
             if lock_mutex!(self.cache).contains_key(&block_id) {
                 lock_mutex!(self.lru_order).push_back(block_id);
             }
         }
-        
+
         // Add any new blocks not in the old LRU order
         let block_ids: Vec<u64> = lock_mutex!(self.cache).keys().copied().collect();
         for block_id in block_ids {
@@ -1372,38 +1511,88 @@ impl BlockStorage {
                 lock_mutex!(self.lru_order).push_back(block_id);
             }
         }
-        
-        log::info!("[RELOAD] Reload complete: {} blocks in cache, {} dirty", 
-                   lock_mutex!(self.cache).len(), 
-                   lock_mutex!(self.dirty_blocks).len());
-        
+
+        log::info!(
+            "[RELOAD] Reload complete: {} blocks in cache, {} dirty",
+            lock_mutex!(self.cache).len(),
+            lock_mutex!(self.dirty_blocks).len()
+        );
+
         // CRITICAL DEBUG: Check if block 0 is valid SQLite header
         #[cfg(target_arch = "wasm32")]
         {
             if let Some(block_0) = lock_mutex!(self.cache).get(&0) {
                 let is_valid = block_0.len() >= 16 && &block_0[0..16] == b"SQLite format 3\0";
-                web_sys::console::log_1(&format!("[RELOAD] Block 0 in cache: {} bytes, valid SQLite header: {}", block_0.len(), is_valid).into());
+                web_sys::console::log_1(
+                    &format!(
+                        "[RELOAD] Block 0 in cache: {} bytes, valid SQLite header: {}",
+                        block_0.len(),
+                        is_valid
+                    )
+                    .into(),
+                );
                 if block_0.len() >= 16 {
-                    web_sys::console::log_1(&format!("[RELOAD] Block 0 header [0..16]: {:02x?}", &block_0[0..16]).into());
+                    web_sys::console::log_1(
+                        &format!("[RELOAD] Block 0 header [0..16]: {:02x?}", &block_0[0..16])
+                            .into(),
+                    );
                 }
-                
+
                 // CRITICAL: Check database size field at offset 24-27
                 if block_0.len() >= 28 {
                     let db_size_bytes = [block_0[24], block_0[25], block_0[26], block_0[27]];
                     let db_size_pages = u32::from_be_bytes(db_size_bytes);
-                    web_sys::console::log_1(&format!("[RELOAD] Database size field (offset 24-27): {} pages ({:02x?})", db_size_pages, db_size_bytes).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "[RELOAD] Database size field (offset 24-27): {} pages ({:02x?})",
+                            db_size_pages, db_size_bytes
+                        )
+                        .into(),
+                    );
                 }
-                
+
                 // DUMP FULL HEADER for analysis
                 if block_0.len() >= 100 {
-                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [16-31]: {:02x?}", &block_0[16..32]).into());
-                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [32-47]: {:02x?}", &block_0[32..48]).into());
-                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [48-63]: {:02x?}", &block_0[48..64]).into());
-                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [64-79]: {:02x?}", &block_0[64..80]).into());
-                    web_sys::console::log_1(&format!("[RELOAD] Full header dump [80-99]: {:02x?}", &block_0[80..100]).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "[RELOAD] Full header dump [16-31]: {:02x?}",
+                            &block_0[16..32]
+                        )
+                        .into(),
+                    );
+                    web_sys::console::log_1(
+                        &format!(
+                            "[RELOAD] Full header dump [32-47]: {:02x?}",
+                            &block_0[32..48]
+                        )
+                        .into(),
+                    );
+                    web_sys::console::log_1(
+                        &format!(
+                            "[RELOAD] Full header dump [48-63]: {:02x?}",
+                            &block_0[48..64]
+                        )
+                        .into(),
+                    );
+                    web_sys::console::log_1(
+                        &format!(
+                            "[RELOAD] Full header dump [64-79]: {:02x?}",
+                            &block_0[64..80]
+                        )
+                        .into(),
+                    );
+                    web_sys::console::log_1(
+                        &format!(
+                            "[RELOAD] Full header dump [80-99]: {:02x?}",
+                            &block_0[80..100]
+                        )
+                        .into(),
+                    );
                 }
             } else {
-                web_sys::console::log_1(&format!("[RELOAD] ERROR: Block 0 NOT in cache after reload!").into());
+                web_sys::console::log_1(
+                    &format!("[RELOAD] ERROR: Block 0 NOT in cache after reload!").into(),
+                );
             }
         }
     }
@@ -1415,7 +1604,7 @@ impl BlockStorage {
     pub fn get_dirty_count(&self) -> usize {
         lock_mutex!(self.dirty_blocks).len()
     }
-    
+
     pub fn get_db_name(&self) -> &str {
         &self.db_name
     }
@@ -1443,22 +1632,31 @@ impl BlockStorage {
     /// If `blocks_written` is true, blocks are written to IndexedDB but commit marker doesn't advance
     /// If `blocks_written` is false, crash occurs before blocks are written
     #[cfg(target_arch = "wasm32")]
-    pub async fn crash_simulation_sync(&mut self, blocks_written: bool) -> Result<(), DatabaseError> {
-        log::info!("CRASH SIMULATION: Starting crash simulation with blocks_written={}", blocks_written);
-        
+    pub async fn crash_simulation_sync(
+        &mut self,
+        blocks_written: bool,
+    ) -> Result<(), DatabaseError> {
+        log::info!(
+            "CRASH SIMULATION: Starting crash simulation with blocks_written={}",
+            blocks_written
+        );
+
         if blocks_written {
             // Simulate crash after blocks are written but before commit marker advances
             // This is the most critical crash scenario to test
-            
+
             // Step 1: Write blocks to IndexedDB (simulate partial transaction completion)
             let dirty_blocks = {
                 let dirty = lock_mutex!(self.dirty_blocks);
                 dirty.clone()
             };
-            
+
             if !dirty_blocks.is_empty() {
-                log::info!("CRASH SIMULATION: Writing {} blocks to IndexedDB before crash", dirty_blocks.len());
-                
+                log::info!(
+                    "CRASH SIMULATION: Writing {} blocks to IndexedDB before crash",
+                    dirty_blocks.len()
+                );
+
                 // Use the existing IndexedDB persistence logic but don't advance commit marker
                 let metadata_to_persist: Vec<(u64, u64)> = dirty_blocks
                     .keys()
@@ -1467,25 +1665,31 @@ impl BlockStorage {
                         (block_id, next_commit)
                     })
                     .collect();
-                
-                log::debug!("CRASH SIMULATION: About to call persist_to_indexeddb for {} blocks", dirty_blocks.len());
-                
+
+                log::debug!(
+                    "CRASH SIMULATION: About to call persist_to_indexeddb for {} blocks",
+                    dirty_blocks.len()
+                );
+
                 // Write blocks and metadata to IndexedDB
                 super::wasm_indexeddb::persist_to_indexeddb(
                     &self.db_name,
                     dirty_blocks,
                     metadata_to_persist,
-                ).await?;
-                
+                )
+                .await?;
+
                 log::info!("CRASH SIMULATION: persist_to_indexeddb completed successfully");
-                log::info!("CRASH SIMULATION: Blocks written to IndexedDB, simulating crash before commit marker advance");
-                
+                log::info!(
+                    "CRASH SIMULATION: Blocks written to IndexedDB, simulating crash before commit marker advance"
+                );
+
                 // Clear dirty blocks (they're now in IndexedDB)
                 lock_mutex!(self.dirty_blocks).clear();
-                
+
                 // DON'T advance commit marker - this simulates the crash
                 // In a real crash, the commit marker update would fail
-                
+
                 return Ok(());
             } else {
                 log::info!("CRASH SIMULATION: No dirty blocks to write");
@@ -1494,7 +1698,7 @@ impl BlockStorage {
         } else {
             // Simulate crash before blocks are written
             log::info!("CRASH SIMULATION: Simulating crash before blocks are written to IndexedDB");
-            
+
             // Just return success - blocks remain dirty, nothing written to IndexedDB
             return Ok(());
         }
@@ -1503,24 +1707,33 @@ impl BlockStorage {
     /// Crash simulation: simulate partial block writes during IndexedDB commit
     /// Only specified blocks are written to IndexedDB before crash
     #[cfg(target_arch = "wasm32")]
-    pub async fn crash_simulation_partial_sync(&mut self, blocks_to_write: &[u64]) -> Result<(), DatabaseError> {
-        log::info!("CRASH SIMULATION: Starting partial crash simulation for {} blocks", blocks_to_write.len());
-        
+    pub async fn crash_simulation_partial_sync(
+        &mut self,
+        blocks_to_write: &[u64],
+    ) -> Result<(), DatabaseError> {
+        log::info!(
+            "CRASH SIMULATION: Starting partial crash simulation for {} blocks",
+            blocks_to_write.len()
+        );
+
         let dirty_blocks = {
             let dirty = lock_mutex!(self.dirty_blocks);
             dirty.clone()
         };
-        
+
         // Filter to only the blocks we want to "successfully" write before crash
         let partial_blocks: std::collections::HashMap<u64, Vec<u8>> = dirty_blocks
             .into_iter()
             .filter(|(block_id, _)| blocks_to_write.contains(block_id))
             .collect();
-        
+
         if !partial_blocks.is_empty() {
-            log::info!("CRASH SIMULATION: Writing {} out of {} blocks before crash", 
-                      partial_blocks.len(), blocks_to_write.len());
-            
+            log::info!(
+                "CRASH SIMULATION: Writing {} out of {} blocks before crash",
+                partial_blocks.len(),
+                blocks_to_write.len()
+            );
+
             let metadata_to_persist: Vec<(u64, u64)> = partial_blocks
                 .keys()
                 .map(|&block_id| {
@@ -1528,14 +1741,15 @@ impl BlockStorage {
                     (block_id, next_commit)
                 })
                 .collect();
-            
+
             // Write only the partial blocks to IndexedDB
             super::wasm_indexeddb::persist_to_indexeddb(
                 &self.db_name,
                 partial_blocks.clone(),
                 metadata_to_persist,
-            ).await?;
-            
+            )
+            .await?;
+
             // Remove only the written blocks from dirty_blocks
             {
                 let mut dirty = lock_mutex!(self.dirty_blocks);
@@ -1543,12 +1757,14 @@ impl BlockStorage {
                     dirty.remove(block_id);
                 }
             }
-            
-            log::info!("CRASH SIMULATION: Partial blocks written, simulating crash before commit marker advance");
-            
+
+            log::info!(
+                "CRASH SIMULATION: Partial blocks written, simulating crash before commit marker advance"
+            );
+
             // DON'T advance commit marker - simulates crash during transaction
         }
-        
+
         Ok(())
     }
 
@@ -1557,99 +1773,134 @@ impl BlockStorage {
     /// and either finalizes or rolls back incomplete transactions
     #[cfg(target_arch = "wasm32")]
     pub async fn perform_crash_recovery(&mut self) -> Result<CrashRecoveryAction, DatabaseError> {
-        log::info!("CRASH RECOVERY: Starting crash recovery scan for database: {}", self.db_name);
-        
+        log::info!(
+            "CRASH RECOVERY: Starting crash recovery scan for database: {}",
+            self.db_name
+        );
+
         // Step 1: Get current commit marker
         let current_marker = self.get_commit_marker();
         log::info!("CRASH RECOVERY: Current commit marker: {}", current_marker);
-        
+
         // Step 2: Scan IndexedDB for blocks with versions > commit marker
         // These represent incomplete transactions that need recovery
         let inconsistent_blocks = self.scan_for_inconsistent_blocks(current_marker).await?;
-        
+
         if inconsistent_blocks.is_empty() {
             log::info!("CRASH RECOVERY: No inconsistent blocks found, system is consistent");
             return Ok(CrashRecoveryAction::NoActionNeeded);
         }
-        
-        log::info!("CRASH RECOVERY: Found {} inconsistent blocks that need recovery", inconsistent_blocks.len());
-        
+
+        log::info!(
+            "CRASH RECOVERY: Found {} inconsistent blocks that need recovery",
+            inconsistent_blocks.len()
+        );
+
         // Step 3: Determine recovery action based on transaction completeness
         let recovery_action = self.determine_recovery_action(&inconsistent_blocks).await?;
-        
+
         match recovery_action {
             CrashRecoveryAction::Rollback => {
                 log::info!("CRASH RECOVERY: Performing rollback of incomplete transaction");
-                self.rollback_incomplete_transaction(&inconsistent_blocks).await?;
+                self.rollback_incomplete_transaction(&inconsistent_blocks)
+                    .await?;
             }
             CrashRecoveryAction::Finalize => {
                 log::info!("CRASH RECOVERY: Performing finalization of complete transaction");
-                self.finalize_complete_transaction(&inconsistent_blocks).await?;
+                self.finalize_complete_transaction(&inconsistent_blocks)
+                    .await?;
             }
             CrashRecoveryAction::NoActionNeeded => {
                 // Already handled above
             }
         }
-        
+
         log::info!("CRASH RECOVERY: Recovery completed successfully");
         Ok(recovery_action)
     }
 
     /// Scan IndexedDB for blocks with versions greater than the commit marker
     #[cfg(target_arch = "wasm32")]
-    async fn scan_for_inconsistent_blocks(&self, commit_marker: u64) -> Result<Vec<(u64, u64)>, DatabaseError> {
-        log::info!("CRASH RECOVERY: Scanning for blocks with version > {}", commit_marker);
-        
+    async fn scan_for_inconsistent_blocks(
+        &self,
+        commit_marker: u64,
+    ) -> Result<Vec<(u64, u64)>, DatabaseError> {
+        log::info!(
+            "CRASH RECOVERY: Scanning for blocks with version > {}",
+            commit_marker
+        );
+
         // This is a simplified implementation - in a real system we'd scan IndexedDB directly
         // For now, we'll check the global metadata storage
         let mut inconsistent_blocks = Vec::new();
-        
+
         vfs_sync::with_global_metadata(|meta_map| {
             if let Some(db_meta) = meta_map.borrow().get(&self.db_name) {
                 for (block_id, metadata) in db_meta.iter() {
                     if metadata.version as u64 > commit_marker {
-                        log::info!("CRASH RECOVERY: Found inconsistent block {} with version {} > marker {}",
-                                  block_id, metadata.version, commit_marker);
+                        log::info!(
+                            "CRASH RECOVERY: Found inconsistent block {} with version {} > marker {}",
+                            block_id,
+                            metadata.version,
+                            commit_marker
+                        );
                         inconsistent_blocks.push((*block_id, metadata.version as u64));
                     }
                 }
             }
         });
-        
+
         Ok(inconsistent_blocks)
     }
 
     /// Determine whether to rollback or finalize based on transaction completeness
     #[cfg(target_arch = "wasm32")]
-    async fn determine_recovery_action(&self, inconsistent_blocks: &[(u64, u64)]) -> Result<CrashRecoveryAction, DatabaseError> {
+    async fn determine_recovery_action(
+        &self,
+        inconsistent_blocks: &[(u64, u64)],
+    ) -> Result<CrashRecoveryAction, DatabaseError> {
         // Simple heuristic: if all inconsistent blocks have the same version (next expected commit),
         // then the transaction was likely complete and should be finalized.
         // Otherwise, rollback to maintain consistency.
-        
+
         let expected_next_commit = self.get_commit_marker() + 1;
         let all_same_version = inconsistent_blocks
             .iter()
             .all(|(_, version)| *version == expected_next_commit);
-        
+
         if all_same_version && !inconsistent_blocks.is_empty() {
-            log::info!("CRASH RECOVERY: All inconsistent blocks have expected version {}, finalizing transaction", expected_next_commit);
+            log::info!(
+                "CRASH RECOVERY: All inconsistent blocks have expected version {}, finalizing transaction",
+                expected_next_commit
+            );
             Ok(CrashRecoveryAction::Finalize)
         } else {
-            log::info!("CRASH RECOVERY: Inconsistent block versions detected, rolling back transaction");
+            log::info!(
+                "CRASH RECOVERY: Inconsistent block versions detected, rolling back transaction"
+            );
             Ok(CrashRecoveryAction::Rollback)
         }
     }
 
     /// Rollback incomplete transaction by removing inconsistent blocks
     #[cfg(target_arch = "wasm32")]
-    async fn rollback_incomplete_transaction(&mut self, inconsistent_blocks: &[(u64, u64)]) -> Result<(), DatabaseError> {
-        log::info!("CRASH RECOVERY: Rolling back {} inconsistent blocks", inconsistent_blocks.len());
-        
+    async fn rollback_incomplete_transaction(
+        &mut self,
+        inconsistent_blocks: &[(u64, u64)],
+    ) -> Result<(), DatabaseError> {
+        log::info!(
+            "CRASH RECOVERY: Rolling back {} inconsistent blocks",
+            inconsistent_blocks.len()
+        );
+
         // Remove inconsistent blocks from global metadata
         vfs_sync::with_global_metadata(|meta_map| {
             if let Some(db_meta) = meta_map.borrow_mut().get_mut(&self.db_name) {
                 for (block_id, _) in inconsistent_blocks {
-                    log::info!("CRASH RECOVERY: Removing inconsistent block {} from metadata", block_id);
+                    log::info!(
+                        "CRASH RECOVERY: Removing inconsistent block {} from metadata",
+                        block_id
+                    );
                     db_meta.remove(block_id);
                 }
             }
@@ -1659,94 +1910,126 @@ impl BlockStorage {
         vfs_sync::with_global_storage(|storage_map| {
             if let Some(db_storage) = storage_map.borrow_mut().get_mut(&self.db_name) {
                 for (block_id, _) in inconsistent_blocks {
-                    log::info!("CRASH RECOVERY: Removing inconsistent block {} from global storage", block_id);
+                    log::info!(
+                        "CRASH RECOVERY: Removing inconsistent block {} from global storage",
+                        block_id
+                    );
                     db_storage.remove(block_id);
                 }
             }
         });
-        
+
         // Clear any cached data for these blocks
         for (block_id, _) in inconsistent_blocks {
             lock_mutex!(self.cache).remove(block_id);
             // Remove from LRU order
             lock_mutex!(self.lru_order).retain(|&id| id != *block_id);
         }
-        
+
         // Remove inconsistent blocks from IndexedDB to avoid accumulating orphaned data
         let block_ids_to_delete: Vec<u64> = inconsistent_blocks.iter().map(|(id, _)| *id).collect();
         if !block_ids_to_delete.is_empty() {
-            log::info!("CRASH RECOVERY: Deleting {} blocks from IndexedDB", block_ids_to_delete.len());
-            super::wasm_indexeddb::delete_blocks_from_indexeddb(&self.db_name, &block_ids_to_delete).await?;
+            log::info!(
+                "CRASH RECOVERY: Deleting {} blocks from IndexedDB",
+                block_ids_to_delete.len()
+            );
+            super::wasm_indexeddb::delete_blocks_from_indexeddb(
+                &self.db_name,
+                &block_ids_to_delete,
+            )
+            .await?;
             log::info!("CRASH RECOVERY: Successfully deleted blocks from IndexedDB");
         }
-        
+
         log::info!("CRASH RECOVERY: Rollback completed");
         Ok(())
     }
 
     /// Finalize complete transaction by advancing commit marker
     #[cfg(target_arch = "wasm32")]
-    async fn finalize_complete_transaction(&mut self, inconsistent_blocks: &[(u64, u64)]) -> Result<(), DatabaseError> {
-        log::info!("CRASH RECOVERY: Finalizing transaction for {} blocks", inconsistent_blocks.len());
-        
+    async fn finalize_complete_transaction(
+        &mut self,
+        inconsistent_blocks: &[(u64, u64)],
+    ) -> Result<(), DatabaseError> {
+        log::info!(
+            "CRASH RECOVERY: Finalizing transaction for {} blocks",
+            inconsistent_blocks.len()
+        );
+
         // Find the target commit marker (should be consistent across all blocks)
         if let Some((_, target_version)) = inconsistent_blocks.first() {
             let new_commit_marker = *target_version;
-            
+
             // Advance the commit marker to make the blocks visible
             vfs_sync::with_global_commit_marker(|cm| {
-                cm.borrow_mut().insert(self.db_name.clone(), new_commit_marker);
+                cm.borrow_mut()
+                    .insert(self.db_name.clone(), new_commit_marker);
             });
-            
-            log::info!("CRASH RECOVERY: Advanced commit marker from {} to {}", 
-                      self.get_commit_marker(), new_commit_marker);
-            
+
+            log::info!(
+                "CRASH RECOVERY: Advanced commit marker from {} to {}",
+                self.get_commit_marker(),
+                new_commit_marker
+            );
+
             // Update checksums for the finalized blocks
             for (block_id, _) in inconsistent_blocks {
                 // Read the block data to compute and store checksum
                 if let Ok(data) = self.read_block_sync(*block_id) {
                     self.checksum_manager.store_checksum(*block_id, &data);
-                    log::info!("CRASH RECOVERY: Updated checksum for finalized block {}", block_id);
+                    log::info!(
+                        "CRASH RECOVERY: Updated checksum for finalized block {}",
+                        block_id
+                    );
                 }
             }
         }
-        
+
         log::info!("CRASH RECOVERY: Finalization completed");
         Ok(())
     }
 
     // Leader Election Methods (WASM only)
-    
+
     /// Start leader election process
     #[cfg(target_arch = "wasm32")]
     pub async fn start_leader_election(&self) -> Result<(), DatabaseError> {
         if self.leader_election.borrow().is_none() {
-            log::debug!("BlockStorage::start_leader_election() - Creating new LeaderElectionManager for {}", self.db_name);
-            let mut manager = super::leader_election::LeaderElectionManager::new(self.db_name.clone());
+            log::debug!(
+                "BlockStorage::start_leader_election() - Creating new LeaderElectionManager for {}",
+                self.db_name
+            );
+            let mut manager =
+                super::leader_election::LeaderElectionManager::new(self.db_name.clone());
             log::debug!("BlockStorage::start_leader_election() - Calling manager.start_election()");
             manager.start_election().await?;
-            log::debug!("BlockStorage::start_leader_election() - Election started, storing manager");
+            log::debug!(
+                "BlockStorage::start_leader_election() - Election started, storing manager"
+            );
             *self.leader_election.borrow_mut() = Some(manager);
         } else {
             // If election is already running, force leadership takeover (requestLeadership)
-            log::debug!("BlockStorage::start_leader_election() - Election already exists, forcing leadership");
+            log::debug!(
+                "BlockStorage::start_leader_election() - Election already exists, forcing leadership"
+            );
             if let Some(ref mut manager) = *self.leader_election.borrow_mut() {
                 manager.force_become_leader().await?;
             }
         }
         Ok(())
     }
-    
+
     /// Check if this instance WAS the leader WITHOUT triggering re-election
     /// Used during cleanup to avoid starting new elections
     #[cfg(target_arch = "wasm32")]
     pub fn was_leader(&self) -> bool {
-        self.leader_election.borrow()
+        self.leader_election
+            .borrow()
             .as_ref()
             .map(|m| m.state.borrow().is_leader)
             .unwrap_or(false)
     }
-    
+
     /// Stop heartbeat interval synchronously (for Drop implementation)
     /// This is idempotent and safe to call multiple times
     /// Silently skips if already stopped or if manager is borrowed
@@ -1759,57 +2042,84 @@ impl BlockStorage {
                 if let Some(interval_id) = manager.heartbeat_interval.take() {
                     if let Some(window) = web_sys::window() {
                         window.clear_interval_with_handle(interval_id);
-                        web_sys::console::log_1(&format!("[DROP] Cleared heartbeat interval {} for {}", interval_id, self.db_name).into());
+                        web_sys::console::log_1(
+                            &format!(
+                                "[DROP] Cleared heartbeat interval {} for {}",
+                                interval_id, self.db_name
+                            )
+                            .into(),
+                        );
                     }
                 }
                 // Also drop the closure to release Rc references
                 if manager.heartbeat_closure.take().is_some() {
-                    web_sys::console::log_1(&format!("[DROP] Released heartbeat closure for {}", self.db_name).into());
+                    web_sys::console::log_1(
+                        &format!("[DROP] Released heartbeat closure for {}", self.db_name).into(),
+                    );
                 }
             }
         } else {
             // Already borrowed (e.g., first DB is still dropping) - skip silently
-            web_sys::console::log_1(&format!("[DROP] Skipping heartbeat stop for {} (already handled)", self.db_name).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[DROP] Skipping heartbeat stop for {} (already handled)",
+                    self.db_name
+                )
+                .into(),
+            );
         }
     }
-    
+
     /// Check if this instance is the leader (with re-election on lease expiry)
     #[cfg(target_arch = "wasm32")]
     pub async fn is_leader(&self) -> bool {
         // Start leader election if not already started
         if self.leader_election.borrow().is_none() {
-            log::debug!("BlockStorage::is_leader() - Starting leader election for {}", self.db_name);
+            log::debug!(
+                "BlockStorage::is_leader() - Starting leader election for {}",
+                self.db_name
+            );
             if let Err(e) = self.start_leader_election().await {
                 log::error!("Failed to start leader election: {:?}", e);
                 return false;
             }
             log::debug!("BlockStorage::is_leader() - Leader election started successfully");
         } else {
-            log::debug!("BlockStorage::is_leader() - Leader election already exists for {}", self.db_name);
+            log::debug!(
+                "BlockStorage::is_leader() - Leader election already exists for {}",
+                self.db_name
+            );
         }
-        
+
         if let Some(ref mut manager) = *self.leader_election.borrow_mut() {
             let is_leader = manager.is_leader().await;
-            
+
             // If no current leader (lease expired), trigger re-election
             if !is_leader {
                 let state = manager.state.borrow();
                 if state.leader_id.is_none() {
-                    log::debug!("No current leader for {} - triggering re-election", self.db_name);
+                    log::debug!(
+                        "No current leader for {} - triggering re-election",
+                        self.db_name
+                    );
                     drop(state);
                     let _ = manager.try_become_leader().await;
-                    
+
                     // Start heartbeat if we became leader
                     let new_is_leader = manager.state.borrow().is_leader;
                     if new_is_leader && manager.heartbeat_interval.is_none() {
                         let _ = manager.start_heartbeat();
                     }
-                    
-                    log::debug!("is_leader() for {} = {} (after re-election)", self.db_name, new_is_leader);
+
+                    log::debug!(
+                        "is_leader() for {} = {} (after re-election)",
+                        self.db_name,
+                        new_is_leader
+                    );
                     return new_is_leader;
                 }
             }
-            
+
             log::debug!("is_leader() for {} = {}", self.db_name, is_leader);
             is_leader
         } else {
@@ -1817,34 +2127,44 @@ impl BlockStorage {
             false
         }
     }
-    
+
     /// Stop leader election (e.g., when tab is closing)
     #[cfg(target_arch = "wasm32")]
     pub async fn stop_leader_election(&self) -> Result<(), DatabaseError> {
-        if let Some(mut manager) = self.leader_election.try_borrow_mut()
-            .expect("Failed to borrow leader_election in stop_leader_election").take() {
+        if let Some(mut manager) = self
+            .leader_election
+            .try_borrow_mut()
+            .expect("Failed to borrow leader_election in stop_leader_election")
+            .take()
+        {
             manager.stop_election().await?;
         }
         Ok(())
     }
-    
+
     /// Send a leader heartbeat (for testing)
     #[cfg(target_arch = "wasm32")]
     pub async fn send_leader_heartbeat(&self) -> Result<(), DatabaseError> {
         if let Some(ref manager) = *self.leader_election.borrow() {
             manager.send_heartbeat().await
         } else {
-            Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
+            Err(DatabaseError::new(
+                "LEADER_ELECTION_ERROR",
+                "Leader election not started",
+            ))
         }
     }
-    
+
     /// Get timestamp of last received leader heartbeat
     #[cfg(target_arch = "wasm32")]
     pub async fn get_last_leader_heartbeat(&self) -> Result<u64, DatabaseError> {
         if let Some(ref manager) = *self.leader_election.borrow() {
             Ok(manager.get_last_heartbeat().await)
         } else {
-            Err(DatabaseError::new("LEADER_ELECTION_ERROR", "Leader election not started"))
+            Err(DatabaseError::new(
+                "LEADER_ELECTION_ERROR",
+                "Leader election not started",
+            ))
         }
     }
 
@@ -1854,7 +2174,7 @@ impl BlockStorage {
     pub fn get_metrics(&self) -> super::observability::StorageMetrics {
         let dirty_count = self.get_dirty_count();
         let dirty_bytes = dirty_count * BLOCK_SIZE;
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         let (sync_count, timer_sync_count, debounce_sync_count, last_sync_duration_ms) = {
             (
@@ -1864,22 +2184,23 @@ impl BlockStorage {
                 self.last_sync_duration_ms.load(Ordering::SeqCst),
             )
         };
-        
+
         #[cfg(target_arch = "wasm32")]
         let (sync_count, timer_sync_count, debounce_sync_count, last_sync_duration_ms) = {
             // For WASM, use observability manager for sync_count tracking
             (self.observability.get_sync_count(), 0, 0, 1)
         };
-        
+
         let error_count = self.observability.get_error_count();
         let checksum_failures = self.observability.get_checksum_failures();
-        
+
         // Calculate throughput and error rate
         let total_operations = sync_count + error_count;
-        let (throughput_blocks_per_sec, throughput_bytes_per_sec) = 
-            self.observability.calculate_throughput(last_sync_duration_ms);
+        let (throughput_blocks_per_sec, throughput_bytes_per_sec) = self
+            .observability
+            .calculate_throughput(last_sync_duration_ms);
         let error_rate = self.observability.calculate_error_rate(total_operations);
-        
+
         super::observability::StorageMetrics {
             dirty_count,
             dirty_bytes,
@@ -1910,7 +2231,10 @@ impl BlockStorage {
 
     /// Set backpressure callback
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_backpressure_callback(&mut self, callback: super::observability::BackpressureCallback) {
+    pub fn set_backpressure_callback(
+        &mut self,
+        callback: super::observability::BackpressureCallback,
+    ) {
         self.observability.backpressure_callback = Some(callback);
     }
 
@@ -1922,55 +2246,61 @@ impl BlockStorage {
 
     /// Set WASM sync success callback
     #[cfg(target_arch = "wasm32")]
-    pub fn set_sync_success_callback(&mut self, callback: super::observability::WasmSyncSuccessCallback) {
+    pub fn set_sync_success_callback(
+        &mut self,
+        callback: super::observability::WasmSyncSuccessCallback,
+    ) {
         self.observability.wasm_sync_success_callback = Some(callback);
     }
-    
+
     /// Check if auto-sync is currently enabled
     pub fn is_auto_sync_enabled(&self) -> bool {
         lock_mutex!(self.auto_sync_interval).is_some()
     }
-    
+
     /// Get the current sync policy (if any)
     pub fn get_sync_policy(&self) -> Option<super::SyncPolicy> {
         lock_mutex!(self.policy).clone()
     }
-    
+
     /// Force synchronization with durability guarantees
-    /// 
+    ///
     /// This method ensures that all dirty blocks are persisted to durable storage
     /// (IndexedDB in WASM, filesystem in native) and waits for the operation to complete.
     /// This is called by VFS xSync to provide SQLite's durability guarantees.
     pub async fn force_sync(&mut self) -> Result<(), DatabaseError> {
         log::info!("force_sync: Starting forced synchronization with durability guarantees");
-        
+
         let dirty_count = self.get_dirty_count();
         if dirty_count == 0 {
             log::debug!("force_sync: No dirty blocks to sync");
             return Ok(());
         }
-        
-        log::info!("force_sync: Syncing {} dirty blocks with durability guarantee", dirty_count);
-        
+
+        log::info!(
+            "force_sync: Syncing {} dirty blocks with durability guarantee",
+            dirty_count
+        );
+
         // Just use the regular sync - it already waits for persistence in WASM
         self.sync().await?;
-        
+
         log::info!("force_sync: Successfully completed forced synchronization");
         Ok(())
     }
-    
+
     /// Set telemetry metrics (used for instrumentation)
     #[cfg(feature = "telemetry")]
     pub fn set_metrics(&mut self, metrics: Option<crate::telemetry::Metrics>) {
         self.metrics = metrics;
     }
-    
+
     /// Get telemetry metrics
     #[cfg(feature = "telemetry")]
     pub fn metrics(&self) -> Option<&crate::telemetry::Metrics> {
         self.metrics.as_ref()
     }
-    
+
     /// Create a test instance with minimal setup
     #[cfg(feature = "telemetry")]
     pub fn new_for_test() -> Self {
@@ -1983,7 +2313,7 @@ impl BlockStorage {
             capacity: 128,
             lru_order: VecDeque::new(),
             checksum_manager: crate::storage::metadata::ChecksumManager::new(
-                crate::storage::metadata::ChecksumAlgorithm::FastHash
+                crate::storage::metadata::ChecksumAlgorithm::FastHash,
             ),
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
             base_dir: std::path::PathBuf::from("/tmp/test"),
@@ -2055,11 +2385,15 @@ mod wasm_commit_marker_tests {
         let bid = s.allocate_block().await.expect("alloc block");
         let data_v1 = vec![0x33u8; BLOCK_SIZE];
         s.write_block(bid, data_v1.clone()).await.expect("write v1");
-        
+
         // Before sync, commit marker is 0, block version is 1, so should be invisible
         s.clear_cache();
         let out0 = s.read_block(bid).await.expect("read before commit");
-        assert_eq!(out0, vec![0u8; BLOCK_SIZE], "uncommitted data must read as zeroed");
+        assert_eq!(
+            out0,
+            vec![0u8; BLOCK_SIZE],
+            "uncommitted data must read as zeroed"
+        );
 
         // After sync, commit marker advances to 1, block version is 1, so should be visible
         s.sync().await.expect("sync v1");
@@ -2084,8 +2418,15 @@ mod wasm_commit_marker_tests {
         // Corrupt the stored checksum; invisible reads must NOT verify checksum
         s.set_block_checksum_for_testing(bid, 1234567);
         s.clear_cache();
-        let out = s.read_block(bid).await.expect("read while invisible should not error");
-        assert_eq!(out, vec![0u8; BLOCK_SIZE], "invisible block reads as zeroed");
+        let out = s
+            .read_block(bid)
+            .await
+            .expect("read while invisible should not error");
+        assert_eq!(
+            out,
+            vec![0u8; BLOCK_SIZE],
+            "invisible block reads as zeroed"
+        );
 
         // Now make it visible again; checksum verification should trigger and fail
         set_commit_marker(db, 1);
@@ -2107,8 +2448,12 @@ mod wasm_commit_marker_tests {
         let b1 = s.allocate_block().await.expect("alloc b1");
         let b2 = s.allocate_block().await.expect("alloc b2");
 
-        s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
-        s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+        s.write_block(b1, vec![1u8; BLOCK_SIZE])
+            .await
+            .expect("write b1 v1");
+        s.write_block(b2, vec![2u8; BLOCK_SIZE])
+            .await
+            .expect("write b2 v1");
         s.sync().await.expect("sync #1");
 
         let cm1 = get_commit_marker(db);
@@ -2118,14 +2463,24 @@ mod wasm_commit_marker_tests {
         assert_eq!(meta1.get(&b2).unwrap().1 as u64, cm1);
 
         // Update only b1 and sync again; only b1's version should bump
-        s.write_block(b1, vec![3u8; BLOCK_SIZE]).await.expect("write b1 v2");
+        s.write_block(b1, vec![3u8; BLOCK_SIZE])
+            .await
+            .expect("write b1 v2");
         s.sync().await.expect("sync #2");
 
         let cm2 = get_commit_marker(db);
         assert_eq!(cm2, 2, "second sync should advance commit marker to 2");
         let meta2 = s.get_block_metadata_for_testing();
-        assert_eq!(meta2.get(&b1).unwrap().1 as u64, cm2, "updated block tracks new version");
-        assert_eq!(meta2.get(&b2).unwrap().1 as u64, 1, "unchanged block retains prior version");
+        assert_eq!(
+            meta2.get(&b1).unwrap().1 as u64,
+            cm2,
+            "updated block tracks new version"
+        );
+        assert_eq!(
+            meta2.get(&b2).unwrap().1 as u64,
+            1,
+            "unchanged block retains prior version"
+        );
     }
 }
 
@@ -2158,46 +2513,54 @@ mod commit_marker_tests {
         let data_v1 = vec![0x11u8; BLOCK_SIZE];
         s.write_block(bid, data_v1.clone()).await.expect("write v1");
         println!("DEBUG: Wrote block {} with data", bid);
-        
+
         // Before sync, commit marker is 0, block version is 1, so should be invisible
         s.clear_cache();
         let out0 = s.read_block(bid).await.expect("read before commit");
-        assert_eq!(out0, vec![0u8; BLOCK_SIZE], "uncommitted data must read as zeroed");
+        assert_eq!(
+            out0,
+            vec![0u8; BLOCK_SIZE],
+            "uncommitted data must read as zeroed"
+        );
         println!("DEBUG: Pre-sync read returned zeroed data as expected");
 
         // After sync, commit marker advances to 1, block version is 1, so should be visible
         println!("DEBUG: About to call sync");
         s.sync().await.expect("sync v1");
         println!("DEBUG: Sync completed successfully");
-        
+
         // Debug: Check commit marker and metadata after sync
         let commit_marker = get_commit_marker(db);
         println!("DEBUG: Commit marker after sync: {}", commit_marker);
-        
+
         s.clear_cache();
         let out1 = s.read_block(bid).await.expect("read after commit");
-        
+
         // Debug: Print what we got vs what we expected
         println!("DEBUG: Expected data: {:?}", &data_v1[..8]);
         println!("DEBUG: Actual data: {:?}", &out1[..8]);
-        println!("DEBUG: Data lengths - expected: {}, actual: {}", data_v1.len(), out1.len());
-        
+        println!(
+            "DEBUG: Data lengths - expected: {}, actual: {}",
+            data_v1.len(),
+            out1.len()
+        );
+
         // Check if data matches without panicking
         let data_matches = out1 == data_v1;
         println!("DEBUG: Data matches: {}", data_matches);
-        
+
         if !data_matches {
             println!("DEBUG: Data mismatch detected - investigating further");
             // Check if it's all zeros (uncommitted)
             let is_all_zeros = out1.iter().all(|&b| b == 0);
             println!("DEBUG: Is all zeros: {}", is_all_zeros);
-            
+
             // Check metadata and commit marker state
             println!("DEBUG: Final commit marker: {}", get_commit_marker(db));
-            
+
             panic!("Data mismatch: expected committed data to be visible after sync");
         }
-        
+
         println!("DEBUG: Test passed - data is visible after commit");
     }
 
@@ -2217,8 +2580,15 @@ mod commit_marker_tests {
         // Corrupt the stored checksum; invisible reads must NOT verify checksum
         s.set_block_checksum_for_testing(bid, 1234567);
         s.clear_cache();
-        let out = s.read_block(bid).await.expect("read while invisible should not error");
-        assert_eq!(out, vec![0u8; BLOCK_SIZE], "invisible block reads as zeroed");
+        let out = s
+            .read_block(bid)
+            .await
+            .expect("read while invisible should not error");
+        assert_eq!(
+            out,
+            vec![0u8; BLOCK_SIZE],
+            "invisible block reads as zeroed"
+        );
 
         // Now make it visible again; checksum verification should trigger and fail
         set_commit_marker(db, 1);
@@ -2240,8 +2610,12 @@ mod commit_marker_tests {
         let b1 = s.allocate_block().await.expect("alloc b1");
         let b2 = s.allocate_block().await.expect("alloc b2");
 
-        s.write_block(b1, vec![1u8; BLOCK_SIZE]).await.expect("write b1 v1");
-        s.write_block(b2, vec![2u8; BLOCK_SIZE]).await.expect("write b2 v1");
+        s.write_block(b1, vec![1u8; BLOCK_SIZE])
+            .await
+            .expect("write b1 v1");
+        s.write_block(b2, vec![2u8; BLOCK_SIZE])
+            .await
+            .expect("write b2 v1");
         s.sync().await.expect("sync #1");
 
         let cm1 = get_commit_marker(db);
@@ -2251,13 +2625,23 @@ mod commit_marker_tests {
         assert_eq!(meta1.get(&b2).unwrap().1 as u64, cm1);
 
         // Update only b1 and sync again; only b1's version should bump
-        s.write_block(b1, vec![3u8; BLOCK_SIZE]).await.expect("write b1 v2");
+        s.write_block(b1, vec![3u8; BLOCK_SIZE])
+            .await
+            .expect("write b1 v2");
         s.sync().await.expect("sync #2");
 
         let cm2 = get_commit_marker(db);
         assert_eq!(cm2, 2, "second sync should advance commit marker to 2");
         let meta2 = s.get_block_metadata_for_testing();
-        assert_eq!(meta2.get(&b1).unwrap().1 as u64, cm2, "updated block tracks new version");
-        assert_eq!(meta2.get(&b2).unwrap().1 as u64, 1, "unchanged block retains prior version");
+        assert_eq!(
+            meta2.get(&b1).unwrap().1 as u64,
+            cm2,
+            "updated block tracks new version"
+        );
+        assert_eq!(
+            meta2.get(&b2).unwrap().1 as u64,
+            1,
+            "unchanged block retains prior version"
+        );
     }
 }

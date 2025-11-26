@@ -1,19 +1,20 @@
 //! Metadata module extracted from block_storage.rs
 //! This module contains the ACTUAL checksum and metadata logic moved from BlockStorage
 
-use std::collections::HashMap;
-#[cfg(target_arch = "wasm32")]
-use std::cell::RefCell;
+use crate::types::DatabaseError;
 #[cfg(not(target_arch = "wasm32"))]
 use parking_lot::Mutex;
-use crate::types::DatabaseError;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 // Reentrancy-safe lock macros
 #[allow(unused_macros)]
 #[cfg(target_arch = "wasm32")]
 macro_rules! lock_mutex {
     ($mutex:expr) => {
-        $mutex.try_borrow_mut()
+        $mutex
+            .try_borrow_mut()
             .expect("RefCell borrow failed - reentrancy detected in metadata.rs")
     };
 }
@@ -40,7 +41,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]
 pub enum ChecksumAlgorithm {
     FastHash,
-    CRC32
+    CRC32,
 }
 
 // MOVED from block_storage.rs lines 43-54
@@ -62,12 +63,12 @@ pub struct ChecksumManager {
     checksums: RefCell<HashMap<u64, u64>>,
     #[cfg(not(target_arch = "wasm32"))]
     checksums: Mutex<HashMap<u64, u64>>,
-    
+
     #[cfg(target_arch = "wasm32")]
     checksum_algos: RefCell<HashMap<u64, ChecksumAlgorithm>>,
     #[cfg(not(target_arch = "wasm32"))]
     checksum_algos: Mutex<HashMap<u64, ChecksumAlgorithm>>,
-    
+
     /// Default algorithm for new blocks (MOVED from BlockStorage.checksum_algo_default)
     checksum_algo_default: ChecksumAlgorithm,
 }
@@ -80,12 +81,12 @@ impl ChecksumManager {
             checksums: RefCell::new(HashMap::new()),
             #[cfg(not(target_arch = "wasm32"))]
             checksums: Mutex::new(HashMap::new()),
-            
+
             #[cfg(target_arch = "wasm32")]
             checksum_algos: RefCell::new(HashMap::new()),
             #[cfg(not(target_arch = "wasm32"))]
             checksum_algos: Mutex::new(HashMap::new()),
-            
+
             checksum_algo_default: default_algorithm,
         }
     }
@@ -101,12 +102,12 @@ impl ChecksumManager {
             checksums: RefCell::new(checksums),
             #[cfg(not(target_arch = "wasm32"))]
             checksums: Mutex::new(checksums),
-            
+
             #[cfg(target_arch = "wasm32")]
             checksum_algos: RefCell::new(checksum_algos),
             #[cfg(not(target_arch = "wasm32"))]
             checksum_algos: Mutex::new(checksum_algos),
-            
+
             checksum_algo_default: default_algorithm,
         }
     }
@@ -228,7 +229,7 @@ impl ChecksumManager {
     pub fn set_checksum_for_testing(&self, block_id: u64, checksum: u64) {
         lock_mutex!(self.checksums).insert(block_id, checksum);
     }
-    
+
     /// Clear all checksums (useful after database import)
     pub fn clear_checksums(&self) {
         lock_mutex!(self.checksums).clear();

@@ -1,9 +1,9 @@
 // Auto-sync disable behavior: after disabling, timer thread should not flush
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -21,10 +21,7 @@ async fn test_disable_stops_timer_flush() {
 
     // Make a block dirty
     let data = vec![1u8; BLOCK_SIZE];
-    storage
-        .write_block(1, data)
-        .await
-        .expect("write block 1");
+    storage.write_block(1, data).await.expect("write block 1");
     assert_eq!(storage.get_dirty_count(), 1);
 
     // Disable auto-sync immediately

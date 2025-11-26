@@ -1,7 +1,7 @@
 //! Retry Logic for IndexedDB Operations with Exponential Backoff
-//! 
+//!
 //! Provides enterprise-grade retry functionality for transient IndexedDB failures.
-//! 
+//!
 //! ## Features
 //! - Exponential backoff (100ms, 200ms, 400ms)
 //! - Max 3 retry attempts
@@ -34,19 +34,19 @@ const BASE_DELAY_MS: u32 = 100;
 /// - CONSTRAINT_ERROR - Database constraint violation
 pub fn is_retriable_error(error: &DatabaseError) -> bool {
     let code = error.code.as_str();
-    
+
     // Quota errors are never retriable
     if code.contains("Quota") || code.contains("quota") {
         log::debug!("Error is quota-related, not retriable: {}", code);
         return false;
     }
-    
+
     // Invalid state and not found errors are not retriable
     if code.contains("INVALID_STATE") || code.contains("NOT_FOUND") || code.contains("CONSTRAINT") {
         log::debug!("Error is permanent, not retriable: {}", code);
         return false;
     }
-    
+
     // Everything else is potentially retriable (transient failures)
     log::debug!("Error is retriable: {}", code);
     true
@@ -77,46 +77,77 @@ where
     Fut: Future<Output = Result<T, DatabaseError>>,
 {
     let mut attempt = 0;
-    
+
     loop {
         attempt += 1;
-        
-        log::debug!("Attempt {}/{} for operation: {}", attempt, MAX_RETRY_ATTEMPTS, operation_name);
-        
+
+        log::debug!(
+            "Attempt {}/{} for operation: {}",
+            attempt,
+            MAX_RETRY_ATTEMPTS,
+            operation_name
+        );
+
         match operation().await {
             Ok(result) => {
                 if attempt > 1 {
-                    log::info!("Operation '{}' succeeded after {} attempts", operation_name, attempt);
+                    log::info!(
+                        "Operation '{}' succeeded after {} attempts",
+                        operation_name,
+                        attempt
+                    );
                 }
                 return Ok(result);
             }
             Err(error) => {
-                log::warn!("Attempt {}/{} failed for '{}': {} - {}", 
-                          attempt, MAX_RETRY_ATTEMPTS, operation_name, error.code, error.message);
-                
+                log::warn!(
+                    "Attempt {}/{} failed for '{}': {} - {}",
+                    attempt,
+                    MAX_RETRY_ATTEMPTS,
+                    operation_name,
+                    error.code,
+                    error.message
+                );
+
                 // Check if error is retriable
                 if !is_retriable_error(&error) {
-                    log::error!("Non-retriable error for '{}': {} - {}", 
-                               operation_name, error.code, error.message);
+                    log::error!(
+                        "Non-retriable error for '{}': {} - {}",
+                        operation_name,
+                        error.code,
+                        error.message
+                    );
                     return Err(error);
                 }
-                
+
                 // Check if we've exhausted retry attempts
                 if attempt >= MAX_RETRY_ATTEMPTS {
-                    log::error!("Max retry attempts ({}) exceeded for '{}': {} - {}", 
-                               MAX_RETRY_ATTEMPTS, operation_name, error.code, error.message);
+                    log::error!(
+                        "Max retry attempts ({}) exceeded for '{}': {} - {}",
+                        MAX_RETRY_ATTEMPTS,
+                        operation_name,
+                        error.code,
+                        error.message
+                    );
                     return Err(DatabaseError::new(
                         "MAX_RETRIES_EXCEEDED",
-                        &format!("Operation '{}' failed after {} attempts. Last error: {} - {}", 
-                                operation_name, MAX_RETRY_ATTEMPTS, error.code, error.message)
+                        &format!(
+                            "Operation '{}' failed after {} attempts. Last error: {} - {}",
+                            operation_name, MAX_RETRY_ATTEMPTS, error.code, error.message
+                        ),
                     ));
                 }
-                
+
                 // Calculate exponential backoff delay: 100ms, 200ms, 400ms
                 let delay_ms = BASE_DELAY_MS * 2_u32.pow(attempt - 1);
-                log::debug!("Retrying '{}' after {}ms delay (attempt {}/{})", 
-                           operation_name, delay_ms, attempt, MAX_RETRY_ATTEMPTS);
-                
+                log::debug!(
+                    "Retrying '{}' after {}ms delay (attempt {}/{})",
+                    operation_name,
+                    delay_ms,
+                    attempt,
+                    MAX_RETRY_ATTEMPTS
+                );
+
                 // Wait before retrying
                 #[cfg(target_arch = "wasm32")]
                 {
@@ -124,12 +155,15 @@ where
                     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
                         web_sys::window()
                             .unwrap()
-                            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay_ms as i32)
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                &resolve,
+                                delay_ms as i32,
+                            )
                             .unwrap();
                     });
                     wasm_bindgen_futures::JsFuture::from(promise).await.ok();
                 }
-                
+
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     tokio::time::sleep(std::time::Duration::from_millis(delay_ms as u64)).await;
@@ -142,34 +176,49 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_is_retriable_quota_error() {
         let error = DatabaseError::new("QuotaExceededError", "Storage quota exceeded");
-        assert!(!is_retriable_error(&error), "Quota error should not be retriable");
+        assert!(
+            !is_retriable_error(&error),
+            "Quota error should not be retriable"
+        );
     }
-    
+
     #[test]
     fn test_is_retriable_transaction_error() {
         let error = DatabaseError::new("TRANSACTION_ERROR", "Transaction failed");
-        assert!(is_retriable_error(&error), "Transaction error should be retriable");
+        assert!(
+            is_retriable_error(&error),
+            "Transaction error should be retriable"
+        );
     }
-    
+
     #[test]
     fn test_is_retriable_invalid_state() {
         let error = DatabaseError::new("INVALID_STATE_ERROR", "Invalid state");
-        assert!(!is_retriable_error(&error), "Invalid state should not be retriable");
+        assert!(
+            !is_retriable_error(&error),
+            "Invalid state should not be retriable"
+        );
     }
-    
+
     #[test]
     fn test_is_retriable_not_found() {
         let error = DatabaseError::new("NOT_FOUND_ERROR", "Not found");
-        assert!(!is_retriable_error(&error), "Not found should not be retriable");
+        assert!(
+            !is_retriable_error(&error),
+            "Not found should not be retriable"
+        );
     }
-    
+
     #[test]
     fn test_is_retriable_indexeddb_error() {
         let error = DatabaseError::new("INDEXEDDB_ERROR", "IndexedDB error");
-        assert!(is_retriable_error(&error), "IndexedDB error should be retriable");
+        assert!(
+            is_retriable_error(&error),
+            "IndexedDB error should be retriable"
+        );
     }
 }

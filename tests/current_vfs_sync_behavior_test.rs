@@ -19,28 +19,38 @@ async fn test_current_vfs_sync_behavior_basic_sync() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::storage::vfs_sync::{with_global_commit_marker, with_global_storage};
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
-    let storage = BlockStorage::new(db_name).await.expect("Should create storage");
+    let storage = BlockStorage::new(db_name)
+        .await
+        .expect("Should create storage");
 
     // Write some test data
     let mut test_data = vec![0u8; 4096];
     test_data[0..15].copy_from_slice(b"vfs sync test  ");
 
-    storage.write_block(1, test_data.clone()).await.expect("Should write block");
+    storage
+        .write_block(1, test_data.clone())
+        .await
+        .expect("Should write block");
     storage.sync().await.expect("Should sync");
 
     // Test VFS sync operation
     vfs_sync_database(db_name).expect("VFS sync should succeed");
 
     // Verify data persists after VFS sync
-    let storage2 = BlockStorage::new(db_name).await.expect("Should create second storage");
-    let read_data = storage2.read_block(1).await.expect("Should read block after VFS sync");
+    let storage2 = BlockStorage::new(db_name)
+        .await
+        .expect("Should create second storage");
+    let read_data = storage2
+        .read_block(1)
+        .await
+        .expect("Should read block after VFS sync");
 
     assert_eq!(read_data, test_data, "Data should persist through VFS sync");
 }
@@ -54,21 +64,26 @@ async fn test_current_vfs_sync_behavior_blocking_sync() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::storage::vfs_sync::{with_global_commit_marker, with_global_storage};
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
-    let storage = BlockStorage::new(db_name).await.expect("Should create storage");
+    let storage = BlockStorage::new(db_name)
+        .await
+        .expect("Should create storage");
 
     // Write multiple blocks
     for i in 1..=3 {
         let mut data = vec![0u8; 4096];
         let text = format!("blocking sync block {}", i);
         data[0..text.len()].copy_from_slice(text.as_bytes());
-        storage.write_block(i, data).await.expect(&format!("Should write block {}", i));
+        storage
+            .write_block(i, data)
+            .await
+            .expect(&format!("Should write block {}", i));
     }
 
     storage.sync().await.expect("Should sync");
@@ -77,14 +92,23 @@ async fn test_current_vfs_sync_behavior_blocking_sync() {
     vfs_sync_database_blocking(db_name).expect("Blocking VFS sync should succeed");
 
     // Verify all data persists
-    let storage2 = BlockStorage::new(db_name).await.expect("Should create second storage");
+    let storage2 = BlockStorage::new(db_name)
+        .await
+        .expect("Should create second storage");
     for i in 1..=3 {
         let mut expected_data = vec![0u8; 4096];
         let text = format!("blocking sync block {}", i);
         expected_data[0..text.len()].copy_from_slice(text.as_bytes());
 
-        let read_data = storage2.read_block(i).await.expect(&format!("Should read block {}", i));
-        assert_eq!(read_data, expected_data, "Block {} should persist through blocking VFS sync", i);
+        let read_data = storage2
+            .read_block(i)
+            .await
+            .expect(&format!("Should read block {}", i));
+        assert_eq!(
+            read_data, expected_data,
+            "Block {} should persist through blocking VFS sync",
+            i
+        );
     }
 }
 
@@ -97,14 +121,16 @@ async fn test_current_vfs_sync_behavior_commit_marker_advancement() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::storage::vfs_sync::{with_global_commit_marker, with_global_storage};
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
-    let storage = BlockStorage::new(db_name).await.expect("Should create storage");
+    let storage = BlockStorage::new(db_name)
+        .await
+        .expect("Should create storage");
 
     // Check initial commit marker (should be 0 or not exist)
     let initial_marker = storage.get_commit_marker();
@@ -112,7 +138,10 @@ async fn test_current_vfs_sync_behavior_commit_marker_advancement() {
     // Write and sync data
     let mut test_data = vec![0u8; 4096];
     test_data[0..20].copy_from_slice(b"commit marker test  ");
-    storage.write_block(10, test_data).await.expect("Should write block");
+    storage
+        .write_block(10, test_data)
+        .await
+        .expect("Should write block");
     storage.sync().await.expect("Should sync");
 
     let marker_before_vfs = storage.get_commit_marker();
@@ -124,11 +153,19 @@ async fn test_current_vfs_sync_behavior_commit_marker_advancement() {
     let marker_after_vfs = storage.get_commit_marker();
 
     // The exact values depend on implementation, but marker should have advanced
-    web_sys::console::log_1(&format!("Commit markers: initial={}, before_vfs={}, after_vfs={}",
-                                      initial_marker, marker_before_vfs, marker_after_vfs).into());
+    web_sys::console::log_1(
+        &format!(
+            "Commit markers: initial={}, before_vfs={}, after_vfs={}",
+            initial_marker, marker_before_vfs, marker_after_vfs
+        )
+        .into(),
+    );
 
     // Capture current behavior - marker should advance during VFS sync
-    assert!(marker_after_vfs >= marker_before_vfs, "Commit marker should advance or stay same during VFS sync");
+    assert!(
+        marker_after_vfs >= marker_before_vfs,
+        "Commit marker should advance or stay same during VFS sync"
+    );
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -140,7 +177,7 @@ async fn test_current_vfs_sync_behavior_cross_instance_visibility() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::storage::vfs_sync::{with_global_commit_marker, with_global_storage};
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
@@ -149,10 +186,15 @@ async fn test_current_vfs_sync_behavior_cross_instance_visibility() {
 
     // First instance: write data
     {
-        let storage1 = BlockStorage::new(db_name).await.expect("Should create first storage");
+        let storage1 = BlockStorage::new(db_name)
+            .await
+            .expect("Should create first storage");
         let mut data = vec![0u8; 4096];
         data[0..25].copy_from_slice(b"cross instance vfs data  ");
-        storage1.write_block(20, data).await.expect("Should write block");
+        storage1
+            .write_block(20, data)
+            .await
+            .expect("Should write block");
         storage1.sync().await.expect("Should sync");
 
         // Trigger VFS sync to make data visible across instances
@@ -161,12 +203,20 @@ async fn test_current_vfs_sync_behavior_cross_instance_visibility() {
 
     // Second instance: should see the data
     {
-        let storage2 = BlockStorage::new(db_name).await.expect("Should create second storage");
-        let read_data = storage2.read_block(20).await.expect("Should read block from second instance");
+        let storage2 = BlockStorage::new(db_name)
+            .await
+            .expect("Should create second storage");
+        let read_data = storage2
+            .read_block(20)
+            .await
+            .expect("Should read block from second instance");
 
         let mut expected_data = vec![0u8; 4096];
         expected_data[0..25].copy_from_slice(b"cross instance vfs data  ");
-        assert_eq!(read_data, expected_data, "Data should be visible across instances after VFS sync");
+        assert_eq!(
+            read_data, expected_data,
+            "Data should be visible across instances after VFS sync"
+        );
     }
 }
 
@@ -179,35 +229,45 @@ async fn test_current_vfs_sync_behavior_storage_registration() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::storage::vfs_sync::{with_global_commit_marker, with_global_storage};
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
-    let storage = BlockStorage::new(db_name).await.expect("Should create storage");
+    let storage = BlockStorage::new(db_name)
+        .await
+        .expect("Should create storage");
 
     // NOTE: Storage registration now happens automatically in indexeddb_vfs::open_or_create
     // The old register_storage_for_vfs_sync function is deprecated and a no-op
     // Registration is handled by indexeddb_vfs::STORAGE_REGISTRY
-    
+
     // Write some data to verify storage works
     let mut test_data = vec![0u8; 4096];
     test_data[0..20].copy_from_slice(b"registration test   ");
-    storage.write_block(30, test_data).await.expect("Should write block");
+    storage
+        .write_block(30, test_data)
+        .await
+        .expect("Should write block");
     storage.sync().await.expect("Should sync");
 
     // VFS sync should work (it accesses GLOBAL_STORAGE, not the registry)
     vfs_sync_database(db_name).expect("VFS sync should work");
 
     // Verify data persists
-    let storage2 = BlockStorage::new(db_name).await.expect("Should create verification storage");
+    let storage2 = BlockStorage::new(db_name)
+        .await
+        .expect("Should create verification storage");
     let read_data = storage2.read_block(30).await.expect("Should read block");
 
     let mut expected_data = vec![0u8; 4096];
     expected_data[0..20].copy_from_slice(b"registration test   ");
-    assert_eq!(read_data, expected_data, "Data should persist through registered storage VFS sync");
+    assert_eq!(
+        read_data, expected_data,
+        "Data should persist through registered storage VFS sync"
+    );
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -219,26 +279,40 @@ async fn test_current_vfs_sync_behavior_empty_database() {
     // Clear global state to ensure test isolation
     #[cfg(target_arch = "wasm32")]
     {
-        use absurder_sql::storage::vfs_sync::{with_global_storage, with_global_commit_marker};
+        use absurder_sql::storage::vfs_sync::{with_global_commit_marker, with_global_storage};
         use absurder_sql::vfs::indexeddb_vfs::STORAGE_REGISTRY;
         with_global_storage(|gs| gs.borrow_mut().clear());
         with_global_commit_marker(|cm| cm.borrow_mut().clear());
         STORAGE_REGISTRY.with(|sr| unsafe { &mut *sr.get() }.clear());
     }
 
-    let _storage = BlockStorage::new(db_name).await.expect("Should create storage");
+    let _storage = BlockStorage::new(db_name)
+        .await
+        .expect("Should create storage");
 
     // VFS sync on empty database should not fail
     vfs_sync_database(db_name).expect("VFS sync should succeed on empty database");
-    vfs_sync_database_blocking(db_name).expect("Blocking VFS sync should succeed on empty database");
+    vfs_sync_database_blocking(db_name)
+        .expect("Blocking VFS sync should succeed on empty database");
 
     // After VFS sync, should still be able to create new storage and use it normally
-    let storage2 = BlockStorage::new(db_name).await.expect("Should create storage after empty VFS sync");
+    let storage2 = BlockStorage::new(db_name)
+        .await
+        .expect("Should create storage after empty VFS sync");
 
     let mut test_data = vec![0u8; 4096];
     test_data[0..16].copy_from_slice(b"after empty sync");
-    storage2.write_block(1, test_data.clone()).await.expect("Should write after empty VFS sync");
+    storage2
+        .write_block(1, test_data.clone())
+        .await
+        .expect("Should write after empty VFS sync");
 
-    let read_data = storage2.read_block(1).await.expect("Should read after empty VFS sync");
-    assert_eq!(read_data, test_data, "Should work normally after empty VFS sync");
+    let read_data = storage2
+        .read_block(1)
+        .await
+        .expect("Should read after empty VFS sync");
+    assert_eq!(
+        read_data, test_data,
+        "Should work normally after empty VFS sync"
+    );
 }

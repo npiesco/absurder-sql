@@ -2,80 +2,133 @@
 //! This module contains platform-specific constructor implementations
 
 #[cfg(target_arch = "wasm32")]
-use std::collections::{HashMap, HashSet, VecDeque};
+use super::block_storage::{BlockStorage, DEFAULT_CACHE_CAPACITY, RecoveryReport};
 #[cfg(target_arch = "wasm32")]
-use std::sync::Arc;
+use super::metadata::{ChecksumAlgorithm, ChecksumManager};
 #[cfg(target_arch = "wasm32")]
-use std::cell::RefCell;
+use super::vfs_sync;
 #[cfg(target_arch = "wasm32")]
 use crate::types::DatabaseError;
 #[cfg(target_arch = "wasm32")]
-use super::metadata::{ChecksumManager, ChecksumAlgorithm};
+use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
-use super::block_storage::{BlockStorage, RecoveryReport, DEFAULT_CACHE_CAPACITY};
+use std::collections::{HashMap, HashSet, VecDeque};
 #[cfg(target_arch = "wasm32")]
-use super::vfs_sync;
-
+use std::sync::Arc;
 
 // On-disk JSON schema for fs_persist
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[allow(dead_code)]
-struct FsAlloc { allocated: Vec<u64> }
+struct FsAlloc {
+    allocated: Vec<u64>,
+}
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[allow(dead_code)]
-struct FsDealloc { tombstones: Vec<u64> }
+struct FsDealloc {
+    tombstones: Vec<u64>,
+}
 
 /// Create a new BlockStorage instance for WASM platform
 #[cfg(target_arch = "wasm32")]
 pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
     log::info!("Creating BlockStorage for database: {}", db_name);
-    
+
     // Perform IndexedDB recovery scan first
-    let recovery_performed = super::wasm_indexeddb::perform_indexeddb_recovery_scan(db_name).await
+    let recovery_performed = super::wasm_indexeddb::perform_indexeddb_recovery_scan(db_name)
+        .await
         .unwrap_or(false);
     if recovery_performed {
         log::info!("IndexedDB recovery scan completed for: {}", db_name);
     }
-    
+
     // Try to restore from IndexedDB
     match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
-        Ok(_) => log::info!("Successfully restored BlockStorage from IndexedDB for: {}", db_name),
-        Err(e) => log::warn!("IndexedDB restoration failed for {}: {}", db_name, e.message),
+        Ok(_) => log::info!(
+            "Successfully restored BlockStorage from IndexedDB for: {}",
+            db_name
+        ),
+        Err(e) => log::warn!(
+            "IndexedDB restoration failed for {}: {}",
+            db_name,
+            e.message
+        ),
     }
-    
+
     // Debug: Log what's in global storage after restoration
     vfs_sync::with_global_storage(|storage_map| {
         if let Some(db_storage) = storage_map.borrow().get(db_name) {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("DEBUG: After restoration, database {} has {} blocks in global storage", db_name, db_storage.len()).into());
+            web_sys::console::log_1(
+                &format!(
+                    "DEBUG: After restoration, database {} has {} blocks in global storage",
+                    db_name,
+                    db_storage.len()
+                )
+                .into(),
+            );
             for (block_id, data) in db_storage.iter() {
                 let preview = if data.len() >= 16 {
-                    format!("{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
-                        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-                        data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15])
+                    format!(
+                        "{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                        data[0],
+                        data[1],
+                        data[2],
+                        data[3],
+                        data[4],
+                        data[5],
+                        data[6],
+                        data[7],
+                        data[8],
+                        data[9],
+                        data[10],
+                        data[11],
+                        data[12],
+                        data[13],
+                        data[14],
+                        data[15]
+                    )
                 } else {
                     "short".to_string()
                 };
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("DEBUG: Block {} preview after restoration: {}", block_id, preview).into());
-                
+                web_sys::console::log_1(
+                    &format!(
+                        "DEBUG: Block {} preview after restoration: {}",
+                        block_id, preview
+                    )
+                    .into(),
+                );
+
                 // CRITICAL: Check SQLite magic bytes on block 0
                 if *block_id == 0 {
-                    let is_valid = data.len() >= 16 && 
-                        &data[0..16] == b"SQLite format 3\0";
+                    let is_valid = data.len() >= 16 && &data[0..16] == b"SQLite format 3\0";
                     #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("DEBUG: Block 0 SQLite header valid: {}", is_valid).into());
+                    web_sys::console::log_1(
+                        &format!("DEBUG: Block 0 SQLite header valid: {}", is_valid).into(),
+                    );
                 }
             }
 
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("DEBUG: Found {} blocks in global storage for pre-population", db_storage.len()).into());
+            web_sys::console::log_1(
+                &format!(
+                    "DEBUG: Found {} blocks in global storage for pre-population",
+                    db_storage.len()
+                )
+                .into(),
+            );
         } else {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("DEBUG: After restoration, no blocks found for database {}", db_name).into());
+            web_sys::console::log_1(
+                &format!(
+                    "DEBUG: After restoration, no blocks found for database {}",
+                    db_name
+                )
+                .into(),
+            );
         }
     });
 
@@ -89,7 +142,10 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         let mut blocks_dir = db_dir.clone();
         blocks_dir.push("blocks");
         let _ = fs::create_dir_all(&blocks_dir);
-        println!("[fs] init base_dir={:?}, db_dir={:?}, blocks_dir={:?}", fs_base_dir, db_dir, blocks_dir);
+        println!(
+            "[fs] init base_dir={:?}, db_dir={:?}, blocks_dir={:?}",
+            fs_base_dir, db_dir, blocks_dir
+        );
         // Ensure metadata.json exists
         let mut meta_path = db_dir.clone();
         meta_path.push("metadata.json");
@@ -134,7 +190,6 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
                         db_name
                     );
                 }
-
             });
 
             (allocated_blocks, next_block_id)
@@ -152,9 +207,15 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
                 let mut s = String::new();
                 if f.read_to_string(&mut s).is_ok() {
                     if let Ok(parsed) = serde_json::from_str::<FsAlloc>(&s) {
-                        for id in parsed.allocated { allocated_blocks.insert(id); }
+                        for id in parsed.allocated {
+                            allocated_blocks.insert(id);
+                        }
                         next_block_id = allocated_blocks.iter().max().copied().unwrap_or(0) + 1;
-                        log::info!("[fs] Restored {} allocated blocks for database: {}", allocated_blocks.len(), db_name);
+                        log::info!(
+                            "[fs] Restored {} allocated blocks for database: {}",
+                            allocated_blocks.len(),
+                            db_name
+                        );
                     }
                 }
             }
@@ -162,7 +223,11 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         }
 
         // Native tests: restore allocation from test-global (when fs_persist is disabled)
-        #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+        #[cfg(all(
+            not(target_arch = "wasm32"),
+            any(test, debug_assertions),
+            not(feature = "fs_persist")
+        ))]
         {
             let mut allocated_blocks = HashSet::new();
             let mut next_block_id: u64 = 1;
@@ -232,7 +297,9 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
                                     let id_opt = arr.get(0).and_then(|v| v.as_u64());
                                     let meta_opt = arr.get(1).and_then(|v| v.as_object());
                                     if let (Some(bid), Some(meta)) = (id_opt, meta_opt) {
-                                        if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) {
+                                        if let Some(csum) =
+                                            meta.get("checksum").and_then(|v| v.as_u64())
+                                        {
                                             map.insert(bid, csum);
                                         }
                                     }
@@ -272,12 +339,17 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
                                             Some("CRC32") => Some(ChecksumAlgorithm::CRC32),
                                             _ => None, // tolerate invalid/missing by not inserting; will fallback to default later
                                         };
-                                        if let Some(a) = algo { map.insert(bid, a); }
+                                        if let Some(a) = algo {
+                                            map.insert(bid, a);
+                                        }
                                     }
                                 }
                             }
                         }
-                        log::info!("[fs] Restored checksum algorithms for database: {}", db_name);
+                        log::info!(
+                            "[fs] Restored checksum algorithms for database: {}",
+                            db_name
+                        );
                     }
                 }
             }
@@ -297,8 +369,14 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
             let mut s = String::new();
             if f.read_to_string(&mut s).is_ok() {
                 if let Ok(parsed) = serde_json::from_str::<FsDealloc>(&s) {
-                    for id in parsed.tombstones { set.insert(id); }
-                    log::info!("[fs] Restored {} deallocation tombstones for database: {}", set.len(), db_name);
+                    for id in parsed.tombstones {
+                        set.insert(id);
+                    }
+                    log::info!(
+                        "[fs] Restored {} deallocation tombstones for database: {}",
+                        set.len(),
+                        db_name
+                    );
                 }
             }
         }
@@ -306,12 +384,15 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
     };
 
     // Native tests: restore from test-global metadata (when fs_persist is disabled)
-    #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        any(test, debug_assertions),
+        not(feature = "fs_persist")
+    ))]
     let checksums_init: HashMap<u64, u64> = {
         let mut map = HashMap::new();
-        let committed = vfs_sync::with_global_commit_marker(|cm| {
-            cm.get(db_name).copied().unwrap_or(0)
-        });
+        let committed =
+            vfs_sync::with_global_commit_marker(|cm| cm.get(db_name).copied().unwrap_or(0));
         GLOBAL_METADATA_TEST.with(|meta| {
             let meta_map = meta.borrow_mut();
             if let Some(db_meta) = meta_map.get(db_name) {
@@ -331,12 +412,15 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
     };
 
     // Native tests: restore per-block algorithms (when fs_persist is disabled)
-    #[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions), not(feature = "fs_persist")))]
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        any(test, debug_assertions),
+        not(feature = "fs_persist")
+    ))]
     let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = {
         let mut map = HashMap::new();
-        let committed = vfs_sync::with_global_commit_marker(|cm| {
-            cm.get(db_name).copied().unwrap_or(0)
-        });
+        let committed =
+            vfs_sync::with_global_commit_marker(|cm| cm.get(db_name).copied().unwrap_or(0));
         GLOBAL_METADATA_TEST.with(|meta| {
             let meta_map = meta.borrow_mut();
             if let Some(db_meta) = meta_map.get(db_name) {
@@ -391,20 +475,20 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         cache: RefCell::new(HashMap::new()),
         #[cfg(not(target_arch = "wasm32"))]
         cache: Mutex::new(HashMap::new()),
-        
+
         #[cfg(target_arch = "wasm32")]
         dirty_blocks: Arc::new(RefCell::new(HashMap::new())),
         #[cfg(not(target_arch = "wasm32"))]
         dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
-        
+
         #[cfg(target_arch = "wasm32")]
         allocated_blocks: RefCell::new(allocated_blocks),
         #[cfg(not(target_arch = "wasm32"))]
         allocated_blocks: Mutex::new(allocated_blocks),
-        
+
         next_block_id: std::sync::atomic::AtomicU64::new(next_block_id),
         capacity: DEFAULT_CACHE_CAPACITY,
-        
+
         #[cfg(target_arch = "wasm32")]
         lru_order: RefCell::new(VecDeque::new()),
         #[cfg(not(target_arch = "wasm32"))]
@@ -417,7 +501,7 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         db_name: db_name.to_string(),
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         base_dir: fs_base_dir,
-        
+
         #[cfg(all(target_arch = "wasm32", feature = "fs_persist"))]
         deallocated_blocks: RefCell::new(deallocated_init),
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -426,15 +510,15 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         deallocated_blocks: RefCell::new(HashSet::new()),
         #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
         deallocated_blocks: Mutex::new(HashSet::new()),
-        
+
         #[cfg(target_arch = "wasm32")]
         auto_sync_interval: RefCell::new(None),
         #[cfg(not(target_arch = "wasm32"))]
         auto_sync_interval: Mutex::new(None),
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         last_auto_sync: Instant::now(),
-        
+
         #[cfg(target_arch = "wasm32")]
         policy: RefCell::new(None),
         #[cfg(not(target_arch = "wasm32"))]
