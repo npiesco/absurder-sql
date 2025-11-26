@@ -50,7 +50,7 @@ async fn test_column_value_types() {
     // Test that all column value types work correctly
     let null_val = ColumnValue::Null;
     let int_val = ColumnValue::Integer(42);
-    let real_val = ColumnValue::Real(3.14);
+    let real_val = ColumnValue::Real(3.25);
     let text_val = ColumnValue::Text("hello".to_string());
     let blob_val = ColumnValue::Blob(vec![1, 2, 3, 4]);
 
@@ -83,7 +83,7 @@ async fn test_column_value_types() {
             ColumnValue::Text(text),
             ColumnValue::Blob(blob),
         ) => {
-            assert!((val - 3.14).abs() < 0.001);
+            assert!((val - 3.25).abs() < 0.001);
             assert_eq!(text, "hello");
             assert_eq!(blob, vec![1, 2, 3, 4]);
         }
