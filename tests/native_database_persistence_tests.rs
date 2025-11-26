@@ -151,7 +151,7 @@ mod native_persistence_tests {
 
         // Metadata should have content
         let metadata_content = fs::read_to_string(metadata_path).unwrap();
-        assert!(metadata_content.len() > 0, "Metadata should not be empty");
+        assert!(!metadata_content.is_empty(), "Metadata should not be empty");
 
         db.close().await.unwrap();
         unsafe {

@@ -103,7 +103,6 @@ async fn test_encrypted_database_wrong_key_fails() {
         }
         Err(_) => {
             // Expected: fails to open with wrong key
-            assert!(true, "Database correctly rejected wrong key");
         }
     }
 }

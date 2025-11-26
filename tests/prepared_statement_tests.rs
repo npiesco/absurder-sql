@@ -1,5 +1,5 @@
-/// PreparedStatement API Tests
-/// Following TDD methodology - these tests define the desired behavior
+//! PreparedStatement API Tests
+//! Following TDD methodology - these tests define the desired behavior
 
 #[cfg(not(target_arch = "wasm32"))]
 use absurder_sql::database::SqliteIndexedDB;

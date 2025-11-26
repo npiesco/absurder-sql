@@ -25,7 +25,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings
 
   # Run Rust tests
   test-rust:

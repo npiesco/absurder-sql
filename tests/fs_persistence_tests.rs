@@ -92,7 +92,7 @@ async fn fs_persist_metadata_and_data_across_instances() {
     let meta3 = s3.get_block_metadata_for_testing();
     let (_, version3, _) = meta3.get(&b1).copied().expect("meta still exists");
     assert!(
-        version3 >= version2 + 1,
+        version3 > version2,
         "version should bump across instances after second sync"
     );
 }
@@ -146,7 +146,7 @@ async fn fs_persist_deallocate_removes_data_and_metadata() {
         .expect("create s3");
     let meta3 = s3.get_block_metadata_for_testing();
     assert!(
-        meta3.get(&b1).is_none(),
+        !meta3.contains_key(&b1),
         "metadata removed after deallocation"
     );
     let read_err = s3.read_block(b1).await;

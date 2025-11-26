@@ -398,7 +398,7 @@ async fn test_crash_finalize_pending_deallocation_removes_stray_file() {
     if let Some(entries) = val.get_mut("entries").and_then(|v| v.as_array_mut()) {
         entries.retain(|ent| {
             ent.as_array()
-                .and_then(|arr| arr.get(0))
+                .and_then(|arr| arr.first())
                 .and_then(|v| v.as_u64())
                 .map(|id| id != b2)
                 .unwrap_or(true)
@@ -468,7 +468,7 @@ async fn test_crash_rollback_pending_deallocation_on_invalid_remaining_file() {
     if let Some(entries) = val.get_mut("entries").and_then(|v| v.as_array_mut()) {
         entries.retain(|ent| {
             ent.as_array()
-                .and_then(|arr| arr.get(0))
+                .and_then(|arr| arr.first())
                 .and_then(|v| v.as_u64())
                 .map(|id| id == b1)
                 .unwrap_or(false)
@@ -511,7 +511,7 @@ async fn test_crash_rollback_pending_deallocation_on_invalid_remaining_file() {
             arr.iter()
                 .filter_map(|ent| {
                     ent.as_array()
-                        .and_then(|a| a.get(0))
+                        .and_then(|a| a.first())
                         .and_then(|v| v.as_u64())
                 })
                 .collect::<Vec<u64>>()
