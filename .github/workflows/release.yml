@@ -120,6 +120,7 @@ jobs:
   publish-npm:
     runs-on: ubuntu-latest
     needs: [validate-version, test-wasm]
+    environment: npm-publish
     permissions:
       contents: read
       id-token: write
