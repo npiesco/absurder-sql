@@ -1,5 +1,5 @@
-/// Tests for Send trait implementation on SqliteIndexedDB
-/// This ensures the database can be safely sent between threads (required for Tauri commands)
+//! Tests for Send trait implementation on SqliteIndexedDB
+//! This ensures the database can be safely sent between threads (required for Tauri commands)
 
 #[cfg(feature = "fs_persist")]
 use serial_test::serial;
