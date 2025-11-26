@@ -1,30 +1,27 @@
-import { chromium } from 'playwright';
+import { test, expect } from '@playwright/test';
 
-(async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-
+test('concurrent lock tests via testLock', async ({ page }) => {
   page.on('console', msg => {
     const text = msg.text();
     console.log('[BROWSER]', text);
   });
 
-  await page.goto('http://localhost:3000/db');
+  await page.goto('/db');
   await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
   const result = await page.evaluate(async () => {
-    const Database = window.Database;
-    const results = [];
+    const Database = (window as any).Database;
+    const results: Array<{ index: number; result: number }> = [];
 
     console.log('[TEST] Creating database...');
     const dbName = 'lock_test_' + Date.now() + '.db';
     const db = await Database.newDatabase(dbName);
 
     console.log('[TEST] Starting 5 concurrent lock tests...');
-    const lockPromises = [];
+    const lockPromises: Promise<void>[] = [];
     for (let i = 0; i < 5; i++) {
       console.log(`[TEST] Starting lock test ${i}...`);
-      const p = db.testLock(i).then((result) => {
+      const p = db.testLock(i).then((result: number) => {
         console.log(`[TEST] Lock test ${i} completed with result: ${result}`);
         results.push({ index: i, result });
       });
@@ -32,7 +29,7 @@ import { chromium } from 'playwright';
     }
 
     console.log('[TEST] Waiting for all lock tests...');
-    const timeout = new Promise((_, reject) =>
+    const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => {
         console.log('[TEST] TIMEOUT! Results so far:', results);
         reject(new Error('Lock tests timed out'));
@@ -45,7 +42,7 @@ import { chromium } from 'playwright';
         timeout
       ]);
       console.log('[TEST] All lock tests completed!');
-    } catch (e) {
+    } catch (e: any) {
       console.log('[TEST] ERROR:', e.message);
       return { success: false, error: e.message, resultCount: results.length, results };
     }
@@ -56,6 +53,6 @@ import { chromium } from 'playwright';
   });
 
   console.log('[RESULT]', result);
-
-  await browser.close();
-})();
+  expect(result.success).toBe(true);
+  expect(result.resultCount).toBe(5);
+});

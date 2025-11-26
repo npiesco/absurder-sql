@@ -1,41 +1,42 @@
-import { chromium } from 'playwright';
+import { test, expect } from '@playwright/test';
 
-(async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
+test('Web Locks API availability', async ({ page }) => {
+  await page.goto('/db');
 
-  page.on('console', msg => {
-    const text = msg.text();
-    console.log('[BROWSER]', text);
-  });
-
-  await page.goto('http://localhost:3000/db');
-  await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
-
-  // Test if Web Locks API works in JavaScript first
   const locksTest = await page.evaluate(async () => {
     if (!navigator.locks) {
       return { supported: false, error: 'navigator.locks not available' };
     }
-    
+
     try {
       let lockAcquired = false;
       await navigator.locks.request('test-lock', async (lock) => {
         lockAcquired = true;
         console.log('[TEST] Web Locks API works in JS! Lock:', lock);
-        // Lock held here
       });
       return { supported: true, lockAcquired };
-    } catch (err) {
+    } catch (err: any) {
       return { supported: true, error: err.message };
     }
   });
-  
+
   console.log('[LOCKS TEST]', locksTest);
+  expect(locksTest.supported).toBe(true);
+  expect(locksTest.lockAcquired).toBe(true);
+});
+
+test('concurrent exports with locking', async ({ page }) => {
+  page.on('console', msg => {
+    const text = msg.text();
+    console.log('[BROWSER]', text);
+  });
+
+  await page.goto('/db');
+  await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
   const result = await page.evaluate(async () => {
-    const Database = window.Database;
-    const results = [];
+    const Database = (window as any).Database;
+    const results: string[] = [];
 
     console.log('[TEST] Creating database...');
     const dbName = 'lock_test_' + Date.now() + '.db';
@@ -47,7 +48,7 @@ import { chromium } from 'playwright';
     await db.execute("INSERT INTO test VALUES (1, 'data')");
 
     console.log('[TEST] Starting 5 rapid exports...');
-    const exportPromises = [];
+    const exportPromises: Promise<void>[] = [];
     for (let i = 0; i < 5; i++) {
       console.log(`[TEST] Starting export ${i}...`);
       const p = db.exportToFile().then(() => {
@@ -58,7 +59,7 @@ import { chromium } from 'playwright';
     }
 
     console.log('[TEST] Waiting for all exports...');
-    const timeout = new Promise((_, reject) =>
+    const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => {
         console.log('[TEST] TIMEOUT! Results so far:', results);
         reject(new Error('Exports timed out'));
@@ -71,7 +72,7 @@ import { chromium } from 'playwright';
         timeout
       ]);
       console.log('[TEST] All exports completed!');
-    } catch (e) {
+    } catch (e: any) {
       console.log('[TEST] ERROR:', e.message);
       return { success: false, error: e.message, exportCount: results.length };
     }
@@ -82,6 +83,6 @@ import { chromium } from 'playwright';
   });
 
   console.log('[RESULT]', result);
-
-  await browser.close();
-})();
+  expect(result.success).toBe(true);
+  expect(result.exportCount).toBe(5);
+});

@@ -146,14 +146,14 @@ export default function DataBrowserPage() {
 
         // If db exists from Zustand, expose it as testDb
         if (db) {
-          // Add .db property pointing to itself for test compatibility
-          (db as any).db = db;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(db as any).db) (db as any).db = db;
           (window as any).testDb = db;
         } else {
           // Auto-create database for E2E tests (browse page needs a database)
           const dbInstance = await Database.newDatabase('database.db');
-          // Add .db property pointing to itself for test compatibility
-          (dbInstance as any).db = dbInstance;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(dbInstance as any).db) (dbInstance as any).db = dbInstance;
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
         }

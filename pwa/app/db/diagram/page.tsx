@@ -69,15 +69,15 @@ export default function ERDiagramPage() {
 
         // If db exists from Zustand, expose it as testDb
         if (db) {
-          // Add .db property pointing to itself for test compatibility
-          (db as any).db = db;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(db as any).db) (db as any).db = db;
           (window as any).testDb = db;
         } else if (currentDbName) {
           // Restore database from storage if currentDbName exists
           console.log('[DiagramPage] Restoring database from currentDbName:', currentDbName);
           const dbInstance = await Database.newDatabase(currentDbName);
-          // Add .db property pointing to itself for test compatibility
-          (dbInstance as any).db = dbInstance;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(dbInstance as any).db) (dbInstance as any).db = dbInstance;
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
           console.log('[DiagramPage] Database restored successfully');
@@ -85,7 +85,7 @@ export default function ERDiagramPage() {
           // Auto-create database for E2E tests
           console.log('[DiagramPage] Auto-creating database for E2E tests');
           const dbInstance = await Database.newDatabase('database.db');
-          (dbInstance as any).db = dbInstance;
+          if (!(dbInstance as any).db) (dbInstance as any).db = dbInstance;
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
           console.log('[DiagramPage] Database auto-created successfully');

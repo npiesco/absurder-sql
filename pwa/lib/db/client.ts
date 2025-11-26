@@ -283,4 +283,15 @@ export class DatabaseClient {
     }
     return await this.db.allowNonLeaderWrites(allow);
   }
+
+  /**
+   * Test lock acquisition (for concurrency testing)
+   * Acquires an exclusive lock and returns value + 1
+   */
+  async testLock(value: number): Promise<number> {
+    if (!this.db) {
+      throw new Error('Database not opened. Call open() first.');
+    }
+    return await this.db.testLock(value);
+  }
 }

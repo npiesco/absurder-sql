@@ -126,12 +126,22 @@ test.describe('Full-Text Search E2E', () => {
       console.log('[TEST] ✓ Data created');
     });
     
-    // Trigger table reload in UI (event-based)
+    // Wait for reloadSearchTables to be available, then trigger reload
+    await page.waitForFunction(() => {
+      return typeof (window as any).reloadSearchTables === 'function';
+    }, { timeout: 10000 });
+
+    // Trigger table reload in UI (event-based) with timeout protection
     await page.evaluate(async () => {
       const reload = (window as any).reloadSearchTables;
-      await reload();
+      if (reload) {
+        await Promise.race([
+          reload(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('reloadSearchTables timeout')), 5000))
+        ]).catch(err => console.warn('[TEST] reloadSearchTables warning:', err.message));
+      }
     });
-    
+
     // Wait for UI to render with tables loaded
     await page.waitForFunction(() => {
       const getState = (window as any).getSearchState;
@@ -156,11 +166,17 @@ test.describe('Full-Text Search E2E', () => {
       await page.evaluate(async (dbName) => {
         const db = (window as any).testDb;
 
-        // Rule #4: Always close database and force-remove from connection pool
+        // Rule #4: Always close database
         if (db) {
-          console.log('[CLEANUP] Calling forceCloseConnection for', dbName);
-          await db.forceCloseConnection();
-          console.log('[CLEANUP] forceCloseConnection completed for', dbName);
+          console.log('[CLEANUP] Closing database for', dbName);
+          try {
+            if (typeof db.close === 'function') {
+              await db.close();
+            }
+          } catch (closeErr) {
+            console.warn('[CLEANUP] Close error (may be already closed):', closeErr);
+          }
+          console.log('[CLEANUP] Close completed for', dbName);
           (window as any).testDb = null;
         }
 

@@ -52,15 +52,15 @@ function StorageAnalysisContent() {
 
         // If db exists from Zustand, expose it as testDb
         if (db) {
-          // Add .db property pointing to itself for test compatibility
-          (db as any).db = db;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(db as any).db) (db as any).db = db;
           (window as any).testDb = db;
         } else if (currentDbName) {
           // Restore database from storage if currentDbName exists
           console.log('[StoragePage] Restoring database from currentDbName:', currentDbName);
           const dbInstance = await Database.newDatabase(currentDbName);
-          // Add .db property pointing to itself for test compatibility
-          (dbInstance as any).db = dbInstance;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(dbInstance as any).db) (dbInstance as any).db = dbInstance;
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
           console.log('[StoragePage] Database restored successfully');

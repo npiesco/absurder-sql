@@ -3,7 +3,7 @@ import path from 'path';
 import { readFileSync, existsSync, unlinkSync } from 'fs';
 
 test.describe('JSON Export', () => {
-  
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/query');
     await page.waitForSelector('#queryInterface', { timeout: 10000 });
@@ -53,7 +53,7 @@ test.describe('JSON Export', () => {
         (4, 'Monitor', 299.99, NULL, '2024-04-05T16:20:00Z', NULL)
       `);
     });
-    
+
     // Clear the editor for the test
     await page.keyboard.press('Meta+A');
     await page.keyboard.press('Backspace');
@@ -63,7 +63,7 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM products LIMIT 2');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Check export button is visible
     const exportButton = await page.locator('#exportJSON');
@@ -74,7 +74,7 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT id, name, price FROM products WHERE id <= 3');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Set up download listener
     const downloadPromise = page.waitForEvent('download');
@@ -108,11 +108,11 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM products LIMIT 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Click export options button
     await page.click('#exportJSONOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Verify dialog opened
     const dialog = await page.locator('[role="dialog"]').filter({ hasText: 'JSON Export Options' });
@@ -127,15 +127,14 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT id, name FROM products WHERE id <= 2');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportJSONOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Disable pretty print
     await page.click('#prettyPrint');
-    await page.waitForTimeout(200);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -145,7 +144,7 @@ test.describe('JSON Export', () => {
     // Verify compact format (no extra whitespace)
     const downloadPath = await download.path();
     const jsonContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     // Compact should be single line or minimal whitespace
     const lines = jsonContent.split('\n');
     expect(lines.length).toBeLessThan(5); // Should be compact, not many lines
@@ -155,17 +154,16 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT id, name, price FROM products WHERE id <= 2');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportJSONOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Select "Object (keyed by id)" format
     await page.click('#jsonFormat');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="option"]', { state: 'visible' });
     await page.click('text=Object (keyed by id)');
-    await page.waitForTimeout(300);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -188,7 +186,7 @@ test.describe('JSON Export', () => {
     // Run query with NULL
     await page.keyboard.type('SELECT id, name, stock FROM products WHERE id = 4');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -208,7 +206,16 @@ test.describe('JSON Export', () => {
     // Run query with no results
     await page.keyboard.type('SELECT id, name, price FROM products WHERE id = 999');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+
+    // Wait for query execution to complete (either results table, empty state, or "no rows" message)
+    await page.waitForFunction(() => {
+      const resultsTable = document.getElementById('resultsTable');
+      const emptyResults = document.querySelector('[data-testid="empty-results"]');
+      const noRowsText = document.body.textContent?.toLowerCase().includes('no rows') ||
+                         document.body.textContent?.toLowerCase().includes('no results') ||
+                         document.body.textContent?.toLowerCase().includes('0 rows');
+      return resultsTable || emptyResults || noRowsText;
+    }, { timeout: 10000 });
 
     // Export should still work
     const downloadPromise = page.waitForEvent('download');
@@ -229,7 +236,7 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT id, name, price, stock FROM products WHERE id = 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -255,14 +262,7 @@ test.describe('JSON Export', () => {
       await db.execute('BEGIN TRANSACTION');
       for (let i = 5; i <= 1000; i++) {
         await db.execute(
-          'INSERT INTO products (id, name, price, stock, created_at) VALUES (?, ?, ?, ?, ?)',
-          [
-            { type: 'Integer', value: i },
-            { type: 'Text', value: `Product ${i}` },
-            { type: 'Real', value: Math.random() * 1000 },
-            { type: 'Integer', value: Math.floor(Math.random() * 100) },
-            { type: 'Text', value: '2024-01-01T00:00:00Z' }
-          ]
+          `INSERT INTO products (id, name, price, stock, created_at) VALUES (${i}, 'Product ${i}', ${Math.random() * 1000}, ${Math.floor(Math.random() * 100)}, '2024-01-01T00:00:00Z')`
         );
       }
       await db.execute('COMMIT');
@@ -271,7 +271,7 @@ test.describe('JSON Export', () => {
     // Run query for all rows
     await page.keyboard.type('SELECT * FROM products');
     await page.click('#executeButton');
-    await page.waitForTimeout(2000); // Allow time for large result set
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 30000 }); // Allow time for large result set
 
     // Export
     const start = Date.now();
@@ -287,7 +287,7 @@ test.describe('JSON Export', () => {
     const downloadPath = await download.path();
     const jsonContent = readFileSync(downloadPath!, 'utf-8');
     const data = JSON.parse(jsonContent);
-    
+
     expect(data.length).toBe(1000); // 1000 total rows
   });
 
@@ -296,7 +296,7 @@ test.describe('JSON Export', () => {
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute(
-        `INSERT INTO products (id, name, price, stock) VALUES 
+        `INSERT INTO products (id, name, price, stock) VALUES
         (1001, 'Product "Special"', 99.99, 10),
         (1002, 'Product 你好', 49.99, 20),
         (1003, 'Product with\nnewline', 29.99, 30)`
@@ -306,7 +306,7 @@ test.describe('JSON Export', () => {
     // Run query
     await page.keyboard.type('SELECT id, name FROM products WHERE id >= 1001');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');

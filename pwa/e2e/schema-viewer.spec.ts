@@ -4,11 +4,35 @@ test.describe('Schema Viewer E2E', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/schema');
     await page.waitForSelector('#schemaViewer', { timeout: 10000 });
+
+    // Wait for WASM to be ready
+    await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
+
+    // Create database programmatically since schema page needs one
+    await page.evaluate(async () => {
+      const Database = (window as any).Database;
+      const testDb = await Database.newDatabase('schema-viewer-test-db');
+      await testDb.allowNonLeaderWrites(true);
+      (window as any).testDb = testDb;
+    });
+
+    await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
+  });
+
+  test.afterEach(async ({ page }) => {
+    // Cleanup
+    await page.evaluate(async () => {
+      const db = (window as any).testDb;
+      if (db) {
+        try { await db.close(); } catch {}
+      }
+      try { await indexedDB.deleteDatabase('schema-viewer-test-db'); } catch {}
+    }).catch(() => {});
   });
 
   test('should display tables list', async ({ page }) => {
     // Wait for database to be ready
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
     
     await page.evaluate(async () => {
       const db = (window as any).testDb;
@@ -34,7 +58,7 @@ test.describe('Schema Viewer E2E', () => {
   });
 
   test('should display table details when selected', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
 
     await page.evaluate(async () => {
       const db = (window as any).testDb;
@@ -63,7 +87,7 @@ test.describe('Schema Viewer E2E', () => {
   });
 
   test('should display column types and constraints', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
 
     await page.evaluate(async () => {
       const db = (window as any).testDb;
@@ -90,7 +114,7 @@ test.describe('Schema Viewer E2E', () => {
   });
 
   test('should display indexes list', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
 
     await page.evaluate(async () => {
       const db = (window as any).testDb;
@@ -117,7 +141,7 @@ test.describe('Schema Viewer E2E', () => {
   });
 
   test('should create new table', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
 
     await page.click('#createTableButton');
     await page.waitForSelector('#createTableDialog');
@@ -143,7 +167,7 @@ test.describe('Schema Viewer E2E', () => {
   });
 
   test('should create new index', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
 
     // Create table first
     await page.evaluate(async () => {
@@ -183,7 +207,7 @@ test.describe('Schema Viewer E2E', () => {
   });
 
   test('should handle table creation errors', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
 
     await page.click('#createTableButton');
     await page.waitForSelector('#createTableDialog');

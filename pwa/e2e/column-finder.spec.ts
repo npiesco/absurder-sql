@@ -11,7 +11,7 @@ test.describe('Column Finder E2E', () => {
     // Navigate to DB management page and ensure clean state
     await page.goto('/db');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#dbManagement', { timeout: 10000 });
 
     // MANDATORY: Clean ALL state from previous tests (INSTRUCTIONS.md - Zero Tolerance for Flakiness)
     await page.evaluate(async () => {
@@ -27,7 +27,7 @@ test.describe('Column Finder E2E', () => {
 
       // Clear ALL localStorage
       localStorage.clear();
-      
+
       // Delete ALL indexedDB databases
       const dbs = await indexedDB.databases();
       for (const db of dbs) {
@@ -126,13 +126,22 @@ test.describe('Column Finder E2E', () => {
     });
 
     // Wait for tables to be created and synced
-    await page.waitForTimeout(500);
+    await page.waitForFunction(async () => {
+      const db = (window as any).testDb;
+      if (!db) return false;
+      try {
+        const result = await db.execute(`SELECT name FROM sqlite_master WHERE type='table'`);
+        return result.rows.length >= 4;
+      } catch {
+        return false;
+      }
+    }, { timeout: 10000 });
   });
 
   test('should navigate to column finder page', async ({ page }) => {
     // Verify we're on the column finder page
     await expect(page).toHaveURL(/\/db\/columns/);
-    
+
     // Verify page title/heading
     const heading = page.locator('h1, h2').filter({ hasText: /column/i }).first();
     await expect(heading).toBeVisible();
@@ -142,7 +151,7 @@ test.describe('Column Finder E2E', () => {
     // Verify search input exists
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await expect(searchInput).toBeVisible();
-    
+
     // Verify search button exists
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await expect(searchButton).toBeVisible();
@@ -152,18 +161,18 @@ test.describe('Column Finder E2E', () => {
     // Search for "id" column
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('id');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     // Wait for results to appear
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should find "id" column in multiple tables
     await expect(page.locator('text=users').first()).toBeVisible();
     await expect(page.locator('text=products').first()).toBeVisible();
     await expect(page.locator('text=orders').first()).toBeVisible();
-    
+
     // Verify column name is shown
     const results = page.locator('[data-testid="column-result"]');
     await expect(results.first()).toBeVisible();
@@ -173,12 +182,12 @@ test.describe('Column Finder E2E', () => {
     // Search for columns containing "_id"
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('_id');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should find user_id, product_id, order_id
     await expect(page.locator('text=user_id').first()).toBeVisible();
     await expect(page.locator('text=product_id').first()).toBeVisible();
@@ -189,17 +198,17 @@ test.describe('Column Finder E2E', () => {
     // Search for "created_at" column which exists in multiple tables
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('created_at');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Verify results show table names
     await expect(page.locator('text=users').first()).toBeVisible();
     await expect(page.locator('text=products').first()).toBeVisible();
     await expect(page.locator('text=orders').first()).toBeVisible();
-    
+
     // Verify column type is shown (TEXT for created_at)
     await expect(page.locator('text=TEXT').first()).toBeVisible();
   });
@@ -208,12 +217,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "email" which has NOT NULL constraint
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('email');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should show NOT NULL constraint
     await expect(page.locator('text=/NOT\\s*NULL/i').first()).toBeVisible();
   });
@@ -222,12 +231,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "id" which is PRIMARY KEY
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('id');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should show PRIMARY KEY or PK indicator
     await expect(page.locator('text=/PRIMARY/i').first()).toBeVisible();
   });
@@ -236,12 +245,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "user_id" which has UNIQUE constraint
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('user_id');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should show UNIQUE constraint
     await expect(page.locator('text=UNIQUE').first()).toBeVisible();
   });
@@ -250,12 +259,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "quantity" which has DEFAULT 1
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('quantity');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should show DEFAULT value
     await expect(page.locator('text=/DEFAULT/i').first()).toBeVisible();
   });
@@ -264,12 +273,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "USERNAME" (uppercase)
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('USERNAME');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should find "username" column (lowercase)
     await expect(page.locator('text=username').first()).toBeVisible();
     await expect(page.locator('text=users').first()).toBeVisible();
@@ -279,12 +288,13 @@ test.describe('Column Finder E2E', () => {
     // Search for non-existent column
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('nonexistent_column_xyz');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
-    await page.waitForTimeout(500);
-    
+
+    // Wait for "no results" message
+    await page.waitForSelector('text=/No (columns|results) found|0 (columns|results)/i', { state: 'visible', timeout: 5000 });
+
     // Should show "no results" message
     await expect(page.locator('text=/No (columns|results) found|0 (columns|results)/i').first()).toBeVisible();
   });
@@ -293,22 +303,23 @@ test.describe('Column Finder E2E', () => {
     // Perform a search first
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('id');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     // Wait for results
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Verify results are shown
     await expect(page.locator('text=users').first()).toBeVisible();
-    
+
     // Clear results
     const clearButton = page.locator('button:has-text("Clear")').first();
     await clearButton.click();
-    
-    await page.waitForTimeout(300);
-    
+
+    // Wait for results to be cleared
+    await page.waitForSelector('[data-testid="column-result"]', { state: 'hidden', timeout: 5000 });
+
     // Results should be cleared - check that the table is not visible
     const resultCount = await page.locator('[data-testid="column-result"]').count();
     expect(resultCount).toBe(0);
@@ -318,12 +329,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "id" which appears in multiple tables
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('id');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should show result count (4 tables have "id" column)
     await expect(page.locator('text=/\\d+ (column|result)/i').first()).toBeVisible();
   });
@@ -332,16 +343,16 @@ test.describe('Column Finder E2E', () => {
     // Search for "email"
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('email');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Verify table name is a clickable link to designer
     const resultLink = page.locator('a[href*="/db/designer"]').filter({ hasText: /users/i }).first();
     await expect(resultLink).toBeVisible();
-    
+
     // Verify the link has correct href
     const href = await resultLink.getAttribute('href');
     expect(href).toContain('/db/designer');
@@ -352,15 +363,15 @@ test.describe('Column Finder E2E', () => {
     // Try to search with empty input
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
-    
+
     // Button should be disabled or clicking should show message
     const isDisabled = await searchButton.isDisabled();
     if (!isDisabled) {
       await searchButton.click();
-      await page.waitForTimeout(300);
       // Should show validation message
+      await page.waitForSelector('text=/enter.*search/i, text=/provide.*column/i', { state: 'visible', timeout: 5000 });
       await expect(page.locator('text=/enter.*search/i, text=/provide.*column/i').first()).toBeVisible();
     } else {
       expect(isDisabled).toBe(true);
@@ -371,12 +382,12 @@ test.describe('Column Finder E2E', () => {
     // Search for "description" which exists in products and settings
     const searchInput = page.locator('input[placeholder*="column" i], input[placeholder*="search" i]').first();
     await searchInput.fill('description');
-    
+
     const searchButton = page.locator('button:has-text("Search"), button:has-text("Find")').first();
     await searchButton.click();
-    
+
     await page.waitForSelector('[data-testid="column-result"]', { timeout: 5000 });
-    
+
     // Should find in both tables
     await expect(page.locator('text=products').first()).toBeVisible();
     await expect(page.locator('text=settings').first()).toBeVisible();

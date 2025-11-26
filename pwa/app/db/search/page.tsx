@@ -103,15 +103,15 @@ function SearchPageContent() {
 
         // If db exists from Zustand, expose it as testDb
         if (db) {
-          // Add .db property pointing to itself for test compatibility
-          (db as any).db = db;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(db as any).db) (db as any).db = db;
           (window as any).testDb = db;
         } else if (currentDbName) {
           // Restore database from storage if currentDbName exists
           console.log('[SearchPage] Restoring database from currentDbName:', currentDbName);
           const dbInstance = await Database.newDatabase(currentDbName);
-          // Add .db property pointing to itself for test compatibility
-          (dbInstance as any).db = dbInstance;
+          // Add .db property pointing to itself for test compatibility (only if not already set)
+          if (!(dbInstance as any).db) (dbInstance as any).db = dbInstance;
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
           console.log('[SearchPage] Database restored successfully');
@@ -170,7 +170,7 @@ function SearchPageContent() {
         ORDER BY name
       `);
 
-      const tables = result.rows.map(row => getValue(row.values[0]) as string);
+      const tables = result.rows.map((row: { values: ColumnValue[] }) => getValue(row.values[0]) as string);
       setAvailableTables(tables);
       setSelectedTables(tables); // Select all by default
     } catch (err) {
@@ -236,13 +236,13 @@ function SearchPageContent() {
         console.log('[SEARCH] Processing table:', tableName, 'type:', typeof tableName);
         // Get table columns
         const tableInfo = await activeDb.execute(`PRAGMA table_info(${tableName})`);
-        const columns = tableInfo.rows.map(row => ({
+        const columns = tableInfo.rows.map((row: { values: ColumnValue[] }) => ({
           name: getValue(row.values[1]) as string,
           type: getValue(row.values[2]) as string,
         }));
 
         // Get primary key column for row ID
-        const pkColumn = columns.find(col => col.name === 'id' || col.name === 'rowid') || columns[0];
+        const pkColumn = columns.find((col: { name: string; type: string }) => col.name === 'id' || col.name === 'rowid') || columns[0];
 
         // Search each column
         for (const column of columns) {

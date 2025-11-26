@@ -54,7 +54,7 @@ test.describe('Get All Databases API', () => {
   test('should return databases in sorted order', async ({ page }) => {
     // Create databases in non-alphabetical order (users type without .db)
     const dbNames = ['zebra', 'apple', 'middle'];
-    
+
     for (const dbName of dbNames) {
       await page.click('#createDbButton');
       await page.waitForSelector('#dbNameInput', { timeout: 5000 });
@@ -72,14 +72,14 @@ test.describe('Get All Databases API', () => {
     });
 
     expect(Array.isArray(databases)).toBe(true);
-    
+
     // Should include our databases
     expect(databases).toContain('zebra.db');
     expect(databases).toContain('apple.db');
     expect(databases).toContain('middle.db');
-    
+
     // Should be sorted
-    const ourDbs = databases.filter((db: string) => 
+    const ourDbs = databases.filter((db: string) =>
       db === 'zebra.db' || db === 'apple.db' || db === 'middle.db'
     );
     const sorted = [...ourDbs].sort();
@@ -103,12 +103,12 @@ test.describe('Get All Databases API', () => {
     });
 
     expect(Array.isArray(databases)).toBe(true);
-    
+
     // Should include our database
     expect(databases).toContain('user_db.db');
-    
+
     // Should not include any databases starting with 'sqlite_' or other system prefixes
-    const systemDbs = databases.filter((db: string) => 
+    const systemDbs = databases.filter((db: string) =>
       db.startsWith('sqlite_') || db.startsWith('__')
     );
     expect(systemDbs.length).toBe(0);
@@ -136,7 +136,12 @@ test.describe('Get All Databases API', () => {
     await page.click('#deleteDbButton');
     await page.waitForSelector('#confirmDelete', { timeout: 5000 });
     await page.click('#confirmDelete');
-    await page.waitForTimeout(1000);
+
+    // Wait for delete to complete
+    await page.waitForFunction(() => {
+      const selector = document.querySelector('#dbSelector');
+      return !selector?.textContent?.includes('to_delete.db');
+    }, { timeout: 10000 });
 
     // Verify it's no longer in the list
     databases = await page.evaluate(async () => {

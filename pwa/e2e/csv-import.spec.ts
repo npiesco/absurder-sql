@@ -1,6 +1,6 @@
 /**
  * E2E Tests for CSV Import
- * 
+ *
  * Tests CSV file upload, parsing, column mapping, and data import
  * Based on FR-AB2.2: CSV import with column mapping from PRD
  */
@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 test.describe('CSV Import', () => {
-  
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/import-csv');
     await page.waitForSelector('#csvImport', { timeout: 10000 });
@@ -23,7 +23,7 @@ test.describe('CSV Import', () => {
     // Check page loaded
     const title = await page.textContent('h1');
     expect(title).toContain('CSV Import');
-    
+
     // Check key elements exist
     await expect(page.locator('#csvFileInput')).toBeVisible();
     await expect(page.locator('#delimiterSelect')).toBeVisible();
@@ -41,7 +41,7 @@ test.describe('CSV Import', () => {
     const csvContent = 'name,email,age\nJohn Doe,john@example.com,30\nJane Smith,jane@example.com,25';
     const csvPath = path.join(__dirname, '..', 'test-data', 'users.csv');
     const csvDir = path.dirname(csvPath);
-    
+
     if (!fs.existsSync(csvDir)) {
       fs.mkdirSync(csvDir, { recursive: true });
     }
@@ -50,7 +50,9 @@ test.describe('CSV Import', () => {
     try {
       // Upload CSV file
       await page.setInputFiles('#csvFileInput', csvPath);
-      await page.waitForTimeout(500); // Wait for parsing
+
+      // Wait for preview to appear
+      await page.waitForSelector('[data-testid="preview-row"]', { state: 'visible', timeout: 10000 });
 
       // Check that CSV was parsed
       const rowCount = await page.locator('[data-testid="preview-row"]').count();
@@ -82,7 +84,7 @@ test.describe('CSV Import', () => {
     const csvContent = 'name,email\nJohn Doe,john@example.com';
     const csvPath = path.join(__dirname, '..', 'test-data', 'contacts.csv');
     const csvDir = path.dirname(csvPath);
-    
+
     if (!fs.existsSync(csvDir)) {
       fs.mkdirSync(csvDir, { recursive: true });
     }
@@ -91,18 +93,19 @@ test.describe('CSV Import', () => {
     try {
       // Upload CSV file (this triggers table reload)
       await page.setInputFiles('#csvFileInput', csvPath);
-      await page.waitForTimeout(1000); // Wait for parsing AND table reload
+
+      // Wait for preview
+      await page.waitForSelector('[data-testid="preview-row"]', { state: 'visible', timeout: 10000 });
 
       // Select target table using keyboard to avoid click issues
       await page.waitForSelector('#tableSelect', { timeout: 5000 });
       await page.click('#tableSelect');
-      await page.waitForTimeout(500);
-      
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
+
       // Use keyboard navigation to select
       await page.keyboard.press('ArrowDown'); // Move to first option
       await page.keyboard.press('Enter'); // Select it
-      await page.waitForTimeout(1000);
-      
+
       // Wait for column mapping section to appear
       await page.waitForSelector('[data-csv-column="name"]', { timeout: 10000 });
 
@@ -114,16 +117,15 @@ test.describe('CSV Import', () => {
 
       // Map CSV columns to table columns using keyboard
       await page.click('[data-csv-column="name"]');
-      await page.waitForTimeout(300);
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
       await page.keyboard.press('ArrowDown'); // Move past __SKIP__
       await page.keyboard.press('ArrowDown'); // Move to full_name
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
-      
+
       await page.click('[data-csv-column="email"]');
-      await page.waitForTimeout(300);
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
       await page.keyboard.press('ArrowDown'); // Move past __SKIP__
-      await page.keyboard.press('ArrowDown'); // Move past contact_id  
+      await page.keyboard.press('ArrowDown'); // Move past contact_id
       await page.keyboard.press('ArrowDown'); // Move past full_name
       await page.keyboard.press('ArrowDown'); // Move to email_address
       await page.keyboard.press('Enter');
@@ -146,7 +148,7 @@ test.describe('CSV Import', () => {
     const csvContent = 'name,price,stock\nLaptop,999.99,10\nMouse,29.99,50\nKeyboard,79.99,25';
     const csvPath = path.join(__dirname, '..', 'test-data', 'products.csv');
     const csvDir = path.dirname(csvPath);
-    
+
     if (!fs.existsSync(csvDir)) {
       fs.mkdirSync(csvDir, { recursive: true });
     }
@@ -155,22 +157,25 @@ test.describe('CSV Import', () => {
     try {
       // Upload CSV file
       await page.setInputFiles('#csvFileInput', csvPath);
-      await page.waitForTimeout(1000); // Wait for parsing AND table reload
+
+      // Wait for preview
+      await page.waitForSelector('[data-testid="preview-row"]', { state: 'visible', timeout: 10000 });
 
       // Select target table using keyboard
       await page.click('#tableSelect');
-      await page.waitForTimeout(500);
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
       await page.keyboard.press('ArrowDown'); // Move to first option
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
-      
+
       // Wait for import button to appear
       await page.waitForSelector('#importButton', { timeout: 10000 });
 
       // Auto-map columns (same names)
       // Click import button
       await page.click('#importButton');
-      await page.waitForTimeout(1000); // Wait for import to complete
+
+      // Wait for import success
+      await page.waitForSelector('[data-testid="import-success"]', { state: 'visible', timeout: 15000 });
 
       // Verify import success message
       const successMessage = await page.locator('[data-testid="import-success"]').isVisible();
@@ -219,7 +224,7 @@ test.describe('CSV Import', () => {
     const csvContent = 'product;quantity;revenue\nLaptop;5;4999.95\nMouse;20;599.80';
     const csvPath = path.join(__dirname, '..', 'test-data', 'sales.csv');
     const csvDir = path.dirname(csvPath);
-    
+
     if (!fs.existsSync(csvDir)) {
       fs.mkdirSync(csvDir, { recursive: true });
     }
@@ -228,21 +233,27 @@ test.describe('CSV Import', () => {
     try {
       // Upload CSV file
       await page.setInputFiles('#csvFileInput', csvPath);
-      await page.waitForTimeout(500);
+
+      // Wait for file to be processed
+      await page.waitForFunction(() => {
+        const input = document.getElementById('csvFileInput') as HTMLInputElement;
+        return input && input.files && input.files.length > 0;
+      }, { timeout: 5000 });
 
       // Change delimiter to semicolon
       await page.click('#delimiterSelect');
-      await page.waitForTimeout(300);
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
       await page.click('text=Semicolon (;)');
-      await page.waitForTimeout(1000); // Re-parse with new delimiter AND reload tables
+
+      // Wait for re-parse with new delimiter
+      await page.waitForSelector('[data-testid="preview-row"]', { state: 'visible', timeout: 10000 });
 
       // Select target table using keyboard
       await page.click('#tableSelect');
-      await page.waitForTimeout(500);
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
       await page.keyboard.press('ArrowDown'); // Move to first option
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
-      
+
       // Wait for import button to indicate table selected
       await page.waitForSelector('#importButton', { timeout: 10000 });
 
@@ -251,12 +262,13 @@ test.describe('CSV Import', () => {
       const isChecked = await hasHeadersCheckbox.isChecked();
       if (!isChecked) {
         await hasHeadersCheckbox.check();
-        await page.waitForTimeout(500);
       }
 
       // Import
       await page.click('#importButton');
-      await page.waitForTimeout(1000);
+
+      // Wait for import success
+      await page.waitForSelector('[data-testid="import-success"]', { state: 'visible', timeout: 15000 });
 
       // Verify data was imported correctly
       const rowsImported = await page.evaluate(async () => {
@@ -281,7 +293,7 @@ test.describe('CSV Import', () => {
     }
     const csvPath = path.join(__dirname, '..', 'test-data', 'preview.csv');
     const csvDir = path.dirname(csvPath);
-    
+
     if (!fs.existsSync(csvDir)) {
       fs.mkdirSync(csvDir, { recursive: true });
     }
@@ -290,7 +302,9 @@ test.describe('CSV Import', () => {
     try {
       // Upload CSV file
       await page.setInputFiles('#csvFileInput', csvPath);
-      await page.waitForTimeout(500);
+
+      // Wait for preview
+      await page.waitForSelector('[data-testid="preview-row"]', { state: 'visible', timeout: 10000 });
 
       // Check preview shows max 10 rows
       const previewRows = await page.locator('[data-testid="preview-row"]').count();
@@ -318,7 +332,7 @@ test.describe('CSV Import', () => {
     const csvContent = 'id,name\n1,John Doe\n1,Jane Smith\n2,Bob Jones';
     const csvPath = path.join(__dirname, '..', 'test-data', 'invalid.csv');
     const csvDir = path.dirname(csvPath);
-    
+
     if (!fs.existsSync(csvDir)) {
       fs.mkdirSync(csvDir, { recursive: true });
     }
@@ -327,21 +341,23 @@ test.describe('CSV Import', () => {
     try {
       // Upload CSV file
       await page.setInputFiles('#csvFileInput', csvPath);
-      await page.waitForTimeout(1000); // Wait for parsing AND table reload
+
+      // Wait for preview
+      await page.waitForSelector('[data-testid="preview-row"]', { state: 'visible', timeout: 10000 });
 
       // Select target table
       await page.click('#tableSelect');
-      await page.waitForTimeout(500);
+      await page.waitForSelector('[role="option"]', { state: 'visible' });
       await page.click('text=strict_users');
-      
+
       // Wait for import button to appear
       await page.waitForSelector('#importButton', { timeout: 10000 });
 
       // Try to import
       await page.click('#importButton');
-      await page.waitForTimeout(1000);
 
       // Check for error message
+      await page.waitForSelector('[data-testid="import-error"]', { state: 'visible', timeout: 15000 });
       const errorMessage = await page.locator('[data-testid="import-error"]').isVisible();
       expect(errorMessage).toBeTruthy();
     } finally {

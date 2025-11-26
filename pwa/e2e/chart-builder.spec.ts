@@ -8,11 +8,11 @@ test.describe('Chart Builder E2E', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     // Use worker index AND timestamp to ensure unique database per test (per INSTRUCTIONS.md)
     TEST_DB_NAME = `test-charts-w${testInfo.parallelIndex}_${Date.now()}.db`;
-    
+
     // Navigate to DB management page and ensure clean state
     await page.goto('/db');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#dbManagement', { timeout: 10000 });
 
     // MANDATORY: Clean ALL state from previous tests (INSTRUCTIONS.md - Zero Tolerance for Flakiness)
     await page.evaluate(async () => {
@@ -28,7 +28,7 @@ test.describe('Chart Builder E2E', () => {
 
       // Clear ALL localStorage
       localStorage.clear();
-      
+
       // Delete ALL indexedDB databases
       const dbs = await indexedDB.databases();
       for (const db of dbs) {
@@ -112,7 +112,17 @@ test.describe('Chart Builder E2E', () => {
       await db.db.sync();
     });
 
-    await page.waitForTimeout(500);
+    // Wait for data to be ready
+    await page.waitForFunction(async () => {
+      const db = (window as any).testDb;
+      if (!db) return false;
+      try {
+        const result = await db.execute('SELECT COUNT(*) FROM sales');
+        return result.rows[0].values[0].value === 5;
+      } catch {
+        return false;
+      }
+    }, { timeout: 10000 });
   });
 
   test('should navigate to chart builder page', async ({ page }) => {
@@ -129,11 +139,13 @@ test.describe('Chart Builder E2E', () => {
     // Execute a query first
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT * FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
+    // Wait for chart configuration to appear
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Look for chart type selector (should appear after query execution)
     const lineButton = page.locator('button:has-text("Line")').first();
     await expect(lineButton).toBeVisible({ timeout: 5000 });
@@ -143,14 +155,14 @@ test.describe('Chart Builder E2E', () => {
     // Enter SQL query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT * FROM sales');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    
+
     // Wait for results
-    await page.waitForTimeout(2000);
-    
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Should show chart configuration section or chart preview
     const chartConfig = page.locator('text=Chart Configuration').first();
     await expect(chartConfig).toBeVisible({ timeout: 5000 });
@@ -160,21 +172,23 @@ test.describe('Chart Builder E2E', () => {
     // Enter query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Select Line chart type
     const lineChartButton = page.locator('button:has-text("Line"), [data-testid="chart-type-line"]').first();
     if (await lineChartButton.isVisible()) {
       await lineChartButton.click();
     }
-    
+
     // Wait for chart to render
-    await page.waitForTimeout(1000);
-    
+    await page.waitForSelector('[data-testid="chart-preview"], svg, canvas, .recharts-wrapper', { state: 'visible', timeout: 10000 });
+
     // Check for chart container or SVG element
     const chart = page.locator('[data-testid="chart-preview"], svg, canvas, .recharts-wrapper').first();
     await expect(chart).toBeVisible({ timeout: 5000 });
@@ -184,20 +198,23 @@ test.describe('Chart Builder E2E', () => {
     // Enter query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT department, count FROM employees');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Select Bar chart type
     const barChartButton = page.locator('button:has-text("Bar"), [data-testid="chart-type-bar"]').first();
     if (await barChartButton.isVisible()) {
       await barChartButton.click();
     }
-    
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart to render
+    await page.waitForSelector('[data-testid="chart-preview"], svg, canvas, .recharts-wrapper', { state: 'visible', timeout: 10000 });
+
     // Check for chart
     const chart = page.locator('[data-testid="chart-preview"], svg, canvas, .recharts-wrapper').first();
     await expect(chart).toBeVisible({ timeout: 5000 });
@@ -207,20 +224,23 @@ test.describe('Chart Builder E2E', () => {
     // Enter query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT department, count FROM employees');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Select Pie chart type
     const pieChartButton = page.locator('button:has-text("Pie"), [data-testid="chart-type-pie"]').first();
     if (await pieChartButton.isVisible()) {
       await pieChartButton.click();
     }
-    
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart to render
+    await page.waitForSelector('[data-testid="chart-preview"], svg, canvas, .recharts-wrapper', { state: 'visible', timeout: 10000 });
+
     // Check for chart
     const chart = page.locator('[data-testid="chart-preview"], svg, canvas, .recharts-wrapper').first();
     await expect(chart).toBeVisible({ timeout: 5000 });
@@ -230,12 +250,14 @@ test.describe('Chart Builder E2E', () => {
     // Enter query with multiple columns
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue, expenses FROM sales');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Look for X-axis selector
     const xAxisSelector = page.locator('[data-testid="x-axis-selector"], label:has-text("X-Axis") ~ select, label:has-text("X-Axis") ~ button').first();
     await expect(xAxisSelector).toBeVisible({ timeout: 5000 });
@@ -245,12 +267,14 @@ test.describe('Chart Builder E2E', () => {
     // Enter query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue, expenses FROM sales');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Look for Y-axis selector
     const yAxisSelector = page.locator('[data-testid="y-axis-selector"], label:has-text("Y-Axis") ~ select, label:has-text("Y-Axis") ~ button').first();
     await expect(yAxisSelector).toBeVisible({ timeout: 5000 });
@@ -260,19 +284,21 @@ test.describe('Chart Builder E2E', () => {
     // Enter query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Look for chart title input
     const titleInput = page.locator('input[placeholder*="title" i], input[placeholder*="Chart" i]').first();
     await expect(titleInput).toBeVisible({ timeout: 5000 });
-    
+
     // Set a title
     await titleInput.fill('Monthly Revenue');
-    
+
     // Title should appear in chart or preview
     await expect(page.locator('text=Monthly Revenue').first()).toBeVisible({ timeout: 3000 });
   });
@@ -281,12 +307,14 @@ test.describe('Chart Builder E2E', () => {
     // Enter query that returns no results
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT * FROM sales WHERE month = "InvalidMonth"');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for response
+    await page.waitForSelector('text=/No (data|results)|Empty/i', { state: 'visible', timeout: 10000 });
+
     // Should show appropriate message
     await expect(page.locator('text=/No (data|results)|Empty/i').first()).toBeVisible({ timeout: 5000 });
   });
@@ -295,12 +323,14 @@ test.describe('Chart Builder E2E', () => {
     // Enter invalid SQL
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('INVALID SQL QUERY HERE');
-    
+
     // Execute query
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for error message
+    await page.waitForSelector('text=/error|invalid|fail/i', { state: 'visible', timeout: 10000 });
+
     // Should show error message
     await expect(page.locator('text=/error|invalid|fail/i').first()).toBeVisible({ timeout: 5000 });
   });
@@ -309,20 +339,24 @@ test.describe('Chart Builder E2E', () => {
     // Execute first query
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Verify chart appears
     const chart = page.locator('[data-testid="chart-preview"], svg, .recharts-wrapper').first();
     await expect(chart).toBeVisible({ timeout: 5000 });
-    
+
     // Clear and enter new query
     await queryInput.fill('SELECT month, expenses FROM sales');
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart to update
+    await page.waitForSelector('[data-testid="chart-preview"], svg, .recharts-wrapper', { state: 'visible', timeout: 10000 });
+
     // Chart should still be visible (updated with new data)
     await expect(chart).toBeVisible();
   });
@@ -331,11 +365,13 @@ test.describe('Chart Builder E2E', () => {
     // Enter query with multiple numeric columns
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue, expenses, profit FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Should be able to select different columns for Y-axis
     const yAxisSelector = page.locator('[data-testid="y-axis-selector"], label:has-text("Y-Axis") ~ select').first();
     if (await yAxisSelector.isVisible()) {
@@ -347,36 +383,38 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(1000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('text=Chart Configuration', { state: 'visible', timeout: 10000 });
+
     // Verify chart appears
     const chart = page.locator('[data-testid="chart-preview"], svg, .recharts-wrapper').first();
     await expect(chart).toBeVisible({ timeout: 5000 });
-    
+
     // Clear query
     await queryInput.fill('');
-    
+
     // Execute empty query or look for clear button
     const clearButton = page.locator('button:has-text("Clear")').first();
     if (await clearButton.isVisible()) {
       await clearButton.click();
     }
-    
-    await page.waitForTimeout(500);
   });
 
   test('should display export button for PNG', async ({ page }) => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
+    // Wait for export buttons
+    await page.waitForSelector('[data-testid="export-png"], button:has-text("PNG"), button:has-text("Export")', { state: 'visible', timeout: 10000 });
+
     // Look for PNG export button
     const pngButton = page.locator('button:has-text("PNG"), button:has-text("Export"), [data-testid="export-png"]').first();
     await expect(pngButton).toBeVisible({ timeout: 5000 });
@@ -386,11 +424,13 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
+    // Wait for export buttons
+    await page.waitForSelector('[data-testid="export-svg"], button:has-text("SVG")', { state: 'visible', timeout: 10000 });
+
     // Look for SVG export button
     const svgButton = page.locator('button:has-text("SVG"), [data-testid="export-svg"]').first();
     await expect(svgButton).toBeVisible({ timeout: 5000 });
@@ -400,11 +440,13 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
+    // Wait for export buttons
+    await page.waitForSelector('[data-testid="export-csv"], button:has-text("CSV"), button:has-text("Download")', { state: 'visible', timeout: 10000 });
+
     // Look for CSV export button
     const csvButton = page.locator('button:has-text("CSV"), button:has-text("Download"), [data-testid="export-csv"]').first();
     await expect(csvButton).toBeVisible({ timeout: 5000 });
@@ -414,21 +456,21 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
     // Wait for PNG export button to be visible
+    await page.waitForSelector('[data-testid="export-png"]', { state: 'visible', timeout: 10000 });
     const pngButton = page.locator('[data-testid="export-png"]').first();
     await expect(pngButton).toBeVisible({ timeout: 5000 });
-    
+
     // Setup download listener
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    
+
     // Click PNG export button
     await pngButton.click();
-    
+
     // Wait for download
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.png$/i);
@@ -438,21 +480,21 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
     // Wait for SVG export button to be visible
+    await page.waitForSelector('[data-testid="export-svg"]', { state: 'visible', timeout: 10000 });
     const svgButton = page.locator('[data-testid="export-svg"]').first();
     await expect(svgButton).toBeVisible({ timeout: 5000 });
-    
+
     // Setup download listener
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    
+
     // Click SVG export button
     await svgButton.click();
-    
+
     // Wait for download
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.svg$/i);
@@ -462,21 +504,21 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and generate chart
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
     // Wait for CSV export button to be visible
+    await page.waitForSelector('[data-testid="export-csv"]', { state: 'visible', timeout: 10000 });
     const csvButton = page.locator('[data-testid="export-csv"]').first();
     await expect(csvButton).toBeVisible({ timeout: 5000 });
-    
+
     // Setup download listener
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    
+
     // Click CSV export button
     await csvButton.click();
-    
+
     // Wait for download
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.csv$/i);
@@ -486,33 +528,33 @@ test.describe('Chart Builder E2E', () => {
     // Execute query with known data
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
     // Wait for CSV export button to be visible
+    await page.waitForSelector('[data-testid="export-csv"]', { state: 'visible', timeout: 10000 });
     const csvButton = page.locator('[data-testid="export-csv"]').first();
     await expect(csvButton).toBeVisible({ timeout: 5000 });
-    
+
     // Setup download listener
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    
+
     // Click CSV export button
     await csvButton.click();
-    
+
     // Download and read CSV content
     const download = await downloadPromise;
     const path = await download.path();
-    
+
     if (path) {
       const fs = require('fs');
       const content = fs.readFileSync(path, 'utf-8');
-      
+
       // Verify CSV contains headers
       expect(content).toContain('month');
       expect(content).toContain('revenue');
-      
+
       // Verify CSV contains data
       expect(content).toContain('Jan');
       expect(content).toContain('50000');
@@ -523,26 +565,28 @@ test.describe('Chart Builder E2E', () => {
     // Execute query and set title
     const queryInput = page.locator('textarea#sqlQuery').first();
     await queryInput.fill('SELECT month, revenue FROM sales');
-    
+
     const executeButton = page.locator('button:has-text("Execute")').first();
     await executeButton.click();
-    await page.waitForTimeout(2000);
-    
+
+    // Wait for chart configuration
+    await page.waitForSelector('input#chartTitle', { state: 'visible', timeout: 10000 });
+
     // Set chart title
     const titleInput = page.locator('input#chartTitle').first();
     await titleInput.fill('My Custom Chart');
-    await page.waitForTimeout(500);
-    
+
     // Wait for PNG export button to be visible
+    await page.waitForSelector('[data-testid="export-png"]', { state: 'visible', timeout: 10000 });
     const pngButton = page.locator('[data-testid="export-png"]').first();
     await expect(pngButton).toBeVisible({ timeout: 5000 });
-    
+
     // Setup download listener
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    
+
     // Click PNG export button
     await pngButton.click();
-    
+
     // Wait for download and check filename
     const download = await downloadPromise;
     const filename = download.suggestedFilename();

@@ -67,7 +67,7 @@ test.describe('Query Interface E2E', () => {
     await page.waitForSelector('#errorDisplay');
     
     const errorText = await page.textContent('#errorDisplay');
-    expect(errorText).toContain('error');
+    expect(errorText?.toLowerCase()).toContain('failed');
   });
 
   test('should save query to history', async ({ page }) => {

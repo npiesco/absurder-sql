@@ -4,19 +4,43 @@ test.describe('Schema Viewer Enhancements E2E', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/schema');
     await page.waitForSelector('#schemaViewer', { timeout: 10000 });
+
+    // Wait for WASM to be ready
+    await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
+
+    // Create database programmatically since schema page needs one
+    await page.evaluate(async () => {
+      const Database = (window as any).Database;
+      const testDb = await Database.newDatabase('schema-test-db');
+      await testDb.allowNonLeaderWrites(true);
+      (window as any).testDb = testDb;
+    });
+
+    await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
+  });
+
+  test.afterEach(async ({ page }) => {
+    // Cleanup
+    await page.evaluate(async () => {
+      const db = (window as any).testDb;
+      if (db) {
+        try { await db.close(); } catch {}
+      }
+      try { await indexedDB.deleteDatabase('schema-test-db'); } catch {}
+    }).catch(() => {});
   });
 
   test('should display row count for each table', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
-    
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
+
     // Create test table with data
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute('DROP TABLE IF EXISTS count_test');
       await db.execute('CREATE TABLE count_test (id INTEGER, data TEXT)');
-      await db.execute('INSERT INTO count_test VALUES (1, ?)', [{ type: 'Text', value: 'row1' }]);
-      await db.execute('INSERT INTO count_test VALUES (2, ?)', [{ type: 'Text', value: 'row2' }]);
-      await db.execute('INSERT INTO count_test VALUES (3, ?)', [{ type: 'Text', value: 'row3' }]);
+      await db.execute("INSERT INTO count_test VALUES (1, 'row1')");
+      await db.execute("INSERT INTO count_test VALUES (2, 'row2')");
+      await db.execute("INSERT INTO count_test VALUES (3, 'row3')");
     });
 
     await page.click('#refreshButton');
@@ -36,15 +60,15 @@ test.describe('Schema Viewer Enhancements E2E', () => {
   });
 
   test('should show data preview when table is selected', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
-    
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
+
     // Create test table with data
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute('DROP TABLE IF EXISTS preview_test');
       await db.execute('CREATE TABLE preview_test (id INTEGER, name TEXT, age INTEGER)');
-      await db.execute('INSERT INTO preview_test VALUES (1, ?, 25)', [{ type: 'Text', value: 'Alice' }]);
-      await db.execute('INSERT INTO preview_test VALUES (2, ?, 30)', [{ type: 'Text', value: 'Bob' }]);
+      await db.execute("INSERT INTO preview_test VALUES (1, 'Alice', 25)");
+      await db.execute("INSERT INTO preview_test VALUES (2, 'Bob', 30)");
     });
 
     await page.click('#refreshButton');
@@ -72,15 +96,15 @@ test.describe('Schema Viewer Enhancements E2E', () => {
   });
 
   test('should limit data preview to 5 rows', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
-    
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
+
     // Create table with more than 5 rows
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute('DROP TABLE IF EXISTS limit_test');
       await db.execute('CREATE TABLE limit_test (id INTEGER)');
       for (let i = 1; i <= 10; i++) {
-        await db.execute('INSERT INTO limit_test VALUES (?)', [{ type: 'Integer', value: i }]);
+        await db.execute(`INSERT INTO limit_test VALUES (${i})`);
       }
     });
 
@@ -100,8 +124,8 @@ test.describe('Schema Viewer Enhancements E2E', () => {
   });
 
   test('should display quick query button for SELECT *', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
-    
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
+
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute('DROP TABLE IF EXISTS quick_test');
@@ -125,8 +149,8 @@ test.describe('Schema Viewer Enhancements E2E', () => {
   });
 
   test('should navigate to query page when quick query clicked', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
-    
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
+
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute('DROP TABLE IF EXISTS nav_test');
@@ -151,18 +175,12 @@ test.describe('Schema Viewer Enhancements E2E', () => {
     const sqlEditor = await page.locator('.cm-editor .cm-content').textContent();
     expect(sqlEditor).toContain('SELECT * FROM nav_test');
 
-    // Cleanup - go back to schema page
-    await page.goto('/db/schema');
-    await page.waitForSelector('#schemaViewer');
-    await page.waitForSelector('#refreshButton:not([disabled])');
-    await page.evaluate(async () => {
-      const db = (window as any).testDb;
-      await db.execute('DROP TABLE IF EXISTS nav_test');
-    });
+    // Cleanup is handled by afterEach - no need for manual cleanup after navigation
+    // (WASM state is lost when navigating, testDb would be null)
   });
 
   test('should show empty state for table with no data', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
     
     await page.evaluate(async () => {
       const db = (window as any).testDb;
@@ -186,7 +204,7 @@ test.describe('Schema Viewer Enhancements E2E', () => {
   });
 
   test('should update row count after data changes', async ({ page }) => {
-    await page.waitForSelector('#refreshButton:not([disabled])');
+    await page.waitForSelector('#refreshButton:not([disabled])', { timeout: 15000 });
     
     // Create empty table
     await page.evaluate(async () => {
@@ -212,8 +230,8 @@ test.describe('Schema Viewer Enhancements E2E', () => {
 
     // Refresh
     await page.click('#refreshButton');
-    await page.waitForTimeout(500);
-    
+    await page.waitForSelector('#tablesList .table-item:has-text("update_test")', { state: 'visible' });
+
     // Check updated count
     tableItem = page.locator('#tablesList .table-item:has-text("update_test")');
     rowCount = await tableItem.locator('.row-count').textContent();

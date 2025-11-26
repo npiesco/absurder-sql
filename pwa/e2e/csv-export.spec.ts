@@ -1,6 +1,6 @@
 /**
  * E2E tests for CSV Export functionality with configurable options
- * 
+ *
  * Tests cover:
  * - Basic CSV export from query results
  * - Export options dialog (headers, delimiter, quotes, line endings)
@@ -61,7 +61,7 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT * FROM products LIMIT 3');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Check export button is visible
     const exportButton = await page.locator('#exportCSV');
@@ -73,7 +73,7 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name, price FROM products WHERE id <= 3');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Set up download listener
     const downloadPromise = page.waitForEvent('download');
@@ -103,11 +103,11 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT * FROM products LIMIT 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Click export options button (separate from direct export)
     await page.click('#exportCSVOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Verify dialog opened
     const dialog = await page.locator('[role="dialog"]').filter({ hasText: 'CSV Export Options' });
@@ -126,15 +126,14 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name FROM products WHERE id = 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportCSVOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Uncheck include headers
     await page.click('#includeHeaders');
-    await page.waitForTimeout(200);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -145,7 +144,7 @@ test.describe('CSV Export', () => {
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
     const lines = csvContent.split('\n');
-    
+
     // First line should be data, not headers
     expect(lines[0]).toBe('1,Laptop');
   });
@@ -155,17 +154,16 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name, price FROM products WHERE id <= 2');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportCSVOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Select semicolon delimiter
     await page.click('#csvDelimiter');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="option"]', { state: 'visible' });
     await page.click('text=Semicolon (;)');
-    await page.waitForTimeout(300);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -176,7 +174,7 @@ test.describe('CSV Export', () => {
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
     const lines = csvContent.split('\n');
-    
+
     expect(lines[0]).toBe('id;name;price'); // Headers with semicolon
     expect(lines[1]).toBe('1;Laptop;999.99');
     expect(lines[2]).toBe('2;Mouse;29.99');
@@ -187,15 +185,14 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name FROM products WHERE id = 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportCSVOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Enable quote all fields
     await page.click('#quoteAllFields');
-    await page.waitForTimeout(200);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -206,7 +203,7 @@ test.describe('CSV Export', () => {
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
     const lines = csvContent.split('\n');
-    
+
     expect(lines[0]).toBe('"id","name"'); // Quoted headers
     expect(lines[1]).toBe('"1","Laptop"'); // Quoted values
   });
@@ -216,7 +213,7 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name, stock FROM products WHERE id = 4');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Test 1: NULL as empty string (default)
     let downloadPromise = page.waitForEvent('download');
@@ -229,14 +226,13 @@ test.describe('CSV Export', () => {
 
     // Test 2: NULL as "NULL" string
     await page.click('#exportCSVOptions');
-    await page.waitForTimeout(300);
-    
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
+
     // Select NULL as "NULL"
     await page.click('#nullHandling');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="option"]', { state: 'visible' });
     // Use more specific selector to avoid matching NULL in results table
     await page.locator('[role="option"]:has-text("NULL")').click();
-    await page.waitForTimeout(300);
 
     downloadPromise = page.waitForEvent('download');
     await page.click('#confirmExport');
@@ -252,7 +248,7 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name, description FROM products WHERE id IN (5, 6, 7)');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -262,15 +258,15 @@ test.describe('CSV Export', () => {
     // Verify escaping
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     // Comma in value should be quoted
     expect(csvContent).toContain('"Cable, USB-C"');
     expect(csvContent).toContain('"Description with, comma"');
-    
+
     // Quotes should be escaped with double quotes
     expect(csvContent).toContain('"Adapter ""Pro"""');
     expect(csvContent).toContain('"Has ""quotes"" in name"');
-    
+
     // Newlines should be quoted (embedded newlines in CSV are valid within quoted fields)
     expect(csvContent).toContain('"Hub\nMultiport"');
     expect(csvContent).toContain('"Name has\nnewline"');
@@ -281,17 +277,16 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name FROM products WHERE id <= 2');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportCSVOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Select CRLF line ending
     await page.click('#lineEnding');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="option"]', { state: 'visible' });
     await page.click('text=CRLF (Windows)');
-    await page.waitForTimeout(300);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -301,7 +296,7 @@ test.describe('CSV Export', () => {
     // Verify CRLF line endings
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     // CRLF is \r\n
     expect(csvContent).toContain('\r\n');
     expect(csvContent.split('\r\n').length).toBeGreaterThan(1);
@@ -312,9 +307,18 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT id, name, price FROM products WHERE id = 999');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
 
-    // Export should still work
+    // Wait for query execution to complete (results table or empty message)
+    await page.waitForFunction(() => {
+      const resultsTable = document.getElementById('resultsTable');
+      const emptyResults = document.querySelector('[data-testid="empty-results"]');
+      const noResultsText = document.body.textContent?.toLowerCase().includes('no results') ||
+                            document.body.textContent?.toLowerCase().includes('no rows');
+      return resultsTable || emptyResults || noResultsText;
+    }, { timeout: 10000 });
+
+    // Export should still work (button should be visible even for empty results)
+    await page.waitForSelector('#exportCSV', { state: 'visible', timeout: 5000 });
     const downloadPromise = page.waitForEvent('download');
     await page.click('#exportCSV');
     const download = await downloadPromise;
@@ -323,7 +327,7 @@ test.describe('CSV Export', () => {
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
     const lines = csvContent.split('\n').filter(l => l.trim());
-    
+
     expect(lines.length).toBe(1);
     expect(lines[0]).toBe('id,name,price');
   });
@@ -357,7 +361,7 @@ test.describe('CSV Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT * FROM products');
     await page.click('#executeButton');
-    await page.waitForTimeout(2000); // Allow time for large result set
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 30000 }); // Allow time for large result set
 
     // Export
     const start = Date.now();
@@ -373,7 +377,7 @@ test.describe('CSV Export', () => {
     const downloadPath = await download.path();
     const csvContent = readFileSync(downloadPath!, 'utf-8');
     const lines = csvContent.split('\n').filter(l => l.trim());
-    
+
     // Note: Rows 5, 6, 7 have embedded newlines in quoted fields, adding 2 extra line breaks
     // So we expect 1001 logical rows (1000 data + 1 header) but 1003 line breaks
     expect(lines.length).toBeGreaterThanOrEqual(1000); // At least 1000 data rows

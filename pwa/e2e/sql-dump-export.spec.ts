@@ -3,7 +3,7 @@ import path from 'path';
 import { readFileSync, existsSync, unlinkSync } from 'fs';
 
 test.describe('SQL Dump Export', () => {
-  
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/query');
     await page.waitForSelector('#queryInterface', { timeout: 10000 });
@@ -22,7 +22,7 @@ test.describe('SQL Dump Export', () => {
     await page.click('.cm-editor .cm-content');
     await page.keyboard.type('SELECT 1');
     await page.waitForSelector('#executeButton:not([disabled])', { timeout: 10000 });
-    
+
     // Create test database with sample data
     await page.evaluate(async () => {
       const db = (window as any).testDb;
@@ -42,11 +42,11 @@ test.describe('SQL Dump Export', () => {
         ('Bob', 'bob@example.com', 25),
         ('Charlie', 'charlie@example.com', 35)
       `);
-      
+
       // Create index
       await db.execute('CREATE INDEX idx_users_email ON users(email)');
     });
-    
+
     // Clear the editor for the test
     await page.keyboard.press('Meta+A');
     await page.keyboard.press('Backspace');
@@ -56,7 +56,7 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users LIMIT 2');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Check export button is visible
     const exportButton = await page.locator('#exportSQL');
@@ -67,7 +67,7 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -84,7 +84,7 @@ test.describe('SQL Dump Export', () => {
 
     // Should have CREATE TABLE statement (inferred from results)
     expect(sqlContent).toContain('CREATE TABLE');
-    
+
     // Should have INSERT statements
     expect(sqlContent).toContain('INSERT INTO');
     expect(sqlContent).toContain('Alice');
@@ -96,11 +96,11 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users LIMIT 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Click export options button
     await page.click('#exportSQLOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Verify dialog opened
     const dialog = await page.locator('[role="dialog"]').filter({ hasText: 'SQL Dump Export Options' });
@@ -116,15 +116,14 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportSQLOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Enable DROP TABLE IF EXISTS
     await page.click('#dropTableIfExists');
-    await page.waitForTimeout(200);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -134,7 +133,7 @@ test.describe('SQL Dump Export', () => {
     // Verify DROP TABLE is included
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     expect(sqlContent).toContain('DROP TABLE IF EXISTS');
   });
 
@@ -142,11 +141,11 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Open export options
     await page.click('#exportSQLOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Transaction is enabled by default, just export
     const downloadPromise = page.waitForEvent('download');
@@ -156,7 +155,7 @@ test.describe('SQL Dump Export', () => {
     // Verify transaction wrapper
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     expect(sqlContent).toContain('BEGIN TRANSACTION');
     expect(sqlContent).toContain('COMMIT');
   });
@@ -167,13 +166,9 @@ test.describe('SQL Dump Export', () => {
       const db = (window as any).testDb;
       await db.execute('BEGIN TRANSACTION');
       for (let i = 4; i <= 250; i++) {
+        const age = 20 + (i % 50);
         await db.execute(
-          `INSERT INTO users (name, email, age) VALUES (?, ?, ?)`,
-          [
-            { type: 'Text', value: `User ${i}` },
-            { type: 'Text', value: `user${i}@example.com` },
-            { type: 'Integer', value: 20 + (i % 50) }
-          ]
+          `INSERT INTO users (name, email, age) VALUES ('User ${i}', 'user${i}@example.com', ${age})`
         );
       }
       await db.execute('COMMIT');
@@ -182,15 +177,14 @@ test.describe('SQL Dump Export', () => {
     // Run query for all rows
     await page.keyboard.type('SELECT * FROM users');
     await page.click('#executeButton');
-    await page.waitForTimeout(1000);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 30000 });
 
     // Open export options
     await page.click('#exportSQLOptions');
-    await page.waitForTimeout(300);
+    await page.waitForSelector('[role="dialog"]', { state: 'visible' });
 
     // Set batch size to 100
     await page.fill('#batchSize', '100');
-    await page.waitForTimeout(200);
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -200,7 +194,7 @@ test.describe('SQL Dump Export', () => {
     // Verify batching (250 rows = 3 INSERT statements with batch size 100)
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     const insertCount = (sqlContent.match(/INSERT INTO/g) || []).length;
     expect(insertCount).toBe(3); // 100, 100, 50
   });
@@ -210,19 +204,14 @@ test.describe('SQL Dump Export', () => {
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute(
-        `INSERT INTO users (name, email, age) VALUES (?, ?, ?)`,
-        [
-          { type: 'Text', value: 'NullAge' },
-          { type: 'Text', value: 'null@example.com' },
-          { type: 'Null' }
-        ]
+        `INSERT INTO users (name, email, age) VALUES ('NullAge', 'null@example.com', NULL)`
       );
     });
 
     // Run query
     await page.keyboard.type('SELECT * FROM users WHERE age IS NULL');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -232,7 +221,7 @@ test.describe('SQL Dump Export', () => {
     // Verify NULL is represented correctly
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     expect(sqlContent).toContain('NULL');
     expect(sqlContent).toContain('NullAge');
   });
@@ -242,7 +231,7 @@ test.describe('SQL Dump Export', () => {
     await page.evaluate(async () => {
       const db = (window as any).testDb;
       await db.execute(
-        `INSERT INTO users (name, email, age) VALUES 
+        `INSERT INTO users (name, email, age) VALUES
         ("User with 'quotes'", 'quotes@example.com', 40),
         ('User with "double quotes"', 'double@example.com', 41),
         ("User with\nnewline", 'newline@example.com', 42)`
@@ -252,7 +241,7 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users WHERE age >= 40');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -262,7 +251,7 @@ test.describe('SQL Dump Export', () => {
     // Verify special characters are properly escaped
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     expect(sqlContent).toContain("'User with ''quotes'''");
     expect(sqlContent).toContain('User with "double quotes"');
   });
@@ -271,7 +260,16 @@ test.describe('SQL Dump Export', () => {
     // Run query with no results
     await page.keyboard.type('SELECT * FROM users WHERE id = 999');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+
+    // Wait for query execution to complete (results table or empty message)
+    await page.waitForFunction(() => {
+      const resultsTable = document.getElementById('resultsTable');
+      const emptyResults = document.querySelector('[data-testid="empty-results"]');
+      const noResultsText = document.body.textContent?.toLowerCase().includes('no results') ||
+                            document.body.textContent?.toLowerCase().includes('no rows');
+      return resultsTable || emptyResults || noResultsText;
+    }, { timeout: 10000 });
+    await page.waitForSelector('#exportSQL', { state: 'visible', timeout: 5000 });
 
     // Export should still work
     const downloadPromise = page.waitForEvent('download');
@@ -281,7 +279,7 @@ test.describe('SQL Dump Export', () => {
     // Verify only CREATE TABLE, no INSERTs
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     expect(sqlContent).toContain('CREATE TABLE');
     expect(sqlContent).not.toContain('INSERT INTO');
   });
@@ -290,7 +288,7 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT * FROM users');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -305,23 +303,23 @@ test.describe('SQL Dump Export', () => {
     const result = await page.evaluate(async (sql: string) => {
       try {
         const db = (window as any).testDb;
-        
+
         // Modify SQL to create a new table name
         const modifiedSql = sql.replace(/query_results/g, 'users_imported');
-        
+
         console.log('[SQL IMPORT TEST] Modified SQL:', modifiedSql.substring(0, 500));
-        
+
         // Execute the dump
         const statements = modifiedSql.split(';').filter(s => s.trim());
         console.log('[SQL IMPORT TEST] Statements count:', statements.length);
-        
+
         for (const stmt of statements) {
           if (stmt.trim()) {
             console.log('[SQL IMPORT TEST] Executing:', stmt.substring(0, 100));
             await db.execute(stmt.trim());
           }
         }
-        
+
         // Verify data was imported
         const result = await db.execute('SELECT COUNT(*) as count FROM users_imported');
         return {
@@ -336,7 +334,7 @@ test.describe('SQL Dump Export', () => {
         };
       }
     }, sqlContent);
-    
+
     console.log('[SQL IMPORT TEST] Result:', result);
 
     expect(result.success).toBe(true);
@@ -349,13 +347,9 @@ test.describe('SQL Dump Export', () => {
       const db = (window as any).testDb;
       await db.execute('BEGIN TRANSACTION');
       for (let i = 4; i <= 1000; i++) {
+        const age = 20 + (i % 50);
         await db.execute(
-          `INSERT INTO users (name, email, age) VALUES (?, ?, ?)`,
-          [
-            { type: 'Text', value: `User ${i}` },
-            { type: 'Text', value: `user${i}@example.com` },
-            { type: 'Integer', value: 20 + (i % 50) }
-          ]
+          `INSERT INTO users (name, email, age) VALUES ('User ${i}', 'user${i}@example.com', ${age})`
         );
       }
       await db.execute('COMMIT');
@@ -364,7 +358,7 @@ test.describe('SQL Dump Export', () => {
     // Run query for all rows
     await page.keyboard.type('SELECT * FROM users');
     await page.click('#executeButton');
-    await page.waitForTimeout(2000);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 30000 });
 
     // Export
     const start = Date.now();
@@ -379,7 +373,7 @@ test.describe('SQL Dump Export', () => {
     // Verify file is not empty and has reasonable size
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     expect(sqlContent.length).toBeGreaterThan(1000); // Should have substantial content
     expect(sqlContent).toContain('INSERT INTO');
   });
@@ -388,7 +382,7 @@ test.describe('SQL Dump Export', () => {
     // Run query
     await page.keyboard.type('SELECT id, name, email, age FROM users WHERE id = 1');
     await page.click('#executeButton');
-    await page.waitForTimeout(500);
+    await page.waitForSelector('#resultsTable', { state: 'visible', timeout: 10000 });
 
     // Export
     const downloadPromise = page.waitForEvent('download');
@@ -398,11 +392,11 @@ test.describe('SQL Dump Export', () => {
     // Verify data types are preserved in INSERT
     const downloadPath = await download.path();
     const sqlContent = readFileSync(downloadPath!, 'utf-8');
-    
+
     // Integer without quotes
     expect(sqlContent).toMatch(/\b1\b/); // id
     expect(sqlContent).toMatch(/\b30\b/); // age
-    
+
     // Text with quotes
     expect(sqlContent).toContain("'Alice'");
     expect(sqlContent).toContain("'alice@example.com'");
