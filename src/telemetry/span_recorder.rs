@@ -6,9 +6,10 @@
 //! - A foundation for Phase 4 WASM tracing exporter
 //! - A development tool for debugging trace flows
 
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 /// Represents a recorded span with its metadata
 #[derive(Debug, Clone, serde::Serialize)]
@@ -67,7 +68,7 @@ impl Sampler {
     ///
     /// sample_rate: 0.0 to 1.0 (e.g., 0.1 = 10% of spans recorded)
     pub fn probability(sample_rate: f64) -> Self {
-        let rate = sample_rate.max(0.0).min(1.0); // Clamp to [0, 1]
+        let rate = sample_rate.clamp(0.0, 1.0);
         Self {
             sample_rate: rate,
             always_sample_errors: false,
@@ -85,10 +86,8 @@ impl Sampler {
     /// Uses deterministic hashing based on span name for consistent sampling decisions
     pub fn should_sample(&self, span_name: &str, attributes: &HashMap<String, String>) -> bool {
         // Always sample errors if configured
-        if self.always_sample_errors {
-            if attributes.get("error").is_some() {
-                return true;
-            }
+        if self.always_sample_errors && attributes.get("error").is_some() {
+            return true;
         }
 
         // Always on/off
@@ -173,7 +172,7 @@ impl SpanRecorder {
             if matches!(span.status, SpanStatus::Error(_)) {
                 attributes.insert("error".to_string(), "true".to_string());
             }
-            
+
             if !sampler.should_sample(&span.name, &attributes) {
                 return; // Span is sampled out
             }
@@ -192,10 +191,7 @@ impl SpanRecorder {
     /// Get spans by name
     pub fn get_spans_by_name(&self, name: &str) -> Vec<RecordedSpan> {
         let spans = self.spans.lock().unwrap();
-        spans.iter()
-            .filter(|s| s.name == name)
-            .cloned()
-            .collect()
+        spans.iter().filter(|s| s.name == name).cloned().collect()
     }
 
     /// Get the most recent span
@@ -235,16 +231,16 @@ impl Default for SpanRecorder {
 /// Also manages baggage (key-value pairs) that propagate across span boundaries.
 #[derive(Clone)]
 pub struct SpanContext {
-    span_stack: Arc<RefCell<Vec<String>>>,
-    baggage: Arc<RefCell<HashMap<String, String>>>,
+    span_stack: Rc<RefCell<Vec<String>>>,
+    baggage: Rc<RefCell<HashMap<String, String>>>,
 }
 
 impl SpanContext {
     /// Create a new span context
     pub fn new() -> Self {
         Self {
-            span_stack: Arc::new(RefCell::new(Vec::new())),
-            baggage: Arc::new(RefCell::new(HashMap::new())),
+            span_stack: Rc::new(RefCell::new(Vec::new())),
+            baggage: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
@@ -313,7 +309,7 @@ impl SpanBuilder {
     pub fn new(name: String) -> Self {
         #[cfg(target_arch = "wasm32")]
         let start_time_ms = js_sys::Date::now();
-        
+
         #[cfg(not(target_arch = "wasm32"))]
         let start_time_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -358,7 +354,7 @@ impl SpanBuilder {
 
     pub fn build(self) -> RecordedSpan {
         let span_id = format!("span_{}", self.start_time_ms as u64);
-        
+
         RecordedSpan {
             name: self.name,
             start_time_ms: self.start_time_ms,
@@ -393,13 +389,13 @@ mod tests {
     #[test]
     fn test_record_span() {
         let recorder = SpanRecorder::new();
-        
+
         let span = SpanBuilder::new("test_operation".to_string())
             .with_attribute("key", "value")
             .build();
-        
+
         recorder.record_span(span.clone());
-        
+
         assert_eq!(recorder.span_count(), 1);
         let recorded = recorder.get_latest_span().unwrap();
         assert_eq!(recorded.name, "test_operation");
@@ -408,15 +404,15 @@ mod tests {
     #[test]
     fn test_get_spans_by_name() {
         let recorder = SpanRecorder::new();
-        
+
         let span1 = SpanBuilder::new("query".to_string()).build();
         let span2 = SpanBuilder::new("sync".to_string()).build();
         let span3 = SpanBuilder::new("query".to_string()).build();
-        
+
         recorder.record_span(span1);
         recorder.record_span(span2);
         recorder.record_span(span3);
-        
+
         let query_spans = recorder.get_spans_by_name("query");
         assert_eq!(query_spans.len(), 2);
     }
@@ -424,12 +420,12 @@ mod tests {
     #[test]
     fn test_clear_spans() {
         let recorder = SpanRecorder::new();
-        
+
         let span = SpanBuilder::new("test".to_string()).build();
         recorder.record_span(span);
-        
+
         assert_eq!(recorder.span_count(), 1);
-        
+
         recorder.clear();
         assert_eq!(recorder.span_count(), 0);
     }
@@ -437,10 +433,10 @@ mod tests {
     #[test]
     fn test_disabled_recorder_no_op() {
         let recorder = SpanRecorder::disabled();
-        
+
         let span = SpanBuilder::new("test".to_string()).build();
         recorder.record_span(span);
-        
+
         // Should not record when disabled
         assert_eq!(recorder.span_count(), 0);
     }

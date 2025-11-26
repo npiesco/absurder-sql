@@ -12,12 +12,12 @@
 //! and concatenates them into a standard SQLite file. Import splits a .db file into blocks and
 //! writes them to IndexedDB with proper metadata tracking.
 
-use crate::types::DatabaseError;
 use crate::storage::block_storage::BlockStorage;
+use crate::types::DatabaseError;
 
 const BLOCK_SIZE: usize = 4096;
 /// Default maximum export size: 2GB
-/// 
+///
 /// Rationale:
 /// - IndexedDB limits: 10GB (Firefox) to ~60% of disk (Chrome/Safari)
 /// - WASM/Browser memory: ~2-4GB per tab
@@ -27,30 +27,30 @@ const BLOCK_SIZE: usize = 4096;
 const DEFAULT_MAX_EXPORT_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2GB
 
 /// Default chunk size for streaming export: 10MB
-/// 
+///
 /// For databases >100MB, export processes blocks in chunks of this size
 /// to reduce memory pressure and allow event loop yielding
 const DEFAULT_CHUNK_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
 /// Progress callback type for export operations
-/// 
+///
 /// Parameters: (bytes_exported, total_bytes)
 pub type ProgressCallback = Box<dyn Fn(u64, u64) + Send + Sync>;
 
 /// Options for database export operations
-/// 
+///
 /// Allows configuration of size limits, chunking behavior, and progress tracking
 #[derive(Default)]
 pub struct ExportOptions {
     /// Maximum allowed database size (bytes). None for no limit.
     /// Default: 2GB
     pub max_size_bytes: Option<u64>,
-    
+
     /// Chunk size for streaming large exports (bytes).
     /// Export processes this many bytes at a time, yielding to event loop between chunks.
     /// Default: 10MB
     pub chunk_size_bytes: Option<u64>,
-    
+
     /// Optional progress callback invoked after each chunk.
     /// Called with (bytes_exported_so_far, total_bytes)
     pub progress_callback: Option<ProgressCallback>,
@@ -128,7 +128,7 @@ pub fn parse_sqlite_header(data: &[u8]) -> Result<(usize, u32), DatabaseError> {
     };
 
     // Validate page size is a power of 2 between 512 and 65536
-    if page_size < 512 || page_size > 65536 || !page_size.is_power_of_two() {
+    if !(512..=65536).contains(&page_size) || !page_size.is_power_of_two() {
         return Err(DatabaseError::new(
             "INVALID_PAGE_SIZE",
             &format!(
@@ -187,11 +187,11 @@ pub fn validate_export_size(
     max_size_bytes: Option<u64>,
 ) -> Result<(), DatabaseError> {
     let limit = max_size_bytes.unwrap_or(DEFAULT_MAX_EXPORT_SIZE);
-    
+
     if size_bytes > limit {
         let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
         let limit_mb = limit as f64 / (1024.0 * 1024.0);
-        
+
         return Err(DatabaseError::new(
             "DATABASE_TOO_LARGE",
             &format!(
@@ -201,7 +201,7 @@ pub fn validate_export_size(
             ),
         ));
     }
-    
+
     Ok(())
 }
 
@@ -269,7 +269,7 @@ pub fn validate_sqlite_file(data: &[u8]) -> Result<(), DatabaseError> {
     };
 
     // Validate page size is power of 2 and within valid range
-    if page_size < MIN_PAGE_SIZE || page_size > MAX_PAGE_SIZE {
+    if !(MIN_PAGE_SIZE..=MAX_PAGE_SIZE).contains(&page_size) {
         return Err(DatabaseError::new(
             "INVALID_PAGE_SIZE",
             &format!(
@@ -282,10 +282,7 @@ pub fn validate_sqlite_file(data: &[u8]) -> Result<(), DatabaseError> {
     if !page_size.is_power_of_two() {
         return Err(DatabaseError::new(
             "INVALID_PAGE_SIZE",
-            &format!(
-                "Invalid page size: {}. Must be a power of 2",
-                page_size
-            ),
+            &format!("Invalid page size: {}. Must be a power of 2", page_size),
         ));
     }
 
@@ -390,19 +387,21 @@ async fn export_database_to_bytes_impl(
     // Read first block to get header
     log::debug!("Reading block 0 for header");
     let header_block = storage.read_block(0).await?;
-    log::debug!("Block 0 size: {} bytes, first 16 bytes: {:?}", 
-                header_block.len(), 
-                &header_block.get(0..16).unwrap_or(&[]));
+    log::debug!(
+        "Block 0 size: {} bytes, first 16 bytes: {:?}",
+        header_block.len(),
+        &header_block.get(0..16).unwrap_or(&[])
+    );
 
     // Parse header to determine database size
     let (page_size, page_count) = parse_sqlite_header(&header_block)?;
 
     // Calculate total database size
     let total_db_size = (page_size as u64) * (page_count as u64);
-    
+
     // Validate size doesn't exceed maximum
     validate_export_size(total_db_size, max_size_bytes)?;
-    
+
     // Warn if database is large (>100MB)
     const MB_100: u64 = 100 * 1024 * 1024;
     if total_db_size > MB_100 {
@@ -419,39 +418,62 @@ async fn export_database_to_bytes_impl(
         page_count,
         total_db_size
     );
-    let total_blocks = ((total_db_size + BLOCK_SIZE as u64 - 1) / BLOCK_SIZE as u64) as u64;
+    let total_blocks = total_db_size.div_ceil(BLOCK_SIZE as u64);
 
     // Build list of block IDs to read
     let block_ids: Vec<u64> = (0..total_blocks).collect();
 
     log::debug!("Reading {} blocks for export", block_ids.len());
-    
+
     // DEBUG: Check what blocks actually exist in storage
     #[cfg(target_arch = "wasm32")]
     {
         use crate::storage::vfs_sync::with_global_storage;
         with_global_storage(|storage_map| {
             if let Some(db_storage) = storage_map.borrow().get(storage.get_db_name()) {
-                web_sys::console::log_1(&format!("[EXPORT] GLOBAL_STORAGE has {} blocks", db_storage.len()).into());
-                web_sys::console::log_1(&format!("[EXPORT] Block IDs in GLOBAL_STORAGE: {:?}", db_storage.keys().collect::<Vec<_>>()).into());
+                web_sys::console::log_1(
+                    &format!("[EXPORT] GLOBAL_STORAGE has {} blocks", db_storage.len()).into(),
+                );
+                web_sys::console::log_1(
+                    &format!(
+                        "[EXPORT] Block IDs in GLOBAL_STORAGE: {:?}",
+                        db_storage.keys().collect::<Vec<_>>()
+                    )
+                    .into(),
+                );
             }
         });
-        web_sys::console::log_1(&format!("[EXPORT] Requesting {} blocks: {:?}", block_ids.len(), block_ids).into());
+        web_sys::console::log_1(
+            &format!(
+                "[EXPORT] Requesting {} blocks: {:?}",
+                block_ids.len(),
+                block_ids
+            )
+            .into(),
+        );
     }
 
     // Read all blocks at once
     let blocks = storage.read_blocks(&block_ids).await?;
-    
+
     #[cfg(target_arch = "wasm32")]
     web_sys::console::log_1(&format!("[EXPORT] Actually read {} blocks", blocks.len()).into());
 
     // Concatenate all blocks
     let mut result = Vec::with_capacity(total_db_size as usize);
     for (i, block) in blocks.iter().enumerate() {
-        result.extend_from_slice(&block);
+        result.extend_from_slice(block);
         #[cfg(target_arch = "wasm32")]
         if i < 5 {
-            web_sys::console::log_1(&format!("[EXPORT] Block {} has {} bytes, first 16: {:02x?}", i, block.len(), &block[..16.min(block.len())]).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[EXPORT] Block {} has {} bytes, first 16: {:02x?}",
+                    i,
+                    block.len(),
+                    &block[..16.min(block.len())]
+                )
+                .into(),
+            );
         }
         #[cfg(not(target_arch = "wasm32"))]
         let _ = i; // Suppress unused warning on native
@@ -461,15 +483,26 @@ async fn export_database_to_bytes_impl(
     result.truncate(total_db_size as usize);
 
     log::info!("Export complete: {} bytes", result.len());
-    
+
     #[cfg(target_arch = "wasm32")]
     {
         web_sys::console::log_1(&format!("[EXPORT] Final result: {} bytes", result.len()).into());
         if result.len() >= 100 {
-            web_sys::console::log_1(&format!("[EXPORT] Header bytes 28-39: {:02x?}", &result[28..40]).into());
-            web_sys::console::log_1(&format!("[EXPORT] Header bytes 40-60: {:02x?}", &result[40..60]).into());
-            let largest_root_page = u32::from_be_bytes([result[52], result[53], result[54], result[55]]);
-            web_sys::console::log_1(&format!("[EXPORT] Largest root b-tree page (bytes 52-55): {}", largest_root_page).into());
+            web_sys::console::log_1(
+                &format!("[EXPORT] Header bytes 28-39: {:02x?}", &result[28..40]).into(),
+            );
+            web_sys::console::log_1(
+                &format!("[EXPORT] Header bytes 40-60: {:02x?}", &result[40..60]).into(),
+            );
+            let largest_root_page =
+                u32::from_be_bytes([result[52], result[53], result[54], result[55]]);
+            web_sys::console::log_1(
+                &format!(
+                    "[EXPORT] Largest root b-tree page (bytes 52-55): {}",
+                    largest_root_page
+                )
+                .into(),
+            );
         }
     }
 
@@ -498,7 +531,7 @@ async fn export_database_to_bytes_impl(
 ///         max_size_bytes: Some(1024 * 1024 * 1024), // 1GB limit
 ///         chunk_size_bytes: Some(10 * 1024 * 1024), // 10MB chunks
 ///         progress_callback: Some(Box::new(|exported, total| {
-///             println!("Progress: {}/{} bytes ({:.1}%)", 
+///             println!("Progress: {}/{} bytes ({:.1}%)",
 ///                 exported, total, (exported as f64 / total as f64) * 100.0);
 ///         })),
 ///     };
@@ -545,10 +578,10 @@ async fn export_database_with_options_impl(
     // Parse header to determine database size
     let (page_size, page_count) = parse_sqlite_header(&header_block)?;
     let total_db_size = (page_size as u64) * (page_count as u64);
-    
+
     // Validate size doesn't exceed maximum
     validate_export_size(total_db_size, options.max_size_bytes)?;
-    
+
     // Warn if database is large (>100MB)
     const MB_100: u64 = 100 * 1024 * 1024;
     if total_db_size > MB_100 {
@@ -566,7 +599,7 @@ async fn export_database_with_options_impl(
         total_db_size
     );
 
-    let total_blocks = ((total_db_size + BLOCK_SIZE as u64 - 1) / BLOCK_SIZE as u64) as u64;
+    let total_blocks = total_db_size.div_ceil(BLOCK_SIZE as u64);
     let chunk_size = options.chunk_size_bytes.unwrap_or(DEFAULT_CHUNK_SIZE);
     let blocks_per_chunk = (chunk_size / BLOCK_SIZE as u64).max(1);
 
@@ -578,7 +611,12 @@ async fn export_database_with_options_impl(
         let chunk_end = (chunk_start + blocks_per_chunk).min(total_blocks);
         let block_ids: Vec<u64> = (chunk_start..chunk_end).collect();
 
-        log::debug!("Reading blocks {}-{} ({} blocks)", chunk_start, chunk_end - 1, block_ids.len());
+        log::debug!(
+            "Reading blocks {}-{} ({} blocks)",
+            chunk_start,
+            chunk_end - 1,
+            block_ids.len()
+        );
 
         // Read chunk of blocks
         let blocks = storage.read_blocks(&block_ids).await?;
@@ -599,9 +637,11 @@ async fn export_database_with_options_impl(
         #[cfg(target_arch = "wasm32")]
         {
             // In WASM, yield to browser event loop
-            wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL))
-                .await
-                .ok();
+            wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
+                &wasm_bindgen::JsValue::NULL,
+            ))
+            .await
+            .ok();
         }
         #[cfg(not(target_arch = "wasm32"))]
         {

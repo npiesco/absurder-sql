@@ -7,8 +7,8 @@
 
 #[cfg(target_arch = "wasm32")]
 mod concurrent_operations_tests {
-    use wasm_bindgen_test::*;
     use absurder_sql::{Database, DatabaseConfig};
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -58,9 +58,21 @@ mod concurrent_operations_tests {
         let (r1, r2, r3) = futures::join!(insert1, insert2, insert3);
 
         // ASSERTIONS: All must pass
-        assert!(r1.is_ok(), "db1 insert MUST succeed but failed: {:?}", r1.err());
-        assert!(r2.is_ok(), "db2 insert MUST succeed but failed: {:?}", r2.err());
-        assert!(r3.is_ok(), "db3 insert MUST succeed but failed: {:?}", r3.err());
+        assert!(
+            r1.is_ok(),
+            "db1 insert MUST succeed but failed: {:?}",
+            r1.err()
+        );
+        assert!(
+            r2.is_ok(),
+            "db2 insert MUST succeed but failed: {:?}",
+            r2.err()
+        );
+        assert!(
+            r3.is_ok(),
+            "db3 insert MUST succeed but failed: {:?}",
+            r3.err()
+        );
 
         // Verify data was actually inserted
         // For now just check operations succeeded - we can enhance verification later
@@ -109,9 +121,21 @@ mod concurrent_operations_tests {
 
         let (r1, r2, r3) = futures::join!(read1, read2, read3);
 
-        assert!(r1.is_ok(), "db1 read MUST succeed but failed: {:?}", r1.err());
-        assert!(r2.is_ok(), "db2 read MUST succeed but failed: {:?}", r2.err());
-        assert!(r3.is_ok(), "db3 read MUST succeed but failed: {:?}", r3.err());
+        assert!(
+            r1.is_ok(),
+            "db1 read MUST succeed but failed: {:?}",
+            r1.err()
+        );
+        assert!(
+            r2.is_ok(),
+            "db2 read MUST succeed but failed: {:?}",
+            r2.err()
+        );
+        assert!(
+            r3.is_ok(),
+            "db3 read MUST succeed but failed: {:?}",
+            r3.err()
+        );
 
         web_sys::console::log_1(&format!("All concurrent reads succeeded!").into());
     }

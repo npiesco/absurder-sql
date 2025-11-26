@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
+use once_cell::sync::Lazy;
 use std::ffi::OsStr;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 // Serialize process-global environment mutations to avoid UB in concurrent runtimes.
 pub static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
@@ -27,11 +27,17 @@ pub static CAPTURED_LOGS: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec
 #[allow(dead_code)]
 struct TestLogger;
 impl Log for TestLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool { true }
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
+    }
     fn log(&self, record: &Record) {
-        if !self.enabled(record.metadata()) { return; }
+        if !self.enabled(record.metadata()) {
+            return;
+        }
         let msg = format!("[{}] {}", record.level(), record.args());
-        if let Ok(mut buf) = CAPTURED_LOGS.lock() { buf.push(msg); }
+        if let Ok(mut buf) = CAPTURED_LOGS.lock() {
+            buf.push(msg);
+        }
     }
     fn flush(&self) {}
 }
@@ -49,7 +55,9 @@ pub fn init_test_logger() {
 /// Clear captured logs.
 #[allow(dead_code)]
 pub fn clear_logs() {
-    if let Ok(mut buf) = CAPTURED_LOGS.lock() { buf.clear(); }
+    if let Ok(mut buf) = CAPTURED_LOGS.lock() {
+        buf.clear();
+    }
 }
 
 /// Drain and return captured logs as a single String (newline-joined).

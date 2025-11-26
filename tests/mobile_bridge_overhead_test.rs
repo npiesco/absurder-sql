@@ -77,17 +77,17 @@ mod mobile_bridge_overhead_tests {
 
         // Execute batch within transaction
         db.execute("BEGIN TRANSACTION").await.unwrap();
-        
+
         let start = Instant::now();
         db.execute_batch(&statements).await.unwrap();
         let batch_duration = start.elapsed();
-        
+
         db.execute("COMMIT").await.unwrap();
 
         // Verify all rows inserted
         let result = db.execute("SELECT COUNT(*) FROM test").await.unwrap();
         assert_eq!(result.rows.len(), 1);
-        
+
         use absurder_sql::types::ColumnValue;
         match &result.rows[0].values[0] {
             ColumnValue::Integer(count) => assert_eq!(*count, 5000),
@@ -130,10 +130,10 @@ mod mobile_bridge_overhead_tests {
 
         db.execute("BEGIN TRANSACTION").await.unwrap();
         let result = db.execute_batch(&statements).await;
-        
+
         // Should fail because of the invalid statement
         assert!(result.is_err(), "execute_batch should fail on invalid SQL");
-        
+
         // Transaction should be rolled back
         db.execute("ROLLBACK").await.unwrap();
     }
@@ -143,7 +143,7 @@ mod mobile_bridge_overhead_tests {
     async fn test_prove_single_transaction_is_fast_without_bridge() {
         // Prove that Rust-level performance is good
         // The problem is purely the React Native bridge overhead
-        
+
         let config = DatabaseConfig {
             name: "test_rust_perf.db".to_string(),
             ..Default::default()

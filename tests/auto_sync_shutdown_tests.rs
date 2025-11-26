@@ -1,9 +1,9 @@
 // Auto-sync shutdown behavior and idempotency tests
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE, SyncPolicy};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage, SyncPolicy};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -28,7 +28,11 @@ async fn test_drain_and_shutdown_stops_timer_and_prevents_future_flushes() {
     assert_eq!(storage.get_dirty_count(), 1);
 
     storage.drain_and_shutdown();
-    assert_eq!(storage.get_dirty_count(), 0, "drain should flush immediately");
+    assert_eq!(
+        storage.get_dirty_count(),
+        0,
+        "drain should flush immediately"
+    );
 
     // Record counters post-drain
     let timer_syncs_after_drain = storage.get_timer_sync_count();
@@ -39,15 +43,31 @@ async fn test_drain_and_shutdown_stops_timer_and_prevents_future_flushes() {
         .write_block(2, vec![2u8; BLOCK_SIZE])
         .await
         .expect("write block 2 post-shutdown");
-    assert_eq!(storage.get_dirty_count(), 1, "second write should be dirty initially");
+    assert_eq!(
+        storage.get_dirty_count(),
+        1,
+        "second write should be dirty initially"
+    );
 
     // Wait longer than the timer interval
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
 
     // Dirty block should remain since the timer worker was stopped
-    assert_eq!(storage.get_dirty_count(), 1, "no timer-based flush should occur after shutdown");
-    assert_eq!(storage.get_timer_sync_count(), timer_syncs_after_drain, "timer sync counter should not change after shutdown");
-    assert_eq!(storage.get_sync_count(), syncs_after_drain, "overall sync counter should not change after shutdown");
+    assert_eq!(
+        storage.get_dirty_count(),
+        1,
+        "no timer-based flush should occur after shutdown"
+    );
+    assert_eq!(
+        storage.get_timer_sync_count(),
+        timer_syncs_after_drain,
+        "timer sync counter should not change after shutdown"
+    );
+    assert_eq!(
+        storage.get_sync_count(),
+        syncs_after_drain,
+        "overall sync counter should not change after shutdown"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -93,5 +113,9 @@ async fn test_drain_and_shutdown_is_idempotent_and_stops_debounce_worker() {
 
     // Wait beyond debounce window; still should not flush automatically
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    assert_eq!(storage.get_dirty_count(), 1, "no debounce-based flush should occur after shutdown");
+    assert_eq!(
+        storage.get_dirty_count(),
+        1,
+        "no debounce-based flush should occur after shutdown"
+    );
 }

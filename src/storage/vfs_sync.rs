@@ -1,12 +1,12 @@
 //! VFS Sync module extracted from block_storage.rs
 //! This module contains the ACTUAL VFS sync and global storage management logic
 
-use std::collections::{HashMap, HashSet};
-use std::cell::RefCell;
-#[allow(unused_imports)]
-use crate::types::DatabaseError;
 #[allow(unused_imports)]
 use super::metadata::BlockMetadataPersist;
+#[allow(unused_imports)]
+use crate::types::DatabaseError;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 // Global storage for WASM to maintain data across instances
 #[cfg(target_arch = "wasm32")]
@@ -36,7 +36,7 @@ thread_local! {
 #[cfg(target_arch = "wasm32")]
 pub fn with_global_storage<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, Vec<u8>>>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, Vec<u8>>>>) -> R,
 {
     GLOBAL_STORAGE.with(f)
 }
@@ -44,7 +44,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn with_global_storage<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, Vec<u8>>>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, Vec<u8>>>>) -> R,
 {
     GLOBAL_STORAGE_TEST.with(f)
 }
@@ -53,7 +53,7 @@ where
 #[cfg(target_arch = "wasm32")]
 pub fn with_global_metadata<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, HashMap<u64, BlockMetadataPersist>>>) -> R,
 {
     GLOBAL_METADATA.with(f)
 }
@@ -61,7 +61,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn with_global_metadata<F, R>(f: F) -> R
 where
-    F: FnOnce(&parking_lot::Mutex<HashMap<String, HashMap<u64, BlockMetadataPersist>>>) -> R
+    F: FnOnce(&parking_lot::Mutex<HashMap<String, HashMap<u64, BlockMetadataPersist>>>) -> R,
 {
     // For native tests, use the shared GLOBAL_METADATA_TEST from block_storage
     use super::block_storage::GLOBAL_METADATA_TEST;
@@ -72,7 +72,7 @@ where
 #[cfg(target_arch = "wasm32")]
 pub fn with_global_commit_marker<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, u64>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, u64>>) -> R,
 {
     GLOBAL_COMMIT_MARKER.with(f)
 }
@@ -80,7 +80,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn with_global_commit_marker<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, u64>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, u64>>) -> R,
 {
     // For native tests, we need a test-only commit marker storage
     thread_local! {
@@ -93,7 +93,7 @@ where
 #[cfg(target_arch = "wasm32")]
 pub fn with_global_allocation_map<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, HashSet<u64>>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, HashSet<u64>>>) -> R,
 {
     GLOBAL_ALLOCATION_MAP.with(f)
 }
@@ -101,7 +101,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn with_global_allocation_map<F, R>(f: F) -> R
 where
-    F: FnOnce(&RefCell<HashMap<String, HashSet<u64>>>) -> R
+    F: FnOnce(&RefCell<HashMap<String, HashSet<u64>>>) -> R,
 {
     GLOBAL_ALLOCATION_MAP_TEST.with(f)
 }

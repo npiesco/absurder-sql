@@ -8,16 +8,16 @@
 
 #[cfg(feature = "fs_persist")]
 use absurder_sql::storage::block_storage::{
-    BlockStorage, BLOCK_SIZE, RecoveryOptions, RecoveryMode, CorruptionAction,
+    BLOCK_SIZE, BlockStorage, CorruptionAction, RecoveryMode, RecoveryOptions,
 };
 #[cfg(feature = "fs_persist")]
 use serial_test::serial;
 #[cfg(feature = "fs_persist")]
-use tempfile::TempDir;
-#[cfg(feature = "fs_persist")]
 use std::fs;
 #[cfg(feature = "fs_persist")]
 use std::path::PathBuf;
+#[cfg(feature = "fs_persist")]
+use tempfile::TempDir;
 
 #[cfg(feature = "fs_persist")]
 #[path = "common/mod.rs"]
@@ -55,9 +55,15 @@ async fn test_crash_rollback_pending_partial_multiblock_mixed_presence() {
     let b2 = s.allocate_block().await.expect("alloc b2");
     let b3 = s.allocate_block().await.expect("alloc b3");
     assert_eq!((b2, b3), (2, 3));
-    s.write_block(b1, vec![0x21u8; BLOCK_SIZE]).await.expect("write b1 v2");
-    s.write_block(b2, vec![0x22u8; BLOCK_SIZE]).await.expect("write b2 v2");
-    s.write_block(b3, vec![0x23u8; BLOCK_SIZE]).await.expect("write b3 v2");
+    s.write_block(b1, vec![0x21u8; BLOCK_SIZE])
+        .await
+        .expect("write b1 v2");
+    s.write_block(b2, vec![0x22u8; BLOCK_SIZE])
+        .await
+        .expect("write b2 v2");
+    s.write_block(b3, vec![0x23u8; BLOCK_SIZE])
+        .await
+        .expect("write b3 v2");
     s.sync().await.expect("sync v2");
 
     // Capture v2 metadata as pending, but create mixed presence:
@@ -66,8 +72,14 @@ async fn test_crash_rollback_pending_partial_multiblock_mixed_presence() {
     let _meta_v2 = fs::read_to_string(&meta_path).expect("read meta v2");
     let b2_path = blocks_dir.join(format!("block_{}.bin", b2));
     let b3_path = blocks_dir.join(format!("block_{}.bin", b3));
-    assert!(b2_path.exists(), "b2 file should exist prior to crash simulation");
-    assert!(b3_path.exists(), "b3 file should exist prior to crash simulation");
+    assert!(
+        b2_path.exists(),
+        "b2 file should exist prior to crash simulation"
+    );
+    assert!(
+        b3_path.exists(),
+        "b3 file should exist prior to crash simulation"
+    );
 
     // Move current metadata to pending and restore v1 to metadata.json
     fs::rename(&meta_path, &meta_pending_path).expect("rename meta -> pending");
@@ -80,7 +92,10 @@ async fn test_crash_rollback_pending_partial_multiblock_mixed_presence() {
     drop(s); // crash/restart boundary
 
     // Restart with startup recovery: expect rollback to v1 and cleanup of stray b2
-    let opts = RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report };
+    let opts = RecoveryOptions {
+        mode: RecoveryMode::Full,
+        on_corruption: CorruptionAction::Report,
+    };
     let _s2 = BlockStorage::new_with_recovery_options(db, opts)
         .await
         .expect("reopen with recovery");
@@ -93,7 +108,10 @@ async fn test_crash_rollback_pending_partial_multiblock_mixed_presence() {
 
     // Metadata should remain at v1
     let meta_now = fs::read_to_string(&meta_path).expect("read meta after recovery");
-    assert_eq!(meta_now, meta_v1, "metadata should remain at v1 after rollback");
+    assert_eq!(
+        meta_now, meta_v1,
+        "metadata should remain at v1 after rollback"
+    );
 
     // Stray file for newly introduced b2 (not in v1) should be removed by reconciliation
     assert!(
@@ -102,8 +120,5 @@ async fn test_crash_rollback_pending_partial_multiblock_mixed_presence() {
     );
 
     // Missing b3 should remain absent
-    assert!(
-        !b3_path.exists(),
-        "b3 should remain absent after rollback"
-    );
+    assert!(!b3_path.exists(), "b3 should remain absent after rollback");
 }

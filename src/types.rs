@@ -15,10 +15,10 @@ pub struct DatabaseConfig {
     ///
     /// Options:
     /// - "MEMORY" (default): Fast in-memory journaling, optimal browser performance
-    /// - "WAL": Write-Ahead Logging with full shared memory support
-    ///          Set `journal_mode: Some("WAL".to_string())` to enable
-    ///          Note: WAL has overhead in concurrent operations but provides
-    ///          better crash recovery and allows concurrent reads
+    /// - "WAL": Write-Ahead Logging with full shared memory support.
+    ///   Set `journal_mode: Some("WAL".to_string())` to enable.
+    ///   Note: WAL has overhead in concurrent operations but provides
+    ///   better crash recovery and allows concurrent reads.
     /// - "DELETE": Traditional rollback journal
     ///
     /// Example enabling WAL:
@@ -56,19 +56,19 @@ impl Default for DatabaseConfig {
 
 impl DatabaseConfig {
     /// Create mobile-optimized database configuration
-    /// 
+    ///
     /// Optimizations:
     /// - WAL mode: Better concurrency, crash recovery, and write performance
     /// - Larger cache: 20K pages (~80MB with 4KB pages) for better read performance
     /// - 4KB pages: Optimal for mobile storage
     /// - Auto vacuum: Keeps database size manageable
-    /// 
+    ///
     /// Use this for React Native, Flutter, or other mobile applications.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// use absurder_sql::types::DatabaseConfig;
-    /// 
+    ///
     /// let config = DatabaseConfig::mobile_optimized("myapp.db");
     /// assert_eq!(config.journal_mode, Some("WAL".to_string()));
     /// ```
@@ -111,7 +111,7 @@ pub enum ColumnValue {
     Real(f64),
     Text(String),
     Blob(Vec<u8>),
-    Date(i64), // Store as UTC timestamp (milliseconds since epoch)
+    Date(i64),      // Store as UTC timestamp (milliseconds since epoch)
     BigInt(String), // Store as string to handle large integers beyond i64
 }
 
@@ -125,16 +125,22 @@ impl ColumnValue {
             rusqlite::types::Value::Text(s) => {
                 // Check if the text might be a date in ISO format
                 if s.len() >= 20 && s.starts_with("20") && s.contains('T') && s.contains('Z') {
-                    if let Ok(dt) = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339) {
+                    if let Ok(dt) = time::OffsetDateTime::parse(
+                        s,
+                        &time::format_description::well_known::Rfc3339,
+                    ) {
                         return ColumnValue::Date((dt.unix_timestamp_nanos() / 1_000_000) as i64);
                     }
                 }
                 // Check if it might be a BigInt (large number as string)
-                if s.len() > 18 && s.chars().all(|c| c.is_digit(10) || c == '-' || c == '+') {
+                if s.len() > 18
+                    && s.chars()
+                        .all(|c| c.is_ascii_digit() || c == '-' || c == '+')
+                {
                     return ColumnValue::BigInt(s.clone());
                 }
                 ColumnValue::Text(s.clone())
-            },
+            }
             rusqlite::types::Value::Blob(b) => ColumnValue::Blob(b.clone()),
         }
     }
@@ -150,11 +156,12 @@ impl ColumnValue {
             ColumnValue::Date(ts) => {
                 // Convert timestamp to ISO string
                 let dt = time::OffsetDateTime::from_unix_timestamp_nanos((*ts as i128) * 1_000_000)
-                    .unwrap_or_else(|_| time::OffsetDateTime::UNIX_EPOCH);
-                let formatted = dt.format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+                let formatted = dt
+                    .format(&time::format_description::well_known::Rfc3339)
                     .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
                 rusqlite::types::Value::Text(formatted)
-            },
+            }
             ColumnValue::BigInt(s) => rusqlite::types::Value::Text(s.clone()),
         }
     }
@@ -211,7 +218,9 @@ impl From<rusqlite::Error> for DatabaseError {
 
 impl From<JsValue> for DatabaseError {
     fn from(err: JsValue) -> Self {
-        let message = err.as_string().unwrap_or_else(|| "Unknown JavaScript error".to_string());
+        let message = err
+            .as_string()
+            .unwrap_or_else(|| "Unknown JavaScript error".to_string());
         DatabaseError::new("JS_ERROR", &message)
     }
 }

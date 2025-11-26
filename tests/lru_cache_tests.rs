@@ -1,9 +1,9 @@
 // LRU cache behavior tests for BlockStorage
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -35,8 +35,14 @@ async fn test_lru_eviction_of_clean_blocks() {
     storage.sync().await.expect("sync to clear dirty");
 
     assert!(storage.is_cached(1), "block 1 should remain cached as MRU");
-    assert!(storage.is_cached(3), "block 3 should be cached after insert");
-    assert!(!storage.is_cached(2), "block 2 should be evicted as LRU clean block");
+    assert!(
+        storage.is_cached(3),
+        "block 3 should be cached after insert"
+    );
+    assert!(
+        !storage.is_cached(2),
+        "block 2 should be evicted as LRU clean block"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -66,5 +72,8 @@ async fn test_lru_does_not_evict_dirty_blocks() {
     assert!(storage.is_cached(12), "new block 12 should be cached");
 
     // Optionally, ensure at least 3 items present now
-    assert!(storage.get_cache_size() >= 3, "cache should hold all three blocks since two are dirty");
+    assert!(
+        storage.get_cache_size() >= 3,
+        "cache should hold all three blocks since two are dirty"
+    );
 }

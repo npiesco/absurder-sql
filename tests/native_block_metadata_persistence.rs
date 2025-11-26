@@ -1,9 +1,9 @@
 // Native tests for metadata persistence across instances and mismatch detection after restart
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -22,22 +22,28 @@ async fn test_native_metadata_persists_across_instances() {
 
     let block_id = 7u64;
     let data = vec![0xABu8; BLOCK_SIZE];
-    s1.write_block(block_id, data.clone()).await.expect("write block");
+    s1.write_block(block_id, data.clone())
+        .await
+        .expect("write block");
     s1.sync().await.expect("sync s1");
 
     // Drop first instance
     drop(s1);
 
     // Instance 2: metadata should be restored from native test globals
-    let s2 = BlockStorage::new(db_name)
-        .await
-        .expect("create storage s2");
+    let s2 = BlockStorage::new(db_name).await.expect("create storage s2");
 
     let restored = s2.get_block_checksum(block_id);
-    assert!(restored.is_some(), "checksum should be restored after restart");
+    assert!(
+        restored.is_some(),
+        "checksum should be restored after restart"
+    );
 
     // Read should succeed and verify against restored checksum
-    let out = s2.read_block(block_id).await.expect("read after restart ok");
+    let out = s2
+        .read_block(block_id)
+        .await
+        .expect("read after restart ok");
     assert_eq!(out, data, "data should match across instances");
 }
 
@@ -63,9 +69,7 @@ async fn test_native_checksum_mismatch_after_restart() {
     drop(s1);
 
     // Instance 2: restore, then corrupt stored checksum via test-only hook
-    let mut s2 = BlockStorage::new(db_name)
-        .await
-        .expect("create storage s2");
+    let mut s2 = BlockStorage::new(db_name).await.expect("create storage s2");
 
     // Sanity: checksum restored
     assert!(s2.get_block_checksum(block_id).is_some());

@@ -3,7 +3,6 @@
 /// In WASM, we're single-threaded but SQLite's VFS callbacks can trigger
 /// nested storage access. This module provides utilities to handle such
 /// reentrancy gracefully by queueing operations.
-
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::future::Future;
@@ -45,7 +44,10 @@ where
         }
         Err(_) => {
             // Reentrancy detected - this operation must be retried
-            log::warn!("REENTRANCY: {} - Detected reentrancy, operation will be retried", operation_name);
+            log::warn!(
+                "REENTRANCY: {} - Detected reentrancy, operation will be retried",
+                operation_name
+            );
 
             // For now, we'll return an error that causes a retry at a higher level
             // In a more sophisticated implementation, we could queue the operation
@@ -114,14 +116,23 @@ where
             Ok(result) => return Ok(result),
             Err(e) if e.contains("REENTRANCY") && retry_count < max_retries => {
                 retry_count += 1;
-                log::info!("REENTRANCY: {} - Retry {}/{} after {}ms",
-                    operation_name, retry_count, max_retries, delay_ms);
+                log::info!(
+                    "REENTRANCY: {} - Retry {}/{} after {}ms",
+                    operation_name,
+                    retry_count,
+                    max_retries,
+                    delay_ms
+                );
 
                 // Exponential backoff with small delays
                 let promise = js_sys::Promise::new(&mut |resolve, _| {
-                    web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(
-                        &resolve, delay_ms as i32
-                    ).unwrap();
+                    web_sys::window()
+                        .unwrap()
+                        .set_timeout_with_callback_and_timeout_and_arguments_0(
+                            &resolve,
+                            delay_ms as i32,
+                        )
+                        .unwrap();
                 });
                 wasm_bindgen_futures::JsFuture::from(promise).await.ok();
 

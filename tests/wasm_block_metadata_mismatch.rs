@@ -2,8 +2,8 @@
 
 #![cfg(target_arch = "wasm32")]
 
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use wasm_bindgen_test::*;
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
 
 // wasm_bindgen_test_configure!(run_in_browser);
 
@@ -29,7 +29,10 @@ async fn test_wasm_checksum_mismatch_after_restart() {
 
     // Sanity: checksum restored
     let restored = s2.get_block_checksum(block_id);
-    assert!(restored.is_some(), "checksum should be restored after restart");
+    assert!(
+        restored.is_some(),
+        "checksum should be restored after restart"
+    );
 
     // Corrupt the checksum to simulate metadata corruption
     s2.set_block_checksum_for_testing(block_id, 123456789);

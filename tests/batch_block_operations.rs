@@ -1,9 +1,9 @@
 // Batch block operations tests for BlockStorage
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -30,10 +30,7 @@ async fn test_batch_write_and_read_basic() {
     storage.sync().await.expect("sync to clear dirty");
 
     // Batch read
-    let out = storage
-        .read_blocks(&[1, 2, 3])
-        .await
-        .expect("batch read");
+    let out = storage.read_blocks(&[1, 2, 3]).await.expect("batch read");
 
     assert_eq!(out.len(), 3);
     assert_eq!(out[0], d1);
@@ -86,5 +83,8 @@ async fn test_batch_respects_lru_and_dirty() {
     // Expect LRU clean (block 2) to be evicted; 1 was MRU before 3 was written
     assert!(storage.is_cached(1), "block 1 should remain cached");
     assert!(storage.is_cached(3), "block 3 should remain cached");
-    assert!(!storage.is_cached(2), "block 2 should be evicted as LRU clean after sync");
+    assert!(
+        !storage.is_cached(2),
+        "block 2 should be evicted as LRU clean after sync"
+    );
 }

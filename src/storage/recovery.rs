@@ -1,15 +1,18 @@
 //! Recovery operations for BlockStorage
 //! This module contains startup recovery and integrity verification functionality
 
+use super::block_storage::{
+    BlockStorage, CorruptionAction, RecoveryMode, RecoveryOptions, RecoveryReport,
+};
 use crate::types::DatabaseError;
-use super::block_storage::{BlockStorage, RecoveryOptions, RecoveryMode, CorruptionAction, RecoveryReport};
 
 // Lock macro for accessing BlockStorage Mutex-wrapped fields
 #[allow(unused_macros)]
 #[cfg(target_arch = "wasm32")]
 macro_rules! lock_mutex {
     ($mutex:expr) => {
-        $mutex.try_borrow_mut()
+        $mutex
+            .try_borrow_mut()
             .expect("RefCell borrow failed - reentrancy detected in recovery.rs")
     };
 }
@@ -23,17 +26,20 @@ macro_rules! lock_mutex {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
+use crate::storage::{BLOCK_SIZE, ChecksumAlgorithm};
+#[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 use std::collections::HashMap;
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 use std::io::Read;
-#[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
-use crate::storage::{BLOCK_SIZE, ChecksumAlgorithm};
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 use std::{fs, io::Write};
 
 /// Perform startup recovery verification on a BlockStorage instance
-pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: RecoveryOptions) -> Result<(), DatabaseError> {
+pub async fn perform_startup_recovery(
+    storage: &mut BlockStorage,
+    opts: RecoveryOptions,
+) -> Result<(), DatabaseError> {
     let start_time = BlockStorage::now_millis();
     log::info!("Starting startup recovery with mode: {:?}", opts.mode);
 
@@ -62,14 +68,16 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
                     for entry in entries {
                         if let Some(arr) = entry.as_array() {
                             if arr.len() == 2 {
-                                if let Some(block_id) = arr.get(0).and_then(|v| v.as_u64()) {
+                                if let Some(block_id) = arr.first().and_then(|v| v.as_u64()) {
                                     let bpath = blocks_dir.join(format!("block_{}.bin", block_id));
                                     match std::fs::metadata(&bpath) {
                                         Ok(meta) => {
-                                            if !meta.is_file() || meta.len() as usize != BLOCK_SIZE {
+                                            if !meta.is_file() || meta.len() as usize != BLOCK_SIZE
+                                            {
                                                 log::warn!(
                                                     "Pending commit references block {} but file invalid: {:?}",
-                                                    block_id, bpath
+                                                    block_id,
+                                                    bpath
                                                 );
                                                 finalize = false;
                                                 break;
@@ -78,7 +86,8 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
                                         Err(_) => {
                                             log::warn!(
                                                 "Pending commit references missing block file for id {}: {:?}",
-                                                block_id, bpath
+                                                block_id,
+                                                bpath
                                             );
                                             finalize = false;
                                             break;
@@ -105,32 +114,41 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
 
                 // Update in-memory checksum and algo maps from finalized metadata
                 if let Some(val) = parsed_val {
-                    let mut checksums_new: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
-                    let mut algos_new: std::collections::HashMap<u64, ChecksumAlgorithm> = std::collections::HashMap::new();
+                    let mut checksums_new: std::collections::HashMap<u64, u64> =
+                        std::collections::HashMap::new();
+                    let mut algos_new: std::collections::HashMap<u64, ChecksumAlgorithm> =
+                        std::collections::HashMap::new();
                     if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
                         for entry in entries.iter() {
                             if let Some(arr) = entry.as_array() {
                                 if arr.len() == 2 {
                                     if let (Some(bid), Some(meta)) = (
-                                        arr.get(0).and_then(|v| v.as_u64()),
+                                        arr.first().and_then(|v| v.as_u64()),
                                         arr.get(1).and_then(|v| v.as_object()),
                                     ) {
-                                        if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) {
+                                        if let Some(csum) =
+                                            meta.get("checksum").and_then(|v| v.as_u64())
+                                        {
                                             checksums_new.insert(bid, csum);
                                         }
-                                        let algo_str = meta.get("algo").and_then(|v| v.as_str()).unwrap_or("");
+                                        let algo_str =
+                                            meta.get("algo").and_then(|v| v.as_str()).unwrap_or("");
                                         let algo = match algo_str {
                                             "CRC32" => Some(ChecksumAlgorithm::CRC32),
                                             "FastHash" => Some(ChecksumAlgorithm::FastHash),
                                             _ => None,
                                         };
-                                        if let Some(a) = algo { algos_new.insert(bid, a); }
+                                        if let Some(a) = algo {
+                                            algos_new.insert(bid, a);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                    storage.checksum_manager.replace_all(checksums_new, algos_new);
+                    storage
+                        .checksum_manager
+                        .replace_all(checksums_new, algos_new);
                 }
             } else {
                 // Rollback: just remove the pending file, retain existing metadata.json
@@ -162,7 +180,7 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
                         entries_val = entries;
                         for entry in entries_val.iter() {
                             if let Some(arr) = entry.as_array() {
-                                if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                                if let Some(id) = arr.first().and_then(|v| v.as_u64()) {
                                     meta_ids.insert(id);
                                 }
                             }
@@ -179,8 +197,13 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
                 if let Ok(ft) = entry.file_type() {
                     if ft.is_file() {
                         if let Some(name) = entry.file_name().to_str() {
-                            if let Some(id_str) = name.strip_prefix("block_").and_then(|s| s.strip_suffix(".bin")) {
-                                if let Ok(id) = id_str.parse::<u64>() { file_ids.insert(id); }
+                            if let Some(id_str) = name
+                                .strip_prefix("block_")
+                                .and_then(|s| s.strip_suffix(".bin"))
+                            {
+                                if let Ok(id) = id_str.parse::<u64>() {
+                                    file_ids.insert(id);
+                                }
                             }
                         }
                     }
@@ -191,7 +214,11 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
         // Remove stray files without metadata
         let stray: Vec<u64> = file_ids.difference(&meta_ids).copied().collect();
         if !stray.is_empty() {
-            log::warn!("[fs] Found {} stray block files with no metadata: {:?}", stray.len(), stray);
+            log::warn!(
+                "[fs] Found {} stray block files with no metadata: {:?}",
+                stray.len(),
+                stray
+            );
             for id in &stray {
                 let p = blocks_dir.join(format!("block_{}.bin", id));
                 match fs::remove_file(&p) {
@@ -213,7 +240,7 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
         if before_len > 0 {
             entries_val.retain(|entry| {
                 if let Some(arr) = entry.as_array() {
-                    if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                    if let Some(id) = arr.first().and_then(|v| v.as_u64()) {
                         let p = blocks_dir.join(format!("block_{}.bin", id));
                         match fs::metadata(&p) {
                             Ok(meta) => {
@@ -256,7 +283,10 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
             if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&blocks_dir) {
                 let _ = dirf.sync_all();
             }
-            log::info!("[fs] Deleted {} invalid-sized block file(s) during reconciliation", deleted_invalid_files);
+            log::info!(
+                "[fs] Deleted {} invalid-sized block file(s) during reconciliation",
+                deleted_invalid_files
+            );
         }
         let meta_changed = entries_val.len() != before_len;
 
@@ -265,20 +295,33 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
         if meta_changed {
             for entry in entries_val.iter() {
                 if let Some(arr) = entry.as_array() {
-                    if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) { kept_ids.insert(id); }
+                    if let Some(id) = arr.first().and_then(|v| v.as_u64()) {
+                        kept_ids.insert(id);
+                    }
                 }
             }
             let new_val = serde_json::json!({ "entries": entries_val });
             if let Ok(mut f) = fs::File::create(&meta_pending_path) {
-                let _ = f.write_all(serde_json::to_string(&new_val).unwrap_or_else(|_| "{\"entries\":[]}".into()).as_bytes());
+                let _ = f.write_all(
+                    serde_json::to_string(&new_val)
+                        .unwrap_or_else(|_| "{\"entries\":[]}".into())
+                        .as_bytes(),
+                );
                 let _ = f.sync_all();
             }
             let _ = fs::rename(&meta_pending_path, &meta_path);
             // Fsync metadata.json and its parent dir
-            if let Ok(f) = fs::File::open(&meta_path) { let _ = f.sync_all(); }
+            if let Ok(f) = fs::File::open(&meta_path) {
+                let _ = f.sync_all();
+            }
             #[cfg(unix)]
-            if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) { let _ = dirf.sync_all(); }
-            log::info!("[fs] Rewrote metadata.json after reconciliation; entries={} ", kept_ids.len());
+            if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) {
+                let _ = dirf.sync_all();
+            }
+            log::info!(
+                "[fs] Rewrote metadata.json after reconciliation; entries={} ",
+                kept_ids.len()
+            );
 
             // Update in-memory checksum and algo maps to match filtered metadata
             let mut checksums_new: HashMap<u64, u64> = HashMap::new();
@@ -286,19 +329,28 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
             if let Some(entries) = new_val.get("entries").and_then(|v| v.as_array()) {
                 for entry in entries.iter() {
                     if let Some(arr) = entry.as_array() {
-                        if let (Some(bid), Some(meta)) = (arr.get(0).and_then(|v| v.as_u64()), arr.get(1).and_then(|v| v.as_object())) {
-                            if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) { checksums_new.insert(bid, csum); }
+                        if let (Some(bid), Some(meta)) = (
+                            arr.first().and_then(|v| v.as_u64()),
+                            arr.get(1).and_then(|v| v.as_object()),
+                        ) {
+                            if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) {
+                                checksums_new.insert(bid, csum);
+                            }
                             let algo = match meta.get("algo").and_then(|v| v.as_str()) {
                                 Some("CRC32") => Some(ChecksumAlgorithm::CRC32),
                                 Some("FastHash") => Some(ChecksumAlgorithm::FastHash),
                                 _ => None,
                             };
-                            if let Some(a) = algo { algos_new.insert(bid, a); }
+                            if let Some(a) = algo {
+                                algos_new.insert(bid, a);
+                            }
                         }
                     }
                 }
             }
-            storage.checksum_manager.replace_all(checksums_new, algos_new);
+            storage
+                .checksum_manager
+                .replace_all(checksums_new, algos_new);
         } else {
             kept_ids = meta_ids;
         }
@@ -308,29 +360,49 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
             let allocated = lock_mutex!(storage.allocated_blocks);
             *allocated != kept_ids
         };
-        
+
         if needs_update {
             *lock_mutex!(storage.allocated_blocks) = kept_ids.clone();
-            let max_id = lock_mutex!(storage.allocated_blocks).iter().copied().max().unwrap_or(0);
-            storage.next_block_id.store(max_id + 1, std::sync::atomic::Ordering::SeqCst);
+            let max_id = lock_mutex!(storage.allocated_blocks)
+                .iter()
+                .copied()
+                .max()
+                .unwrap_or(0);
+            storage
+                .next_block_id
+                .store(max_id + 1, std::sync::atomic::Ordering::SeqCst);
 
             // Persist allocations.json atomically via temp rename
             let alloc_path = db_dir.join("allocations.json");
             let alloc_tmp = db_dir.join("allocations.json.tmp");
-            let mut allocated_vec: Vec<u64> = lock_mutex!(storage.allocated_blocks).iter().copied().collect();
+            let mut allocated_vec: Vec<u64> = lock_mutex!(storage.allocated_blocks)
+                .iter()
+                .copied()
+                .collect();
             allocated_vec.sort_unstable();
             let alloc_json = serde_json::json!({ "allocated": allocated_vec });
             if let Ok(mut f) = fs::File::create(&alloc_tmp) {
-                let _ = f.write_all(serde_json::to_string(&alloc_json).unwrap_or_else(|_| "{\"allocated\":[]}".into()).as_bytes());
+                let _ = f.write_all(
+                    serde_json::to_string(&alloc_json)
+                        .unwrap_or_else(|_| "{\"allocated\":[]}".into())
+                        .as_bytes(),
+                );
                 let _ = f.sync_all();
             }
             let _ = fs::rename(&alloc_tmp, &alloc_path);
             // Fsync allocations.json and directory (best-effort)
-            if let Ok(f) = fs::File::open(&alloc_path) { let _ = f.sync_all(); }
+            if let Ok(f) = fs::File::open(&alloc_path) {
+                let _ = f.sync_all();
+            }
             #[cfg(unix)]
-            if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) { let _ = dirf.sync_all(); }
+            if let Ok(dirf) = fs::OpenOptions::new().read(true).open(&db_dir) {
+                let _ = dirf.sync_all();
+            }
             let allocated_len = lock_mutex!(storage.allocated_blocks).len();
-            log::info!("[fs] Rewrote allocations.json after reconciliation; allocated={}", allocated_len);
+            log::info!(
+                "[fs] Rewrote allocations.json after reconciliation; allocated={}",
+                allocated_len
+            );
         }
     }
 
@@ -353,7 +425,10 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
     let blocks_to_verify = storage.get_blocks_for_verification(&opts.mode).await?;
     let total_verified = blocks_to_verify.len();
 
-    log::info!("Verifying {} blocks during startup recovery", total_verified);
+    log::info!(
+        "Verifying {} blocks during startup recovery",
+        total_verified
+    );
 
     // Verify each block
     for block_id in blocks_to_verify {
@@ -364,7 +439,7 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
             Ok(false) => {
                 log::warn!("Block {} failed integrity check", block_id);
                 corrupted_blocks.push(block_id);
-                
+
                 // Handle corruption based on policy
                 match opts.on_corruption {
                     CorruptionAction::Report => {
@@ -381,7 +456,10 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
                     CorruptionAction::Fail => {
                         return Err(DatabaseError::new(
                             "STARTUP_RECOVERY_FAILED",
-                            &format!("Corrupted block {} detected and failure policy is active", block_id)
+                            &format!(
+                                "Corrupted block {} detected and failure policy is active",
+                                block_id
+                            ),
                         ));
                     }
                 }
@@ -398,7 +476,10 @@ pub async fn perform_startup_recovery(storage: &mut BlockStorage, opts: Recovery
     let duration = BlockStorage::now_millis() - start_time;
     log::info!(
         "Startup recovery completed: {} blocks verified, {} corrupted, {} repaired in {}ms",
-        total_verified, corrupted_blocks.len(), repaired_blocks.len(), duration
+        total_verified,
+        corrupted_blocks.len(),
+        repaired_blocks.len(),
+        duration
     );
 
     storage.recovery_report = RecoveryReport {

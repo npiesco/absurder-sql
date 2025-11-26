@@ -1,9 +1,9 @@
 // Block integrity verification tests for BlockStorage
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -18,10 +18,15 @@ async fn test_read_verifies_checksum_and_errors_on_mismatch() {
 
     // Write known data
     let data = vec![5u8; BLOCK_SIZE];
-    storage.write_block(1, data.clone()).await.expect("write block 1");
+    storage
+        .write_block(1, data.clone())
+        .await
+        .expect("write block 1");
 
     // Ensure checksum exists
-    let old_csum = storage.get_block_checksum(1).expect("checksum stored after write");
+    let old_csum = storage
+        .get_block_checksum(1)
+        .expect("checksum stored after write");
     assert!(old_csum > 0);
 
     // Intentionally set wrong checksum to simulate corruption detection path
@@ -32,7 +37,10 @@ async fn test_read_verifies_checksum_and_errors_on_mismatch() {
     }
 
     // Now a read should verify checksum and return an error
-    let err = storage.read_block(1).await.expect_err("expected checksum mismatch error");
+    let err = storage
+        .read_block(1)
+        .await
+        .expect_err("expected checksum mismatch error");
     assert_eq!(err.code, "CHECKSUM_MISMATCH");
 }
 
@@ -46,7 +54,10 @@ async fn test_read_ok_when_checksum_matches() {
         .expect("create storage");
 
     let data = vec![9u8; BLOCK_SIZE];
-    storage.write_block(2, data.clone()).await.expect("write block 2");
+    storage
+        .write_block(2, data.clone())
+        .await
+        .expect("write block 2");
 
     // Normal read should succeed and return the same data
     let out = storage.read_block(2).await.expect("read block 2 ok");
@@ -66,12 +77,18 @@ async fn test_verify_block_checksum_api() {
     storage.write_block(3, data).await.expect("write block 3");
 
     // Sanity: explicit verify passes initially
-    storage.verify_block_checksum(3).await.expect("verify ok initially");
+    storage
+        .verify_block_checksum(3)
+        .await
+        .expect("verify ok initially");
 
     // Corrupt the stored checksum value to simulate mismatch
     let wrong = 42u64;
     storage.set_block_checksum_for_testing(3, wrong);
 
-    let err = storage.verify_block_checksum(3).await.expect_err("expected mismatch from API");
+    let err = storage
+        .verify_block_checksum(3)
+        .await
+        .expect_err("expected mismatch from API");
     assert_eq!(err.code, "CHECKSUM_MISMATCH");
 }

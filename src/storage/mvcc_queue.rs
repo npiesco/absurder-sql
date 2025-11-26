@@ -58,7 +58,11 @@ impl MvccQueue {
                 let _ = resolve.call1(&JsValue::NULL, &JsValue::from(transaction_id));
             } else {
                 // Queue this write
-                log::debug!("MVCC: Write {} queued (active: {:?})", transaction_id, *active_write.borrow());
+                log::debug!(
+                    "MVCC: Write {} queued (active: {:?})",
+                    transaction_id,
+                    *active_write.borrow()
+                );
                 write_queue.borrow_mut().push_back(PendingWrite {
                     transaction_id,
                     resolve,
@@ -71,8 +75,11 @@ impl MvccQueue {
     pub fn release_write_lock(&self, transaction_id: u64) {
         let current = self.active_write.borrow();
         if *current != Some(transaction_id) {
-            log::warn!("MVCC: Attempted to release write lock for {} but active is {:?}",
-                transaction_id, *current);
+            log::warn!(
+                "MVCC: Attempted to release write lock for {} but active is {:?}",
+                transaction_id,
+                *current
+            );
             return;
         }
         drop(current);
@@ -85,7 +92,9 @@ impl MvccQueue {
         if let Some(next) = self.write_queue.borrow_mut().pop_front() {
             *self.active_write.borrow_mut() = Some(next.transaction_id);
             log::debug!("MVCC: Processing queued write {}", next.transaction_id);
-            let _ = next.resolve.call1(&JsValue::NULL, &JsValue::from(next.transaction_id));
+            let _ = next
+                .resolve
+                .call1(&JsValue::NULL, &JsValue::from(next.transaction_id));
         }
     }
 

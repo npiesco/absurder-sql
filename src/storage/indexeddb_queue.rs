@@ -7,10 +7,10 @@
 //! This module provides a global queue that limits concurrent IndexedDB operations
 //! to a safe level (default: 3 concurrent transactions).
 
+use futures::channel::oneshot;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use futures::channel::oneshot;
 
 /// Maximum concurrent IndexedDB transactions allowed globally
 const MAX_CONCURRENT_TRANSACTIONS: usize = 6;
@@ -39,14 +39,24 @@ impl IndexedDBQueue {
     fn acquire(&mut self) -> Option<oneshot::Receiver<()>> {
         if self.can_execute() {
             self.active_count += 1;
-            web_sys::console::log_1(&format!("[QUEUE] Acquired slot. Active: {}/{}",
-                self.active_count, MAX_CONCURRENT_TRANSACTIONS).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[QUEUE] Acquired slot. Active: {}/{}",
+                    self.active_count, MAX_CONCURRENT_TRANSACTIONS
+                )
+                .into(),
+            );
             None
         } else {
             let (tx, rx) = oneshot::channel();
             self.waiters.push_back(tx);
-            web_sys::console::log_1(&format!("[QUEUE] Queued operation (queue size: {})",
-                self.waiters.len()).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[QUEUE] Queued operation (queue size: {})",
+                    self.waiters.len()
+                )
+                .into(),
+            );
             Some(rx)
         }
     }
@@ -55,16 +65,26 @@ impl IndexedDBQueue {
         if self.active_count > 0 {
             self.active_count -= 1;
         }
-        web_sys::console::log_1(&format!("[QUEUE] Released slot. Active: {}/{}",
-            self.active_count, MAX_CONCURRENT_TRANSACTIONS).into());
+        web_sys::console::log_1(
+            &format!(
+                "[QUEUE] Released slot. Active: {}/{}",
+                self.active_count, MAX_CONCURRENT_TRANSACTIONS
+            )
+            .into(),
+        );
 
         // Wake next waiter if any, skipping dropped receivers
         while let Some(waiter) = self.waiters.pop_front() {
             if waiter.send(()).is_ok() {
                 // Successfully woke a waiter
                 self.active_count += 1;
-                web_sys::console::log_1(&format!("[QUEUE] Woke next waiter. Active: {}/{}",
-                    self.active_count, MAX_CONCURRENT_TRANSACTIONS).into());
+                web_sys::console::log_1(
+                    &format!(
+                        "[QUEUE] Woke next waiter. Active: {}/{}",
+                        self.active_count, MAX_CONCURRENT_TRANSACTIONS
+                    )
+                    .into(),
+                );
                 break;
             } else {
                 // Receiver was dropped (test cancelled/timeout), try next waiter

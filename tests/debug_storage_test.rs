@@ -1,8 +1,8 @@
 /// Debug test to verify BlockStorage sharing
 #[cfg(target_arch = "wasm32")]
 mod debug_storage_tests {
-    use wasm_bindgen_test::*;
     use absurder_sql::{Database, DatabaseConfig};
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -47,6 +47,9 @@ mod debug_storage_tests {
             web_sys::console::log_1(&format!("db2 error: {:?}", e).into());
         }
 
-        assert!(result.is_ok(), "db2 should see table created by db1 after sync");
+        assert!(
+            result.is_ok(),
+            "db2 should see table created by db1 after sync"
+        );
     }
 }

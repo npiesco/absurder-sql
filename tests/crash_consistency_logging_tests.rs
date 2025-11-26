@@ -5,13 +5,13 @@
 
 #![cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
 
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use absurder_sql::storage::block_storage::{RecoveryMode, RecoveryOptions, CorruptionAction};
-use tempfile::TempDir;
+use absurder_sql::storage::block_storage::{CorruptionAction, RecoveryMode, RecoveryOptions};
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use tempfile::TempDir;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -49,10 +49,26 @@ async fn logs_alt_mirror_on_sync_dirty() {
     storage.sync().await.expect("sync");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("Syncing 1 dirty blocks"), "missing sync start log. logs=\n{}", logs);
-    assert!(logs.contains("[fs_persist] (alt) writing pending metadata"), "missing (alt) pending write log. logs=\n{}", logs);
-    assert!(logs.contains("[fs_persist] (alt) finalized metadata rename"), "missing (alt) finalize log. logs=\n{}", logs);
-    assert!(logs.contains("Successfully synced 1 blocks"), "missing sync success log. logs=\n{}", logs);
+    assert!(
+        logs.contains("Syncing 1 dirty blocks"),
+        "missing sync start log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs_persist] (alt) writing pending metadata"),
+        "missing (alt) pending write log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs_persist] (alt) finalized metadata rename"),
+        "missing (alt) finalize log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("Successfully synced 1 blocks"),
+        "missing sync success log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -76,13 +92,30 @@ async fn logs_startup_recovery_stray_cleanup_and_summary() {
     // Construct with recovery which should detect and remove the stray
     let _storage = BlockStorage::new_with_recovery_options(
         "recover_stray_cleanup",
-        RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report }
-    ).await.expect("create with recovery");
+        RecoveryOptions {
+            mode: RecoveryMode::Full,
+            on_corruption: CorruptionAction::Report,
+        },
+    )
+    .await
+    .expect("create with recovery");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("[fs] Found 1 stray block files with no metadata"), "missing stray-detected log. logs=\n{}", logs);
-    assert!(logs.contains("[fs] Removed stray block file"), "missing stray-removed log. logs=\n{}", logs);
-    assert!(logs.contains("Startup recovery completed:"), "missing recovery summary log. logs=\n{}", logs);
+    assert!(
+        logs.contains("[fs] Found 1 stray block files with no metadata"),
+        "missing stray-detected log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs] Removed stray block file"),
+        "missing stray-removed log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("Startup recovery completed:"),
+        "missing recovery summary log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -104,10 +137,26 @@ async fn logs_sync_pending_commit_and_finalize() {
     storage.sync().await.expect("sync");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("Syncing 1 dirty blocks"), "missing sync start log. logs=\n{}", logs);
-    assert!(logs.contains("[fs_persist] writing pending metadata"), "missing pending metadata write log. logs=\n{}", logs);
-    assert!(logs.contains("[fs_persist] finalized metadata rename"), "missing metadata finalize log. logs=\n{}", logs);
-    assert!(logs.contains("Successfully synced 1 blocks"), "missing sync success log. logs=\n{}", logs);
+    assert!(
+        logs.contains("Syncing 1 dirty blocks"),
+        "missing sync start log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs_persist] writing pending metadata"),
+        "missing pending metadata write log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs_persist] finalized metadata rename"),
+        "missing metadata finalize log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("Successfully synced 1 blocks"),
+        "missing sync success log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -124,9 +173,21 @@ async fn logs_cleanup_only_when_no_dirty() {
     storage.sync().await.expect("sync");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("No dirty blocks to sync"), "missing 'no dirty' log. logs=\n{}", logs);
-    assert!(logs.contains("[fs_persist] cleanup-only: writing pending metadata"), "missing cleanup-only pending write log. logs=\n{}", logs);
-    assert!(logs.contains("[fs_persist] cleanup-only: finalized metadata rename"), "missing cleanup-only finalize log. logs=\n{}", logs);
+    assert!(
+        logs.contains("No dirty blocks to sync"),
+        "missing 'no dirty' log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs_persist] cleanup-only: writing pending metadata"),
+        "missing cleanup-only pending write log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("[fs_persist] cleanup-only: finalized metadata rename"),
+        "missing cleanup-only finalize log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -161,18 +222,32 @@ async fn logs_startup_recovery_finalizes_pending() {
     });
     {
         let mut f = fs::File::create(&meta_pending).expect("pending create");
-        f.write_all(serde_json::to_string(&pending_json).unwrap().as_bytes()).expect("pending write");
+        f.write_all(serde_json::to_string(&pending_json).unwrap().as_bytes())
+            .expect("pending write");
     }
 
     // Construct with recovery options (mode doesn't matter for pending handling)
     let _storage = BlockStorage::new_with_recovery_options(
         "recover_finalizes",
-        RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report }
-    ).await.expect("create with recovery");
+        RecoveryOptions {
+            mode: RecoveryMode::Full,
+            on_corruption: CorruptionAction::Report,
+        },
+    )
+    .await
+    .expect("create with recovery");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("Found pending metadata commit marker at startup"), "missing pending-detected log. logs=\n{}", logs);
-    assert!(logs.contains("Finalized pending metadata commit to"), "missing finalize-pending log. logs=\n{}", logs);
+    assert!(
+        logs.contains("Found pending metadata commit marker at startup"),
+        "missing pending-detected log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("Finalized pending metadata commit to"),
+        "missing finalize-pending log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -198,18 +273,36 @@ async fn logs_startup_recovery_rolls_back_invalid_pending() {
     });
     {
         let mut f = fs::File::create(&meta_pending).expect("pending create");
-        f.write_all(serde_json::to_string(&pending_json).unwrap().as_bytes()).expect("pending write");
+        f.write_all(serde_json::to_string(&pending_json).unwrap().as_bytes())
+            .expect("pending write");
     }
 
     let _storage = BlockStorage::new_with_recovery_options(
         "recover_rolls_back",
-        RecoveryOptions { mode: RecoveryMode::Full, on_corruption: CorruptionAction::Report }
-    ).await.expect("create with recovery");
+        RecoveryOptions {
+            mode: RecoveryMode::Full,
+            on_corruption: CorruptionAction::Report,
+        },
+    )
+    .await
+    .expect("create with recovery");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("Found pending metadata commit marker at startup"), "missing pending-detected log. logs=\n{}", logs);
-    assert!(logs.contains("Pending commit references missing block file"), "missing missing-block warn log. logs=\n{}", logs);
-    assert!(logs.contains("Rolled back pending metadata commit; kept"), "missing rollback log. logs=\n{}", logs);
+    assert!(
+        logs.contains("Found pending metadata commit marker at startup"),
+        "missing pending-detected log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("Pending commit references missing block file"),
+        "missing missing-block warn log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("Rolled back pending metadata commit; kept"),
+        "missing rollback log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -226,8 +319,16 @@ async fn logs_allocations_write_cleanup_only() {
     storage.sync().await.expect("sync");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("No dirty blocks to sync"), "missing 'no dirty' log. logs=\n{}", logs);
-    assert!(logs.contains("wrote allocations.json"), "missing primary allocations write log. logs=\n{}", logs);
+    assert!(
+        logs.contains("No dirty blocks to sync"),
+        "missing 'no dirty' log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("wrote allocations.json"),
+        "missing primary allocations write log. logs=\n{}",
+        logs
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -257,7 +358,19 @@ async fn logs_allocations_write_sync_dirty_alt() {
     storage.sync().await.expect("sync");
 
     let logs = common::take_logs_joined();
-    assert!(logs.contains("Syncing 1 dirty blocks"), "missing sync start log. logs=\n{}", logs);
-    assert!(logs.contains("wrote allocations.json"), "missing primary allocations write log. logs=\n{}", logs);
-    assert!(logs.contains("(alt) wrote allocations.json"), "missing alt allocations write log. logs=\n{}", logs);
+    assert!(
+        logs.contains("Syncing 1 dirty blocks"),
+        "missing sync start log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("wrote allocations.json"),
+        "missing primary allocations write log. logs=\n{}",
+        logs
+    );
+    assert!(
+        logs.contains("(alt) wrote allocations.json"),
+        "missing alt allocations write log. logs=\n{}",
+        logs
+    );
 }

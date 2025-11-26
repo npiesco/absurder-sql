@@ -1,12 +1,11 @@
+use std::cell::{Cell, RefCell};
 /// Connection pool for sharing SQLite connections between Database instances
 ///
 /// This ensures multiple Database instances accessing the same database file
 /// share the same underlying SQLite connection, preventing corruption and
 /// ensuring consistent schema visibility.
-
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::cell::{RefCell, Cell};
 
 thread_local! {
     /// Global registry of shared SQLite connections
@@ -48,7 +47,11 @@ where
             // Increment reference count using Cell
             let current = conn.ref_count.get();
             conn.ref_count.set(current + 1);
-            log::info!("Reusing existing connection for {} (ref_count: {})", db_name, current + 1);
+            log::info!(
+                "Reusing existing connection for {} (ref_count: {})",
+                db_name,
+                current + 1
+            );
             return Ok(conn.clone());
         }
 
@@ -71,9 +74,16 @@ pub fn release_connection(db_name: &str) {
             let current = conn.ref_count.get();
             if current > 0 {
                 conn.ref_count.set(current - 1);
-                log::debug!("Released connection for {} (ref_count: {})", db_name, current - 1);
+                log::debug!(
+                    "Released connection for {} (ref_count: {})",
+                    db_name,
+                    current - 1
+                );
             } else {
-                log::warn!("Attempt to release connection with ref_count 0 for {}", db_name);
+                log::warn!(
+                    "Attempt to release connection with ref_count 0 for {}",
+                    db_name
+                );
             }
 
             if conn.ref_count.get() == 0 {
@@ -104,9 +114,7 @@ pub fn release_connection(db_name: &str) {
 
 /// Check if a connection exists for the given database
 pub fn connection_exists(db_name: &str) -> bool {
-    CONNECTION_POOL.with(|pool| {
-        pool.borrow().contains_key(db_name)
-    })
+    CONNECTION_POOL.with(|pool| pool.borrow().contains_key(db_name))
 }
 
 /// Force close a connection, regardless of reference count
@@ -121,7 +129,11 @@ pub fn force_close_connection(db_name: &str) {
             // Close the SQLite connection regardless of ref_count
             unsafe {
                 if !db_ptr.is_null() {
-                    log::info!("Force closing connection for {} (had {} references)", db_name, ref_count);
+                    log::info!(
+                        "Force closing connection for {} (had {} references)",
+                        db_name,
+                        ref_count
+                    );
                     sqlite_wasm_rs::sqlite3_close(db_ptr);
                     conn.db.set(std::ptr::null_mut());
                 }

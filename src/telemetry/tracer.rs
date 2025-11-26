@@ -68,33 +68,38 @@ impl TracerProvider {
     /// ```
     pub fn new(config: &TelemetryConfig) -> Result<Self, String> {
         use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
-        
+
         // If traces are disabled, return a no-op provider
         if !config.enable_traces {
             log::info!("Traces disabled in config, creating no-op tracer provider");
             let provider = SdkTracerProvider::builder().build();
-            
+
             return Ok(Self {
                 provider: Arc::new(provider),
                 service_name: config.service_name.clone(),
             });
         }
-        
-        log::info!("Initializing OpenTelemetry tracer provider for service: {}", config.service_name);
-        
+
+        log::info!(
+            "Initializing OpenTelemetry tracer provider for service: {}",
+            config.service_name
+        );
+
         // Create tracer provider with no-op exporter for now
         // This allows testing without requiring an OTLP collector
         // In production, configure OTLP collector endpoint
         let provider = SdkTracerProvider::builder().build();
-        
-        log::info!("Tracer provider initialized (no-op exporter - configure OTLP collector for production)");
-        
+
+        log::info!(
+            "Tracer provider initialized (no-op exporter - configure OTLP collector for production)"
+        );
+
         Ok(Self {
             provider: Arc::new(provider),
             service_name: config.service_name.clone(),
         })
     }
-    
+
     /// Get a tracer for a specific module
     ///
     /// # Example
@@ -108,29 +113,29 @@ impl TracerProvider {
     /// ```
     pub fn tracer(&self, module_name: &str) -> Tracer {
         use opentelemetry::trace::TracerProvider as _;
-        
+
         let otel_tracer = self.provider.tracer(module_name.to_string());
-        
+
         Tracer {
             tracer: otel_tracer,
             service_name: self.service_name.clone(),
         }
     }
-    
+
     /// Check if tracer provider is initialized
     pub fn is_initialized(&self) -> bool {
         true // If we created it, it's initialized
     }
-    
+
     /// Shutdown the tracer provider, flushing all pending spans
     ///
     /// Should be called before application exit.
     pub fn shutdown(self) -> Result<(), String> {
         log::info!("Shutting down tracer provider");
-        
+
         // The Arc will be dropped, triggering cleanup
         // OpenTelemetry handles graceful shutdown automatically
-        
+
         Ok(())
     }
 }
@@ -150,7 +155,7 @@ impl Tracer {
     pub fn service_name(&self) -> &str {
         &self.service_name
     }
-    
+
     /// Start a new span
     ///
     /// # Example
@@ -166,9 +171,9 @@ impl Tracer {
     /// ```
     pub fn start_span(&self, name: &str) -> Span {
         use opentelemetry::trace::Tracer as _;
-        
+
         let otel_span = self.tracer.start(name.to_string());
-        
+
         Span {
             span: Some(otel_span),
         }
@@ -188,14 +193,14 @@ impl Span {
     /// Check if span is actively recording
     pub fn is_recording(&self) -> bool {
         use opentelemetry::trace::Span as _;
-        
+
         if let Some(span) = &self.span {
             span.is_recording()
         } else {
             false
         }
     }
-    
+
     /// Add an attribute to the span
     ///
     /// # Example
@@ -217,21 +222,21 @@ impl Span {
         V: Into<opentelemetry::Value>,
     {
         use opentelemetry::trace::Span as _;
-        
+
         if let Some(span) = &mut self.span {
             span.set_attribute(opentelemetry::KeyValue::new(key, value));
         }
-        
+
         self
     }
-    
+
     /// Set parent span context
     pub fn with_parent(self, _parent: &Span) -> Self {
         // Parent context is handled automatically by OpenTelemetry
         // through the current context
         self
     }
-    
+
     /// Add an event to the span
     ///
     /// # Example
@@ -249,12 +254,12 @@ impl Span {
     /// ```
     pub fn add_event(&mut self, name: &str) {
         use opentelemetry::trace::Span as _;
-        
+
         if let Some(span) = &mut self.span {
             span.add_event(name.to_string(), vec![]);
         }
     }
-    
+
     /// Set span status to error
     ///
     /// # Example
@@ -271,18 +276,18 @@ impl Span {
     /// ```
     pub fn set_status_error(&mut self, description: &str) {
         use opentelemetry::trace::{Span as _, Status};
-        
+
         if let Some(span) = &mut self.span {
             span.set_status(Status::error(description.to_string()));
         }
     }
-    
+
     /// End the span
     ///
     /// Marks the span as complete and sends it to the exporter.
     pub fn end(&mut self) {
         use opentelemetry::trace::Span as _;
-        
+
         if let Some(mut span) = self.span.take() {
             span.end();
         }
@@ -313,21 +318,20 @@ impl TracerProvider {
 mod tests {
     use super::*;
     use crate::telemetry::TelemetryConfig;
-    
+
     #[test]
     fn test_tracer_provider_creation() {
         let config = TelemetryConfig::default();
         let result = TracerProvider::new(&config);
-        
+
         // May fail if OTLP collector is not running, but should compile
         assert!(result.is_ok() || result.is_err());
     }
-    
+
     #[test]
     fn test_tracer_with_disabled_traces() {
-        let config = TelemetryConfig::default()
-            .with_traces_enabled(false);
-        
+        let config = TelemetryConfig::default().with_traces_enabled(false);
+
         let provider = TracerProvider::new(&config).expect("Should create no-op provider");
         assert!(provider.is_initialized());
     }

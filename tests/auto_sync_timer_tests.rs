@@ -1,9 +1,9 @@
 // Timer-based background auto-sync test (no follow-up operation)
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -21,10 +21,7 @@ async fn test_timer_based_auto_sync_without_followup_op() {
 
     // Make a block dirty
     let data = vec![3u8; BLOCK_SIZE];
-    storage
-        .write_block(42, data)
-        .await
-        .expect("write block 42");
+    storage.write_block(42, data).await.expect("write block 42");
     assert_eq!(storage.get_dirty_count(), 1);
 
     // Wait longer than the interval and expect background sync to flush automatically
@@ -48,10 +45,7 @@ async fn test_drain_and_shutdown_flushes_dirty_blocks() {
 
     // Make a block dirty
     let data = vec![4u8; BLOCK_SIZE];
-    storage
-        .write_block(7, data)
-        .await
-        .expect("write block 7");
+    storage.write_block(7, data).await.expect("write block 7");
     assert_eq!(storage.get_dirty_count(), 1);
 
     // Immediately drain and shutdown

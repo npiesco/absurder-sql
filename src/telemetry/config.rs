@@ -28,19 +28,19 @@ use std::fmt;
 pub struct TelemetryConfig {
     /// Service name for telemetry identification
     pub service_name: String,
-    
+
     /// OpenTelemetry OTLP collector endpoint
     /// Default: "http://localhost:4317"
     pub otlp_endpoint: String,
-    
+
     /// Prometheus metrics server port
     /// Default: 9090
     pub prometheus_port: u16,
-    
+
     /// Enable distributed tracing
     /// Default: true
     pub enable_traces: bool,
-    
+
     /// Enable Prometheus metrics
     /// Default: true
     pub enable_metrics: bool,
@@ -71,7 +71,7 @@ impl TelemetryConfig {
             enable_metrics: true,
         }
     }
-    
+
     /// Set custom Prometheus port
     ///
     /// # Arguments
@@ -89,7 +89,7 @@ impl TelemetryConfig {
         self.prometheus_port = port;
         self
     }
-    
+
     /// Enable or disable distributed tracing
     ///
     /// # Arguments
@@ -107,7 +107,7 @@ impl TelemetryConfig {
         self.enable_traces = enabled;
         self
     }
-    
+
     /// Enable or disable Prometheus metrics
     ///
     /// # Arguments
@@ -125,7 +125,7 @@ impl TelemetryConfig {
         self.enable_metrics = enabled;
         self
     }
-    
+
     /// Validate configuration
     ///
     /// Returns an error if:
@@ -147,15 +147,15 @@ impl TelemetryConfig {
         if self.service_name.is_empty() {
             return Err("service_name cannot be empty".to_string());
         }
-        
+
         if self.otlp_endpoint.is_empty() {
             return Err("otlp_endpoint cannot be empty".to_string());
         }
-        
+
         if self.prometheus_port == 0 {
             return Err("prometheus_port must be between 1 and 65535".to_string());
         }
-        
+
         Ok(())
     }
 }
@@ -197,27 +197,24 @@ impl fmt::Display for TelemetryConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_config_builder_pattern() {
-        let config = TelemetryConfig::new(
-            "test".to_string(),
-            "http://test:4317".to_string(),
-        )
-        .with_prometheus_port(8080)
-        .with_traces_enabled(false);
-        
+        let config = TelemetryConfig::new("test".to_string(), "http://test:4317".to_string())
+            .with_prometheus_port(8080)
+            .with_traces_enabled(false);
+
         assert_eq!(config.service_name, "test");
         assert_eq!(config.prometheus_port, 8080);
         assert!(!config.enable_traces);
     }
-    
+
     #[test]
     fn test_validate_success() {
         let config = TelemetryConfig::default();
         assert!(config.validate().is_ok());
     }
-    
+
     #[test]
     fn test_validate_empty_service_name() {
         let config = TelemetryConfig {

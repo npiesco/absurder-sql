@@ -1,9 +1,9 @@
 #[cfg(feature = "fs_persist")]
-use absurder_sql::storage::block_storage::{BlockStorage, BLOCK_SIZE};
-#[cfg(feature = "fs_persist")]
-use tempfile::TempDir;
+use absurder_sql::storage::block_storage::{BLOCK_SIZE, BlockStorage};
 #[cfg(feature = "fs_persist")]
 use serial_test::serial;
+#[cfg(feature = "fs_persist")]
+use tempfile::TempDir;
 
 #[cfg(feature = "fs_persist")]
 mod common;
@@ -18,7 +18,9 @@ async fn test_recovery_removes_stray_files() {
 
     // Initialize storage to create db structure
     {
-        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        let mut a = BlockStorage::new_with_capacity(db, 4)
+            .await
+            .expect("create A");
         a.sync().await.expect("sync A");
     }
 
@@ -35,7 +37,9 @@ async fn test_recovery_removes_stray_files() {
 
     // Startup recovery should remove stray
     {
-        let _b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
+        let _b = BlockStorage::new_with_recovery_options(db, Default::default())
+            .await
+            .expect("create B");
     }
 
     // Assert stray file removed
@@ -59,7 +63,9 @@ async fn test_recovery_drops_metadata_for_missing_files() {
     let id1;
     // Create a block and persist metadata
     {
-        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        let mut a = BlockStorage::new_with_capacity(db, 4)
+            .await
+            .expect("create A");
         id1 = a.allocate_block().await.expect("alloc 1");
         let data1 = vec![0x55u8; BLOCK_SIZE];
         a.write_block(id1, data1).await.expect("write 1");
@@ -79,9 +85,14 @@ async fn test_recovery_drops_metadata_for_missing_files() {
 
     // Startup recovery should drop the metadata entry
     {
-        let mut b = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B");
+        let mut b = BlockStorage::new_with_recovery_options(db, Default::default())
+            .await
+            .expect("create B");
         let meta = b.get_block_metadata_for_testing();
-        assert!(!meta.contains_key(&id1), "metadata for missing block should be dropped");
+        assert!(
+            !meta.contains_key(&id1),
+            "metadata for missing block should be dropped"
+        );
     }
 }
 
@@ -96,7 +107,9 @@ async fn test_recovery_idempotent_on_second_run() {
     // Setup: create a valid block and a stray file, then delete the valid block's file to cause dangling metadata
     let id1;
     {
-        let mut a = BlockStorage::new_with_capacity(db, 4).await.expect("create A");
+        let mut a = BlockStorage::new_with_capacity(db, 4)
+            .await
+            .expect("create A");
         id1 = a.allocate_block().await.expect("alloc 1");
         let data1 = vec![0x77u8; BLOCK_SIZE];
         a.write_block(id1, data1).await.expect("write 1");
@@ -116,9 +129,14 @@ async fn test_recovery_idempotent_on_second_run() {
 
     // First recovery run
     {
-        let mut b1 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B1");
+        let mut b1 = BlockStorage::new_with_recovery_options(db, Default::default())
+            .await
+            .expect("create B1");
         let meta1 = b1.get_block_metadata_for_testing();
-        assert!(!meta1.contains_key(&id1), "first recovery should drop dangling metadata");
+        assert!(
+            !meta1.contains_key(&id1),
+            "first recovery should drop dangling metadata"
+        );
         // ensure stray removed
         let mut blocks_dir = tmp.path().to_path_buf();
         blocks_dir.push(db);
@@ -129,14 +147,22 @@ async fn test_recovery_idempotent_on_second_run() {
 
     // Second recovery run should be a no-op and succeed
     {
-        let mut b2 = BlockStorage::new_with_recovery_options(db, Default::default()).await.expect("create B2");
+        let mut b2 = BlockStorage::new_with_recovery_options(db, Default::default())
+            .await
+            .expect("create B2");
         let meta2 = b2.get_block_metadata_for_testing();
-        assert!(!meta2.contains_key(&id1), "second recovery should remain without the dropped entry");
+        assert!(
+            !meta2.contains_key(&id1),
+            "second recovery should remain without the dropped entry"
+        );
         // no stray should reappear
         let mut blocks_dir = tmp.path().to_path_buf();
         blocks_dir.push(db);
         blocks_dir.push("blocks");
         let stray = blocks_dir.join("block_4242.bin");
-        assert!(!stray.exists(), "stray should remain absent after second recovery");
+        assert!(
+            !stray.exists(),
+            "stray should remain absent after second recovery"
+        );
     }
 }

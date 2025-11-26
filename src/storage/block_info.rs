@@ -5,7 +5,8 @@
 #[cfg(target_arch = "wasm32")]
 macro_rules! lock_mutex {
     ($mutex:expr) => {
-        $mutex.try_borrow()
+        $mutex
+            .try_borrow()
             .expect("RefCell borrow failed - reentrancy detected in block_info.rs")
     };
 }
@@ -17,8 +18,8 @@ macro_rules! lock_mutex {
     };
 }
 
-use serde::{Serialize, Deserialize};
 use super::block_storage::BlockStorage;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockInfo {
@@ -47,19 +48,17 @@ impl BlockStorage {
     pub fn get_storage_info(&mut self) -> BlockStorageInfo {
         // Get metadata for all allocated blocks
         let metadata = self.get_block_metadata_for_testing();
-        
+
         let dirty_guard = lock_mutex!(self.dirty_blocks);
         let mut blocks: Vec<BlockInfo> = Vec::new();
-        
+
         for &block_id in lock_mutex!(self.allocated_blocks).iter() {
             let is_cached = lock_mutex!(self.cache).contains_key(&block_id);
             let is_dirty = dirty_guard.contains_key(&block_id);
-            
-            let (checksum, version, last_modified_ms) = metadata
-                .get(&block_id)
-                .copied()
-                .unwrap_or((0, 0, 0));
-            
+
+            let (checksum, version, last_modified_ms) =
+                metadata.get(&block_id).copied().unwrap_or((0, 0, 0));
+
             blocks.push(BlockInfo {
                 block_id,
                 checksum,
@@ -70,10 +69,10 @@ impl BlockStorage {
                 is_allocated: true,
             });
         }
-        
+
         // Sort by block_id for consistent display
         blocks.sort_by_key(|b| b.block_id);
-        
+
         BlockStorageInfo {
             db_name: self.db_name.clone(),
             total_allocated_blocks: lock_mutex!(self.allocated_blocks).len(),

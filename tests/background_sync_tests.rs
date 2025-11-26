@@ -1,9 +1,9 @@
 // Background (auto) sync tests using idle-time trigger
 
 #![cfg(not(target_arch = "wasm32"))]
-use absurder_sql::storage::{BlockStorage, BLOCK_SIZE};
-use tempfile::TempDir;
+use absurder_sql::storage::{BLOCK_SIZE, BlockStorage};
 use serial_test::serial;
+use tempfile::TempDir;
 #[path = "common/mod.rs"]
 mod common;
 
@@ -28,7 +28,10 @@ async fn test_auto_sync_clears_dirty_blocks_on_next_op() {
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
 
     // Next operation should trigger auto-sync
-    let _ = storage.read_block(10).await.expect("read triggers auto sync");
+    let _ = storage
+        .read_block(10)
+        .await
+        .expect("read triggers auto sync");
 
     // Dirty set should now be cleared by auto sync
     assert_eq!(storage.get_dirty_count(), 0);

@@ -6,19 +6,19 @@
 //! This is an event-driven approach - no polling, no timers.
 
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 use crate::storage::BlockStorage;
 
 /// WASM Auto-Sync Manager
-/// 
+///
 /// Manages automatic background syncing in WASM environments using event-driven browser APIs.
 /// - Uses requestIdleCallback for opportunistic syncing during idle time
 /// - Syncs on visibility change (when tab becomes hidden)
@@ -44,7 +44,10 @@ pub struct WasmAutoSyncManager {
 impl WasmAutoSyncManager {
     /// Create a new WASM auto-sync manager
     pub fn new(db_name: String) -> Self {
-        log::info!("Creating event-driven WASM auto-sync manager for database: {}", db_name);
+        log::info!(
+            "Creating event-driven WASM auto-sync manager for database: {}",
+            db_name
+        );
         Self {
             db_name,
             is_active: false,
@@ -54,62 +57,62 @@ impl WasmAutoSyncManager {
             idle_closure: None,
         }
     }
-    
+
     /// Start event-driven auto-sync
     pub fn start(&mut self) {
         if self.is_active {
             log::warn!("WASM auto-sync already active, stopping previous instance");
             self.stop();
         }
-        
+
         self.is_active = true;
         log::info!("Starting event-driven WASM auto-sync");
-        
+
         // Set up event listeners
         self.setup_idle_callback();
         self.setup_visibility_listener();
         self.setup_beforeunload_listener();
     }
-    
+
     /// Stop auto-sync and clean up event listeners
     pub fn stop(&mut self) {
         if !self.is_active {
             return;
         }
-        
+
         log::info!("Stopping WASM auto-sync and cleaning up event listeners");
-        
+
         // Cancel idle callback if active
         if let Some(handle) = self.idle_callback_handle.take() {
             if let Some(window) = web_sys::window() {
                 window.cancel_idle_callback(handle);
             }
         }
-        
+
         // Remove event listeners
         if let Some(window) = web_sys::window() {
             if let Some(document) = window.document() {
                 if let Some(listener) = self.visibility_listener.take() {
                     let _ = document.remove_event_listener_with_callback(
                         "visibilitychange",
-                        listener.as_ref().unchecked_ref()
+                        listener.as_ref().unchecked_ref(),
                     );
                 }
             }
-            
+
             if let Some(listener) = self.beforeunload_listener.take() {
                 let _ = window.remove_event_listener_with_callback(
                     "beforeunload",
-                    listener.as_ref().unchecked_ref()
+                    listener.as_ref().unchecked_ref(),
                 );
             }
         }
-        
+
         // Drop closures
         self.idle_closure = None;
         self.is_active = false;
     }
-    
+
     /// Set up requestIdleCallback for opportunistic syncing
     fn setup_idle_callback(&mut self) {
         let window = match web_sys::window() {
@@ -119,14 +122,14 @@ impl WasmAutoSyncManager {
                 return;
             }
         };
-        
+
         let db_name_clone = self.db_name.clone();
-        
+
         // Create closure for idle callback
         let closure = Closure::wrap(Box::new(move || {
             let db_name = db_name_clone.clone();
             log::debug!("Idle callback triggered for database: {}", db_name);
-            
+
             // Spawn async sync during idle time
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(storage) = BlockStorage::new(&db_name).await {
@@ -140,7 +143,7 @@ impl WasmAutoSyncManager {
                 }
             });
         }) as Box<dyn FnMut()>);
-        
+
         // Request idle callback
         match window.request_idle_callback(closure.as_ref().unchecked_ref()) {
             Ok(handle) => {
@@ -153,25 +156,25 @@ impl WasmAutoSyncManager {
             }
         }
     }
-    
+
     /// Set up visibility change listener to sync when tab becomes hidden
     fn setup_visibility_listener(&mut self) {
         let window = match web_sys::window() {
             Some(w) => w,
             None => return,
         };
-        
+
         let document = match window.document() {
             Some(d) => d,
             None => return,
         };
-        
+
         let db_name_clone = self.db_name.clone();
-        
+
         let closure = Closure::wrap(Box::new(move || {
             let db_name = db_name_clone.clone();
             log::debug!("Visibility change detected for database: {}", db_name);
-            
+
             // Sync when tab becomes hidden
             if let Some(window) = web_sys::window() {
                 if let Some(document) = window.document() {
@@ -186,28 +189,26 @@ impl WasmAutoSyncManager {
                 }
             }
         }) as Box<dyn FnMut()>);
-        
-        let _ = document.add_event_listener_with_callback(
-            "visibilitychange",
-            closure.as_ref().unchecked_ref()
-        );
-        
+
+        let _ = document
+            .add_event_listener_with_callback("visibilitychange", closure.as_ref().unchecked_ref());
+
         self.visibility_listener = Some(closure);
     }
-    
+
     /// Set up beforeunload listener to sync before page closes
     fn setup_beforeunload_listener(&mut self) {
         let window = match web_sys::window() {
             Some(w) => w,
             None => return,
         };
-        
+
         let db_name_clone = self.db_name.clone();
-        
+
         let closure = Closure::wrap(Box::new(move || {
             let db_name = db_name_clone.clone();
             log::info!("Page unloading, triggering final sync for {}", db_name);
-            
+
             // Synchronous sync before unload
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(storage) = BlockStorage::new(&db_name).await {
@@ -215,15 +216,13 @@ impl WasmAutoSyncManager {
                 }
             });
         }) as Box<dyn FnMut()>);
-        
-        let _ = window.add_event_listener_with_callback(
-            "beforeunload",
-            closure.as_ref().unchecked_ref()
-        );
-        
+
+        let _ = window
+            .add_event_listener_with_callback("beforeunload", closure.as_ref().unchecked_ref());
+
         self.beforeunload_listener = Some(closure);
     }
-    
+
     /// Check if auto-sync is currently active
     pub fn is_active(&self) -> bool {
         self.is_active
@@ -241,7 +240,7 @@ impl Drop for WasmAutoSyncManager {
 thread_local! {
     // Global registry of WASM auto-sync managers
     // This allows us to manage auto-sync across multiple BlockStorage instances
-    static WASM_AUTO_SYNC_REGISTRY: RefCell<std::collections::HashMap<String, Rc<RefCell<WasmAutoSyncManager>>>> = 
+    static WASM_AUTO_SYNC_REGISTRY: RefCell<std::collections::HashMap<String, Rc<RefCell<WasmAutoSyncManager>>>> =
         RefCell::new(std::collections::HashMap::new());
 }
 
@@ -250,11 +249,12 @@ thread_local! {
 pub fn register_wasm_auto_sync(db_name: &str) {
     WASM_AUTO_SYNC_REGISTRY.with(|registry| {
         let mut reg = registry.borrow_mut();
-        
+
         // Create or update the manager
-        let manager = reg.entry(db_name.to_string())
-            .or_insert_with(|| Rc::new(RefCell::new(WasmAutoSyncManager::new(db_name.to_string()))));
-        
+        let manager = reg.entry(db_name.to_string()).or_insert_with(|| {
+            Rc::new(RefCell::new(WasmAutoSyncManager::new(db_name.to_string())))
+        });
+
         manager.borrow_mut().start();
     });
 }
@@ -264,7 +264,7 @@ pub fn register_wasm_auto_sync(db_name: &str) {
 pub fn unregister_wasm_auto_sync(db_name: &str) {
     WASM_AUTO_SYNC_REGISTRY.with(|registry| {
         let mut reg = registry.borrow_mut();
-        
+
         if let Some(manager) = reg.remove(db_name) {
             manager.borrow_mut().stop();
         }

@@ -130,11 +130,15 @@ impl WasmSpanExporter {
         }
 
         use wasm_bindgen::prelude::*;
-        
+
         // Create message object
         let message = js_sys::Object::new();
-        js_sys::Reflect::set(&message, &JsValue::from_str("type"), &JsValue::from_str(event))
-            .unwrap_or_default();
+        js_sys::Reflect::set(
+            &message,
+            &JsValue::from_str("type"),
+            &JsValue::from_str(event),
+        )
+        .unwrap_or_default();
         js_sys::Reflect::set(
             &message,
             &JsValue::from_str("data"),
@@ -197,9 +201,9 @@ impl WasmSpanExporter {
                 }
             }
         }
-        
+
         self.buffer.push(span);
-        
+
         // Post buffer update to DevTools
         #[cfg(target_arch = "wasm32")]
         {
@@ -255,7 +259,7 @@ impl WasmSpanExporter {
             Ok(json) => json,
             Err(e) => {
                 self.stats.failed_exports += 1;
-                
+
                 // Post error to DevTools
                 if self.devtools_enabled {
                     let error_data = serde_json::json!({
@@ -263,18 +267,18 @@ impl WasmSpanExporter {
                         "details": format!("{}", e)
                     });
                     self.post_to_devtools("export_error", &error_data);
-                    
+
                     if let Ok(stats_json) = serde_json::to_value(&self.stats) {
                         self.post_to_devtools("export_stats", &stats_json);
                     }
                 }
-                
+
                 return Err(format!("Failed to serialize spans: {}", e));
             }
         };
 
         // Create fetch request
-        use wasm_bindgen::{JsValue, JsCast};
+        use wasm_bindgen::{JsCast, JsValue};
         use wasm_bindgen_futures::JsFuture;
         use web_sys::{Request, RequestInit, RequestMode, Response};
 
@@ -333,7 +337,7 @@ impl WasmSpanExporter {
         // Check response status
         if !resp.ok() {
             self.stats.failed_exports += 1;
-            
+
             // Post error to DevTools
             if self.devtools_enabled {
                 let error_data = serde_json::json!({
@@ -342,21 +346,21 @@ impl WasmSpanExporter {
                 });
                 self.post_to_devtools("export_error", &error_data);
             }
-            
+
             // Post updated stats to DevTools
             if self.devtools_enabled {
                 if let Ok(stats_json) = serde_json::to_value(&self.stats) {
                     self.post_to_devtools("export_stats", &stats_json);
                 }
             }
-            
+
             return Err(format!("HTTP error: {}", resp.status()));
         }
 
         // Clear buffer after successful export
         self.clear_buffer();
         self.stats.successful_exports += 1;
-        
+
         // Post updated stats to DevTools
         if self.devtools_enabled {
             if let Ok(stats_json) = serde_json::to_value(&self.stats) {

@@ -1,8 +1,8 @@
 /// Test to check journal mode and schema visibility
 #[cfg(target_arch = "wasm32")]
 mod journal_mode_tests {
-    use wasm_bindgen_test::*;
     use absurder_sql::{Database, DatabaseConfig};
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -20,11 +20,16 @@ mod journal_mode_tests {
         let mut db1 = Database::new(config1).await.expect("Failed to create db1");
 
         // Check journal mode
-        let mode_result = db1.execute("PRAGMA journal_mode").await.expect("Failed to get journal mode");
+        let mode_result = db1
+            .execute("PRAGMA journal_mode")
+            .await
+            .expect("Failed to get journal mode");
         web_sys::console::log_1(&format!("db1 journal_mode: {:?}", mode_result).into());
 
         // Create table
-        db1.execute("CREATE TABLE test (id INTEGER)").await.expect("Failed to create table");
+        db1.execute("CREATE TABLE test (id INTEGER)")
+            .await
+            .expect("Failed to create table");
 
         // Force checkpoint if in WAL mode
         let checkpoint = db1.execute("PRAGMA wal_checkpoint(FULL)").await;
@@ -38,7 +43,10 @@ mod journal_mode_tests {
         let mut db2 = Database::new(config2).await.expect("Failed to create db2");
 
         // Check db2's journal mode
-        let mode2_result = db2.execute("PRAGMA journal_mode").await.expect("Failed to get journal mode");
+        let mode2_result = db2
+            .execute("PRAGMA journal_mode")
+            .await
+            .expect("Failed to get journal mode");
         web_sys::console::log_1(&format!("db2 journal_mode: {:?}", mode2_result).into());
 
         // Force db2 to reload schema

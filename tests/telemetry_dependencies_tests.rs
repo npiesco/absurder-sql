@@ -19,7 +19,7 @@ fn test_opentelemetry_available() {
     let _ = || {
         use opentelemetry::trace::{Tracer, TracerProvider};
         use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
-        
+
         let provider = SdkTracerProvider::builder().build();
         let tracer = provider.tracer("test");
         let _span = tracer.start("test_span");
@@ -32,7 +32,7 @@ fn test_opentelemetry_otlp_available() {
     // This test will fail until we add opentelemetry-otlp dependency
     let _ = || {
         use opentelemetry_otlp::WithExportConfig;
-        
+
         // Just verify the trait is available
         let _config = opentelemetry_otlp::new_exporter()
             .tonic()
@@ -45,7 +45,7 @@ fn test_opentelemetry_prometheus_available() {
     // This test will fail until we add opentelemetry-prometheus dependency
     let _ = || {
         use prometheus::Registry;
-        
+
         let registry = Registry::new();
         let _exporter = opentelemetry_prometheus::exporter()
             .with_registry(registry)

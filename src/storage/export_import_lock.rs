@@ -13,29 +13,32 @@ where
     log::info!("[LOCK] ===== STARTING LOCK REQUEST =====");
     log::info!("[LOCK] Lock name: {}", lock_name);
     log::info!("[LOCK] Creating AcquireOptions...");
-    
+
     let opts = weblocks::AcquireOptions::exclusive();
     log::info!("[LOCK] AcquireOptions created, calling acquire()...");
-    
+
     // Try to acquire the lock
     let acquire_future = weblocks::acquire(lock_name, opts);
     log::info!("[LOCK] acquire() called, awaiting future...");
-    
+
     let guard_result = acquire_future.await;
-    log::info!("[LOCK] acquire() future resolved: {:?}", guard_result.is_ok());
-    
+    log::info!(
+        "[LOCK] acquire() future resolved: {:?}",
+        guard_result.is_ok()
+    );
+
     let _guard = guard_result.map_err(|e| {
         log::error!("[LOCK] Failed to acquire lock: {:?}", e);
         e
     })?;
-    
+
     log::info!("[LOCK] ===== LOCK ACQUIRED, EXECUTING WORK =====");
-    
+
     // Execute the work while holding the lock
     let result = f().await;
-    
+
     log::info!("[LOCK] ===== WORK COMPLETED: {:?} =====", result.is_ok());
-    
+
     // Lock is released when _guard is dropped
     result
 }
