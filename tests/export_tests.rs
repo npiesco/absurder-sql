@@ -594,7 +594,7 @@ fn test_export_size_limit_configurable() {
     assert!(result.is_ok(), "Should pass with 5GB limit");
 
     // Should error with lower custom limit (1GB)
-    let result = validate_export_size(size_3gb, Some(1 * 1024 * 1024 * 1024));
+    let result = validate_export_size(size_3gb, Some(1024 * 1024 * 1024));
     assert!(result.is_err(), "Should error with 1GB limit");
 }
 
@@ -860,13 +860,13 @@ async fn test_concurrent_export_attempts() {
     for block_id in 1..NUM_BLOCKS {
         let mut block = vec![0u8; BLOCK_SIZE];
         let pattern = block_id as u8;
-        for i in 0..BLOCK_SIZE {
-            block[i] = pattern.wrapping_add((i % 256) as u8);
+        for (i, byte) in block.iter_mut().enumerate() {
+            *byte = pattern.wrapping_add((i % 256) as u8);
         }
         storage
             .write_block(block_id, block)
             .await
-            .expect(&format!("write block {}", block_id));
+            .unwrap_or_else(|_| panic!("write block {}", block_id));
     }
 
     storage.sync().await.expect("sync storage");
@@ -888,7 +888,7 @@ async fn test_concurrent_export_attempts() {
             // Each task gets its own BlockStorage instance
             let mut task_storage = BlockStorage::new(&db_name_clone)
                 .await
-                .expect(&format!("Task {} create storage", task_id));
+                .unwrap_or_else(|_| panic!("Task {} create storage", task_id));
 
             // Perform export
             let export_result = export_database_to_bytes(&mut task_storage, None).await;

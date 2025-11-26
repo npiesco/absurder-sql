@@ -1,9 +1,7 @@
-/**
- * Test to reproduce RefCell reentrancy panic during nested storage access
- *
- * This test simulates what happens when SQLite's prepare_statement triggers
- * a VFS read while already holding a borrow on storage.
- */
+//! Test to reproduce RefCell reentrancy panic during nested storage access
+//!
+//! This test simulates what happens when SQLite's prepare_statement triggers
+//! a VFS read while already holding a borrow on storage.
 
 #[cfg(test)]
 mod refcell_reentrancy_tests {
