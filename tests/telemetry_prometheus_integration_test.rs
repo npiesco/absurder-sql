@@ -109,7 +109,7 @@ fn test_all_dashboard_metrics_are_exposed() {
     for line in prometheus_output.lines() {
         if !line.starts_with('#') && !line.is_empty() {
             // Extract metric name (before '{' or ' ')
-            if let Some(metric_name) = line.split(|c| c == '{' || c == ' ').next() {
+            if let Some(metric_name) = line.split(['{', ' ']).next() {
                 // Get base name without suffixes
                 let base_name = metric_name
                     .trim_end_matches("_bucket")
