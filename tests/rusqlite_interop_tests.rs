@@ -5,9 +5,6 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-// Use rusqlite (with sqlcipher feature enabled by Cargo.toml when encryption feature is on)
-use rusqlite;
-
 use absurder_sql::storage::export::validate_sqlite_file;
 use absurder_sql::storage::import::import_database_from_bytes;
 use absurder_sql::storage::vfs_sync::with_global_storage;
