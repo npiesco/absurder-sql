@@ -139,31 +139,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Debug npmrc and auth
-        run: |
-          echo "=== .npmrc files ==="
-          echo "--- Repo .npmrc ---"
-          cat .npmrc 2>/dev/null || echo "(none)"
-          echo "--- Temp .npmrc ---"
-          cat /home/runner/work/_temp/.npmrc 2>/dev/null || echo "(none)"
-          echo "--- User .npmrc ---"
-          cat ~/.npmrc 2>/dev/null || echo "(none)"
-          echo ""
-          echo "=== npm config ==="
-          npm config list
-          echo ""
-          echo "=== Environment ==="
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
-          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}"
 
       - name: Build WASM
         run: npm run build
 
       - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ''
+          NPM_CONFIG_USERCONFIG: ''
         run: |
           set +e
+          # Clear any auth that might interfere with OIDC
+          rm -f ~/.npmrc /home/runner/work/_temp/.npmrc 2>/dev/null || true
           npm publish --access public --provenance
           EXIT_CODE=$?
           set -e
