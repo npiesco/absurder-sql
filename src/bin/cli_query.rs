@@ -60,10 +60,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("   No tables found");
                 } else {
                     for row in result.rows {
-                        if let Some(first_val) = row.values.get(0) {
-                            if let ColumnValue::Text(name) = first_val {
-                                println!("   • {}", name);
-                            }
+                        if let Some(ColumnValue::Text(name)) = row.values.first() {
+                            println!("   • {}", name);
                         }
                     }
                 }
@@ -75,10 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .await?;
 
                 for row in result.rows {
-                    if let Some(first_val) = row.values.get(0) {
-                        if let ColumnValue::Text(sql) = first_val {
-                            println!("{}\n", sql);
-                        }
+                    if let Some(ColumnValue::Text(sql)) = row.values.first() {
+                        println!("{}\n", sql);
                     }
                 }
             }

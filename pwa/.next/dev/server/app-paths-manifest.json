@@ -1,8 +1,0 @@
-{
-  "/_not-found/page": "app/_not-found/page.js",
-  "/db/page": "app/db/page.js",
-  "/db/query/page": "app/db/query/page.js",
-  "/db/schema/page": "app/db/schema/page.js",
-  "/db/search/page": "app/db/search/page.js",
-  "/page": "app/page.js"
-}

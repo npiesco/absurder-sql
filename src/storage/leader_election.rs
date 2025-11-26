@@ -266,34 +266,30 @@ impl LeaderElectionManager {
                 }
 
                 // Check if someone else already claimed leadership (atomic check-and-set)
-                if let Ok(existing_leader) = storage.get_item(&leader_key) {
-                    if let Some(existing_data) = existing_leader {
-                        if let Some(colon_pos) = existing_data.rfind(':') {
-                            let existing_leader_id = &existing_data[..colon_pos];
-                            if let Ok(existing_timestamp) =
-                                existing_data[colon_pos + 1..].parse::<u64>()
+                if let Ok(Some(existing_data)) = storage.get_item(&leader_key) {
+                    if let Some(colon_pos) = existing_data.rfind(':') {
+                        let existing_leader_id = &existing_data[..colon_pos];
+                        if let Ok(existing_timestamp) =
+                            existing_data[colon_pos + 1..].parse::<u64>()
+                        {
+                            let existing_lease_expired = (current_time - existing_timestamp) > 5000;
+
+                            if !force
+                                && !existing_lease_expired
+                                && existing_leader_id != my_instance_id
                             {
-                                let existing_lease_expired =
-                                    (current_time - existing_timestamp) > 5000;
+                                // Someone else is already leader and lease is valid (and we're not forcing)
+                                log::debug!(
+                                    "{} already claimed leadership for {}",
+                                    existing_leader_id,
+                                    db_name
+                                );
 
-                                if !force
-                                    && !existing_lease_expired
-                                    && existing_leader_id != my_instance_id
-                                {
-                                    // Someone else is already leader and lease is valid (and we're not forcing)
-                                    log::debug!(
-                                        "{} already claimed leadership for {}",
-                                        existing_leader_id,
-                                        db_name
-                                    );
-
-                                    let mut state = self.state.borrow_mut();
-                                    state.is_leader = false;
-                                    state.leader_id = Some(existing_leader_id.to_string());
-                                    state.lease_expiry =
-                                        existing_timestamp + self.lease_duration_ms;
-                                    return Ok(());
-                                }
+                                let mut state = self.state.borrow_mut();
+                                state.is_leader = false;
+                                state.leader_id = Some(existing_leader_id.to_string());
+                                state.lease_expiry = existing_timestamp + self.lease_duration_ms;
+                                return Ok(());
                             }
                         }
                     }

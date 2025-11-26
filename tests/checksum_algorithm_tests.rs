@@ -265,7 +265,7 @@ async fn test_missing_algo_field_fallbacks_to_default_on_next_write() {
         for ent in entries.iter_mut() {
             if let Some(arr) = ent.as_array_mut() {
                 if let (Some(id), Some(obj)) = (
-                    arr.get(0).and_then(|x| x.as_u64()),
+                    arr.first().and_then(|x| x.as_u64()),
                     arr.get_mut(1).and_then(|x| x.as_object_mut()),
                 ) {
                     if id == 1 {
@@ -335,7 +335,7 @@ async fn test_invalid_algo_string_tolerant_restore_and_fallback_per_entry() {
         for ent in entries.iter_mut() {
             if let Some(arr) = ent.as_array_mut() {
                 if let (Some(id), Some(obj)) = (
-                    arr.get(0).and_then(|x| x.as_u64()),
+                    arr.first().and_then(|x| x.as_u64()),
                     arr.get_mut(1).and_then(|x| x.as_object_mut()),
                 ) {
                     if id == 10 {
@@ -408,7 +408,7 @@ async fn test_algo_mismatch_triggers_verification_error() {
         for ent in entries.iter_mut() {
             if let Some(arr) = ent.as_array_mut() {
                 if let (Some(id), Some(obj)) = (
-                    arr.get(0).and_then(|x| x.as_u64()),
+                    arr.first().and_then(|x| x.as_u64()),
                     arr.get_mut(1).and_then(|x| x.as_object_mut()),
                 ) {
                     if id == 5 {

@@ -105,9 +105,7 @@ pub fn read_block_sync_impl(
         // Verify checksum even for cached data to catch corruption
         // Skip block 0 as it's the SQLite header which can be modified by SQLite
         if block_id != 0 {
-            if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-                return Err(e);
-            }
+            storage.verify_against_stored_checksum(block_id, &data)?
         }
         // Only update LRU when close to capacity to avoid O(n) overhead on every read
         // This maintains correctness for eviction while optimizing hot-path performance
@@ -249,9 +247,7 @@ pub fn read_block_sync_impl(
                 )
             })?;
             lock_mutex!(storage.cache).insert(block_id, data.clone());
-            if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-                return Err(e);
-            }
+            storage.verify_against_stored_checksum(block_id, &data)?;
             storage.touch_lru(block_id);
             storage.evict_if_needed();
             return Ok(data);
@@ -260,12 +256,10 @@ pub fn read_block_sync_impl(
         // and avoids depending on allocated_blocks for read behavior.
         let data = vec![0; BLOCK_SIZE];
         lock_mutex!(storage.cache).insert(block_id, data.clone());
-        if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-            return Err(e);
-        }
+        storage.verify_against_stored_checksum(block_id, &data)?;
         storage.touch_lru(block_id);
         storage.evict_if_needed();
-        return Ok(data);
+        Ok(data)
     }
 
     // For native tests, check test-global storage for persistence across instances (when fs_persist disabled)
@@ -781,11 +775,12 @@ fn write_block_impl_inner(
     #[cfg(feature = "telemetry")]
     if let Some(ref metrics) = storage.metrics {
         // Update storage bytes gauge
-        let total_bytes: usize = storage.cache.values().map(|v| v.len()).sum();
+        let cache_guard = storage.cache.lock();
+        let total_bytes: usize = cache_guard.values().map(|v| v.len()).sum();
         metrics.storage_bytes().set(total_bytes as f64);
 
         // Update cache size bytes gauge
-        let cache_bytes: usize = storage.cache.len() * BLOCK_SIZE;
+        let cache_bytes: usize = cache_guard.len() * BLOCK_SIZE;
         metrics.cache_size_bytes().set(cache_bytes as f64);
     }
 

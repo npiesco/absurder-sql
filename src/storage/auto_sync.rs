@@ -156,7 +156,10 @@ impl super::BlockStorage {
                             );
                             let (response_sender, response_receiver) =
                                 tokio::sync::oneshot::channel();
-                            if let Err(_) = sync_sender.send(SyncRequest::Timer(response_sender)) {
+                            if sync_sender
+                                .send(SyncRequest::Timer(response_sender))
+                                .is_err()
+                            {
                                 log::error!("Failed to send timer sync request - channel closed");
                                 break;
                             } else {
@@ -347,8 +350,9 @@ impl super::BlockStorage {
                                 );
                                 let (response_sender, response_receiver) =
                                     tokio::sync::oneshot::channel();
-                                if let Err(_) =
-                                    sync_sender.send(SyncRequest::Timer(response_sender))
+                                if sync_sender
+                                    .send(SyncRequest::Timer(response_sender))
+                                    .is_err()
                                 {
                                     log::error!(
                                         "Failed to send timer sync request - channel closed"
@@ -400,8 +404,9 @@ impl super::BlockStorage {
                                         );
                                         let (response_sender, response_receiver) =
                                             tokio::sync::oneshot::channel();
-                                        if let Err(_) =
-                                            sync_sender.send(SyncRequest::Debounce(response_sender))
+                                        if sync_sender
+                                            .send(SyncRequest::Debounce(response_sender))
+                                            .is_err()
                                         {
                                             log::error!(
                                                 "Failed to send debounce sync request - channel closed"

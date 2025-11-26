@@ -57,16 +57,16 @@ impl<'conn> PreparedStatement<'conn> {
                     }
                     Ok(Row { values })
                 })
-                .map_err(|e| DatabaseError::from(e))?;
+                .map_err(DatabaseError::from)?;
 
             for row in rows {
-                result.rows.push(row.map_err(|e| DatabaseError::from(e))?);
+                result.rows.push(row.map_err(DatabaseError::from)?);
             }
         } else {
             // Execute non-SELECT query (INSERT, UPDATE, DELETE)
             self.stmt
                 .execute(params_from_iter(rusqlite_params.iter()))
-                .map_err(|e| DatabaseError::from(e))?;
+                .map_err(DatabaseError::from)?;
 
             // Note: Cannot get affected_rows or last_insert_id from Statement
             // These require access to the Connection which we don't have here
@@ -142,14 +142,14 @@ impl SqliteIndexedDB {
             }
 
             // Open SQLite connection with real file
-            let connection = Connection::open(&db_file_path).map_err(|e| DatabaseError::from(e))?;
+            let connection = Connection::open(&db_file_path).map_err(DatabaseError::from)?;
 
             log::info!(
                 "Native database opened with filesystem persistence: {:?}",
                 db_file_path
             );
 
-            return Self::configure_connection(connection, vfs, config, storage);
+            Self::configure_connection(connection, vfs, config, storage)
         }
 
         // Without fs_persist: use in-memory database
@@ -361,14 +361,12 @@ impl SqliteIndexedDB {
                 self.transaction_depth -= 1;
                 log::debug!("Transaction COMMIT, depth now: {}", self.transaction_depth);
             }
-        } else if trimmed_sql.starts_with("rollback") {
-            if self.transaction_depth > 0 {
-                self.transaction_depth -= 1;
-                log::debug!(
-                    "Transaction ROLLBACK, depth now: {}",
-                    self.transaction_depth
-                );
-            }
+        } else if trimmed_sql.starts_with("rollback") && self.transaction_depth > 0 {
+            self.transaction_depth -= 1;
+            log::debug!(
+                "Transaction ROLLBACK, depth now: {}",
+                self.transaction_depth
+            );
         }
 
         // Sync to IndexedDB after write operations, but ONLY if not in a transaction
@@ -514,7 +512,7 @@ impl SqliteIndexedDB {
             }
 
             // Open SQLite connection with encrypted file
-            let connection = Connection::open(&db_file_path).map_err(|e| DatabaseError::from(e))?;
+            let connection = Connection::open(&db_file_path).map_err(DatabaseError::from)?;
 
             // Set encryption key using PRAGMA key
             // Escape single quotes in the key
@@ -556,7 +554,7 @@ impl SqliteIndexedDB {
                 db_file_path
             );
 
-            return Self::configure_connection(connection, vfs, config, storage);
+            Self::configure_connection(connection, vfs, config, storage)
         }
 
         // Without fs_persist: use in-memory database with encryption

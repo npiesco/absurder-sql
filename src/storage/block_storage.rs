@@ -53,21 +53,19 @@ pub struct RecoveryOptions {
     pub on_corruption: CorruptionAction,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum RecoveryMode {
+    #[default]
     Full,
-    Sample { count: usize },
+    Sample {
+        count: usize,
+    },
     Skip,
 }
 
-impl Default for RecoveryMode {
-    fn default() -> Self {
-        RecoveryMode::Full
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum CorruptionAction {
+    #[default]
     Report,
     Repair,
     Fail,
@@ -78,12 +76,6 @@ pub enum CrashRecoveryAction {
     NoActionNeeded,
     Rollback,
     Finalize,
-}
-
-impl Default for CorruptionAction {
-    fn default() -> Self {
-        CorruptionAction::Report
-    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -506,7 +498,7 @@ impl BlockStorage {
                             for entry in entries {
                                 if let Some(arr) = entry.as_array() {
                                     if let (Some(block_id), Some(obj)) = (
-                                        arr.get(0).and_then(|v| v.as_u64()),
+                                        arr.first().and_then(|v| v.as_u64()),
                                         arr.get(1).and_then(|v| v.as_object()),
                                     ) {
                                         if let Some(checksum) =
@@ -560,7 +552,7 @@ impl BlockStorage {
                             for entry in entries {
                                 if let Some(arr) = entry.as_array() {
                                     if let (Some(block_id), Some(obj)) = (
-                                        arr.get(0).and_then(|v| v.as_u64()),
+                                        arr.first().and_then(|v| v.as_u64()),
                                         arr.get(1).and_then(|v| v.as_object()),
                                     ) {
                                         let algo = obj
@@ -2305,13 +2297,13 @@ impl BlockStorage {
     #[cfg(feature = "telemetry")]
     pub fn new_for_test() -> Self {
         Self {
-            cache: HashMap::new(),
+            cache: Mutex::new(HashMap::new()),
             dirty_blocks: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-            allocated_blocks: HashSet::new(),
-            deallocated_blocks: HashSet::new(),
-            next_block_id: 1,
+            allocated_blocks: Mutex::new(HashSet::new()),
+            deallocated_blocks: Mutex::new(HashSet::new()),
+            next_block_id: AtomicU64::new(1),
             capacity: 128,
-            lru_order: VecDeque::new(),
+            lru_order: Mutex::new(VecDeque::new()),
             checksum_manager: crate::storage::metadata::ChecksumManager::new(
                 crate::storage::metadata::ChecksumAlgorithm::FastHash,
             ),

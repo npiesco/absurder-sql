@@ -174,8 +174,9 @@ impl super::BlockStorage {
                 );
                 let mut alloc_path = db_dir.clone();
                 alloc_path.push("allocations.json");
-                let mut alloc = FsAlloc::default();
-                alloc.allocated = allocated.iter().cloned().collect();
+                let mut alloc = FsAlloc {
+                    allocated: allocated.iter().cloned().collect(),
+                };
                 alloc.allocated.sort_unstable();
                 if let Ok(mut f) = fs::File::create(&alloc_path) {
                     let _ = f.write_all(
@@ -193,7 +194,7 @@ impl super::BlockStorage {
                             .iter()
                             .filter_map(|ent| {
                                 ent.as_array()
-                                    .and_then(|arr| arr.get(0))
+                                    .and_then(|arr| arr.first())
                                     .and_then(|v| v.as_u64())
                             })
                             .collect()
@@ -667,7 +668,7 @@ impl super::BlockStorage {
                     if let Some(arr) = ent.as_array() {
                         if arr.len() == 2 {
                             if let (Some(id), Some(obj)) = (
-                                arr.get(0).and_then(|v| v.as_u64()),
+                                arr.first().and_then(|v| v.as_u64()),
                                 arr.get(1).and_then(|v| v.as_object()),
                             ) {
                                 map.insert(id, obj.clone());
@@ -699,10 +700,7 @@ impl super::BlockStorage {
                     let mut obj = serde_json::Map::new();
                     obj.insert("checksum".into(), serde_json::Value::from(checksum));
                     obj.insert("last_modified_ms".into(), serde_json::Value::from(now_ms));
-                    obj.insert(
-                        "version".into(),
-                        serde_json::Value::from(version_u64 as u64),
-                    );
+                    obj.insert("version".into(), serde_json::Value::from(version_u64));
                     obj.insert("algo".into(), serde_json::Value::String(algo_str.into()));
                     map.insert(*block_id, obj);
                 }
@@ -751,8 +749,9 @@ impl super::BlockStorage {
             // Mirror allocations.json to current allocated set
             let mut alloc_path = db_dir.clone();
             alloc_path.push("allocations.json");
-            let mut alloc = FsAlloc::default();
-            alloc.allocated = allocated.iter().cloned().collect();
+            let mut alloc = FsAlloc {
+                allocated: allocated.iter().cloned().collect(),
+            };
             alloc.allocated.sort_unstable();
             if let Ok(mut f) = fs::File::create(&alloc_path) {
                 let _ = f.write_all(
@@ -811,7 +810,7 @@ impl super::BlockStorage {
                     let mut alt_block_file = alt_blocks_dir.clone();
                     alt_block_file.push(format!("block_{}.bin", block_id));
                     if let Ok(mut f) = fs::File::create(&alt_block_file) {
-                        let _ = f.write_all(&data);
+                        let _ = f.write_all(data);
                     }
                 }
                 // Save metadata mirror

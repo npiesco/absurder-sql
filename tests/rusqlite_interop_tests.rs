@@ -5,11 +5,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-// Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
-#[cfg(feature = "encryption")]
-use rusqlite_sqlcipher as rusqlite;
-
-#[cfg(not(feature = "encryption"))]
+// Use rusqlite (with sqlcipher feature enabled by Cargo.toml when encryption feature is on)
 use rusqlite;
 
 use absurder_sql::storage::export::validate_sqlite_file;

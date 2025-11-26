@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 /// Represents a recorded span with its metadata
@@ -67,7 +68,7 @@ impl Sampler {
     ///
     /// sample_rate: 0.0 to 1.0 (e.g., 0.1 = 10% of spans recorded)
     pub fn probability(sample_rate: f64) -> Self {
-        let rate = sample_rate.max(0.0).min(1.0); // Clamp to [0, 1]
+        let rate = sample_rate.clamp(0.0, 1.0);
         Self {
             sample_rate: rate,
             always_sample_errors: false,
@@ -85,10 +86,8 @@ impl Sampler {
     /// Uses deterministic hashing based on span name for consistent sampling decisions
     pub fn should_sample(&self, span_name: &str, attributes: &HashMap<String, String>) -> bool {
         // Always sample errors if configured
-        if self.always_sample_errors {
-            if attributes.get("error").is_some() {
-                return true;
-            }
+        if self.always_sample_errors && attributes.get("error").is_some() {
+            return true;
         }
 
         // Always on/off
@@ -232,16 +231,16 @@ impl Default for SpanRecorder {
 /// Also manages baggage (key-value pairs) that propagate across span boundaries.
 #[derive(Clone)]
 pub struct SpanContext {
-    span_stack: Arc<RefCell<Vec<String>>>,
-    baggage: Arc<RefCell<HashMap<String, String>>>,
+    span_stack: Rc<RefCell<Vec<String>>>,
+    baggage: Rc<RefCell<HashMap<String, String>>>,
 }
 
 impl SpanContext {
     /// Create a new span context
     pub fn new() -> Self {
         Self {
-            span_stack: Arc::new(RefCell::new(Vec::new())),
-            baggage: Arc::new(RefCell::new(HashMap::new())),
+            span_stack: Rc::new(RefCell::new(Vec::new())),
+            baggage: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 

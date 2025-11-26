@@ -68,7 +68,7 @@ pub async fn perform_startup_recovery(
                     for entry in entries {
                         if let Some(arr) = entry.as_array() {
                             if arr.len() == 2 {
-                                if let Some(block_id) = arr.get(0).and_then(|v| v.as_u64()) {
+                                if let Some(block_id) = arr.first().and_then(|v| v.as_u64()) {
                                     let bpath = blocks_dir.join(format!("block_{}.bin", block_id));
                                     match std::fs::metadata(&bpath) {
                                         Ok(meta) => {
@@ -123,7 +123,7 @@ pub async fn perform_startup_recovery(
                             if let Some(arr) = entry.as_array() {
                                 if arr.len() == 2 {
                                     if let (Some(bid), Some(meta)) = (
-                                        arr.get(0).and_then(|v| v.as_u64()),
+                                        arr.first().and_then(|v| v.as_u64()),
                                         arr.get(1).and_then(|v| v.as_object()),
                                     ) {
                                         if let Some(csum) =
@@ -180,7 +180,7 @@ pub async fn perform_startup_recovery(
                         entries_val = entries;
                         for entry in entries_val.iter() {
                             if let Some(arr) = entry.as_array() {
-                                if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                                if let Some(id) = arr.first().and_then(|v| v.as_u64()) {
                                     meta_ids.insert(id);
                                 }
                             }
@@ -240,7 +240,7 @@ pub async fn perform_startup_recovery(
         if before_len > 0 {
             entries_val.retain(|entry| {
                 if let Some(arr) = entry.as_array() {
-                    if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                    if let Some(id) = arr.first().and_then(|v| v.as_u64()) {
                         let p = blocks_dir.join(format!("block_{}.bin", id));
                         match fs::metadata(&p) {
                             Ok(meta) => {
@@ -295,7 +295,7 @@ pub async fn perform_startup_recovery(
         if meta_changed {
             for entry in entries_val.iter() {
                 if let Some(arr) = entry.as_array() {
-                    if let Some(id) = arr.get(0).and_then(|v| v.as_u64()) {
+                    if let Some(id) = arr.first().and_then(|v| v.as_u64()) {
                         kept_ids.insert(id);
                     }
                 }
@@ -330,7 +330,7 @@ pub async fn perform_startup_recovery(
                 for entry in entries.iter() {
                     if let Some(arr) = entry.as_array() {
                         if let (Some(bid), Some(meta)) = (
-                            arr.get(0).and_then(|v| v.as_u64()),
+                            arr.first().and_then(|v| v.as_u64()),
                             arr.get(1).and_then(|v| v.as_object()),
                         ) {
                             if let Some(csum) = meta.get("checksum").and_then(|v| v.as_u64()) {

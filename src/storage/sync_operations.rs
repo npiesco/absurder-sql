@@ -112,7 +112,7 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
     // Call the existing fs_persist implementation for native builds
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     {
-        return storage.fs_persist_sync();
+        storage.fs_persist_sync()
     }
 
     // For native non-fs_persist builds (test/debug only), use simple in-memory sync with commit marker handling

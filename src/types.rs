@@ -15,10 +15,10 @@ pub struct DatabaseConfig {
     ///
     /// Options:
     /// - "MEMORY" (default): Fast in-memory journaling, optimal browser performance
-    /// - "WAL": Write-Ahead Logging with full shared memory support
-    ///          Set `journal_mode: Some("WAL".to_string())` to enable
-    ///          Note: WAL has overhead in concurrent operations but provides
-    ///          better crash recovery and allows concurrent reads
+    /// - "WAL": Write-Ahead Logging with full shared memory support.
+    ///   Set `journal_mode: Some("WAL".to_string())` to enable.
+    ///   Note: WAL has overhead in concurrent operations but provides
+    ///   better crash recovery and allows concurrent reads.
     /// - "DELETE": Traditional rollback journal
     ///
     /// Example enabling WAL:
@@ -133,7 +133,10 @@ impl ColumnValue {
                     }
                 }
                 // Check if it might be a BigInt (large number as string)
-                if s.len() > 18 && s.chars().all(|c| c.is_digit(10) || c == '-' || c == '+') {
+                if s.len() > 18
+                    && s.chars()
+                        .all(|c| c.is_ascii_digit() || c == '-' || c == '+')
+                {
                     return ColumnValue::BigInt(s.clone());
                 }
                 ColumnValue::Text(s.clone())
@@ -153,7 +156,7 @@ impl ColumnValue {
             ColumnValue::Date(ts) => {
                 // Convert timestamp to ISO string
                 let dt = time::OffsetDateTime::from_unix_timestamp_nanos((*ts as i128) * 1_000_000)
-                    .unwrap_or_else(|_| time::OffsetDateTime::UNIX_EPOCH);
+                    .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
                 let formatted = dt
                     .format(&time::format_description::well_known::Rfc3339)
                     .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());

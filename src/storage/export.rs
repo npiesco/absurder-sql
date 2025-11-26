@@ -128,7 +128,7 @@ pub fn parse_sqlite_header(data: &[u8]) -> Result<(usize, u32), DatabaseError> {
     };
 
     // Validate page size is a power of 2 between 512 and 65536
-    if page_size < 512 || page_size > 65536 || !page_size.is_power_of_two() {
+    if !(512..=65536).contains(&page_size) || !page_size.is_power_of_two() {
         return Err(DatabaseError::new(
             "INVALID_PAGE_SIZE",
             &format!(
@@ -269,7 +269,7 @@ pub fn validate_sqlite_file(data: &[u8]) -> Result<(), DatabaseError> {
     };
 
     // Validate page size is power of 2 and within valid range
-    if page_size < MIN_PAGE_SIZE || page_size > MAX_PAGE_SIZE {
+    if !(MIN_PAGE_SIZE..=MAX_PAGE_SIZE).contains(&page_size) {
         return Err(DatabaseError::new(
             "INVALID_PAGE_SIZE",
             &format!(
@@ -418,7 +418,7 @@ async fn export_database_to_bytes_impl(
         page_count,
         total_db_size
     );
-    let total_blocks = ((total_db_size + BLOCK_SIZE as u64 - 1) / BLOCK_SIZE as u64) as u64;
+    let total_blocks = total_db_size.div_ceil(BLOCK_SIZE as u64);
 
     // Build list of block IDs to read
     let block_ids: Vec<u64> = (0..total_blocks).collect();
@@ -462,7 +462,7 @@ async fn export_database_to_bytes_impl(
     // Concatenate all blocks
     let mut result = Vec::with_capacity(total_db_size as usize);
     for (i, block) in blocks.iter().enumerate() {
-        result.extend_from_slice(&block);
+        result.extend_from_slice(block);
         #[cfg(target_arch = "wasm32")]
         if i < 5 {
             web_sys::console::log_1(
@@ -599,7 +599,7 @@ async fn export_database_with_options_impl(
         total_db_size
     );
 
-    let total_blocks = ((total_db_size + BLOCK_SIZE as u64 - 1) / BLOCK_SIZE as u64) as u64;
+    let total_blocks = total_db_size.div_ceil(BLOCK_SIZE as u64);
     let chunk_size = options.chunk_size_bytes.unwrap_or(DEFAULT_CHUNK_SIZE);
     let blocks_per_chunk = (chunk_size / BLOCK_SIZE as u64).max(1);
 

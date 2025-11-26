@@ -213,7 +213,7 @@ pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<
     }
 
     // Step 4: Split data into BLOCK_SIZE chunks
-    let total_blocks = (data.len() + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    let total_blocks = data.len().div_ceil(BLOCK_SIZE);
     log::debug!(
         "Splitting {} bytes into {} blocks of {} bytes",
         data.len(),

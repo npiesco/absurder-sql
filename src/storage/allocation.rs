@@ -283,7 +283,7 @@ pub async fn deallocate_block_impl(
         if let Some(entries) = meta_val.get_mut("entries").and_then(|v| v.as_array_mut()) {
             entries.retain(|ent| {
                 ent.as_array()
-                    .and_then(|arr| arr.get(0))
+                    .and_then(|arr| arr.first())
                     .and_then(|v| v.as_u64())
                     .map(|bid| bid != block_id)
                     .unwrap_or(true)
