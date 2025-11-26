@@ -2,13 +2,6 @@
 //!
 //! Tests for importing SQLite .db files into IndexedDB storage.
 
-// Conditional rusqlite import: use SQLCipher version if encryption feature is enabled
-#[cfg(all(not(target_arch = "wasm32"), feature = "encryption"))]
-use rusqlite_sqlcipher as rusqlite;
-
-#[cfg(all(not(target_arch = "wasm32"), not(feature = "encryption")))]
-use rusqlite;
-
 // ============================================================================
 // CORE IMPORT TESTS
 // ============================================================================
@@ -175,8 +168,8 @@ fn test_import_database_with_padding() {
     data[28..32].copy_from_slice(&[0, 0, 0, 3]); // 3 pages
 
     // Fill with non-zero data
-    for i in 100..6144 {
-        data[i] = (i % 256) as u8;
+    for (i, byte) in data.iter_mut().enumerate().take(6144).skip(100) {
+        *byte = (i % 256) as u8;
     }
 
     let result = futures::executor::block_on(import_database_from_bytes(db_name, data.clone()));
@@ -272,9 +265,7 @@ fn test_import_cache_invalidation_api_exists() {
     // The function should be callable and not panic
     let db_name = "test_invalidate_api";
     invalidate_block_storage_caches(db_name);
-
-    // If we get here, the API exists
-    assert!(true, "Cache invalidation API should exist");
+    // If we get here without panic, the API exists and works
 }
 
 // ============================================================================
@@ -335,7 +326,7 @@ async fn test_export_import_export_identical() {
         .await
         .expect("export database 1");
 
-    assert!(export1.len() > 0, "Export 1 should not be empty");
+    assert!(!export1.is_empty(), "Export 1 should not be empty");
     assert_eq!(
         export1.len(),
         12288,
@@ -436,14 +427,14 @@ async fn test_import_large_database() {
 
         // Add some data pattern based on block ID to make it realistic
         let pattern = (block_id % 256) as u8;
-        for i in 8..BLOCK_SIZE {
-            block[i] = pattern.wrapping_add((i % 256) as u8);
+        for (i, byte) in block.iter_mut().enumerate().skip(8) {
+            *byte = pattern.wrapping_add((i % 256) as u8);
         }
 
         storage
             .write_block(block_id, block)
             .await
-            .expect(&format!("write block {}", block_id));
+            .unwrap_or_else(|_| panic!("write block {}", block_id));
     }
 
     storage.sync().await.expect("sync storage");
@@ -514,7 +505,7 @@ async fn test_import_large_database() {
         let imported_block = storage_imported
             .read_block(block_id)
             .await
-            .expect(&format!("read imported block {}", block_id));
+            .unwrap_or_else(|_| panic!("read imported block {}", block_id));
 
         // Verify block ID is correct
         let mut stored_id_bytes = [0u8; 8];

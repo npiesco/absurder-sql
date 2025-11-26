@@ -23,7 +23,7 @@ async fn test_version_and_last_modified_progression_across_syncs() {
 
     let meta_pre = storage.get_block_metadata_for_testing();
     assert!(
-        meta_pre.get(&1).is_none(),
+        !meta_pre.contains_key(&1),
         "metadata should not be persisted before sync"
     );
 
@@ -172,7 +172,7 @@ async fn test_metadata_removed_on_deallocate_persists_across_instances() {
 
         let meta_a_before = a.get_block_metadata_for_testing();
         assert!(
-            meta_a_before.get(&id).is_some(),
+            meta_a_before.contains_key(&id),
             "metadata present before deallocate"
         );
 
@@ -180,7 +180,7 @@ async fn test_metadata_removed_on_deallocate_persists_across_instances() {
 
         let meta_a_after = a.get_block_metadata_for_testing();
         assert!(
-            meta_a_after.get(&id).is_none(),
+            !meta_a_after.contains_key(&id),
             "metadata should be removed after deallocate"
         );
         id
@@ -194,7 +194,7 @@ async fn test_metadata_removed_on_deallocate_persists_across_instances() {
         b.get_block_metadata_for_testing()
     };
     assert!(
-        b_meta.get(&dealloc_id).is_none(),
+        !b_meta.contains_key(&dealloc_id),
         "metadata removal should persist across instances"
     );
 }
