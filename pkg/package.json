@@ -1,5 +1,5 @@
 {
-  "name": "absurder-sql",
+  "name": "@npiesco/absurder-sql",
   "type": "module",
   "collaborators": [
     "Nicholas G. Piesco"

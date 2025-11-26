@@ -312,11 +312,11 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__h5d89cc2ab3b3e449: (a: number, b: number, c: any) => any;
-  readonly wasm_bindgen__closure__destroy__h4d3ac454e1c5b733: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h461a9f3a02628bdb: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h4d3ac454e1c5b733: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__hddca379abe978273: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h5d89cc2ab3b3e449: (a: number, b: number, c: any) => any;
   readonly wasm_bindgen__convert__closures_____invoke__h183d48ae9af1b9ef: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
