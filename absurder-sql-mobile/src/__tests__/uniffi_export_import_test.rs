@@ -229,10 +229,17 @@ mod uniffi_export_import_tests {
         
         assert_eq!(result.rows.len(), 3, "Should have 3 blob rows");
         
-        // Verify the hex values match what we inserted
-        assert!(result.rows[0].contains("48656C6C6F"), "First blob should be 'Hello' in hex");
-        assert!(result.rows[1].contains("576F726C64"), "Second blob should be 'World' in hex");
-        assert!(result.rows[2].contains("DEADBEEF"), "Third blob should be DEADBEEF");
+        // Verify the hex values match what we inserted (typed rows)
+        use crate::uniffi_api::ColumnValue;
+        fn get_text_value(row: &crate::uniffi_api::Row, idx: usize) -> String {
+            match &row.values[idx] {
+                ColumnValue::Text { value } => value.clone(),
+                _ => String::new(),
+            }
+        }
+        assert!(get_text_value(&result.rows[0], 0).contains("48656C6C6F"), "First blob should be 'Hello' in hex");
+        assert!(get_text_value(&result.rows[1], 0).contains("576F726C64"), "Second blob should be 'World' in hex");
+        assert!(get_text_value(&result.rows[2], 0).contains("DEADBEEF"), "Third blob should be DEADBEEF");
         
         // Clean up
         close_database(restored_handle).expect("Failed to close restored database");

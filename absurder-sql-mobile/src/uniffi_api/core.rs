@@ -3,16 +3,36 @@
 /// These functions are automatically exported to TypeScript, Swift, and Kotlin
 /// using the #[uniffi::export] macro.
 
-use super::types::{DatabaseConfig, DatabaseError, QueryResult};
+use super::types::{DatabaseConfig, DatabaseError, QueryResult, Row, ColumnValue};
 use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
 #[cfg(target_os = "android")]
 use crate::registry::ANDROID_DATA_DIR;
-use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig, ColumnValue};
+use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig, ColumnValue as CoreColumnValue};
 use std::sync::Arc;
 use std::path::Path;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::path::PathBuf;
 use parking_lot::Mutex;
+
+/// Convert core library ColumnValue to mobile ColumnValue
+fn convert_column_value(core_val: &CoreColumnValue) -> ColumnValue {
+    match core_val {
+        CoreColumnValue::Null => ColumnValue::Null,
+        CoreColumnValue::Integer(i) => ColumnValue::Integer { value: *i },
+        CoreColumnValue::Real(r) => ColumnValue::Real { value: *r },
+        CoreColumnValue::Text(s) => ColumnValue::Text { value: s.clone() },
+        CoreColumnValue::Blob(b) => ColumnValue::Blob { value: b.clone() },
+        CoreColumnValue::Date(d) => ColumnValue::Integer { value: *d }, // Store dates as integer timestamps
+        CoreColumnValue::BigInt(s) => ColumnValue::Text { value: s.clone() }, // BigInt as string to preserve precision
+    }
+}
+
+/// Convert core library Row to mobile Row
+fn convert_row(core_row: &absurder_sql::Row) -> Row {
+    Row {
+        values: core_row.values.iter().map(convert_column_value).collect(),
+    }
+}
 
 /// Resolve database path to an absolute path appropriate for the platform
 /// 
@@ -141,14 +161,14 @@ pub fn execute(handle: u64, sql: String) -> Result<QueryResult, DatabaseError> {
     
     match result {
         Ok(query_result) => {
-            // Convert to QueryResult
-            let rows_json: Vec<String> = query_result.rows.iter()
-                .map(|row| serde_json::to_string(row).unwrap_or_default())
+            // Convert to typed QueryResult
+            let typed_rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
-            
+
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: rows_json,
+                rows: typed_rows,
                 rows_affected: query_result.affected_rows as u64,
             })
         }
@@ -201,9 +221,9 @@ pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Res
             .clone()
     };
     
-    // Convert string params to ColumnValue
-    let column_params: Vec<ColumnValue> = params.into_iter()
-        .map(|s| ColumnValue::Text(s))
+    // Convert string params to core ColumnValue
+    let column_params: Vec<CoreColumnValue> = params.into_iter()
+        .map(|s| CoreColumnValue::Text(s))
         .collect();
     
     // Execute parameterized query using async runtime
@@ -214,14 +234,14 @@ pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Res
     
     match result {
         Ok(query_result) => {
-            // Convert to QueryResult
-            let rows_json: Vec<String> = query_result.rows.iter()
-                .map(|row| serde_json::to_string(row).unwrap_or_default())
+            // Convert to typed QueryResult
+            let typed_rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
-            
+
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: rows_json,
+                rows: typed_rows,
                 rows_affected: query_result.affected_rows as u64,
             })
         }
@@ -990,18 +1010,18 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
                 }
             }
             
-            // Convert rows to JSON strings
-            let rows_json: Vec<String> = query_result.rows.iter()
-                .map(|row| serde_json::to_string(row).unwrap_or_default())
+            // Convert to typed rows
+            let typed_rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
-            
+
             // Convert to UniFFI QueryResult
             let uniffi_result = QueryResult {
                 columns: query_result.columns,
-                rows: rows_json,
+                rows: typed_rows,
                 rows_affected: query_result.affected_rows as u64,
             };
-            
+
             Ok(uniffi_result)
         }
         Err(e) => {
