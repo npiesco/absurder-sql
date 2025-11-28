@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(storage);
     println!("\n🔄 Reopening database from disk...");
     
-    let mut storage2 = BlockStorage::new("my_database").await?;
+    let storage2 = BlockStorage::new("my_database").await?;
     println!("Database reopened");
 
     // Read persisted data

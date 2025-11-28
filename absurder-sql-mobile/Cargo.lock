@@ -4,10 +4,11 @@ version = 4
 
 [[package]]
 name = "absurder-sql"
-version = "0.1.7"
+version = "0.1.12"
 dependencies = [
  "crc32fast",
  "futures",
+ "futures-channel",
  "getrandom 0.2.16",
  "indexed_db_futures",
  "js-sys",
@@ -26,6 +27,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "weblocks",
 ]
 
 [[package]]
@@ -1686,6 +1688,18 @@ checksum = "9367c417a924a74cae129e6a2ae3b47fabb1f8995595ab474029da749a8be120"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "weblocks"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e770224d4d61ccfd8ecc036d8f109e30d48827aafa9b2f192ebe4958391487f"
+dependencies = [
+ "futures-channel",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

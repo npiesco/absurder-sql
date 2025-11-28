@@ -1,17 +1,21 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Triggers Management E2E', () => {
+  // Unique database name per test run to avoid parallel test conflicts
+  const testDbName = `triggers-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/triggers');
     await page.waitForLoadState('networkidle');
 
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('triggers-test-db');
+      const testDb = await Database.newDatabase(dbName);
       await testDb.allowNonLeaderWrites(true);
       (window as any).testDb = testDb;
+      (window as any).testDbName = dbName;
 
       // Create test tables
       try {
@@ -65,7 +69,7 @@ test.describe('Triggers Management E2E', () => {
       `);
 
       await testDb.sync();
-    });
+    }, testDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
 
@@ -86,8 +90,9 @@ test.describe('Triggers Management E2E', () => {
   test.afterEach(async ({ page }) => {
     await page.evaluate(async () => {
       const db = (window as any).testDb;
+      const dbName = (window as any).testDbName;
       if (db) { try { await db.close(); } catch {} }
-      try { await indexedDB.deleteDatabase('triggers-test-db'); } catch {}
+      if (dbName) { try { await indexedDB.deleteDatabase(dbName); } catch {} }
     }).catch(() => {});
   });
 
@@ -413,12 +418,13 @@ test.describe('Triggers Management E2E', () => {
     await page.waitForLoadState('networkidle');
     // Re-init database after reload
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('triggers-test-db');
+      const testDb = await Database.newDatabase(dbName);
       await testDb.allowNonLeaderWrites(true);
       (window as any).testDb = testDb;
-    });
+      (window as any).testDbName = dbName;
+    }, testDbName);
 
     await expect(page.locator('text="No triggers found. Create one to get started."')).toBeVisible();
   });

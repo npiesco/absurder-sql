@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('CodeMirror SQL Editor E2E', () => {
-  let TEST_DB_NAME: string;
+  // Unique database name per test run to avoid parallel test conflicts
+  const testDbName = `codemirror-sql-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/query');
@@ -9,13 +10,23 @@ test.describe('CodeMirror SQL Editor E2E', () => {
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
     // Create database programmatically since /db/query doesn't auto-create one
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('test-db');
+      const testDb = await Database.newDatabase(dbName);
       (window as any).testDb = testDb;
-    });
+      (window as any).testDbName = dbName;
+    }, testDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
+  });
+
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(async () => {
+      const db = (window as any).testDb;
+      const dbName = (window as any).testDbName;
+      if (db) { try { await db.close(); } catch {} }
+      if (dbName) { try { await indexedDB.deleteDatabase(dbName); } catch {} }
+    }).catch(() => {});
   });
 
   test('should display CodeMirror editor', async ({ page }) => {

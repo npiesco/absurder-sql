@@ -125,11 +125,12 @@ test.describe('UI Database Workflow - REAL USER ACTIONS', () => {
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
     // Create database programmatically since /db/query doesn't auto-create one
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('test-db');
+      const testDb = await Database.newDatabase(dbName);
       (window as any).testDb = testDb;
-    });
+      (window as any).testDbName = dbName;
+    }, customDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
 

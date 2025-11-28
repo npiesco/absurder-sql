@@ -12,6 +12,12 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::BroadcastChannel;
 
+// Thread-local reentrancy guard for heartbeat closure
+// Prevents "closure invoked recursively" errors from wasm-bindgen
+thread_local! {
+    static HEARTBEAT_RUNNING: RefCell<bool> = RefCell::new(false);
+}
+
 /// Leader election state for a database instance
 #[derive(Debug, Clone)]
 pub struct LeaderElectionState {
@@ -416,6 +422,32 @@ impl LeaderElectionManager {
         let state_clone = self.state.clone();
 
         let closure = Closure::wrap(Box::new(move || {
+            // Reentrancy guard: skip if heartbeat is already running
+            // This prevents "closure invoked recursively" errors from wasm-bindgen
+            let already_running = HEARTBEAT_RUNNING.with(|running| {
+                let was_running = *running.borrow();
+                if !was_running {
+                    *running.borrow_mut() = true;
+                }
+                was_running
+            });
+
+            if already_running {
+                log::debug!("Heartbeat skipped - previous invocation still running");
+                return;
+            }
+
+            // Ensure we clear the flag when done (even on early return)
+            struct HeartbeatGuard;
+            impl Drop for HeartbeatGuard {
+                fn drop(&mut self) {
+                    HEARTBEAT_RUNNING.with(|running| {
+                        *running.borrow_mut() = false;
+                    });
+                }
+            }
+            let _guard = HeartbeatGuard;
+
             let state = state_clone.borrow();
             if state.is_leader {
                 let current_time = Date::now() as u64;

@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Schema Viewer E2E', () => {
+  // Unique database name per test run to avoid parallel test conflicts
+  const testDbName = `schema-viewer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/schema');
     await page.waitForSelector('#schemaViewer', { timeout: 10000 });
@@ -9,12 +12,13 @@ test.describe('Schema Viewer E2E', () => {
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
     // Create database programmatically since schema page needs one
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('schema-viewer-test-db');
+      const testDb = await Database.newDatabase(dbName);
       await testDb.allowNonLeaderWrites(true);
       (window as any).testDb = testDb;
-    });
+      (window as any).testDbName = dbName;
+    }, testDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
   });
@@ -23,10 +27,11 @@ test.describe('Schema Viewer E2E', () => {
     // Cleanup
     await page.evaluate(async () => {
       const db = (window as any).testDb;
+      const dbName = (window as any).testDbName;
       if (db) {
         try { await db.close(); } catch {}
       }
-      try { await indexedDB.deleteDatabase('schema-viewer-test-db'); } catch {}
+      if (dbName) { try { await indexedDB.deleteDatabase(dbName); } catch {} }
     }).catch(() => {});
   });
 

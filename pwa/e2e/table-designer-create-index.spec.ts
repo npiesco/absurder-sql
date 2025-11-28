@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Table Designer - Create Index E2E', () => {
+  // Unique database name per test run to avoid parallel test conflicts
+  const testDbName = `designer-create-index-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
+
   test.beforeEach(async ({ page }) => {
     // Go directly to designer page and let it initialize
     await page.goto('/db/designer');
@@ -10,11 +13,12 @@ test.describe('Table Designer - Create Index E2E', () => {
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
     // Create database programmatically
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('designer-create-index-test-db');
+      const testDb = await Database.newDatabase(dbName);
       await testDb.allowNonLeaderWrites(true);
       (window as any).testDb = testDb;
+      (window as any).testDbName = dbName;
 
       // Create a test table
       await testDb.execute(`DROP TABLE IF EXISTS test_create_index`);
@@ -36,7 +40,7 @@ test.describe('Table Designer - Create Index E2E', () => {
           ('John Doe', 'john@example.com', 30, 'New York', 'USA'),
           ('Jane Smith', 'jane@example.com', 25, 'London', 'UK')
       `);
-    });
+    }, testDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
 
@@ -55,10 +59,11 @@ test.describe('Table Designer - Create Index E2E', () => {
     // Cleanup
     await page.evaluate(async () => {
       const db = (window as any).testDb;
+      const dbName = (window as any).testDbName;
       if (db) {
         try { await db.close(); } catch {}
       }
-      try { await indexedDB.deleteDatabase('designer-create-index-test-db'); } catch {}
+      if (dbName) { try { await indexedDB.deleteDatabase(dbName); } catch {} }
     }).catch(() => {});
   });
 

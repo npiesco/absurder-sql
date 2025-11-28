@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-const TEST_DB_1 = 'diff_test_db1';
-const TEST_DB_2 = 'diff_test_db2';
+// Unique database names per test run to avoid parallel test conflicts
+const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const TEST_DB_1 = `diff_test_db1_${uniqueSuffix}`;
+const TEST_DB_2 = `diff_test_db2_${uniqueSuffix}`;
 
 test.describe('Schema Diff E2E', () => {
   test.beforeEach(async ({ page }) => {
@@ -171,7 +173,7 @@ test.describe('Schema Diff E2E', () => {
     // Create database programmatically since /db/query doesn't auto-create one
     await page.evaluate(async () => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('test-db');
+      const testDb = await Database.newDatabase(`schema-diff-${Date.now()}.db`);
       (window as any).testDb = testDb;
     });
 
@@ -210,7 +212,7 @@ test.describe('Schema Diff E2E', () => {
     // Create database programmatically since /db/query doesn't auto-create one
     await page.evaluate(async () => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('test-db');
+      const testDb = await Database.newDatabase(`schema-diff-${Date.now()}.db`);
       (window as any).testDb = testDb;
     });
 

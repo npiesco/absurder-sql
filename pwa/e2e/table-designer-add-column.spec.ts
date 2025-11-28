@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Table Designer - Add Column E2E', () => {
+  // Unique database name per test run to avoid parallel test conflicts
+  const testDbName = `designer-add-column-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
+
   test.beforeEach(async ({ page }) => {
     // Go directly to designer page and let it initialize
     await page.goto('/db/designer');
@@ -10,11 +13,12 @@ test.describe('Table Designer - Add Column E2E', () => {
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
     // Create database programmatically since designer page needs one
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('designer-add-column-test-db');
+      const testDb = await Database.newDatabase(dbName);
       await testDb.allowNonLeaderWrites(true);
       (window as any).testDb = testDb;
+      (window as any).testDbName = dbName;
 
       // Create a test table
       await testDb.execute(`DROP TABLE IF EXISTS test_add_column`);
@@ -24,7 +28,7 @@ test.describe('Table Designer - Add Column E2E', () => {
           name TEXT NOT NULL
         )
       `);
-    });
+    }, testDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
 
@@ -37,10 +41,11 @@ test.describe('Table Designer - Add Column E2E', () => {
     // Cleanup
     await page.evaluate(async () => {
       const db = (window as any).testDb;
+      const dbName = (window as any).testDbName;
       if (db) {
         try { await db.close(); } catch {}
       }
-      try { await indexedDB.deleteDatabase('designer-add-column-test-db'); } catch {}
+      if (dbName) { try { await indexedDB.deleteDatabase(dbName); } catch {} }
     }).catch(() => {});
   });
 

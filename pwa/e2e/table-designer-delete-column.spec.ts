@@ -1,17 +1,21 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Table Designer - Delete Column E2E', () => {
+  // Unique database name per test run to avoid parallel test conflicts
+  const testDbName = `designer-delete-column-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/db/designer');
     await page.waitForLoadState('networkidle');
 
     await page.waitForFunction(() => window.Database && typeof window.Database.newDatabase === 'function', { timeout: 10000 });
 
-    await page.evaluate(async () => {
+    await page.evaluate(async (dbName) => {
       const Database = (window as any).Database;
-      const testDb = await Database.newDatabase('designer-delete-column-test-db');
+      const testDb = await Database.newDatabase(dbName);
       await testDb.allowNonLeaderWrites(true);
       (window as any).testDb = testDb;
+      (window as any).testDbName = dbName;
 
       await testDb.execute(`DROP TABLE IF EXISTS test_delete_column`);
       await testDb.execute(`
@@ -29,7 +33,7 @@ test.describe('Table Designer - Delete Column E2E', () => {
         INSERT INTO test_delete_column (name, email, age, salary, notes, created_at)
         VALUES ('John Doe', 'john@example.com', 30, 50000.00, 'Test user', '2024-01-01')
       `);
-    });
+    }, testDbName);
 
     await page.waitForFunction(() => (window as any).testDb, { timeout: 10000 });
     await page.click('#refreshTables');
@@ -43,8 +47,9 @@ test.describe('Table Designer - Delete Column E2E', () => {
   test.afterEach(async ({ page }) => {
     await page.evaluate(async () => {
       const db = (window as any).testDb;
+      const dbName = (window as any).testDbName;
       if (db) { try { await db.close(); } catch {} }
-      try { await indexedDB.deleteDatabase('designer-delete-column-test-db'); } catch {}
+      if (dbName) { try { await indexedDB.deleteDatabase(dbName); } catch {} }
     }).catch(() => {});
   });
 
