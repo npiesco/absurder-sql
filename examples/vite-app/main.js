@@ -73,6 +73,7 @@ async function initDB() {
     
     // Expose db wrapper on window for testing
     window.db = db;
+    window.__db__ = db;  // Test parity with other e2e tests
     
     await db.init();
     
@@ -109,6 +110,9 @@ async function initDB() {
     }, 2000);
     
     status('Ready!');
+
+    // Signal that database is fully initialized for e2e tests
+    window.__db__ = db;
 }
 
 async function runTest() {

@@ -2043,12 +2043,8 @@ impl BlockStorage {
                         );
                     }
                 }
-                // Also drop the closure to release Rc references
-                if manager.heartbeat_closure.take().is_some() {
-                    web_sys::console::log_1(
-                        &format!("[DROP] Released heartbeat closure for {}", self.db_name).into(),
-                    );
-                }
+                // Note: heartbeat closure is intentionally leaked (via forget())
+                // and becomes a no-op when heartbeat_valid is set to false
             }
         } else {
             // Already borrowed (e.g., first DB is still dropping) - skip silently

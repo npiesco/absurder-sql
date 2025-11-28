@@ -5,12 +5,12 @@
  * invoked recursively if the previous tick hasn't completed. This test
  * verifies that the reentrancy guard prevents "closure invoked recursively" errors.
  */
-const { test, expect } = require('@playwright/test');
+import { test, expect } from '@playwright/test';
 
 test.describe('Heartbeat Reentrancy Guard', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the vite example app
-    await page.goto('http://localhost:5173');
+    await page.goto('http://localhost:3000');
 
     // Wait for the app to load and database to initialize
     await page.waitForFunction(() => {
