@@ -34,9 +34,14 @@ pub struct LeaderElectionManager {
     pub state: Rc<RefCell<LeaderElectionState>>,
     broadcast_channel: Option<BroadcastChannel>,
     pub heartbeat_interval: Option<i32>,
-    pub heartbeat_closure: Option<Closure<dyn FnMut()>>,
+    // NOTE: heartbeat_closure is intentionally leaked via Closure::forget()
+    // to prevent "closure invoked after being dropped" errors from pending ticks.
+    // The heartbeat_valid flag makes the leaked closure a no-op after stop.
     message_listener: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
     lease_duration_ms: u64,
+    /// Validity flag - set to false before clearing interval to prevent
+    /// leaked closure from doing any work after stop_election is called
+    heartbeat_valid: Rc<RefCell<bool>>,
 }
 
 impl LeaderElectionManager {
@@ -60,9 +65,9 @@ impl LeaderElectionManager {
             })),
             broadcast_channel: None,
             heartbeat_interval: None,
-            heartbeat_closure: None,
             message_listener: None,
             lease_duration_ms: 1000, // 1 second - fast leader election
+            heartbeat_valid: Rc::new(RefCell::new(false)),
         }
     }
 
@@ -420,8 +425,20 @@ impl LeaderElectionManager {
 
         // Now set up interval for periodic updates
         let state_clone = self.state.clone();
+        let valid_clone = self.heartbeat_valid.clone();
+
+        // Mark heartbeat as valid before starting
+        *self.heartbeat_valid.borrow_mut() = true;
 
         let closure = Closure::wrap(Box::new(move || {
+            // CRITICAL: Check validity FIRST before any other operations
+            // This prevents "closure invoked after being dropped" errors
+            // when a pending setInterval tick fires after stop_election invalidates
+            if !*valid_clone.borrow() {
+                // Heartbeat has been invalidated - don't execute
+                return;
+            }
+
             // Reentrancy guard: skip if heartbeat is already running
             // This prevents "closure invoked recursively" errors from wasm-bindgen
             let already_running = HEARTBEAT_RUNNING.with(|running| {
@@ -497,9 +514,22 @@ impl LeaderElectionManager {
                 )
             })?;
 
-        // CRITICAL: Store closure instead of forgetting it, so it can be properly cleaned up
         self.heartbeat_interval = Some(interval_id);
-        self.heartbeat_closure = Some(closure);
+
+        // CRITICAL: Intentionally leak the closure via forget() to prevent
+        // "closure invoked after being dropped" errors.
+        //
+        // When the manager is dropped:
+        // 1. heartbeat_valid is set to false (closure becomes no-op)
+        // 2. clearInterval is called (stops future scheduling)
+        // 3. But pending callbacks in JS event queue may still fire
+        // 4. Since the closure is leaked (never dropped), those callbacks
+        //    will safely invoke the Rust closure which immediately returns
+        //    due to the validity check.
+        //
+        // Trade-off: Small memory leak (~100 bytes per database) but prevents
+        // runtime errors. Databases are typically long-lived so this is acceptable.
+        closure.forget();
 
         Ok(())
     }
@@ -507,7 +537,7 @@ impl LeaderElectionManager {
     /// Stop leader election (e.g., when tab is closing)
     pub async fn stop_election(&mut self) -> Result<(), DatabaseError> {
         // CRITICAL: Check if already stopped (idempotent)
-        if self.heartbeat_interval.is_none() && self.heartbeat_closure.is_none() {
+        if self.heartbeat_interval.is_none() && !*self.heartbeat_valid.borrow() {
             web_sys::console::log_1(&"[STOP] Already stopped - skipping".into());
             return Ok(());
         }
@@ -524,7 +554,13 @@ impl LeaderElectionManager {
             was_leader
         );
 
-        // CRITICAL: Clear interval and closure FIRST to release Rc references
+        // CRITICAL: Invalidate heartbeat FIRST, before clearing interval
+        // This ensures any pending setInterval tick will bail out immediately
+        // and won't try to execute with freed resources
+        *self.heartbeat_valid.borrow_mut() = false;
+        web_sys::console::log_1(&format!("[STOP] Invalidated heartbeat for {}", db_name).into());
+
+        // Now clear interval (closure is intentionally leaked, no need to drop)
         if let Some(interval_id) = self.heartbeat_interval.take() {
             web_sys::console::log_1(
                 &format!("[STOP] Clearing interval {} for {}", interval_id, db_name).into(),
@@ -532,13 +568,6 @@ impl LeaderElectionManager {
             if let Some(window) = web_sys::window() {
                 window.clear_interval_with_handle(interval_id);
             }
-        }
-
-        // Drop the closure to release any Rc<RefCell<State>> references
-        if let Some(_closure) = self.heartbeat_closure.take() {
-            web_sys::console::log_1(
-                &format!("[STOP] Dropped heartbeat closure for {}", db_name).into(),
-            );
         }
 
         // CRITICAL: Close the BroadcastChannel to prevent test interference
@@ -724,5 +753,42 @@ impl LeaderElectionManager {
 
         // Fallback to stored value
         state.last_heartbeat
+    }
+}
+
+/// Drop implementation to prevent "closure invoked after being dropped" errors
+///
+/// CRITICAL: Invalidate heartbeat_valid BEFORE clearing interval.
+/// The heartbeat closure is intentionally leaked via forget() so it's never dropped.
+/// Any pending setInterval ticks will safely invoke the leaked closure which
+/// immediately returns due to the validity check.
+impl Drop for LeaderElectionManager {
+    fn drop(&mut self) {
+        // CRITICAL: Invalidate heartbeat FIRST - leaked closure will become no-op
+        *self.heartbeat_valid.borrow_mut() = false;
+
+        // Clear heartbeat interval (stops future scheduling)
+        if let Some(interval_id) = self.heartbeat_interval.take() {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(interval_id);
+                log::debug!(
+                    "LeaderElectionManager::drop() - Cleared heartbeat interval {}",
+                    interval_id
+                );
+            }
+        }
+
+        // Close broadcast channel
+        if let Some(channel) = self.broadcast_channel.take() {
+            channel.close();
+            log::debug!("LeaderElectionManager::drop() - Closed BroadcastChannel");
+        }
+
+        // Note: heartbeat closure is intentionally leaked (never dropped)
+        // message_listener will be dropped here
+        log::debug!(
+            "LeaderElectionManager::drop() - Cleanup complete for {}",
+            self.state.borrow().db_name
+        );
     }
 }

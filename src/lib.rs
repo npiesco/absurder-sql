@@ -1732,12 +1732,8 @@ impl Drop for Database {
                             );
                         }
                     }
-                    // Drop closure to release Rc references
-                    if manager.heartbeat_closure.take().is_some() {
-                        web_sys::console::log_1(
-                            &format!("DROP: Released heartbeat closure for {}", self.name).into(),
-                        );
-                    }
+                    // Note: heartbeat closure is intentionally leaked (via forget())
+                    // and becomes a no-op when heartbeat_valid is set to false
                 }
             } else {
                 // Manager already borrowed - skip (first DB is cleaning up)
