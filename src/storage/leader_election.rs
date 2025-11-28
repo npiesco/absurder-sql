@@ -15,7 +15,7 @@ use web_sys::BroadcastChannel;
 // Thread-local reentrancy guard for heartbeat closure
 // Prevents "closure invoked recursively" errors from wasm-bindgen
 thread_local! {
-    static HEARTBEAT_RUNNING: RefCell<bool> = RefCell::new(false);
+    static HEARTBEAT_RUNNING: RefCell<bool> = const { RefCell::new(false) };
 }
 
 /// Leader election state for a database instance
