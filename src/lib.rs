@@ -2464,8 +2464,59 @@ impl Database {
 
         log::info!("[IMPORT] Import complete for: {}", db_name);
 
-        // Note: Database connection is closed. User must create a new Database instance
-        // to use the imported data. This matches main branch behavior.
+        // Reopen the SQLite connection so this Database instance is usable after import
+        // The VFS should already exist from when the Database was first created
+        log::info!("[IMPORT] Reopening connection for: {}", db_name);
+
+        use std::ffi::CString;
+
+        let vfs_name = format!("vfs_{}", db_name.trim_end_matches(".db"));
+        let pool_key = db_name.trim_end_matches(".db").to_string();
+        let db_name_for_closure = db_name.clone();
+        let vfs_name_for_closure = vfs_name.clone();
+
+        let new_state = crate::connection_pool::get_or_create_connection(&pool_key, || {
+            let mut db = std::ptr::null_mut();
+            let db_name_cstr = CString::new(db_name_for_closure.clone())
+                .map_err(|_| "Invalid database name".to_string())?;
+            let vfs_cstr = CString::new(vfs_name_for_closure.as_str())
+                .map_err(|_| "Invalid VFS name".to_string())?;
+
+            log::info!(
+                "[IMPORT] Reopening database: {} with VFS: {}",
+                db_name_for_closure,
+                vfs_name_for_closure
+            );
+
+            let ret = unsafe {
+                sqlite_wasm_rs::sqlite3_open_v2(
+                    db_name_cstr.as_ptr(),
+                    &mut db as *mut _,
+                    sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
+                    vfs_cstr.as_ptr(),
+                )
+            };
+
+            if ret != sqlite_wasm_rs::SQLITE_OK {
+                let err_msg = unsafe {
+                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
+                    if !msg_ptr.is_null() {
+                        std::ffi::CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+                    } else {
+                        "Unknown error".to_string()
+                    }
+                };
+                return Err(format!("Failed to reopen database after import: {}", err_msg));
+            }
+
+            log::info!("[IMPORT] Database reopened successfully");
+            Ok(db)
+        })
+        .map_err(|e| JsValue::from_str(&format!("Failed to reopen connection after import: {}", e)))?;
+
+        // Update our connection state to use the new connection
+        self.connection_state = new_state;
+        log::info!("[IMPORT] Connection state updated for: {}", db_name);
 
         Ok(())
     }

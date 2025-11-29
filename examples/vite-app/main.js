@@ -64,6 +64,7 @@ async function initDB() {
     
     // Expose Database class on window IMMEDIATELY after init
     window.Database = Database;
+    window.__Database__ = Database;  // Also expose for e2e tests
     
     status('Creating multi-tab database...');
     db = new MultiTabDatabase(Database, 'vite_example', {
