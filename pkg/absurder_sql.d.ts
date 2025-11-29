@@ -45,13 +45,13 @@ export class Database {
   static newDatabase(name: string): Promise<Database>;
   /**
    * Get all database names stored in IndexedDB
-   * 
+   *
    * Returns an array of database names (sorted alphabetically)
    */
   static getAllDatabases(): Promise<any>;
   /**
    * Delete a database from storage
-   * 
+   *
    * Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
    */
   static deleteDatabase(name: string): Promise<void>;
@@ -69,10 +69,10 @@ export class Database {
   allowNonLeaderWrites(allow: boolean): Promise<void>;
   /**
    * Export database to SQLite .db file format
-   * 
+   *
    * Returns the complete database as a Uint8Array that can be downloaded
    * or saved as a standard SQLite .db file.
-   * 
+   *
    * # Example
    * ```javascript
    * const dbBytes = await db.exportToFile();
@@ -91,17 +91,17 @@ export class Database {
   testLock(value: number): Promise<number>;
   /**
    * Import SQLite database from .db file bytes
-   * 
+   *
    * Replaces the current database contents with the imported data.
    * This will close the current database connection and clear all existing data.
-   * 
+   *
    * # Arguments
    * * `file_data` - SQLite .db file as Uint8Array
-   * 
+   *
    * # Returns
    * * `Ok(())` - Import successful
    * * `Err(JsValue)` - Import failed (invalid file, validation error, etc.)
-   * 
+   *
    * # Example
    * ```javascript
    * // From file input
@@ -109,12 +109,12 @@ export class Database {
    * const file = fileInput.files[0];
    * const arrayBuffer = await file.arrayBuffer();
    * const uint8Array = new Uint8Array(arrayBuffer);
-   * 
+   *
    * await db.importFromFile(uint8Array);
-   * 
+   *
    * // Database is now replaced - you may need to reopen connections
    * ```
-   * 
+   *
    * # Warning
    * This operation is destructive and will replace all existing database data.
    * **IMPORTANT:** You MUST call `db.close()` after import and reopen the database
@@ -135,20 +135,20 @@ export class Database {
   getLeaderInfo(): Promise<any>;
   /**
    * Queue a write operation to be executed by the leader
-   * 
+   *
    * Non-leader tabs can use this to request writes from the leader.
    * The write is forwarded via BroadcastChannel and executed by the leader.
-   * 
+   *
    * # Arguments
    * * `sql` - SQL statement to execute (must be a write operation)
-   * 
+   *
    * # Returns
    * Result indicating success or failure
    */
   queueWrite(sql: string): Promise<void>;
   /**
    * Queue a write operation with a specific timeout
-   * 
+   *
    * # Arguments
    * * `sql` - SQL statement to execute
    * * `timeout_ms` - Timeout in milliseconds
@@ -312,12 +312,12 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__h461a9f3a02628bdb: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h4d3ac454e1c5b733: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h45ca8537bced54cf: (a: number, b: number) => void;
+  readonly wasm_bindgen__closure__destroy__h1bdc4c88d9245273: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h4968394a90516284: (a: number, b: number, c: any) => any;
+  readonly wasm_bindgen__convert__closures_____invoke__h4627e3cad3262c1b: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__hddca379abe978273: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h5d89cc2ab3b3e449: (a: number, b: number, c: any) => any;
-  readonly wasm_bindgen__convert__closures_____invoke__h183d48ae9af1b9ef: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
