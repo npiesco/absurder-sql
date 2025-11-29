@@ -2501,18 +2501,25 @@ impl Database {
                 let err_msg = unsafe {
                     let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
                     if !msg_ptr.is_null() {
-                        std::ffi::CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+                        std::ffi::CStr::from_ptr(msg_ptr)
+                            .to_string_lossy()
+                            .into_owned()
                     } else {
                         "Unknown error".to_string()
                     }
                 };
-                return Err(format!("Failed to reopen database after import: {}", err_msg));
+                return Err(format!(
+                    "Failed to reopen database after import: {}",
+                    err_msg
+                ));
             }
 
             log::info!("[IMPORT] Database reopened successfully");
             Ok(db)
         })
-        .map_err(|e| JsValue::from_str(&format!("Failed to reopen connection after import: {}", e)))?;
+        .map_err(|e| {
+            JsValue::from_str(&format!("Failed to reopen connection after import: {}", e))
+        })?;
 
         // Update our connection state to use the new connection
         self.connection_state = new_state;
