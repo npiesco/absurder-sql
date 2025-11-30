@@ -63,12 +63,11 @@ const file = fileInput.files[0];
 const arrayBuffer = await file.arrayBuffer();
 const uint8Array = new Uint8Array(arrayBuffer);
 
-// Import (this closes the current connection)
+// Import and use immediately (no reopen needed)
 let db = await Database.newDatabase('myapp.db');
 await db.importFromFile(uint8Array);
 
-// Reopen to use imported data
-db = await Database.newDatabase('myapp.db');
+// Database is immediately usable after import
 const result = await db.execute('SELECT * FROM users');
 console.log(result.rows);
 
@@ -115,28 +114,25 @@ Imports a database from a standard SQLite file, replacing all existing data.
 
 **Behavior**:
 - **Destructive operation**: Replaces ALL existing database data
-- Closes the current database connection
+- Temporarily closes and reopens the database connection internally
 - Validates SQLite file header before import
 - Uses export/import lock to prevent concurrent operations (30 second timeout)
-- Clears all caches and forces fresh reload on next open
-- Database must be reopened after import to query data
+- Clears all caches and forces fresh reload
+- Database is immediately usable after import (no reopen needed)
 
 **Example**:
 ```javascript
 let db = await Database.newDatabase('myapp.db');
 await db.importFromFile(uint8Array);
-// db connection is now closed
 
-// Reopen to use imported data
-db = await Database.newDatabase('myapp.db');
+// Database is immediately usable after import
+const result = await db.execute('SELECT * FROM imported_table');
 ```
 
 **Throws**:
 - `DatabaseError` if file is not a valid SQLite database
 - `DatabaseError` if import/export lock acquisition times out
 - `DatabaseError` if SQLite import operation fails
-
-**Important**: Always reopen the database after import - the connection is closed automatically.
 
 ---
 
@@ -167,11 +163,12 @@ The exported file is a **standard SQLite 3 database file** that can be:
 4. Clear all IndexedDB storage for this database
 5. Write imported blocks to IndexedDB
 6. Clear all caches (LRU, checksums, metadata)
-7. Set up fresh metadata (version=1, commit_marker=1)
-8. Release lock
+7. Reopen database connection internally
+8. Set up fresh metadata (version=1, commit_marker=1)
+9. Release lock
 ```
 
-After import, you **must reopen** the database to access the imported data.
+The database is immediately usable after import completes.
 
 ### Locking Mechanism
 
@@ -247,12 +244,10 @@ async function importWithValidation(file) {
         const uint8Array = new Uint8Array(arrayBuffer);
         
         // Import
-        let db = await Database.newDatabase('myapp.db');
+        const db = await Database.newDatabase('myapp.db');
         await db.importFromFile(uint8Array);
-        
-        // Reopen
-        db = await Database.newDatabase('myapp.db');
-        
+
+        // Database is immediately usable after import
         // Verify import
         const result = await db.execute("SELECT name FROM sqlite_master WHERE type='table'");
         console.log('Imported tables:', result.rows.map(r => r.values[0].value));
@@ -281,11 +276,10 @@ async function testRoundtrip() {
     await db1.close();
     
     // Import to new database
-    let db2 = await Database.newDatabase('imported.db');
+    const db2 = await Database.newDatabase('imported.db');
     await db2.importFromFile(exported);
-    
-    // Reopen and verify
-    db2 = await Database.newDatabase('imported.db');
+
+    // Verify (no reopen needed)
     const result = await db2.execute('SELECT COUNT(*) as count FROM test');
     const count = result.rows[0].values[0].value;
     
@@ -324,11 +318,10 @@ async function restoreBackup() {
     const backupData = new Uint8Array(storedBackup.data);
     
     // Restore database
-    let db = await Database.newDatabase('app_data.db');
+    const db = await Database.newDatabase('app_data.db');
     await db.importFromFile(backupData);
-    
-    // Reopen and verify
-    db = await Database.newDatabase('app_data.db');
+
+    // Verify restoration (no reopen needed)
     const result = await db.execute('SELECT COUNT(*) as count FROM users');
     console.log(`Restored ${result.rows[0].values[0].value} records`);
     
@@ -340,17 +333,16 @@ async function restoreBackup() {
 
 ## Best Practices
 
-### 1. Always Close Before Import
+### 1. Database is Usable Immediately After Import
 
-Import automatically closes the database connection. Always reopen:
+Import automatically handles connection management internally. No manual reopen is needed:
 
 ```javascript
-let db = await Database.newDatabase('myapp.db');
+const db = await Database.newDatabase('myapp.db');
 await db.importFromFile(data);
-// db is now closed!
 
-// REQUIRED: Reopen to use
-db = await Database.newDatabase('myapp.db');
+// Database is immediately usable
+const result = await db.execute('SELECT * FROM imported_table');
 ```
 
 ### 2. Handle Export Size Limits
@@ -527,17 +519,20 @@ await db.importFromFile(uint8Array);
 
 ### Import Completes But Data is Missing
 
-**Cause**: Forgot to reopen database after import
+**Cause**: Import failed silently or imported wrong file
 
 **Solution**:
 ```javascript
-let db = await Database.newDatabase('myapp.db');
-await db.importFromFile(data);
-// db is closed here!
+const db = await Database.newDatabase('myapp.db');
 
-// MUST reopen:
-db = await Database.newDatabase('myapp.db');
-const result = await db.execute('SELECT * FROM users');
+try {
+    await db.importFromFile(data);
+    // Verify the import succeeded
+    const result = await db.execute("SELECT name FROM sqlite_master WHERE type='table'");
+    console.log('Imported tables:', result.rows.map(r => r.values[0].value));
+} catch (error) {
+    console.error('Import failed:', error.message);
+}
 ```
 
 ### Out of Memory During Export

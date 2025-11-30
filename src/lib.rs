@@ -2417,13 +2417,12 @@ impl Database {
     ///
     /// await db.importFromFile(uint8Array);
     ///
-    /// // Database is now replaced - you may need to reopen connections
+    /// // Database is immediately usable after import (no reopen needed)
+    /// const result = await db.execute('SELECT * FROM imported_table');
     /// ```
     ///
     /// # Warning
     /// This operation is destructive and will replace all existing database data.
-    /// **IMPORTANT:** You MUST call `db.close()` after import and reopen the database
-    /// for changes to take effect.
     #[wasm_bindgen(js_name = "importFromFile")]
     pub async fn import_from_file(&mut self, file_data: js_sys::Uint8Array) -> Result<(), JsValue> {
         log::info!("[IMPORT] Starting import with lock for: {}", self.name);

@@ -112,13 +112,12 @@ export class Database {
    *
    * await db.importFromFile(uint8Array);
    *
-   * // Database is now replaced - you may need to reopen connections
+   * // Database is immediately usable after import (no reopen needed)
+   * const result = await db.execute('SELECT * FROM imported_table');
    * ```
    *
    * # Warning
    * This operation is destructive and will replace all existing database data.
-   * **IMPORTANT:** You MUST call `db.close()` after import and reopen the database
-   * for changes to take effect.
    */
   importFromFile(file_data: Uint8Array): Promise<void>;
   /**
@@ -312,10 +311,10 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__h45ca8537bced54cf: (a: number, b: number) => void;
-  readonly wasm_bindgen__closure__destroy__h1bdc4c88d9245273: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h4968394a90516284: (a: number, b: number, c: any) => any;
-  readonly wasm_bindgen__convert__closures_____invoke__h4627e3cad3262c1b: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__hdb81571fda85014e: (a: number, b: number, c: any) => any;
+  readonly wasm_bindgen__closure__destroy__h65ab4603c6af79ea: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h4cdac4f455882175: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h2c14621d0df4fe02: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__hddca379abe978273: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f: (a: number, b: number, c: any, d: any) => void;

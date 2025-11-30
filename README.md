@@ -356,8 +356,8 @@ const file = document.getElementById('fileInput').files[0];
 const arrayBuffer = await file.arrayBuffer();
 await db.importFromFile(new Uint8Array(arrayBuffer));
 
-// Reopen to use imported data
-const db2 = await Database.newDatabase('myapp.db');
+// Database is immediately usable after import (no reopen needed)
+const result = await db.execute('SELECT * FROM users');
 ```
 
 ### Interactive Demos
