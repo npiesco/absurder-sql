@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useDatabaseStore } from '@/lib/db/store';
+import { saveBackup, loadBackup, clearBackup } from '@/lib/db/backup';
 
 export default function DatabaseManagementPage() {
   const { db, currentDbName, loading, status, tableCount, showSystemTables, _hasHydrated, setDb, setCurrentDbName, setLoading, setStatus, setTableCount, setShowSystemTables } = useDatabaseStore();
@@ -59,24 +60,53 @@ export default function DatabaseManagementPage() {
   useEffect(() => {
     const Database = (window as any).Database;
     console.log('[PWA] loadDatabase useEffect triggered', { wasmReady, hasHydrated: _hasHydrated, hasDb: !!db, currentDbName });
-    
+
     // CRITICAL: Wait for BOTH WASM init AND Zustand hydration before loading database
     if (!wasmReady || !_hasHydrated || db) return;
 
     async function loadDatabase() {
       try {
-        if (currentDbName) {
-          console.log(`[PWA] Restoring database from localStorage: ${currentDbName}`);
+        // CRITICAL: Check for backup FIRST before trying VFS-based restore
+        // This avoids sync() corruption issues
+        console.log('[PWA] Step 1: Checking for backup...');
+        const backup = await loadBackup();
+
+        if (backup) {
+          console.log(`[PWA] Step 2: Found backup for ${backup.dbName}, restoring...`);
+
+          // Create temp database for import
+          const tempDb = await Database.newDatabase(backup.dbName);
+
+          // Import backup data
+          await tempDb.importFromFile(backup.data);
+          console.log('[PWA] Step 3: Backup imported, closing temp connection...');
+
+          // Close temp database (importFromFile can corrupt WASM state)
+          await tempDb.close();
+
+          // Reopen fresh connection
+          console.log('[PWA] Step 4: Reopening with fresh connection...');
+          const dbInstance = await Database.newDatabase(backup.dbName);
+
+          setDb(dbInstance);
+          setCurrentDbName(backup.dbName);
+          (window as any).testDb = dbInstance;
+
+          console.log(`[PWA] Database restored from backup: ${backup.dbName}`);
+          setStatus(`Restored: ${backup.dbName}`);
+        } else if (currentDbName) {
+          // No backup, try VFS-based restore (fallback)
+          console.log(`[PWA] No backup found, trying VFS restore: ${currentDbName}`);
           const dbInstance = await Database.newDatabase(currentDbName);
           console.log('[PWA] Database.newDatabase() returned successfully');
-          
+
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
-          
-          console.log(`[PWA] Database restored successfully: ${currentDbName}`);
+
+          console.log(`[PWA] Database restored from VFS: ${currentDbName}`);
           setStatus(`Loaded: ${currentDbName}`);
         } else {
-          console.log('[PWA] No currentDbName in localStorage');
+          console.log('[PWA] No backup and no currentDbName - fresh start');
           setStatus('Create or import a database to get started');
         }
       } catch (err: any) {
@@ -88,6 +118,40 @@ export default function DatabaseManagementPage() {
     loadDatabase();
   }, [wasmReady, _hasHydrated, currentDbName]);
 
+  // CRITICAL: Persist database to IndexedDB before page unload/refresh
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleBeforeUnload = async () => {
+      console.log('[PWA] Page unloading, saving backup and closing database');
+      if (db && currentDbName) {
+        try {
+          // Save backup before closing (sync pattern)
+          await saveBackup(db, currentDbName);
+        } catch (err) {
+          console.error('[PWA] Error saving backup on unload:', err);
+        }
+        // Then close as fallback
+        db.close().catch((err: Error) => {
+          console.error('[PWA] Error closing database on unload:', err);
+        });
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Also close on component unmount
+      if (db) {
+        console.log('[PWA] Component unmounting, closing database');
+        db.close().catch((err: Error) => {
+          console.error('[PWA] Error closing database on unmount:', err);
+        });
+      }
+    };
+  }, [db, currentDbName]);
+
   const handleCreateDatabase = async () => {
     const Database = (window as any).Database;
     if (!newDbName.trim() || !Database) return;
@@ -97,16 +161,19 @@ export default function DatabaseManagementPage() {
       if (db) {
         await db.close();
       }
-      
+
       // Normalize database name (add .db if not present)
       const normalizedName = newDbName.endsWith('.db') ? newDbName : `${newDbName}.db`;
-      
+
       // Create new database
       const newDb = await Database.newDatabase(normalizedName);
       setDb(newDb);
       setCurrentDbName(normalizedName);
       (window as any).testDb = newDb;
-      
+
+      // Save backup immediately
+      await saveBackup(newDb, normalizedName);
+
       setStatus(`Database created: ${normalizedName}`);
       setCreateDialogOpen(false);
       setNewDbName('');
@@ -152,28 +219,32 @@ export default function DatabaseManagementPage() {
       // Read file as array buffer
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
-      
+
       // Close existing database if one is open
       if (db) {
         await db.close();
       }
-      
+
       // Use the imported filename as database name (remove path, keep extension)
       const dbName = file.name;
-      
+
       // Create new database instance
       const newDb = await Database.newDatabase(dbName);
-      
+
       // Import the data
       await newDb.importFromFile(uint8Array);
-      
-      // Close and reopen
+
+      // Close and reopen (importFromFile can corrupt WASM state)
       await newDb.close();
       const reopenedDb = await Database.newDatabase(dbName);
-      
+
       setDb(reopenedDb);
       setCurrentDbName(dbName);
       (window as any).testDb = reopenedDb;
+
+      // Save backup immediately after import
+      await saveBackup(reopenedDb, dbName);
+
       setStatus('Import complete');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -229,15 +300,18 @@ export default function DatabaseManagementPage() {
 
     try {
       await db.close();
-      
+
       // Delete using WASM API which cleans up all storage
       await Database.deleteDatabase(currentDbName);
-      
+
+      // Clear backup as well
+      await clearBackup();
+
       // Clear state - don't auto-create a new database
       setDb(null);
       setCurrentDbName('');
       (window as any).testDb = null;
-      
+
       setStatus('Database deleted - create or import a new database');
       setDeleteDialogOpen(false);
     } catch (err: any) {
@@ -272,23 +346,35 @@ export default function DatabaseManagementPage() {
     }
 
     const Database = (window as any).Database;
-    if (!db || !Database) {
-      setStatus('Error: Database not initialized');
+    if (!Database) {
+      setStatus('Error: WASM not initialized');
       return;
     }
 
     try {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
-      
-      await db.close();
-      const newDb = await Database.newDatabase(currentDbName);
+
+      // Close existing database if open
+      if (db) {
+        await db.close();
+      }
+
+      // Use dropped file's name as database name
+      const dbName = file.name;
+
+      const newDb = await Database.newDatabase(dbName);
       await newDb.importFromFile(uint8Array);
       await newDb.close();
-      
-      const reopenedDb = await Database.newDatabase(currentDbName);
+
+      const reopenedDb = await Database.newDatabase(dbName);
       setDb(reopenedDb);
+      setCurrentDbName(dbName);
       (window as any).testDb = reopenedDb;
+
+      // Save backup immediately after drop import
+      await saveBackup(reopenedDb, dbName);
+
       setStatus('Import complete');
       setSelectedFile(null);
     } catch (err: any) {
