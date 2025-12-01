@@ -15,8 +15,9 @@
 [![SQLite](https://img.shields.io/badge/sqlite-embedded-blue)](https://www.sqlite.org/)
 [![IndexedDB](https://img.shields.io/badge/indexeddb-browser-green)](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
 
-**Capabilities:**  
+**Capabilities:**
 [![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
+[![Mobile](https://img.shields.io/badge/mobile-iOS%20%2B%20Android-61dafb)](absurder-sql-mobile/)
 [![Export/Import](https://img.shields.io/badge/export%2Fimport-full%20portability-success)](docs/EXPORT_IMPORT.md)
 [![Telemetry](https://img.shields.io/badge/telemetry-optional-lightgrey)](#telemetry-optional)
 [![Prometheus](https://img.shields.io/badge/prometheus-metrics-orange)](monitoring/prometheus/)
@@ -39,10 +40,11 @@ But AbsurderSQL takes it further: it's **absurdly better**. Unlike absurd-sql, y
 
 ### Why AbsurderSQL?
 
-A high-performance **dual-mode** Rust library that brings full SQLite functionality to **both browsers and native applications**:
+A high-performance **tri-mode** Rust library that brings full SQLite functionality to **browsers, native applications, and mobile devices**:
 
 - **Browser (WASM)**: SQLite → IndexedDB with multi-tab coordination, Web Worker support, and full export/import
 - **Native/CLI**: SQLite → Real filesystem with traditional `.db` files
+- **Mobile (React Native)**: SQLite → Device filesystem via UniFFI with SQLCipher encryption for iOS and Android
 
 **Unique Advantages:** 
 
@@ -52,9 +54,9 @@ Export/import databases as standard SQLite files (absurd-sql has no export/impor
 
 Enabling production-ready SQL operations with crash consistency, multi-tab coordination, complete data portability, optional observability, and the flexibility to run anywhere from web apps to server applications.
 
-## Dual-Mode Architecture
+## Tri-Mode Architecture
 
-AbsurderSQL runs in **two modes** - Browser (WASM) and Native (Rust CLI/Server):
+AbsurderSQL runs in **three modes** - Browser (WASM), Native (Rust CLI/Server), and Mobile (React Native):
 ```mermaid
 graph TB
     subgraph "Browser Environment (WASM)"
@@ -65,6 +67,11 @@ graph TB
     subgraph "Native Environment (Rust)"
         CLI["CLI/Server<br/>Application"]
         NATIVE_DB["Native Database API<br/>(database.rs)"]
+    end
+
+    subgraph "Mobile Environment (React Native)"
+        RN["React Native App<br/>(TypeScript)"]
+        UNIFFI["UniFFI Bridge<br/>(Swift/Kotlin)"]
     end
     
     subgraph "AbsurderSQL Core (Rust)"
@@ -103,6 +110,11 @@ graph TB
         FILESYSTEM["Filesystem<br/>(Traditional .db files)"]
         BLOCKS["./absurdersql_storage/<br/>database.sqlite + blocks/"]
     end
+
+    subgraph "Mobile Persistence"
+        DEVICE_FS["Device Filesystem<br/>(iOS/Android Storage)"]
+        SQLCIPHER["SQLCipher<br/>(AES-256 Encryption)"]
+    end
     
     subgraph "Telemetry Stack (optional --features telemetry)"
         PROM["Prometheus<br/>(Metrics)"]
@@ -116,6 +128,8 @@ graph TB
     WASM -->|calls| DB
     CLI -->|execute/query| NATIVE_DB
     NATIVE_DB -->|SQL| SQLITE
+    RN -->|execute/query| UNIFFI
+    UNIFFI -->|calls| DB
     DB -->|SQL| SQLITE
     DB -->|exportToFile| EXPORT
     DB -->|importFromFile| IMPORT
@@ -130,6 +144,8 @@ graph TB
     BS -->|"WASM mode"| INDEXEDDB
     BS -->|"Native mode"| FILESYSTEM
     NATIVE_DB -->|"fs_persist"| BLOCKS
+    UNIFFI -->|"Mobile mode"| DEVICE_FS
+    DEVICE_FS -->|"encryption"| SQLCIPHER
     BS -->|metrics| OBS
     LEADER -->|atomic ops| LOCALSTORAGE
     LEADER -->|notify| BCAST
@@ -167,14 +183,18 @@ graph TB
     style LOCALSTORAGE fill:#d1d5db,stroke:#333,color:#000
     style FILESYSTEM fill:#d1d5db,stroke:#333,color:#000
     style BLOCKS fill:#d1d5db,stroke:#333,color:#000
+    style RN fill:#61dafb,stroke:#333,color:#000
+    style UNIFFI fill:#10b981,stroke:#333,color:#fff
+    style DEVICE_FS fill:#d1d5db,stroke:#333,color:#000
+    style SQLCIPHER fill:#f59e0b,stroke:#333,color:#000
     style OTEL fill:#d1d5db,stroke:#333,color:#000
     style ALERTS fill:#d1d5db,stroke:#333,color:#000
     style DEVTOOLS fill:#d1d5db,stroke:#333,color:#000
 ```
 
-**Legend:**  
-🟪 SQLite Engine • 🟦 VFS Layer • 🟨 BlockStorage • 🟩 Persistence • 🟥 Multi-Tab  
-🟫 Observability • ⬛ Prometheus • 🟧 Grafana
+**Legend:**
+🟪 SQLite Engine • 🟦 VFS Layer • 🟨 BlockStorage • 🟩 Persistence • 🟥 Multi-Tab
+🟫 Observability • ⬛ Prometheus • 🟧 Grafana • 🩵 React Native • 🟢 UniFFI
 
 ## Project Structure
 
@@ -247,12 +267,16 @@ absurder-sql/
 │
 ├── docs/                   # Comprehensive documentation
 │   ├── EXPORT_IMPORT.md    # Export/import guide (DATABASE PORTABILITY)
-│   ├── DUAL_MODE.md        # Dual-mode persistence guide
+│   ├── DUAL_MODE.md        # Tri-mode persistence guide
 │   ├── MULTI_TAB_GUIDE.md  # Multi-tab coordination
 │   ├── TRANSACTION_SUPPORT.md # Transaction handling
 │   ├── BENCHMARK.md        # Performance benchmarks
+│   ├── ENCRYPTION.md       # SQLCipher encryption guide
 │   ├── CODING_STANDARDS.md # Development best practices
-│   └── REMAINING_UNWRAPS.md # Unwrap safety analysis
+│   ├── REMAINING_UNWRAPS.md # Unwrap safety analysis
+│   └── mobile/             # Mobile-specific documentation
+│       ├── INSTRUCTIONS.md     # Mobile build instructions
+│       └── MOBILE_BENCHMARK.md # Mobile performance benchmarks
 │
 ├── monitoring/             # Production observability (optional --features telemetry)
 │   ├── grafana/            # Pre-built Grafana dashboards
@@ -272,6 +296,19 @@ absurder-sql/
 │   ├── icons/              # Extension icons (16, 48, 128)
 │   ├── README.md           # Extension features and architecture
 │   └── INSTALLATION.md     # Installation guide
+│
+├── absurder-sql-mobile/    # React Native bindings (iOS + Android)
+│   ├── src/
+│   │   ├── uniffi_api/     # UniFFI exported functions
+│   │   │   ├── core.rs     # 20 exported database functions
+│   │   │   └── types.rs    # QueryResult, DatabaseConfig, etc.
+│   │   ├── AbsurderDatabase.ts  # High-level TypeScript API
+│   │   └── lib.rs          # Crate entry point
+│   ├── android/            # Android-specific (Kotlin bindings, SQLCipher libs)
+│   ├── ios/                # iOS-specific (Swift bindings)
+│   ├── react-native/       # Test app for iOS/Android
+│   ├── scripts/            # Build helper scripts
+│   └── README.md           # Mobile setup guide
 │
 ├── pkg/                    # WASM build output (generated)
 ├── Cargo.toml             # Rust dependencies and config
@@ -424,7 +461,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-absurder-sql = "0.1.7"
+absurder-sql = "0.1.23"
 ```
 
 Or use cargo:
@@ -757,7 +794,61 @@ cargo run --bin cli_query --features fs_persist -- ".schema"
 
 **Data Location:** `./absurdersql_storage/<db_name>/database.sqlite`
 
-See [**docs/DUAL_MODE.md**](docs/DUAL_MODE.md) for complete dual-mode guide.
+See [**docs/DUAL_MODE.md**](docs/DUAL_MODE.md) for complete tri-mode guide.
+
+### Mobile Usage (React Native)
+
+AbsurderSQL Mobile provides native SQLite for iOS and Android via UniFFI-generated bindings:
+
+```typescript
+import { AbsurderDatabase, openDatabase } from 'absurder-sql-mobile';
+
+// Simple usage with high-level API
+const db = await openDatabase({
+  name: 'myapp.db',
+  encryption: { key: 'my-secret-key' },  // Optional SQLCipher encryption
+  cacheSize: 20000,    // 20K pages (~80MB cache)
+  journalMode: 'WAL',  // Write-ahead logging
+});
+
+// Execute queries
+await db.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+await db.execute("INSERT INTO users VALUES (1, 'Alice')");
+
+// Query with parameters
+const result = await db.executeWithParams(
+  'SELECT * FROM users WHERE id = ?',
+  [1]
+);
+console.log(result.rows);        // [{ id: 1, name: 'Alice' }]
+console.log(result.lastInsertId); // Last inserted row ID
+console.log(result.executionTimeMs); // Query timing
+
+// Transactions
+await db.transaction(async () => {
+  await db.execute("INSERT INTO users VALUES (2, 'Bob')");
+  await db.execute("INSERT INTO users VALUES (3, 'Charlie')");
+});
+
+// Streaming for large datasets
+for await (const row of db.executeStream('SELECT * FROM large_table')) {
+  console.log(row);
+}
+
+// Export/Import
+await db.exportToFile('/path/to/backup.db');
+await db.importFromFile('/path/to/restore.db');
+
+await db.close();
+```
+
+**Features:**
+- SQLCipher AES-256 encryption (iOS uses CommonCrypto, Android uses pre-built OpenSSL)
+- Prepared statements, batch operations, streaming queries
+- Full export/import for backup/restore
+- Type-safe from Rust to TypeScript via UniFFI
+
+**Setup:** See [**absurder-sql-mobile/README.md**](absurder-sql-mobile/README.md) for build instructions.
 
 ## Performance Features
 
@@ -1019,8 +1110,9 @@ Both projects share core concepts:
 | Feature | **absurd-sql** | **AbsurderSQL** |
 |---------|----------------|--------------|
 | **Engine** | sql.js (Emscripten) | sqlite-wasm-rs (Rust C API) |
-| **Language** | JavaScript | Rust/WASM |
-| **Platform** | **Browser only** | **Browser + Native/CLI** |
+| **Language** | JavaScript | Rust/WASM/UniFFI |
+| **Platform** | **Browser only** | **Browser + Native + Mobile** |
+| **Mobile Support** | **Not supported** | iOS + Android via UniFFI |
 | **Storage** | Variable SQLite pages (8KB suggested) | Fixed 4KB blocks |
 | **Worker** | Optional (fallback mode works on main thread) | Optional (works on main thread) |
 | **SharedArrayBuffer** | Optional (faster with SAB, fallback without) | Not used |
@@ -1194,12 +1286,18 @@ cargo test --features fs_persist "$@"
 
 ### User Guides
 - **[Export/Import Guide](docs/EXPORT_IMPORT.md)** - **DATABASE PORTABILITY** - Complete export/import reference (HUGE advantage over absurd-sql)
-- **[Dual-Mode Persistence Guide](docs/DUAL_MODE.md)** - Browser + Native filesystem support
+- **[Tri-Mode Persistence Guide](docs/DUAL_MODE.md)** - Browser + Native + Mobile filesystem support
 - **[Multi-Tab Coordination Guide](docs/MULTI_TAB_GUIDE.md)** - Complete guide for multi-tab coordination
 - **[Transaction Support](docs/TRANSACTION_SUPPORT.md)** - Transaction handling and multi-tab transactions
+- **[Encryption Guide](docs/ENCRYPTION.md)** - SQLCipher AES-256 encryption setup
 - **[Benchmark Results](docs/BENCHMARK.md)** - Performance comparisons and metrics
 - **[Demo Guide](examples/DEMO_GUIDE.md)** - How to run the interactive demos
 - **[Vite App Example](examples/vite-app/README.md)** - Production-ready multi-tab application
+
+### Mobile (React Native)
+- **[Mobile Setup Guide](absurder-sql-mobile/README.md)** - Complete iOS and Android build instructions
+- **[Mobile Build Instructions](docs/mobile/INSTRUCTIONS.md)** - Detailed mobile build process
+- **[Mobile Benchmarks](docs/mobile/MOBILE_BENCHMARK.md)** - Performance comparisons on iOS/Android
 
 ### Development & Quality
 - **[Coding Standards](docs/CODING_STANDARDS.md)** - Best practices, error handling, and testing requirements
