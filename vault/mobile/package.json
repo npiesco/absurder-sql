@@ -1,0 +1,41 @@
+{
+  "name": "absurder-sql-vault-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "test": "jest",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
+  },
+  "dependencies": {
+    "absurder-sql-mobile": "file:../../absurder-sql-mobile/react-native",
+    "react": "^19.0.0",
+    "react-native": "^0.78.0",
+    "react-native-keychain": "^9.2.3",
+    "react-native-document-picker": "^10.0.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "@babel/runtime": "^7.26.0",
+    "@react-native/babel-preset": "^0.78.0",
+    "@react-native/eslint-config": "^0.78.0",
+    "@react-native/metro-config": "^0.78.0",
+    "@react-native/typescript-config": "^0.78.0",
+    "@types/react": "^19.0.0",
+    "@types/react-test-renderer": "^19.0.0",
+    "babel-jest": "^29.7.0",
+    "eslint": "^9.0.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.4.0",
+    "react-test-renderer": "^19.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
