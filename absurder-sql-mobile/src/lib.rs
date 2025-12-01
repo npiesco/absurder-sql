@@ -95,3 +95,15 @@ mod uniffi_encryption_blocking_test;
 #[cfg(all(test, feature = "uniffi-bindings"))]
 #[path = "__tests__/uniffi_row_columnvalue_test.rs"]
 mod uniffi_row_columnvalue_test;
+
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_queryresult_fields_test.rs"]
+mod uniffi_queryresult_fields_test;
+
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_prepared_statement_result_test.rs"]
+mod uniffi_prepared_statement_result_test;
+
+#[cfg(all(test, feature = "uniffi-bindings"))]
+#[path = "__tests__/uniffi_databaseconfig_test.rs"]
+mod uniffi_databaseconfig_test;

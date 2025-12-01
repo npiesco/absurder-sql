@@ -17,6 +17,10 @@ mod uniffi_transactions_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_tx_commit_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -58,6 +62,10 @@ mod uniffi_transactions_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_tx_rollback_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -99,6 +107,10 @@ mod uniffi_transactions_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_tx_nested_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");

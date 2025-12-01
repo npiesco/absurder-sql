@@ -17,6 +17,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_basic_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -60,6 +64,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_large_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -105,6 +113,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_where_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -137,6 +149,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_empty_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -170,6 +186,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_invalid_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -194,6 +214,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_batch_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -229,6 +253,10 @@ mod uniffi_streaming_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_stream_close_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let db_handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");

@@ -17,6 +17,10 @@ mod uniffi_create_async_tests {
         let config = DatabaseConfig {
             name: format!("timing_test_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let start = Instant::now();

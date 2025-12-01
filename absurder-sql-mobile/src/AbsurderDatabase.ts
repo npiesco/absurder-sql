@@ -9,6 +9,8 @@ export interface QueryResult {
   columns: string[];
   rows: Array<Record<string, any>>;
   rowsAffected: number;
+  lastInsertId: number | null;
+  executionTimeMs: number;
 }
 
 export interface EncryptionConfig {
@@ -18,6 +20,14 @@ export interface EncryptionConfig {
 export interface DatabaseConfig {
   name: string;
   encryption?: EncryptionConfig;
+  /** Cache size in pages */
+  cacheSize?: number;
+  /** Page size in bytes (typically 4096) */
+  pageSize?: number;
+  /** Journal mode: "MEMORY", "WAL", "DELETE" */
+  journalMode?: string;
+  /** Enable auto-vacuum to keep database compact */
+  autoVacuum?: boolean;
 }
 
 export interface StreamOptions {
@@ -30,16 +40,50 @@ export interface Migration {
   down: string;
 }
 
+/**
+ * Convert a JSON row string to a plain object keyed by column name
+ */
+function parseRowJson(rowJson: string, columns: string[]): Record<string, any> {
+  const row = JSON.parse(rowJson);
+  if (row.values) {
+    const mapped: Record<string, any> = {};
+    columns.forEach((col, i) => {
+      const colValue = row.values[i];
+      if (colValue) {
+        // Extract value from ColumnValue: {type: "Integer", value: 123}
+        mapped[col] = colValue.value !== undefined ? colValue.value : null;
+      } else {
+        mapped[col] = null;
+      }
+    });
+    return mapped;
+  }
+  return row;
+}
+
+/**
+ * Convert UniFFI QueryResult to our QueryResult interface
+ */
+function convertQueryResult(result: any): QueryResult {
+  const rows = result.rows.map((rowJson: string) => parseRowJson(rowJson, result.columns));
+
+  return {
+    columns: result.columns,
+    rows,
+    rowsAffected: Number(result.rowsAffected),
+    lastInsertId: result.lastInsertId !== undefined ? Number(result.lastInsertId) : null,
+    executionTimeMs: result.executionTimeMs ?? 0,
+  };
+}
+
 export class PreparedStatement {
   constructor(private stmtHandle: bigint) {}
 
   async execute(params: any[]): Promise<QueryResult> {
     const stringParams = params.map(p => String(p));
-    uniffi.executeStatement(this.stmtHandle, stringParams);
-    
-    // executeStatement doesn't return results, need to use separate query
-    // This is a limitation - need to fix in Rust
-    return { columns: [], rows: [], rowsAffected: 0 };
+    // executeStatement now returns QueryResult (fixed in Phase 3)
+    const result = uniffi.executeStatement(this.stmtHandle, stringParams);
+    return convertQueryResult(result);
   }
 
   async finalize(): Promise<void> {
@@ -66,6 +110,10 @@ export class AbsurderDatabase {
     const uniffiConfig = {
       name: cfg.name,
       encryptionKey: cfg.encryption?.key,
+      cacheSize: cfg.cacheSize !== undefined ? BigInt(cfg.cacheSize) : undefined,
+      pageSize: cfg.pageSize !== undefined ? BigInt(cfg.pageSize) : undefined,
+      journalMode: cfg.journalMode,
+      autoVacuum: cfg.autoVacuum,
     };
 
     if (cfg.encryption?.key) {
@@ -81,31 +129,7 @@ export class AbsurderDatabase {
     }
 
     const result = uniffi.execute(this.handle, sql);
-    // Convert rows from {values: [{type, value}]} to {columnName: value}
-    const rows = result.rows.map(rowJson => {
-      const row = JSON.parse(rowJson);
-      if (row.values) {
-        // Convert from Row {values: [ColumnValue]} format to map
-        const mapped: Record<string, any> = {};
-        result.columns.forEach((col, i) => {
-          const colValue = row.values[i];
-          if (colValue) {
-            // Extract value from ColumnValue enum: {type: "Integer", value: 123}
-            mapped[col] = colValue.value !== undefined ? colValue.value : null;
-          } else {
-            mapped[col] = null;
-          }
-        });
-        return mapped;
-      }
-      return row;
-    });
-    
-    return {
-      columns: result.columns,
-      rows,
-      rowsAffected: Number(result.rowsAffected),
-    };
+    return convertQueryResult(result);
   }
 
   async executeWithParams(sql: string, params: any[]): Promise<QueryResult> {
@@ -115,30 +139,7 @@ export class AbsurderDatabase {
 
     const stringParams = params.map(p => String(p));
     const result = uniffi.executeWithParams(this.handle, sql, stringParams);
-    
-    // Convert rows from {values: [{type, value}]} to {columnName: value}
-    const rows = result.rows.map(rowJson => {
-      const row = JSON.parse(rowJson);
-      if (row.values) {
-        const mapped: Record<string, any> = {};
-        result.columns.forEach((col, i) => {
-          const colValue = row.values[i];
-          if (colValue) {
-            mapped[col] = colValue.value !== undefined ? colValue.value : null;
-          } else {
-            mapped[col] = null;
-          }
-        });
-        return mapped;
-      }
-      return row;
-    });
-    
-    return {
-      columns: result.columns,
-      rows,
-      rowsAffected: Number(result.rowsAffected),
-    };
+    return convertQueryResult(result);
   }
 
   async query(sql: string): Promise<Array<Record<string, any>>> {
@@ -150,7 +151,7 @@ export class AbsurderDatabase {
     if (this.handle === null) {
       throw new Error('Database is not open');
     }
-    
+
     // Use async uniffi function to avoid blocking JS thread
     await uniffi.exportDatabaseAsync(this.handle, path);
   }
@@ -202,7 +203,7 @@ export class AbsurderDatabase {
     if (this.handle === null) {
       throw new Error('Database is not open');
     }
-    
+
     await this.beginTransaction();
     try {
       const result = await fn();
@@ -223,22 +224,7 @@ export class AbsurderDatabase {
 
   async fetchNext(streamHandle: bigint, batchSize: number): Promise<any[]> {
     const batch = uniffi.fetchNext(streamHandle, batchSize);
-    return batch.rows.map(rowJson => {
-      const row = JSON.parse(rowJson);
-      if (row.values) {
-        const mapped: Record<string, any> = {};
-        batch.columns.forEach((col, i) => {
-          const colValue = row.values[i];
-          if (colValue) {
-            mapped[col] = colValue.value !== undefined ? colValue.value : null;
-          } else {
-            mapped[col] = null;
-          }
-        });
-        return mapped;
-      }
-      return row;
-    });
+    return batch.rows.map((rowJson: string) => parseRowJson(rowJson, batch.columns));
   }
 
   async closeStream(streamHandle: bigint): Promise<void> {
@@ -258,27 +244,13 @@ export class AbsurderDatabase {
 
       while (true) {
         const batch = uniffi.fetchNext(streamHandle, batchSize);
-        
+
         if (batch.rows.length === 0) {
           break;
         }
 
         for (const rowJson of batch.rows) {
-          const row = JSON.parse(rowJson);
-          if (row.values) {
-            const mapped: Record<string, any> = {};
-            batch.columns.forEach((col, i) => {
-              const colValue = row.values[i];
-              if (colValue) {
-                mapped[col] = colValue.value !== undefined ? colValue.value : null;
-              } else {
-                mapped[col] = null;
-              }
-            });
-            yield mapped;
-          } else {
-            yield row;
-          }
+          yield parseRowJson(rowJson, batch.columns);
         }
       }
     } finally {

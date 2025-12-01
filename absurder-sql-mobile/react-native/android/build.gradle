@@ -35,6 +35,14 @@ allprojects {
         google()
         mavenCentral()
     }
+
+    // Fix for libraries still using deprecated jcenter() - redirect to mavenCentral
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+        }
+    }
 }
 
 apply plugin: "com.facebook.react.rootproject"

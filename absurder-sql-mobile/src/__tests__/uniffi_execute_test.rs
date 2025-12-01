@@ -17,6 +17,10 @@ mod uniffi_execute_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_exec_simple_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config.clone()).await })
@@ -53,6 +57,10 @@ mod uniffi_execute_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_exec_invalid_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");

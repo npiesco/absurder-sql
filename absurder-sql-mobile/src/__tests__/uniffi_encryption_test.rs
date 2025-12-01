@@ -17,6 +17,10 @@ mod uniffi_encryption_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_encrypted_{:?}.db", thread_id),
             encryption_key: Some("test_password_12345".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
@@ -48,6 +52,10 @@ mod uniffi_encryption_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_encrypted_nokey_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let result = RUNTIME.block_on(async { create_encrypted_database(config).await });
@@ -61,6 +69,10 @@ mod uniffi_encryption_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_encrypted_short_{:?}.db", thread_id),
             encryption_key: Some("short".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let result = RUNTIME.block_on(async { create_encrypted_database(config).await });
@@ -76,6 +88,10 @@ mod uniffi_encryption_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_rekey_{:?}.db", thread_id),
             encryption_key: Some("original_password_123".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
@@ -119,6 +135,10 @@ mod uniffi_encryption_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_rekey_short_{:?}.db", thread_id),
             encryption_key: Some("original_pass_123".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");
@@ -144,6 +164,10 @@ mod uniffi_encryption_tests {
         let config1 = DatabaseConfig {
             name: format!("uniffi_enc1_{:?}.db", thread_id),
             encryption_key: Some("password_one_123".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         let handle1 = RUNTIME.block_on(async { create_encrypted_database(config1).await }).expect("Failed to create db1");
         
@@ -155,6 +179,10 @@ mod uniffi_encryption_tests {
         let config2 = DatabaseConfig {
             name: format!("uniffi_enc2_{:?}.db", thread_id),
             encryption_key: Some("password_two_456".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         let handle2 = RUNTIME.block_on(async { create_encrypted_database(config2).await }).expect("Failed to create db2");
         
@@ -188,6 +216,10 @@ mod uniffi_encryption_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_enc_txn_{:?}.db", thread_id),
             encryption_key: Some("transaction_key_123".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_encrypted_database(config).await }).expect("Failed to create encrypted database");

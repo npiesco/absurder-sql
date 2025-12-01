@@ -5,42 +5,19 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A single column value from a query result
-///
-/// Represents all SQLite column types with proper type safety.
-/// Maps to native types in TypeScript, Swift, and Kotlin.
-#[derive(uniffi::Enum, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ColumnValue {
-    /// SQL NULL value
-    Null,
-    /// 64-bit signed integer
-    Integer { value: i64 },
-    /// 64-bit floating point
-    Real { value: f64 },
-    /// UTF-8 text string
-    Text { value: String },
-    /// Binary data
-    Blob { value: Vec<u8> },
-}
-
-/// A single row from a query result
-///
-/// Contains a vector of column values in the same order as QueryResult.columns
-#[derive(uniffi::Record, Debug, Clone, Serialize, Deserialize)]
-pub struct Row {
-    /// Column values in order
-    pub values: Vec<ColumnValue>,
-}
-
 /// Result of a database query
 #[derive(uniffi::Record, Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     /// Column names
     pub columns: Vec<String>,
-    /// Typed rows with column values
-    pub rows: Vec<Row>,
+    /// Rows as JSON strings (each row is a serialized object with column values)
+    pub rows: Vec<String>,
     /// Number of rows affected
     pub rows_affected: u64,
+    /// Last inserted row ID (populated for INSERT statements)
+    pub last_insert_id: Option<i64>,
+    /// Query execution time in milliseconds
+    pub execution_time_ms: f64,
 }
 
 /// Database configuration
@@ -50,6 +27,14 @@ pub struct DatabaseConfig {
     pub name: String,
     /// Optional encryption key
     pub encryption_key: Option<String>,
+    /// Cache size in pages (default: SQLite default)
+    pub cache_size: Option<i64>,
+    /// Page size in bytes (default: SQLite default, typically 4096)
+    pub page_size: Option<i64>,
+    /// Journal mode: "MEMORY", "WAL", "DELETE", etc.
+    pub journal_mode: Option<String>,
+    /// Enable auto-vacuum to keep database compact
+    pub auto_vacuum: Option<bool>,
 }
 
 /// Error type for database operations

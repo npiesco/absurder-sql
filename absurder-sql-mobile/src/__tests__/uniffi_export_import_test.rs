@@ -18,6 +18,10 @@ mod uniffi_export_import_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_export_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -54,6 +58,10 @@ mod uniffi_export_import_tests {
         let source_config = DatabaseConfig {
             name: format!("uniffi_import_source_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let source_handle = RUNTIME.block_on(async { create_database(source_config).await }).expect("Failed to create source database");
@@ -77,6 +85,10 @@ mod uniffi_export_import_tests {
         let target_config = DatabaseConfig {
             name: format!("uniffi_import_target_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let target_handle = RUNTIME.block_on(async { create_database(target_config).await }).expect("Failed to create target database");
@@ -104,6 +116,10 @@ mod uniffi_export_import_tests {
         let original_config = DatabaseConfig {
             name: format!("uniffi_roundtrip_orig_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let original_handle = RUNTIME.block_on(async { create_database(original_config).await }).expect("Failed to create database");
@@ -132,6 +148,10 @@ mod uniffi_export_import_tests {
         let restored_config = DatabaseConfig {
             name: format!("uniffi_roundtrip_restored_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let restored_handle = RUNTIME.block_on(async { create_database(restored_config).await }).expect("Failed to create restored database");
@@ -170,6 +190,10 @@ mod uniffi_export_import_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_import_nofile_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -189,6 +213,10 @@ mod uniffi_export_import_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_blobs_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let handle = RUNTIME.block_on(async { create_database(config).await }).expect("Failed to create database");
@@ -217,6 +245,10 @@ mod uniffi_export_import_tests {
         let restored_config = DatabaseConfig {
             name: format!("uniffi_blobs_restored_{:?}.db", thread_id),
             encryption_key: None,
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let restored_handle = RUNTIME.block_on(async { create_database(restored_config).await }).expect("Failed to create restored database");
