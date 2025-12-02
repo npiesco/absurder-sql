@@ -61,7 +61,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Create PasswordGenerator component (integrated in AddEditCredentialScreen)
 - [x] Implement 20-char strong password generation (upper, lower, digits, symbols)
 - [x] Implement configurable length (8-128 chars) with slider UI
-- [ ] Implement passphrase mode (word-based)
+- [x] Implement passphrase mode (word-based, 3-8 words, 8 E2E tests)
 - [ ] Add copy-to-clipboard functionality
 
 ### 2.2 Credential Management
@@ -268,4 +268,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-01*
+*Last updated: 2025-12-02*

@@ -42,8 +42,8 @@ describe('Add Credential Flow', () => {
     await element(by.id('credential-username-input')).typeText('testuser@example.com');
     await element(by.id('credential-password-input')).typeText('MyGitHubPassword123!');
 
-    // Scroll down to make URL field visible (keyboard covers it)
-    await element(by.id('credential-form-scroll')).scroll(200, 'down');
+    // Scroll down to make URL field visible (keyboard covers it, form is taller with mode toggle)
+    await element(by.id('credential-form-scroll')).scroll(400, 'down');
     await element(by.id('credential-url-input')).typeText('https://github.com');
 
     // Step 5: Save credential
