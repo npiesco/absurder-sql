@@ -9,7 +9,7 @@
  */
 
 import { create } from 'zustand';
-import { VaultDatabase, Credential, Folder } from './VaultDatabase';
+import { VaultDatabase, Credential, Folder, CustomField } from './VaultDatabase';
 
 interface VaultState {
   // Vault state
@@ -43,6 +43,10 @@ interface VaultState {
   // Folder actions
   addFolder: (name: string, parentId?: string | null) => Promise<string>;
   deleteFolder: (id: string) => Promise<void>;
+
+  // Custom field actions
+  getCustomFields: (credentialId: string) => Promise<CustomField[]>;
+  syncCustomFields: (credentialId: string, fields: Array<{ name: string; value: string }>) => Promise<void>;
 
   // Search
   setSearchQuery: (query: string) => void;
@@ -210,6 +214,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     await vault.deleteFolder(id);
     await get().refreshFolders();
     await get().refreshCredentials(); // Credentials may have moved
+  },
+
+  // Get custom fields for a credential
+  getCustomFields: async (credentialId) => {
+    const { vault } = get();
+    if (!vault) throw new Error('Vault not open');
+
+    return await vault.getCustomFields(credentialId);
+  },
+
+  // Sync custom fields for a credential
+  syncCustomFields: async (credentialId, fields) => {
+    const { vault } = get();
+    if (!vault) throw new Error('Vault not open');
+
+    await vault.syncCustomFields(credentialId, fields);
   },
 
   // Search

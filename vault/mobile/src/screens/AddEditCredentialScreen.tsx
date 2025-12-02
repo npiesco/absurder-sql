@@ -327,7 +327,7 @@ export default function AddEditCredentialScreen({
   onSave,
   onCancel,
 }: AddEditCredentialScreenProps) {
-  const { credentials, addCredential, updateCredential } = useVaultStore();
+  const { credentials, addCredential, updateCredential, getCustomFields, syncCustomFields } = useVaultStore();
 
   const isEditing = !!credentialId;
   const existingCredential = credentialId
@@ -340,6 +340,7 @@ export default function AddEditCredentialScreen({
   const [url, setUrl] = useState(existingCredential?.url || '');
   const [notes, setNotes] = useState(existingCredential?.notes || '');
   const [totpSecret, setTotpSecret] = useState(existingCredential?.totpSecret || '');
+  const [customFields, setCustomFields] = useState<Array<{ name: string; value: string }>>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -357,8 +358,26 @@ export default function AddEditCredentialScreen({
       setUrl(existingCredential.url || '');
       setNotes(existingCredential.notes || '');
       setTotpSecret(existingCredential.totpSecret || '');
+      // Load custom fields
+      getCustomFields(existingCredential.id).then((fields) => {
+        setCustomFields(fields.map(f => ({ name: f.name, value: f.value })));
+      });
     }
-  }, [existingCredential]);
+  }, [existingCredential, getCustomFields]);
+
+  const handleAddCustomField = () => {
+    setCustomFields([...customFields, { name: '', value: '' }]);
+  };
+
+  const handleRemoveCustomField = (index: number) => {
+    setCustomFields(customFields.filter((_, i) => i !== index));
+  };
+
+  const handleCustomFieldChange = (index: number, field: 'name' | 'value', value: string) => {
+    const updated = [...customFields];
+    updated[index][field] = value;
+    setCustomFields(updated);
+  };
 
   const validate = (): boolean => {
     const newErrors: { [key: string]: string } = {};
@@ -415,6 +434,7 @@ export default function AddEditCredentialScreen({
     setIsLoading(true);
 
     try {
+      let credId: string;
       if (isEditing && credentialId) {
         await updateCredential(credentialId, {
           name: name.trim(),
@@ -424,8 +444,9 @@ export default function AddEditCredentialScreen({
           notes: notes.trim() || null,
           totpSecret: totpSecret.trim() || null,
         });
+        credId = credentialId;
       } else {
-        await addCredential({
+        credId = await addCredential({
           name: name.trim(),
           username: username.trim() || null,
           password: password,
@@ -437,6 +458,9 @@ export default function AddEditCredentialScreen({
           passwordUpdatedAt: null,
         });
       }
+      // Sync custom fields (filter out empty ones)
+      const validCustomFields = customFields.filter(f => f.name.trim() && f.value.trim());
+      await syncCustomFields(credId, validCustomFields);
       onSave();
     } catch (error) {
       Alert.alert(
@@ -722,6 +746,50 @@ export default function AddEditCredentialScreen({
           </Text>
         </View>
 
+        {/* Custom Fields Section */}
+        <View style={styles.customFieldsSection}>
+          <Text style={styles.customFieldsHeader}>Custom Fields</Text>
+
+          {customFields.map((field, index) => (
+            <View key={index} style={styles.customFieldRow}>
+              <View style={styles.customFieldInputs}>
+                <TextInput
+                  testID={`custom-field-name-${index}`}
+                  style={styles.customFieldNameInput}
+                  placeholder="Field name"
+                  placeholderTextColor="#8a8a9a"
+                  value={field.name}
+                  onChangeText={(value) => handleCustomFieldChange(index, 'name', value)}
+                />
+                <TextInput
+                  testID={`custom-field-value-${index}`}
+                  style={styles.customFieldValueInput}
+                  placeholder="Value"
+                  placeholderTextColor="#8a8a9a"
+                  value={field.value}
+                  onChangeText={(value) => handleCustomFieldChange(index, 'value', value)}
+                />
+              </View>
+              <TouchableOpacity
+                testID={`delete-custom-field-${index}`}
+                style={styles.deleteFieldButton}
+                onPress={() => handleRemoveCustomField(index)}
+              >
+                <Text style={styles.deleteFieldIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          <TouchableOpacity
+            testID="add-custom-field-button"
+            style={styles.addFieldButton}
+            onPress={handleAddCustomField}
+          >
+            <Text style={styles.addFieldIcon}>+</Text>
+            <Text style={styles.addFieldText}>Add Custom Field</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.spacer} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -920,5 +988,75 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  customFieldsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a4a',
+  },
+  customFieldsHeader: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  customFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  customFieldInputs: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  customFieldNameInput: {
+    flex: 1,
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
+    fontSize: 14,
+  },
+  customFieldValueInput: {
+    flex: 2,
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
+    fontSize: 14,
+  },
+  deleteFieldButton: {
+    marginLeft: 8,
+    padding: 8,
+    backgroundColor: '#3a1a2e',
+    borderRadius: 6,
+  },
+  deleteFieldIcon: {
+    color: '#e94560',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  addFieldButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#0f3460',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  addFieldIcon: {
+    color: '#e94560',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginRight: 8,
+  },
+  addFieldText: {
+    color: '#8a8a9a',
+    fontSize: 14,
   },
 });

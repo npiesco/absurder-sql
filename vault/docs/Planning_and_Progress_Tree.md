@@ -66,7 +66,7 @@ Sequential development checklist from scaffold to finished app.
 
 ### 2.2 Credential Management
 - [x] Implement TOTP secret storage
-- [ ] Implement custom fields
+- [x] Implement custom fields (6 E2E tests - add, display, edit, delete, persist)
 - [ ] Implement tags/categories
 - [ ] Implement favorites
 - [ ] Implement credential sorting options

@@ -40,6 +40,14 @@ export interface Tag {
   color: string | null;
 }
 
+export interface CustomField {
+  id: string;
+  credentialId: string;
+  name: string;
+  value: string;
+  fieldType: 'text' | 'password' | 'url';
+}
+
 export interface VaultConfig {
   name: string;
   masterPassword: string;
@@ -464,6 +472,112 @@ export class VaultDatabase {
       updatedAt: row.updated_at,
       passwordUpdatedAt: row.password_updated_at,
     };
+  }
+
+  // ==================== CUSTOM FIELDS ====================
+
+  /**
+   * Get custom fields for a credential
+   */
+  async getCustomFields(credentialId: string): Promise<CustomField[]> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const result = await this.db.execute(
+      `SELECT id, credential_id, name, value_encrypted, field_type
+       FROM custom_fields WHERE credential_id = '${this.escapeString(credentialId)}'`
+    );
+
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      credentialId: row.credential_id,
+      name: row.name,
+      value: row.value_encrypted,
+      fieldType: row.field_type || 'text',
+    }));
+  }
+
+  /**
+   * Add a custom field to a credential
+   */
+  async addCustomField(field: Omit<CustomField, 'id'>): Promise<string> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const id = `cf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    await this.db.execute(
+      `INSERT INTO custom_fields (id, credential_id, name, value_encrypted, field_type)
+       VALUES (
+         '${id}',
+         '${this.escapeString(field.credentialId)}',
+         '${this.escapeString(field.name)}',
+         '${this.escapeString(field.value)}',
+         '${field.fieldType || 'text'}'
+       )`
+    );
+
+    return id;
+  }
+
+  /**
+   * Update a custom field
+   */
+  async updateCustomField(id: string, updates: Partial<Omit<CustomField, 'id' | 'credentialId'>>): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const setClauses: string[] = [];
+    if (updates.name !== undefined) {
+      setClauses.push(`name = '${this.escapeString(updates.name)}'`);
+    }
+    if (updates.value !== undefined) {
+      setClauses.push(`value_encrypted = '${this.escapeString(updates.value)}'`);
+    }
+    if (updates.fieldType !== undefined) {
+      setClauses.push(`field_type = '${updates.fieldType}'`);
+    }
+
+    if (setClauses.length > 0) {
+      await this.db.execute(
+        `UPDATE custom_fields SET ${setClauses.join(', ')} WHERE id = '${this.escapeString(id)}'`
+      );
+    }
+  }
+
+  /**
+   * Delete a custom field
+   */
+  async deleteCustomField(id: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+    await this.db.execute(`DELETE FROM custom_fields WHERE id = '${this.escapeString(id)}'`);
+  }
+
+  /**
+   * Delete all custom fields for a credential
+   */
+  async deleteCustomFieldsForCredential(credentialId: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+    await this.db.execute(
+      `DELETE FROM custom_fields WHERE credential_id = '${this.escapeString(credentialId)}'`
+    );
+  }
+
+  /**
+   * Sync custom fields for a credential (replace all)
+   */
+  async syncCustomFields(credentialId: string, fields: Array<{ name: string; value: string; fieldType?: 'text' | 'password' | 'url' }>): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    // Delete existing fields
+    await this.deleteCustomFieldsForCredential(credentialId);
+
+    // Add new fields
+    for (const field of fields) {
+      await this.addCustomField({
+        credentialId,
+        name: field.name,
+        value: field.value,
+        fieldType: field.fieldType || 'text',
+      });
+    }
   }
 
   /**

@@ -9,7 +9,7 @@
  * - Back navigation
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import {
   Clipboard,
 } from 'react-native';
 import { useVaultStore } from '../lib/store';
+import { CustomField } from '../lib/VaultDatabase';
 
 interface CredentialDetailScreenProps {
   credentialId: string;
@@ -32,10 +33,21 @@ export default function CredentialDetailScreen({
   onEdit,
   onBack,
 }: CredentialDetailScreenProps) {
-  const { credentials } = useVaultStore();
+  const { credentials, getCustomFields } = useVaultStore();
   const credential = credentials.find(c => c.id === credentialId);
 
   const [showPassword, setShowPassword] = useState(false);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+
+  useEffect(() => {
+    if (credential) {
+      getCustomFields(credential.id)
+        .then(setCustomFields)
+        .catch((err) => {
+          console.error('Failed to load custom fields:', err);
+        });
+    }
+  }, [credential, getCustomFields]);
 
   if (!credential) {
     return (
@@ -200,6 +212,18 @@ export default function CredentialDetailScreen({
             </View>
           </View>
         )}
+
+        {/* Custom Fields */}
+        {customFields.length > 0 && customFields.map((field, index) => (
+          <View key={field.id || index} testID={`custom-field-${index}`} style={styles.fieldContainer}>
+            <View style={styles.fieldHeader}>
+              <Text testID={`custom-field-name-${index}`} style={styles.fieldLabel}>{field.name}</Text>
+            </View>
+            <View style={styles.fieldContent}>
+              <Text testID={`custom-field-value-${index}`} style={styles.fieldValue}>{field.value}</Text>
+            </View>
+          </View>
+        ))}
 
         {/* Metadata */}
         <View style={styles.metadataContainer}>
