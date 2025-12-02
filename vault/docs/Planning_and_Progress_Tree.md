@@ -68,7 +68,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement TOTP secret storage
 - [x] Implement custom fields (6 E2E tests - add, display, edit, delete, persist)
 - [ ] Implement tags/categories
-- [ ] Implement favorites
+- [x] Implement favorites (6 E2E tests - toggle from detail, toggle from card, persist)
 - [ ] Implement credential sorting options
 
 ### 2.3 Folders & Organization

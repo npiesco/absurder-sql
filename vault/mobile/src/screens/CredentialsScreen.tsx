@@ -41,6 +41,7 @@ export default function CredentialsScreen({
     searchQuery,
     setSearchQuery,
     deleteCredential,
+    updateCredential,
     lock,
   } = useVaultStore();
 
@@ -88,6 +89,14 @@ export default function CredentialsScreen({
     onLock();
   };
 
+  const handleToggleFavorite = async (credential: Credential) => {
+    try {
+      await updateCredential(credential.id, { favorite: !credential.favorite });
+    } catch (err) {
+      Alert.alert('Error', 'Failed to update favorite');
+    }
+  };
+
   const renderCredential = ({ item }: { item: Credential }) => {
     const isExpanded = selectedId === item.id;
 
@@ -115,7 +124,7 @@ export default function CredentialsScreen({
             )}
           </View>
           {item.favorite && (
-            <Text style={styles.favoriteIcon}>⭐</Text>
+            <Text testID={`favorite-badge-${item.name}`} style={styles.favoriteIcon}>⭐</Text>
           )}
         </View>
 
@@ -145,6 +154,15 @@ export default function CredentialsScreen({
             >
               <Text style={styles.actionIcon}>🔑</Text>
               <Text style={styles.actionText}>Copy Password</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              testID="card-favorite-toggle"
+              style={styles.actionButton}
+              onPress={() => handleToggleFavorite(item)}
+            >
+              <Text style={styles.actionIcon}>{item.favorite ? '★' : '☆'}</Text>
+              <Text style={styles.actionText}>{item.favorite ? 'Unfavorite' : 'Favorite'}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

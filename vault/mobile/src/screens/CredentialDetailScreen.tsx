@@ -33,7 +33,7 @@ export default function CredentialDetailScreen({
   onEdit,
   onBack,
 }: CredentialDetailScreenProps) {
-  const { credentials, getCustomFields } = useVaultStore();
+  const { credentials, getCustomFields, updateCredential } = useVaultStore();
   const credential = credentials.find(c => c.id === credentialId);
 
   const [showPassword, setShowPassword] = useState(false);
@@ -95,6 +95,14 @@ export default function CredentialDetailScreen({
     }
   };
 
+  const handleToggleFavorite = async () => {
+    try {
+      await updateCredential(credential.id, { favorite: !credential.favorite });
+    } catch (err) {
+      Alert.alert('Error', 'Failed to update favorite');
+    }
+  };
+
   const maskedPassword = '•'.repeat(Math.min(credential.password.length, 16));
 
   return (
@@ -118,7 +126,17 @@ export default function CredentialDetailScreen({
             </Text>
           </View>
           <Text style={styles.credentialName}>{credential.name}</Text>
-          {credential.favorite && <Text style={styles.favoriteIcon}>⭐</Text>}
+          <TouchableOpacity
+            testID="favorite-toggle-button"
+            style={styles.favoriteToggle}
+            onPress={handleToggleFavorite}
+          >
+            {credential.favorite ? (
+              <Text testID="favorite-icon-filled" style={styles.favoriteIconFilled}>★</Text>
+            ) : (
+              <Text testID="favorite-icon-empty" style={styles.favoriteIconEmpty}>☆</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Username Field */}
@@ -307,8 +325,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  favoriteIcon: {
-    fontSize: 24,
+  favoriteToggle: {
+    padding: 8,
+  },
+  favoriteIconFilled: {
+    fontSize: 28,
+    color: '#ffd700',
+  },
+  favoriteIconEmpty: {
+    fontSize: 28,
+    color: '#8a8a9a',
   },
   fieldContainer: {
     backgroundColor: '#16213e',
