@@ -580,6 +580,131 @@ export class VaultDatabase {
     }
   }
 
+  // ==================== TAG OPERATIONS ====================
+
+  /**
+   * Get all tags
+   */
+  async getTags(): Promise<Tag[]> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const result = await this.db.execute('SELECT id, name, color FROM tags ORDER BY name');
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      color: row.color,
+    }));
+  }
+
+  /**
+   * Create a new tag
+   */
+  async createTag(name: string, color?: string): Promise<string> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const id = this.generateId();
+    await this.db.execute(
+      `INSERT INTO tags (id, name, color) VALUES ('${id}', '${this.escapeString(name)}', ${color ? `'${color}'` : 'NULL'})`
+    );
+    return id;
+  }
+
+  /**
+   * Get or create a tag by name
+   */
+  async getOrCreateTag(name: string): Promise<Tag> {
+    if (!this.db) throw new Error('Vault not open');
+
+    // Check if tag exists
+    const existing = await this.db.execute(
+      `SELECT id, name, color FROM tags WHERE name = '${this.escapeString(name)}'`
+    );
+
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0];
+      return { id: row.id, name: row.name, color: row.color };
+    }
+
+    // Create new tag
+    const id = await this.createTag(name);
+    return { id, name, color: null };
+  }
+
+  /**
+   * Delete a tag
+   */
+  async deleteTag(id: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+    await this.db.execute(`DELETE FROM tags WHERE id = '${id}'`);
+  }
+
+  /**
+   * Get tags for a credential
+   */
+  async getCredentialTags(credentialId: string): Promise<Tag[]> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const result = await this.db.execute(
+      `SELECT t.id, t.name, t.color
+       FROM tags t
+       INNER JOIN credential_tags ct ON t.id = ct.tag_id
+       WHERE ct.credential_id = '${this.escapeString(credentialId)}'
+       ORDER BY t.name`
+    );
+
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      color: row.color,
+    }));
+  }
+
+  /**
+   * Add tag to credential
+   */
+  async addTagToCredential(credentialId: string, tagId: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    // Check if already assigned
+    const existing = await this.db.execute(
+      `SELECT 1 FROM credential_tags WHERE credential_id = '${this.escapeString(credentialId)}' AND tag_id = '${this.escapeString(tagId)}'`
+    );
+
+    if (existing.rows.length === 0) {
+      await this.db.execute(
+        `INSERT INTO credential_tags (credential_id, tag_id) VALUES ('${this.escapeString(credentialId)}', '${this.escapeString(tagId)}')`
+      );
+    }
+  }
+
+  /**
+   * Remove tag from credential
+   */
+  async removeTagFromCredential(credentialId: string, tagId: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+    await this.db.execute(
+      `DELETE FROM credential_tags WHERE credential_id = '${this.escapeString(credentialId)}' AND tag_id = '${this.escapeString(tagId)}'`
+    );
+  }
+
+  /**
+   * Sync tags for a credential (replace all tags)
+   */
+  async syncCredentialTags(credentialId: string, tagNames: string[]): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    // Remove existing tags
+    await this.db.execute(
+      `DELETE FROM credential_tags WHERE credential_id = '${this.escapeString(credentialId)}'`
+    );
+
+    // Add new tags
+    for (const tagName of tagNames) {
+      const tag = await this.getOrCreateTag(tagName);
+      await this.addTagToCredential(credentialId, tag.id);
+    }
+  }
+
   /**
    * Get vault statistics
    */

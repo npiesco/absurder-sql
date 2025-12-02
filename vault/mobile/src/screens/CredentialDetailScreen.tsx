@@ -20,7 +20,7 @@ import {
   Clipboard,
 } from 'react-native';
 import { useVaultStore } from '../lib/store';
-import { CustomField } from '../lib/VaultDatabase';
+import { CustomField, Tag } from '../lib/VaultDatabase';
 
 interface CredentialDetailScreenProps {
   credentialId: string;
@@ -33,11 +33,12 @@ export default function CredentialDetailScreen({
   onEdit,
   onBack,
 }: CredentialDetailScreenProps) {
-  const { credentials, getCustomFields, updateCredential } = useVaultStore();
+  const { credentials, getCustomFields, getCredentialTags, updateCredential } = useVaultStore();
   const credential = credentials.find(c => c.id === credentialId);
 
   const [showPassword, setShowPassword] = useState(false);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
 
   useEffect(() => {
     if (credential) {
@@ -46,8 +47,13 @@ export default function CredentialDetailScreen({
         .catch((err) => {
           console.error('Failed to load custom fields:', err);
         });
+      getCredentialTags(credential.id)
+        .then(setTags)
+        .catch((err) => {
+          console.error('Failed to load tags:', err);
+        });
     }
-  }, [credential, getCustomFields]);
+  }, [credential, getCustomFields, getCredentialTags]);
 
   if (!credential) {
     return (
@@ -243,6 +249,20 @@ export default function CredentialDetailScreen({
           </View>
         ))}
 
+        {/* Tags */}
+        {tags.length > 0 && (
+          <View style={styles.tagsSection}>
+            <Text style={styles.tagsLabel}>Tags</Text>
+            <View style={styles.tagsContainer}>
+              {tags.map((tag) => (
+                <View key={tag.id} testID={`detail-tag-${tag.name}`} style={styles.tagChip}>
+                  <Text style={styles.tagChipText}>{tag.name}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Metadata */}
         <View style={styles.metadataContainer}>
           <Text style={styles.metadataText}>
@@ -383,6 +403,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     lineHeight: 20,
+  },
+  tagsSection: {
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  tagsLabel: {
+    color: '#8a8a9a',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tagChip: {
+    backgroundColor: '#0f3460',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  tagChipText: {
+    color: '#fff',
+    fontSize: 14,
   },
   metadataContainer: {
     paddingVertical: 24,

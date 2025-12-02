@@ -7,7 +7,7 @@
  * - Quick actions (copy password, view details)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import {
   Clipboard,
 } from 'react-native';
 import { useVaultStore } from '../lib/store';
-import { Credential } from '../lib/VaultDatabase';
+import { Credential, Tag } from '../lib/VaultDatabase';
 
 interface CredentialsScreenProps {
   onAddCredential: () => void;
@@ -42,10 +42,31 @@ export default function CredentialsScreen({
     setSearchQuery,
     deleteCredential,
     updateCredential,
+    getCredentialTags,
     lock,
   } = useVaultStore();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [credentialTags, setCredentialTags] = useState<{ [id: string]: Tag[] }>({});
+
+  // Load tags for all credentials
+  useEffect(() => {
+    const loadAllTags = async () => {
+      const tagsMap: { [id: string]: Tag[] } = {};
+      for (const cred of credentials) {
+        try {
+          const tags = await getCredentialTags(cred.id);
+          if (tags.length > 0) {
+            tagsMap[cred.id] = tags;
+          }
+        } catch (err) {
+          // Ignore errors loading individual credential tags
+        }
+      }
+      setCredentialTags(tagsMap);
+    };
+    loadAllTags();
+  }, [credentials, getCredentialTags]);
 
   const handleCopyPassword = async (credential: Credential) => {
     try {
@@ -121,6 +142,15 @@ export default function CredentialsScreen({
               <Text style={styles.credentialUrl} numberOfLines={1}>
                 {item.url}
               </Text>
+            )}
+            {credentialTags[item.id] && credentialTags[item.id].length > 0 && (
+              <View style={styles.tagsList}>
+                {credentialTags[item.id].map((tag) => (
+                  <View key={tag.id} testID={`credential-tag-${item.name}-${tag.name}`} style={styles.tagBadge}>
+                    <Text style={styles.tagBadgeText}>{tag.name}</Text>
+                  </View>
+                ))}
+              </View>
             )}
           </View>
           {item.favorite && (
@@ -333,6 +363,22 @@ const styles = StyleSheet.create({
     color: '#4a4a5a',
     fontSize: 12,
     marginTop: 2,
+  },
+  tagsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 6,
+  },
+  tagBadge: {
+    backgroundColor: '#0f3460',
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  tagBadgeText: {
+    color: '#fff',
+    fontSize: 10,
   },
   favoriteIcon: {
     fontSize: 16,

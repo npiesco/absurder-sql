@@ -327,7 +327,7 @@ export default function AddEditCredentialScreen({
   onSave,
   onCancel,
 }: AddEditCredentialScreenProps) {
-  const { credentials, addCredential, updateCredential, getCustomFields, syncCustomFields } = useVaultStore();
+  const { credentials, addCredential, updateCredential, getCustomFields, syncCustomFields, getCredentialTags, syncCredentialTags } = useVaultStore();
 
   const isEditing = !!credentialId;
   const existingCredential = credentialId
@@ -341,6 +341,9 @@ export default function AddEditCredentialScreen({
   const [notes, setNotes] = useState(existingCredential?.notes || '');
   const [totpSecret, setTotpSecret] = useState(existingCredential?.totpSecret || '');
   const [customFields, setCustomFields] = useState<Array<{ name: string; value: string }>>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [showTagInput, setShowTagInput] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -362,8 +365,12 @@ export default function AddEditCredentialScreen({
       getCustomFields(existingCredential.id).then((fields) => {
         setCustomFields(fields.map(f => ({ name: f.name, value: f.value })));
       });
+      // Load tags
+      getCredentialTags(existingCredential.id).then((credentialTags) => {
+        setTags(credentialTags.map(t => t.name));
+      });
     }
-  }, [existingCredential, getCustomFields]);
+  }, [existingCredential, getCustomFields, getCredentialTags]);
 
   const handleAddCustomField = () => {
     setCustomFields([...customFields, { name: '', value: '' }]);
@@ -377,6 +384,24 @@ export default function AddEditCredentialScreen({
     const updated = [...customFields];
     updated[index][field] = value;
     setCustomFields(updated);
+  };
+
+  const handleAddTag = () => {
+    setShowTagInput(true);
+    setNewTagInput('');
+  };
+
+  const handleSaveTag = () => {
+    const tagName = newTagInput.trim();
+    if (tagName && !tags.includes(tagName)) {
+      setTags([...tags, tagName]);
+    }
+    setShowTagInput(false);
+    setNewTagInput('');
+  };
+
+  const handleRemoveTag = (tagName: string) => {
+    setTags(tags.filter(t => t !== tagName));
   };
 
   const validate = (): boolean => {
@@ -461,6 +486,8 @@ export default function AddEditCredentialScreen({
       // Sync custom fields (filter out empty ones)
       const validCustomFields = customFields.filter(f => f.name.trim() && f.value.trim());
       await syncCustomFields(credId, validCustomFields);
+      // Sync tags
+      await syncCredentialTags(credId, tags);
       onSave();
     } catch (error) {
       Alert.alert(
@@ -746,6 +773,56 @@ export default function AddEditCredentialScreen({
           </Text>
         </View>
 
+        {/* Tags Section */}
+        <View style={styles.tagsSection}>
+          <Text style={styles.tagsHeader}>Tags</Text>
+
+          <View style={styles.tagsContainer}>
+            {tags.map((tag) => (
+              <View key={tag} testID={`tag-chip-${tag}`} style={styles.tagChip}>
+                <Text style={styles.tagChipText}>{tag}</Text>
+                <TouchableOpacity
+                  testID={`remove-tag-${tag}`}
+                  style={styles.removeTagButton}
+                  onPress={() => handleRemoveTag(tag)}
+                >
+                  <Text style={styles.removeTagIcon}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          {showTagInput ? (
+            <View style={styles.tagInputRow}>
+              <TextInput
+                testID="tag-input"
+                style={styles.tagInput}
+                placeholder="Enter tag name"
+                placeholderTextColor="#8a8a9a"
+                value={newTagInput}
+                onChangeText={setNewTagInput}
+                autoFocus
+              />
+              <TouchableOpacity
+                testID="save-tag-button"
+                style={styles.saveTagButton}
+                onPress={handleSaveTag}
+              >
+                <Text style={styles.saveTagText}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              testID="add-tag-button"
+              style={styles.addTagButton}
+              onPress={handleAddTag}
+            >
+              <Text style={styles.addTagIcon}>+</Text>
+              <Text style={styles.addTagText}>Add Tag</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* Custom Fields Section */}
         <View style={styles.customFieldsSection}>
           <Text style={styles.customFieldsHeader}>Custom Fields</Text>
@@ -988,6 +1065,87 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  tagsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a4a',
+  },
+  tagsHeader: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f3460',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  tagChipText: {
+    color: '#fff',
+    fontSize: 14,
+    marginRight: 6,
+  },
+  removeTagButton: {
+    padding: 2,
+  },
+  removeTagIcon: {
+    color: '#8a8a9a',
+    fontSize: 12,
+  },
+  tagInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tagInput: {
+    flex: 1,
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
+    fontSize: 14,
+  },
+  saveTagButton: {
+    backgroundColor: '#0f3460',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  saveTagText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  addTagButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#0f3460',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+  },
+  addTagIcon: {
+    color: '#0f3460',
+    fontSize: 16,
+    marginRight: 8,
+  },
+  addTagText: {
+    color: '#0f3460',
+    fontSize: 14,
   },
   customFieldsSection: {
     marginTop: 16,
