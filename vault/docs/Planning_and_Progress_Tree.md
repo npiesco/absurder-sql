@@ -44,19 +44,20 @@ Sequential development checklist from scaffold to finished app.
 ### 1.6 E2E Testing (Detox)
 - [x] Configure Detox for iOS
 - [x] Configure Detox for Android
-- [x] Write addCredential E2E test
+- [x] Write addCredential E2E test (5 tests passing)
 - [x] Validation test passing
 - [x] Password generation test passing
-- [ ] Full vault creation flow test (native module issue)
+- [x] Full vault creation flow test
+- [x] Persistence test suite (3 tests - multiple credentials, terminate/relaunch cycles)
 
 ---
 
 ## Phase 2: Essential Features
 
 ### 2.1 Password Generator
-- [ ] Create PasswordGenerator component
+- [x] Create PasswordGenerator component (integrated in AddEditCredentialScreen)
+- [x] Implement 20-char strong password generation (upper, lower, digits, symbols)
 - [ ] Implement configurable length (8-128 chars)
-- [ ] Implement character set options (upper, lower, digits, symbols)
 - [ ] Implement passphrase mode (word-based)
 - [ ] Add copy-to-clipboard functionality
 
