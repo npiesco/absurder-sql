@@ -120,20 +120,22 @@ export default function AddEditCredentialScreen({
       if (isEditing && credentialId) {
         await updateCredential(credentialId, {
           name: name.trim(),
-          username: username.trim() || undefined,
+          username: username.trim() || null,
           password: password,
-          url: url.trim() || undefined,
-          notes: notes.trim() || undefined,
+          url: url.trim() || null,
+          notes: notes.trim() || null,
         });
       } else {
         await addCredential({
           name: name.trim(),
-          username: username.trim() || undefined,
+          username: username.trim() || null,
           password: password,
-          url: url.trim() || undefined,
-          notes: notes.trim() || undefined,
-          favorite: false,
+          url: url.trim() || null,
+          totpSecret: null,
+          notes: notes.trim() || null,
           folderId: null,
+          favorite: false,
+          passwordUpdatedAt: null,
         });
       }
       onSave();

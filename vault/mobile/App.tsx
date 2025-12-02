@@ -12,8 +12,9 @@ import UnlockScreen from './src/screens/UnlockScreen';
 import CredentialsScreen from './src/screens/CredentialsScreen';
 import AddEditCredentialScreen from './src/screens/AddEditCredentialScreen';
 import CredentialDetailScreen from './src/screens/CredentialDetailScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
-type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail';
+type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail' | 'settings';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('unlock');
@@ -49,6 +50,10 @@ export default function App() {
     setDetailCredentialId(null);
   };
 
+  const handleSettings = () => {
+    setCurrentScreen('settings');
+  };
+
   const handleEditFromDetail = () => {
     if (detailCredentialId) {
       setEditCredentialId(detailCredentialId);
@@ -79,6 +84,7 @@ export default function App() {
             onAddCredential={handleAddCredential}
             onEditCredential={handleEditCredential}
             onViewDetails={handleViewDetails}
+            onSettings={handleSettings}
             onLock={handleLock}
           />
         );
@@ -112,6 +118,15 @@ export default function App() {
             onAddCredential={handleAddCredential}
             onEditCredential={handleEditCredential}
             onViewDetails={handleViewDetails}
+            onSettings={handleSettings}
+            onLock={handleLock}
+          />
+        );
+
+      case 'settings':
+        return (
+          <SettingsScreen
+            onBack={handleBack}
             onLock={handleLock}
           />
         );

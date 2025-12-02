@@ -25,6 +25,7 @@ interface CredentialsScreenProps {
   onAddCredential: () => void;
   onEditCredential: (id: string) => void;
   onViewDetails: (id: string) => void;
+  onSettings: () => void;
   onLock: () => void;
 }
 
@@ -32,6 +33,7 @@ export default function CredentialsScreen({
   onAddCredential,
   onEditCredential,
   onViewDetails,
+  onSettings,
   onLock,
 }: CredentialsScreenProps) {
   const {
@@ -171,8 +173,8 @@ export default function CredentialsScreen({
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Vault</Text>
-        <TouchableOpacity style={styles.lockButton} onPress={handleLock}>
-          <Text style={styles.lockIcon}>🔒</Text>
+        <TouchableOpacity testID="settings-button" style={styles.settingsButton} onPress={onSettings}>
+          <Text style={styles.settingsIcon}>⚙️</Text>
         </TouchableOpacity>
       </View>
 
@@ -239,10 +241,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  lockButton: {
+  settingsButton: {
     padding: 8,
   },
-  lockIcon: {
+  settingsIcon: {
     fontSize: 24,
   },
   searchContainer: {

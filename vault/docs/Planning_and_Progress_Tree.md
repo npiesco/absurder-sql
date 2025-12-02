@@ -32,7 +32,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Create CredentialsScreen (list with search)
 - [x] Create AddEditCredentialScreen (with validation + password generation)
 - [x] Create CredentialDetailScreen (password reveal, copy, edit navigation)
-- [ ] Create SettingsScreen
+- [x] Create SettingsScreen (vault stats, lock, export, about section)
 
 ### 1.5 Native Integration
 - [x] Create iOS project (Xcode) - VaultApp.xcworkspace
@@ -50,6 +50,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Full vault creation flow test
 - [x] Persistence test suite (3 tests - multiple credentials, terminate/relaunch cycles)
 - [x] CredentialDetail E2E test (8 tests - view, toggle password, copy, edit navigation)
+- [x] Settings E2E test (8 tests - vault stats, security, about, lock, export)
 
 ---
 

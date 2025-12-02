@@ -193,7 +193,7 @@ export default function CredentialDetailScreen({
             Created: {new Date(credential.createdAt).toLocaleDateString()}
           </Text>
           <Text style={styles.metadataText}>
-            Modified: {new Date(credential.modifiedAt).toLocaleDateString()}
+            Modified: {new Date(credential.updatedAt).toLocaleDateString()}
           </Text>
         </View>
       </ScrollView>
