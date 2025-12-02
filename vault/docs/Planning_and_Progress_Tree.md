@@ -65,7 +65,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Add copy-to-clipboard functionality
 
 ### 2.2 Credential Management
-- [ ] Implement TOTP secret storage
+- [x] Implement TOTP secret storage
 - [ ] Implement custom fields
 - [ ] Implement tags/categories
 - [ ] Implement favorites

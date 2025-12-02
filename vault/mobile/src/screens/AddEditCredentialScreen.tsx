@@ -339,6 +339,7 @@ export default function AddEditCredentialScreen({
   const [password, setPassword] = useState(existingCredential?.password || '');
   const [url, setUrl] = useState(existingCredential?.url || '');
   const [notes, setNotes] = useState(existingCredential?.notes || '');
+  const [totpSecret, setTotpSecret] = useState(existingCredential?.totpSecret || '');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -355,6 +356,7 @@ export default function AddEditCredentialScreen({
       setPassword(existingCredential.password);
       setUrl(existingCredential.url || '');
       setNotes(existingCredential.notes || '');
+      setTotpSecret(existingCredential.totpSecret || '');
     }
   }, [existingCredential]);
 
@@ -420,6 +422,7 @@ export default function AddEditCredentialScreen({
           password: password,
           url: url.trim() || null,
           notes: notes.trim() || null,
+          totpSecret: totpSecret.trim() || null,
         });
       } else {
         await addCredential({
@@ -427,7 +430,7 @@ export default function AddEditCredentialScreen({
           username: username.trim() || null,
           password: password,
           url: url.trim() || null,
-          totpSecret: null,
+          totpSecret: totpSecret.trim() || null,
           notes: notes.trim() || null,
           folderId: null,
           favorite: false,
@@ -702,6 +705,23 @@ export default function AddEditCredentialScreen({
           />
         </View>
 
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>TOTP Secret (2FA)</Text>
+          <TextInput
+            testID="credential-totp-input"
+            style={styles.input}
+            placeholder="Base32 encoded secret (e.g., JBSWY3DPEHPK3PXP)"
+            placeholderTextColor="#8a8a9a"
+            value={totpSecret}
+            onChangeText={setTotpSecret}
+            autoCapitalize="characters"
+            autoCorrect={false}
+          />
+          <Text style={styles.totpHint}>
+            Enter the secret key from your authenticator app setup
+          </Text>
+        </View>
+
         <View style={styles.spacer} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -894,5 +914,11 @@ const styles = StyleSheet.create({
   },
   copyIcon: {
     fontSize: 16,
+  },
+  totpHint: {
+    color: '#8a8a9a',
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 });

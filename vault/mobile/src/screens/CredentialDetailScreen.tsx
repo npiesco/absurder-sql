@@ -88,7 +88,7 @@ export default function CredentialDetailScreen({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity testID="back-button" style={styles.backButton} onPress={onBack}>
+        <TouchableOpacity testID="detail-back-button" style={styles.backButton} onPress={onBack}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Credential Details</Text>
@@ -97,7 +97,7 @@ export default function CredentialDetailScreen({
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView testID="detail-scroll" style={styles.content}>
         {/* Name/Title Section */}
         <View style={styles.titleSection}>
           <View style={styles.iconContainer}>
@@ -183,6 +183,20 @@ export default function CredentialDetailScreen({
             </View>
             <View style={styles.notesContent}>
               <Text style={styles.notesValue}>{credential.notes}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* TOTP Secret Field */}
+        {credential.totpSecret && (
+          <View testID="totp-secret-field" style={styles.fieldContainer}>
+            <View style={styles.fieldHeader}>
+              <Text style={styles.fieldLabel}>TOTP Secret (2FA)</Text>
+            </View>
+            <View style={styles.fieldContent}>
+              <Text style={styles.fieldValue}>
+                {credential.totpSecret.slice(0, 4)}••••••••
+              </Text>
             </View>
           </View>
         )}

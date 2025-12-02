@@ -132,7 +132,7 @@ describe('Credential Detail Screen', () => {
 
     // Should be back on detail screen or credentials list
     // Let's go back to list from detail
-    await element(by.id('back-button')).tap();
+    await element(by.id('detail-back-button')).tap();
 
     // Verify we're on credentials list
     await expect(element(by.text('Vault'))).toBeVisible();
