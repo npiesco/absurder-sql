@@ -24,12 +24,14 @@ import { Credential } from '../lib/VaultDatabase';
 interface CredentialsScreenProps {
   onAddCredential: () => void;
   onEditCredential: (id: string) => void;
+  onViewDetails: (id: string) => void;
   onLock: () => void;
 }
 
 export default function CredentialsScreen({
   onAddCredential,
   onEditCredential,
+  onViewDetails,
   onLock,
 }: CredentialsScreenProps) {
   const {
@@ -117,6 +119,15 @@ export default function CredentialsScreen({
 
         {isExpanded && (
           <View style={styles.credentialActions}>
+            <TouchableOpacity
+              testID="view-details-button"
+              style={[styles.actionButton, styles.viewDetailsButton]}
+              onPress={() => onViewDetails(item.id)}
+            >
+              <Text style={styles.actionIcon}>👁</Text>
+              <Text style={styles.actionText}>View Details</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => handleCopyUsername(item)}
@@ -330,6 +341,9 @@ const styles = StyleSheet.create({
   actionText: {
     color: '#fff',
     fontSize: 12,
+  },
+  viewDetailsButton: {
+    backgroundColor: '#e94560',
   },
   deleteButton: {
     backgroundColor: '#ff4757',

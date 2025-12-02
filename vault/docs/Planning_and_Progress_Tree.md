@@ -31,7 +31,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Create UnlockScreen (master password entry)
 - [x] Create CredentialsScreen (list with search)
 - [x] Create AddEditCredentialScreen (with validation + password generation)
-- [ ] Create CredentialDetailScreen
+- [x] Create CredentialDetailScreen (password reveal, copy, edit navigation)
 - [ ] Create SettingsScreen
 
 ### 1.5 Native Integration
@@ -49,6 +49,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Password generation test passing
 - [x] Full vault creation flow test
 - [x] Persistence test suite (3 tests - multiple credentials, terminate/relaunch cycles)
+- [x] CredentialDetail E2E test (8 tests - view, toggle password, copy, edit navigation)
 
 ---
 

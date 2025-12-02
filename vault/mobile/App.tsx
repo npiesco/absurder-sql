@@ -11,12 +11,14 @@ import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 import UnlockScreen from './src/screens/UnlockScreen';
 import CredentialsScreen from './src/screens/CredentialsScreen';
 import AddEditCredentialScreen from './src/screens/AddEditCredentialScreen';
+import CredentialDetailScreen from './src/screens/CredentialDetailScreen';
 
-type Screen = 'unlock' | 'credentials' | 'add' | 'edit';
+type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('unlock');
   const [editCredentialId, setEditCredentialId] = useState<string | null>(null);
+  const [detailCredentialId, setDetailCredentialId] = useState<string | null>(null);
 
   const handleUnlock = () => {
     setCurrentScreen('credentials');
@@ -36,9 +38,34 @@ export default function App() {
     setCurrentScreen('edit');
   };
 
+  const handleViewDetails = (id: string) => {
+    setDetailCredentialId(id);
+    setCurrentScreen('detail');
+  };
+
   const handleBack = () => {
     setCurrentScreen('credentials');
     setEditCredentialId(null);
+    setDetailCredentialId(null);
+  };
+
+  const handleEditFromDetail = () => {
+    if (detailCredentialId) {
+      setEditCredentialId(detailCredentialId);
+      setCurrentScreen('edit');
+    }
+  };
+
+  const handleBackFromEdit = () => {
+    // If we came from detail, go back to detail
+    if (detailCredentialId && currentScreen === 'edit') {
+      setCurrentScreen('detail');
+      setEditCredentialId(null);
+    } else {
+      setCurrentScreen('credentials');
+      setEditCredentialId(null);
+      setDetailCredentialId(null);
+    }
   };
 
   const renderScreen = () => {
@@ -51,6 +78,7 @@ export default function App() {
           <CredentialsScreen
             onAddCredential={handleAddCredential}
             onEditCredential={handleEditCredential}
+            onViewDetails={handleViewDetails}
             onLock={handleLock}
           />
         );
@@ -67,8 +95,24 @@ export default function App() {
         return (
           <AddEditCredentialScreen
             credentialId={editCredentialId}
-            onSave={handleBack}
-            onCancel={handleBack}
+            onSave={handleBackFromEdit}
+            onCancel={handleBackFromEdit}
+          />
+        );
+
+      case 'detail':
+        return detailCredentialId ? (
+          <CredentialDetailScreen
+            credentialId={detailCredentialId}
+            onEdit={handleEditFromDetail}
+            onBack={handleBack}
+          />
+        ) : (
+          <CredentialsScreen
+            onAddCredential={handleAddCredential}
+            onEditCredential={handleEditCredential}
+            onViewDetails={handleViewDetails}
+            onLock={handleLock}
           />
         );
 
