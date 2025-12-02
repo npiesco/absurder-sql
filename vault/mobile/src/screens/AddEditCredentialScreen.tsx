@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Clipboard,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { useVaultStore } from '../lib/store';
@@ -387,6 +388,18 @@ export default function AddEditCredentialScreen({
     setShowPassword(true);
   };
 
+  const handleCopyGeneratedPassword = async () => {
+    if (!password) {
+      return;
+    }
+    try {
+      await Clipboard.setString(password);
+      Alert.alert('Copied', 'Password copied to clipboard');
+    } catch {
+      Alert.alert('Error', 'Failed to copy password');
+    }
+  };
+
   const handleSave = async () => {
     if (!validate()) {
       // Show first error
@@ -630,6 +643,13 @@ export default function AddEditCredentialScreen({
                 {generatedPasswordLength}
               </Text>
               <Text style={styles.generatedLengthLabel}> characters</Text>
+              <TouchableOpacity
+                testID="copy-generated-password-button"
+                style={styles.copyGeneratedButton}
+                onPress={handleCopyGeneratedPassword}
+              >
+                <Text style={styles.copyIcon}>📋</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -641,6 +661,13 @@ export default function AddEditCredentialScreen({
                 {generatedWordCount}
               </Text>
               <Text style={styles.generatedLengthLabel}> words</Text>
+              <TouchableOpacity
+                testID="copy-generated-password-button"
+                style={styles.copyGeneratedButton}
+                onPress={handleCopyGeneratedPassword}
+              >
+                <Text style={styles.copyIcon}>📋</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -860,5 +887,12 @@ const styles = StyleSheet.create({
   },
   modeButtonTextSelected: {
     color: '#fff',
+  },
+  copyGeneratedButton: {
+    marginLeft: 12,
+    padding: 4,
+  },
+  copyIcon: {
+    fontSize: 16,
   },
 });

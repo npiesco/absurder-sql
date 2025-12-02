@@ -127,4 +127,22 @@ describe('Password Generator', () => {
     // Length should remain the same
     await expect(firstLength).toBeVisible();
   });
+
+  it('should copy generated password to clipboard', async () => {
+    // Generate password first
+    await element(by.id('generate-password-button')).tap();
+
+    // Verify password was generated
+    await expect(element(by.id('generated-password-length'))).toBeVisible();
+
+    // Tap copy button (next to generated password indicator)
+    await element(by.id('copy-generated-password-button')).tap();
+
+    // Verify copy confirmation alert appears
+    await expect(element(by.text('Copied'))).toBeVisible();
+    await expect(element(by.text('Password copied to clipboard'))).toBeVisible();
+
+    // Dismiss alert
+    await element(by.text('OK')).tap();
+  });
 });
