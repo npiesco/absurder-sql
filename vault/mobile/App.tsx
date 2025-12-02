@@ -10,6 +10,7 @@ import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 
 import UnlockScreen from './src/screens/UnlockScreen';
 import CredentialsScreen from './src/screens/CredentialsScreen';
+import AddEditCredentialScreen from './src/screens/AddEditCredentialScreen';
 
 type Screen = 'unlock' | 'credentials' | 'add' | 'edit';
 
@@ -55,13 +56,19 @@ export default function App() {
         );
 
       case 'add':
-      case 'edit':
-        // TODO: Implement AddEditCredentialScreen
         return (
-          <CredentialsScreen
-            onAddCredential={handleAddCredential}
-            onEditCredential={handleEditCredential}
-            onLock={handleLock}
+          <AddEditCredentialScreen
+            onSave={handleBack}
+            onCancel={handleBack}
+          />
+        );
+
+      case 'edit':
+        return (
+          <AddEditCredentialScreen
+            credentialId={editCredentialId}
+            onSave={handleBack}
+            onCancel={handleBack}
           />
         );
 

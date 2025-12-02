@@ -135,6 +135,7 @@ export default function CredentialsScreen({
             </TouchableOpacity>
 
             <TouchableOpacity
+              testID="edit-credential-button"
               style={styles.actionButton}
               onPress={() => onEditCredential(item.id)}
             >
@@ -202,7 +203,7 @@ export default function CredentialsScreen({
         }
       />
 
-      <TouchableOpacity style={styles.fab} onPress={onAddCredential}>
+      <TouchableOpacity testID="add-credential-fab" style={styles.fab} onPress={onAddCredential}>
         <Text style={styles.fabIcon}>+</Text>
       </TouchableOpacity>
     </View>

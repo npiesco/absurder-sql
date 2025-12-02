@@ -30,16 +30,24 @@ Sequential development checklist from scaffold to finished app.
 ### 1.4 Core Screens
 - [x] Create UnlockScreen (master password entry)
 - [x] Create CredentialsScreen (list with search)
-- [ ] Create AddEditCredentialScreen
+- [x] Create AddEditCredentialScreen (with validation + password generation)
 - [ ] Create CredentialDetailScreen
 - [ ] Create SettingsScreen
 
 ### 1.5 Native Integration
-- [ ] Create iOS project (Xcode)
-- [ ] Create Android project (Android Studio)
-- [ ] Link absurder-sql-mobile native libraries
-- [ ] Test on iOS Simulator
+- [x] Create iOS project (Xcode) - VaultApp.xcworkspace
+- [x] Create Android project (Android Studio) - android/
+- [x] Link absurder-sql-mobile native libraries (CocoaPods)
+- [x] Test on iOS Simulator (builds successfully)
 - [ ] Test on Android Emulator
+
+### 1.6 E2E Testing (Detox)
+- [x] Configure Detox for iOS
+- [x] Configure Detox for Android
+- [x] Write addCredential E2E test
+- [x] Validation test passing
+- [x] Password generation test passing
+- [ ] Full vault creation flow test (native module issue)
 
 ---
 

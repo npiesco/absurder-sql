@@ -118,6 +118,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Vault Name</Text>
               <TextInput
+                testID="vault-name-input"
                 style={styles.input}
                 placeholder="my-vault.db"
                 value={vaultName}
@@ -132,6 +133,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
             <Text style={styles.label}>Master Password</Text>
             <View style={styles.passwordContainer}>
               <TextInput
+                testID="master-password-input"
                 style={styles.passwordInput}
                 placeholder="Enter master password"
                 value={masterPassword}
@@ -153,6 +155,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Confirm Password</Text>
               <TextInput
+                testID="confirm-password-input"
                 style={styles.input}
                 placeholder="Confirm master password"
                 value={confirmPassword}
@@ -165,6 +168,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
           )}
 
           <TouchableOpacity
+            testID={mode === 'unlock' ? 'unlock-vault-button' : 'create-vault-button'}
             style={[styles.button, isLoading && styles.buttonDisabled]}
             onPress={mode === 'unlock' ? handleUnlock : handleCreate}
             disabled={isLoading}
