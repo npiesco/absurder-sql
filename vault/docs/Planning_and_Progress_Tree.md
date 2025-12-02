@@ -51,6 +51,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Persistence test suite (3 tests - multiple credentials, terminate/relaunch cycles)
 - [x] CredentialDetail E2E test (8 tests - view, toggle password, copy, edit navigation)
 - [x] Settings E2E test (8 tests - vault stats, security, about, lock, export)
+- [x] PasswordGenerator E2E test (6 tests - slider, configurable length 8-128)
 
 ---
 
@@ -59,7 +60,7 @@ Sequential development checklist from scaffold to finished app.
 ### 2.1 Password Generator
 - [x] Create PasswordGenerator component (integrated in AddEditCredentialScreen)
 - [x] Implement 20-char strong password generation (upper, lower, digits, symbols)
-- [ ] Implement configurable length (8-128 chars)
+- [x] Implement configurable length (8-128 chars) with slider UI
 - [ ] Implement passphrase mode (word-based)
 - [ ] Add copy-to-clipboard functionality
 

@@ -19,6 +19,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useVaultStore } from '../lib/store';
 import { Credential } from '../lib/VaultDatabase';
 
@@ -72,6 +73,8 @@ export default function AddEditCredentialScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [passwordLength, setPasswordLength] = useState(20);
+  const [generatedPasswordLength, setGeneratedPasswordLength] = useState<number | null>(null);
 
   useEffect(() => {
     if (existingCredential) {
@@ -99,8 +102,9 @@ export default function AddEditCredentialScreen({
   };
 
   const handleGeneratePassword = () => {
-    const newPassword = generatePassword(20);
+    const newPassword = generatePassword(passwordLength);
     setPassword(newPassword);
+    setGeneratedPasswordLength(newPassword.length);
     setShowPassword(true);
   };
 
@@ -155,7 +159,7 @@ export default function AddEditCredentialScreen({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.header}>
-        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+        <TouchableOpacity testID="cancel-button" style={styles.cancelButton} onPress={onCancel}>
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
         <Text style={styles.title}>
@@ -244,6 +248,43 @@ export default function AddEditCredentialScreen({
             <Text style={styles.generateIcon}>🎲</Text>
             <Text style={styles.generateText}>Generate Strong Password</Text>
           </TouchableOpacity>
+
+          {/* Password Length Slider */}
+          <View style={styles.sliderContainer}>
+            <View style={styles.sliderHeader}>
+              <Text style={styles.sliderLabel}>Password Length</Text>
+              <Text testID="password-length-display" style={styles.lengthDisplay}>
+                {passwordLength}
+              </Text>
+            </View>
+            <Slider
+              testID="password-length-slider"
+              style={styles.slider}
+              minimumValue={8}
+              maximumValue={128}
+              step={1}
+              value={passwordLength}
+              onValueChange={(value) => setPasswordLength(Math.round(value))}
+              minimumTrackTintColor="#e94560"
+              maximumTrackTintColor="#16213e"
+              thumbTintColor="#e94560"
+            />
+            <View style={styles.sliderLabels}>
+              <Text style={styles.sliderMinMax}>8</Text>
+              <Text style={styles.sliderMinMax}>128</Text>
+            </View>
+          </View>
+
+          {/* Generated password length indicator */}
+          {generatedPasswordLength !== null && (
+            <View style={styles.generatedLengthContainer}>
+              <Text style={styles.generatedLengthLabel}>Generated: </Text>
+              <Text testID="generated-password-length" style={styles.generatedLengthValue}>
+                {generatedPasswordLength}
+              </Text>
+              <Text style={styles.generatedLengthLabel}> characters</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.inputContainer}>
@@ -389,5 +430,53 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 100,
+  },
+  sliderContainer: {
+    marginTop: 16,
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 16,
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sliderLabel: {
+    color: '#8a8a9a',
+    fontSize: 14,
+  },
+  lengthDisplay: {
+    color: '#e94560',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  sliderLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  sliderMinMax: {
+    color: '#8a8a9a',
+    fontSize: 12,
+  },
+  generatedLengthContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 4,
+  },
+  generatedLengthLabel: {
+    color: '#8a8a9a',
+    fontSize: 12,
+  },
+  generatedLengthValue: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

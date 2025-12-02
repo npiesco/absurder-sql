@@ -35,9 +35,12 @@ describe('Credential Detail Screen', () => {
     await element(by.id('credential-username-input')).typeText('banking@example.com');
     await element(by.id('credential-password-input')).typeText('SuperSecret$123');
 
-    // Scroll to URL and notes fields
-    await element(by.id('credential-form-scroll')).scroll(200, 'down');
+    // Scroll to URL field (slider made form taller)
+    await element(by.id('credential-form-scroll')).scroll(350, 'down');
     await element(by.id('credential-url-input')).typeText('https://bank.example.com');
+
+    // Scroll more to reach notes field above keyboard
+    await element(by.id('credential-form-scroll')).scroll(150, 'down');
     await element(by.id('credential-notes-input')).typeText('Security questions: Pet name is Fluffy');
     await element(by.id('save-credential-button')).tap();
 
