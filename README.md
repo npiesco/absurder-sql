@@ -850,6 +850,51 @@ await db.close();
 
 **Setup:** See [**absurder-sql-mobile/README.md**](absurder-sql-mobile/README.md) for build instructions.
 
+#### Mobile Development Environment Setup
+
+Building mobile apps requires native toolchains and Rust cross-compilation targets. Follow these steps to set up your development environment:
+
+**Prerequisites:**
+- **Rust 1.85.0+** with iOS/Android targets
+- **Xcode** (iOS) with Command Line Tools
+- **Android Studio** (Android) with NDK
+
+**1. Install Rust iOS targets:**
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+```
+
+**2. Build iOS bindings with UniFFI:**
+```bash
+cd absurder-sql-mobile
+npx uniffi-bindgen-react-native build ios --and-generate
+```
+
+**3. Install CocoaPods dependencies:**
+```bash
+cd your-react-native-app/ios && pod install && cd ..
+```
+
+**4. Run on iOS Simulator:**
+```bash
+npx react-native run-ios --simulator="iPhone 16"
+```
+
+**Android Setup:**
+```bash
+# Install Rust Android targets
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+
+# Build Android bindings
+cd absurder-sql-mobile
+npx uniffi-bindgen-react-native build android --and-generate
+
+# Run on Android Emulator
+cd your-react-native-app && npx react-native run-android
+```
+
+> **Important:** The `uniffi-bindgen-react-native build` step compiles the Rust native library for the target platform and generates the TypeScript/Swift/Kotlin bindings. This must be run before `pod install` (iOS) or Gradle build (Android).
+
 ## Performance Features
 
 AbsurderSQL includes several performance optimizations for high-throughput applications:
