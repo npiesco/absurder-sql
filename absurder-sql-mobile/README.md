@@ -119,7 +119,7 @@ android/src/main/jni/sqlcipher-libs/
 1. **OpenSSL 1.1.1w** (for each ABI):
 ```bash
 # Example for arm64-v8a
-export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/27.1.12297006
+export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/29.0.14206865
 cd /tmp && tar xzf openssl-1.1.1w.tar.gz && cd openssl-1.1.1w
 
 ./Configure android-arm64 \
@@ -272,10 +272,19 @@ encryption-ios = ["encryption-commoncrypto"]  # Alias for convenience
 - iOS Simulator or device
 
 **For Android:**
-- Android Studio
-- Android NDK 27.1.12297006 (or compatible)
+- Android Studio (with bundled JDK 21)
+- Android NDK (installed via SDK Manager)
 - Android SDK with API 23+
+- cargo-ndk v3.5.4 (`cargo install cargo-ndk --version 3.5.4`)
 - Emulator or device
+
+**Environment Variables (add to `~/.zshrc`):**
+```bash
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/29.0.14206865
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export PATH=$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+```
 
 ### Rust Targets
 
@@ -319,30 +328,26 @@ The `npm run ubrn:ios` script:
 
 #### Android Build
 
+**Prerequisites:** SQLCipher static libraries must be built first. See "Building SQLCipher for Android" below.
+
 ```bash
 cd absurder-sql-mobile
 
-# Build Rust + generate UniFFI bindings + fix RN 0.82 compatibility
+# Build Rust + generate UniFFI bindings
 npm run ubrn:android
 
-# Bundle React Native app and build APK
-cd react-native
-npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
-cd android && ./gradlew assembleDebug
-
-# Install to emulator/device
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n com.absurdersqltestapp/.MainActivity
+# Run on emulator (from vault app directory)
+cd ../vault/mobile
+npx react-native run-android
 ```
 
 The `npm run ubrn:android` script:
-- Builds Rust for all 4 Android ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
+- Builds Rust for configured Android ABIs (currently arm64-v8a)
 - Generates Kotlin bindings via UniFFI
 - Copies `.a` libraries to `jniLibs/`
 - Generates TypeScript bindings
-- **Runs `scripts/fix_cpp_adapter.py`** to fix React Native 0.82 compatibility issues
 
-**Critical:** The `fix_cpp_adapter.py` script replaces UniFFI's generated `cpp-adapter.cpp` with a React Native 0.82-compatible version. This step is required because UniFFI generates code that's incompatible with RN 0.82's `CallInvokerHolder` API.
+**Note:** The `ubrn.config.yaml` controls which ABIs are built. Currently only `arm64-v8a` is enabled since SQLCipher libs are only built for that ABI.
 
 ### Important: Clean Build Environments
 
@@ -353,6 +358,60 @@ The `npm run ubrn:android` script:
 # Check environment is clean
 printenv | grep -E "CC|ANDROID|NDK|CLANG|AR_|RANLIB"
 # Should return nothing - if polluted, start new terminal
+```
+
+### Building SQLCipher for Android
+
+SQLCipher static libraries must be built once per ABI. Currently only `arm64-v8a` is built.
+
+**1. Build OpenSSL 1.1.1w:**
+```bash
+export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/29.0.14206865
+export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin:$PATH
+
+cd /tmp
+curl -LO https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+tar xzf openssl-1.1.1w.tar.gz && cd openssl-1.1.1w
+
+./Configure android-arm64 -D__ANDROID_API__=23 no-shared no-asm -fPIC --prefix=/tmp/openssl-arm64-v8a
+make -j8 && make install_sw
+```
+
+**2. Build SQLCipher 4.6.0:**
+```bash
+export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64
+export CC="$TOOLCHAIN/bin/clang --target=aarch64-linux-android23"
+export AR=$TOOLCHAIN/bin/llvm-ar
+export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+
+cd /tmp
+curl -LO https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.6.0.tar.gz
+tar xzf v4.6.0.tar.gz && cd sqlcipher-4.6.0
+
+./configure --host=aarch64-linux-android --with-crypto-lib=openssl --enable-tempstore=yes --disable-tcl \
+  CFLAGS="-D__ANDROID_API__=23 -DSQLITE_HAS_CODEC -fPIC -I/tmp/openssl-arm64-v8a/include" \
+  CPPFLAGS="-I/tmp/openssl-arm64-v8a/include" \
+  LDFLAGS="-L/tmp/openssl-arm64-v8a/lib" \
+  LIBS="-lcrypto -lssl"
+
+make -j8
+$TOOLCHAIN/bin/llvm-ar rcs .libs/libsqlcipher.a .libs/sqlite3.o
+```
+
+**3. Copy libs to project:**
+```bash
+mkdir -p android/src/main/jni/sqlcipher-libs/arm64-v8a
+cp /tmp/sqlcipher-4.6.0/.libs/libsqlcipher.a android/src/main/jni/sqlcipher-libs/arm64-v8a/
+cp /tmp/openssl-arm64-v8a/lib/libcrypto.a android/src/main/jni/sqlcipher-libs/arm64-v8a/
+cp /tmp/openssl-arm64-v8a/lib/libssl.a android/src/main/jni/sqlcipher-libs/arm64-v8a/
+```
+
+### cargo-ndk Version
+
+**Critical:** Must use cargo-ndk v3.5.4. Version 4.x has breaking changes with `--no-strip` flag that uniffi-bindgen-react-native uses.
+
+```bash
+cargo install cargo-ndk --version 3.5.4
 ```
 
 ---
