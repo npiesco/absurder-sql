@@ -9,7 +9,34 @@
  */
 
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { VaultDatabase, Credential, Folder, CustomField, Tag } from './VaultDatabase';
+
+export type SortOption = 'name-asc' | 'name-desc' | 'updated' | 'created' | 'favorites';
+
+const SORT_PREFERENCE_KEY = '@vault_sort_preference';
+
+function sortCredentials(credentials: Credential[], sortOption: SortOption): Credential[] {
+  const sorted = [...credentials];
+  switch (sortOption) {
+    case 'name-asc':
+      return sorted.sort((a, b) => a.name.localeCompare(b.name));
+    case 'name-desc':
+      return sorted.sort((a, b) => b.name.localeCompare(a.name));
+    case 'updated':
+      return sorted.sort((a, b) => b.updatedAt - a.updatedAt);
+    case 'created':
+      return sorted.sort((a, b) => b.createdAt - a.createdAt);
+    case 'favorites':
+      return sorted.sort((a, b) => {
+        if (a.favorite && !b.favorite) return -1;
+        if (!a.favorite && b.favorite) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    default:
+      return sorted;
+  }
+}
 
 interface VaultState {
   // Vault state
@@ -26,6 +53,7 @@ interface VaultState {
   isLoading: boolean;
   error: string | null;
   searchQuery: string;
+  sortOption: SortOption;
 
   // Actions
   unlock: (name: string, masterPassword: string) => Promise<void>;
@@ -55,6 +83,10 @@ interface VaultState {
   // Search
   setSearchQuery: (query: string) => void;
 
+  // Sorting
+  setSortOption: (option: SortOption) => Promise<void>;
+  loadSortPreference: () => Promise<void>;
+
   // Error handling
   setError: (error: string | null) => void;
   clearError: () => void;
@@ -71,6 +103,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   isLoading: false,
   error: null,
   searchQuery: '',
+  sortOption: 'name-asc' as SortOption,
 
   // Unlock existing vault
   unlock: async (name: string, masterPassword: string) => {
@@ -131,13 +164,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   // Refresh credentials from database
   refreshCredentials: async () => {
-    const { vault, searchQuery } = get();
+    const { vault, searchQuery, sortOption } = get();
     if (!vault) return;
 
     try {
-      const credentials = searchQuery
+      let credentials = searchQuery
         ? await vault.searchCredentials(searchQuery)
         : await vault.getAllCredentials();
+
+      // Apply sorting
+      credentials = sortCredentials(credentials, sortOption);
       set({ credentials });
     } catch (error) {
       set({
@@ -256,6 +292,28 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   setSearchQuery: (query) => {
     set({ searchQuery: query });
     get().refreshCredentials();
+  },
+
+  // Sorting
+  setSortOption: async (option) => {
+    set({ sortOption: option });
+    try {
+      await AsyncStorage.setItem(SORT_PREFERENCE_KEY, option);
+    } catch (err) {
+      console.error('Failed to save sort preference:', err);
+    }
+    get().refreshCredentials();
+  },
+
+  loadSortPreference: async () => {
+    try {
+      const saved = await AsyncStorage.getItem(SORT_PREFERENCE_KEY);
+      if (saved && ['name-asc', 'name-desc', 'updated', 'created', 'favorites'].includes(saved)) {
+        set({ sortOption: saved as SortOption });
+      }
+    } catch (err) {
+      console.error('Failed to load sort preference:', err);
+    }
   },
 
   // Error handling

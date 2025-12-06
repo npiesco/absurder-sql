@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "NativeAbsurderSql_autolinked_build",
+		"source" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni"
+	}
+}

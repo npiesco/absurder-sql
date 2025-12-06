@@ -1,0 +1,244 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./NativeAbsurderSql-generated.cpp.o"
+		},
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./react/renderer/components/NativeAbsurderSql/ComponentDescriptors.cpp.o"
+		},
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./react/renderer/components/NativeAbsurderSql/EventEmitters.cpp.o"
+		},
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./react/renderer/components/NativeAbsurderSql/NativeAbsurderSqlJSI-generated.cpp.o"
+		},
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./react/renderer/components/NativeAbsurderSql/Props.cpp.o"
+		},
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./react/renderer/components/NativeAbsurderSql/ShadowNodes.cpp.o"
+		},
+		{
+			"path" : "NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/./react/renderer/components/NativeAbsurderSql/States.cpp.o"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_compile_options",
+			"target_include_directories",
+			"target_link_libraries"
+		],
+		"files" : 
+		[
+			"/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 11,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 28,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 17,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 19,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DLOG_TAG=\\\"ReactNative\\\""
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-fexceptions"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-frtti"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-std=c++20"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-Wall"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_NO_CONFIG=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_HAVE_CLOCK_GETTIME=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_USE_LIBCPP=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_CFG_NO_COROUTINES=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_MOBILE=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_HAVE_RECVMMSG=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_HAVE_PTHREAD=1"
+				},
+				{
+					"backtrace" : 0,
+					"fragment" : "-DFOLLY_HAVE_XSI_STRERROR_R=1"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 3,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/."
+				},
+				{
+					"backtrace" : 3,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql"
+				},
+				{
+					"backtrace" : 4,
+					"isSystem" : true,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/ecaf85af74491e145fd7c1a1474ff70a/transformed/fbjni-0.6.0/prefab/modules/fbjni/include"
+				},
+				{
+					"backtrace" : 4,
+					"isSystem" : true,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/jsi/include"
+				},
+				{
+					"backtrace" : 4,
+					"isSystem" : true,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/reactnative/include"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6
+			],
+			"sysroot" : 
+			{
+				"path" : "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/darwin-x86_64/sysroot"
+			}
+		}
+	],
+	"id" : "react_codegen_NativeAbsurderSql::@33ab728bcf293140afa2",
+	"name" : "react_codegen_NativeAbsurderSql",
+	"paths" : 
+	{
+		"build" : "NativeAbsurderSql_autolinked_build",
+		"source" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/NativeAbsurderSql-generated.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql/ComponentDescriptors.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql/EventEmitters.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql/NativeAbsurderSqlJSI-generated.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql/Props.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql/ShadowNodes.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql/States.cpp",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "OBJECT_LIBRARY"
+}

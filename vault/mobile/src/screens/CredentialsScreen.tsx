@@ -7,7 +7,7 @@
  * - Quick actions (copy password, view details)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import {
   Alert,
   Clipboard,
 } from 'react-native';
-import { useVaultStore } from '../lib/store';
+import { useVaultStore, SortOption } from '../lib/store';
 import { Credential, Tag } from '../lib/VaultDatabase';
 
 interface CredentialsScreenProps {
@@ -44,10 +44,35 @@ export default function CredentialsScreen({
     updateCredential,
     getCredentialTags,
     lock,
+    sortOption,
+    setSortOption,
+    loadSortPreference,
   } = useVaultStore();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [credentialTags, setCredentialTags] = useState<{ [id: string]: Tag[] }>({});
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
+  // Load sort preference on mount
+  useEffect(() => {
+    loadSortPreference();
+  }, [loadSortPreference]);
+
+  const getSortLabel = useCallback((option: SortOption): string => {
+    switch (option) {
+      case 'name-asc': return 'A-Z';
+      case 'name-desc': return 'Z-A';
+      case 'updated': return 'Updated';
+      case 'created': return 'Created';
+      case 'favorites': return 'Favorites';
+      default: return 'A-Z';
+    }
+  }, []);
+
+  const handleSortSelect = useCallback(async (option: SortOption) => {
+    await setSortOption(option);
+    setShowSortMenu(false);
+  }, [setSortOption]);
 
   // Load tags for all credentials
   useEffect(() => {
@@ -221,10 +246,61 @@ export default function CredentialsScreen({
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Vault</Text>
-        <TouchableOpacity testID="settings-button" style={styles.settingsButton} onPress={onSettings}>
-          <Text style={styles.settingsIcon}>⚙️</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity testID="sort-button" style={styles.sortButton} onPress={() => setShowSortMenu(!showSortMenu)}>
+            <Text style={styles.sortIcon}>↕️</Text>
+            <Text testID="current-sort-indicator" style={styles.sortLabel}>{getSortLabel(sortOption)}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity testID="settings-button" style={styles.settingsButton} onPress={onSettings}>
+            <Text style={styles.settingsIcon}>⚙️</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {showSortMenu && (
+        <View style={styles.sortMenu}>
+          <TouchableOpacity
+            testID="sort-option-name-asc"
+            style={[styles.sortMenuItem, sortOption === 'name-asc' && styles.sortMenuItemActive]}
+            onPress={() => handleSortSelect('name-asc')}
+          >
+            <Text style={styles.sortMenuText}>Name A-Z</Text>
+            {sortOption === 'name-asc' && <Text style={styles.checkmark}>✓</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="sort-option-name-desc"
+            style={[styles.sortMenuItem, sortOption === 'name-desc' && styles.sortMenuItemActive]}
+            onPress={() => handleSortSelect('name-desc')}
+          >
+            <Text style={styles.sortMenuText}>Name Z-A</Text>
+            {sortOption === 'name-desc' && <Text style={styles.checkmark}>✓</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="sort-option-updated"
+            style={[styles.sortMenuItem, sortOption === 'updated' && styles.sortMenuItemActive]}
+            onPress={() => handleSortSelect('updated')}
+          >
+            <Text style={styles.sortMenuText}>Recently Updated</Text>
+            {sortOption === 'updated' && <Text style={styles.checkmark}>✓</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="sort-option-created"
+            style={[styles.sortMenuItem, sortOption === 'created' && styles.sortMenuItemActive]}
+            onPress={() => handleSortSelect('created')}
+          >
+            <Text style={styles.sortMenuText}>Recently Created</Text>
+            {sortOption === 'created' && <Text style={styles.checkmark}>✓</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="sort-option-favorites"
+            style={[styles.sortMenuItem, sortOption === 'favorites' && styles.sortMenuItemActive]}
+            onPress={() => handleSortSelect('favorites')}
+          >
+            <Text style={styles.sortMenuText}>Favorites First</Text>
+            {sortOption === 'favorites' && <Text style={styles.checkmark}>✓</Text>}
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.searchContainer}>
         <Text style={styles.searchIcon}>🔍</Text>
@@ -243,6 +319,7 @@ export default function CredentialsScreen({
       </View>
 
       <FlatList
+        testID="credentials-list"
         data={credentials}
         renderItem={renderCredential}
         keyExtractor={(item) => item.id}
@@ -288,6 +365,56 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f3460',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  sortIcon: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  sortLabel: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sortMenu: {
+    backgroundColor: '#16213e',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  sortMenuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0f3460',
+  },
+  sortMenuItemActive: {
+    backgroundColor: '#0f3460',
+  },
+  sortMenuText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  checkmark: {
+    color: '#e94560',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   settingsButton: {
     padding: 8,

@@ -69,7 +69,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement custom fields (6 E2E tests - add, display, edit, delete, persist)
 - [x] Implement tags/categories (7 E2E tests - create, assign, display, multiple, remove, persist)
 - [x] Implement favorites (6 E2E tests - toggle from detail, toggle from card, persist)
-- [ ] Implement credential sorting options
+- [x] Implement credential sorting options (8 E2E tests - A-Z, Z-A, updated, created, favorites, persist)
 
 ### 2.3 Folders & Organization
 - [ ] Create FoldersScreen
@@ -268,4 +268,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-02*
+*Last updated: 2025-12-06*

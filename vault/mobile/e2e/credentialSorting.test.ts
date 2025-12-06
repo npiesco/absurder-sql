@@ -9,43 +9,41 @@
  * - Favorites first
  */
 
-import { by, device, element, expect } from 'detox';
+import { by, device, element, expect, waitFor } from 'detox';
 
 describe('Credential Sorting', () => {
   beforeAll(async () => {
     await device.launchApp({ newInstance: true, delete: true });
-  });
 
-  beforeEach(async () => {
-    await device.reloadReactNative();
-  });
+    // Wait for unlock screen to load
+    await waitFor(element(by.text('Create New'))).toBeVisible().withTimeout(10000);
 
-  async function createVaultAndUnlock() {
-    const masterPassword = element(by.id('master-password-input'));
-    await masterPassword.typeText('TestPassword123!');
-    await element(by.id('unlock-button')).tap();
+    // Create vault for all tests
+    await element(by.text('Create New')).tap();
+    await element(by.id('master-password-input')).tap();
+    await element(by.id('master-password-input')).replaceText('SortingTest123!');
+    await element(by.id('confirm-password-input')).tap();
+    await element(by.id('confirm-password-input')).replaceText('SortingTest123!');
+    await element(by.id('create-vault-button')).tap();
     await expect(element(by.text('Vault'))).toBeVisible();
-  }
+  });
 
   async function createCredential(name: string, username: string, password: string) {
     await element(by.id('add-credential-fab')).tap();
-    await element(by.id('name-input')).typeText(name);
-    await element(by.id('username-input')).typeText(username);
-    await element(by.id('password-input')).typeText(password);
-    await element(by.id('save-button')).tap();
+    await element(by.id('credential-name-input')).typeText(name);
+    await element(by.id('credential-username-input')).typeText(username);
+    await element(by.id('credential-password-input')).typeText(password);
+    await element(by.id('save-credential-button')).tap();
     await expect(element(by.text('Vault'))).toBeVisible();
   }
 
   it('should display sort button in credentials screen header', async () => {
-    await createVaultAndUnlock();
-
     // Verify sort button is visible
     await expect(element(by.id('sort-button'))).toBeVisible();
   });
 
   it('should show sort options menu when sort button is tapped', async () => {
-    await createVaultAndUnlock();
-
+    
     await element(by.id('sort-button')).tap();
 
     // Verify sort options are displayed
@@ -57,8 +55,7 @@ describe('Credential Sorting', () => {
   });
 
   it('should sort credentials by name A-Z by default', async () => {
-    await createVaultAndUnlock();
-
+    
     // Create credentials in non-alphabetical order
     await createCredential('Zebra Account', 'zebra', 'ZebraPass123!');
     await createCredential('Apple Account', 'apple', 'ApplePass123!');
@@ -80,8 +77,7 @@ describe('Credential Sorting', () => {
   });
 
   it('should sort credentials by name Z-A when selected', async () => {
-    await createVaultAndUnlock();
-
+    
     // Create credentials
     await createCredential('Alpha Site', 'alpha', 'AlphaPass123!');
     await createCredential('Beta Site', 'beta', 'BetaPass123!');
@@ -100,8 +96,7 @@ describe('Credential Sorting', () => {
   });
 
   it('should sort credentials by recently updated when selected', async () => {
-    await createVaultAndUnlock();
-
+    
     // Create credentials
     await createCredential('First Created', 'first', 'FirstPass123!');
     await createCredential('Second Created', 'second', 'SecondPass123!');
@@ -112,9 +107,9 @@ describe('Credential Sorting', () => {
     // Update the first credential to make it most recently updated
     await element(by.text('First Created')).tap();
     await element(by.id('edit-credential-button')).tap();
-    await element(by.id('username-input')).clearText();
-    await element(by.id('username-input')).typeText('first_updated');
-    await element(by.id('save-button')).tap();
+    await element(by.id('credential-username-input')).clearText();
+    await element(by.id('credential-username-input')).typeText('first_updated');
+    await element(by.id('save-credential-button')).tap();
 
     // Now sort by recently updated
     await element(by.id('sort-button')).tap();
@@ -128,8 +123,7 @@ describe('Credential Sorting', () => {
   });
 
   it('should sort credentials by recently created when selected', async () => {
-    await createVaultAndUnlock();
-
+    
     // Create credentials with slight delays to ensure different timestamps
     await createCredential('Oldest Entry', 'oldest', 'OldestPass123!');
     await createCredential('Middle Entry', 'middle', 'MiddlePass123!');
@@ -147,8 +141,7 @@ describe('Credential Sorting', () => {
   });
 
   it('should sort favorites first when selected', async () => {
-    await createVaultAndUnlock();
-
+    
     // Create credentials
     await createCredential('Regular Account', 'regular', 'RegularPass123!');
     await createCredential('Favorite Account', 'favorite', 'FavoritePass123!');
@@ -157,11 +150,9 @@ describe('Credential Sorting', () => {
     // Wait for list
     await expect(element(by.text('Regular Account'))).toBeVisible();
 
-    // Mark one as favorite
+    // Mark one as favorite via the expanded card
     await element(by.text('Favorite Account')).tap();
-    await element(by.id('view-details-button')).tap();
-    await element(by.id('favorite-toggle-button')).tap();
-    await device.pressBack();
+    await element(by.id('card-favorite-toggle')).tap();
 
     // Sort by favorites
     await element(by.id('sort-button')).tap();
@@ -172,13 +163,7 @@ describe('Credential Sorting', () => {
   });
 
   it('should persist sort preference across app restart', async () => {
-    await createVaultAndUnlock();
-
-    // Create a credential
-    await createCredential('Test Persistence', 'test', 'TestPass123!');
-    await expect(element(by.text('Test Persistence'))).toBeVisible();
-
-    // Change sort to Z-A
+    // Change sort to Z-A (don't create new credentials, use existing ones)
     await element(by.id('sort-button')).tap();
     await element(by.id('sort-option-name-desc')).tap();
     await expect(element(by.id('current-sort-indicator'))).toHaveText('Z-A');
@@ -187,10 +172,11 @@ describe('Credential Sorting', () => {
     await device.terminateApp();
     await device.launchApp({ newInstance: false });
 
-    // Unlock again
-    const masterPassword = element(by.id('master-password-input'));
-    await masterPassword.typeText('TestPassword123!');
-    await element(by.id('unlock-button')).tap();
+    // Unlock again (vault already exists)
+    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(10000);
+    await element(by.id('master-password-input')).tap();
+    await element(by.id('master-password-input')).replaceText('SortingTest123!');
+    await element(by.id('unlock-vault-button')).tap();
     await expect(element(by.text('Vault'))).toBeVisible();
 
     // Verify sort preference persisted
