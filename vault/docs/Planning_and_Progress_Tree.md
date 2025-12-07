@@ -72,17 +72,17 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement credential sorting options (8 E2E tests - A-Z, Z-A, updated, created, favorites, persist)
 
 ### 2.3 Folders & Organization
-- [ ] Create FoldersScreen
-- [ ] Implement folder creation/editing
-- [ ] Implement folder hierarchy (nested folders)
+- [x] Create FoldersScreen (6 E2E tests - create, edit, delete, assign, filter, persist)
+- [x] Implement folder creation/editing
+- [x] Implement folder hierarchy (nested folders) (12 E2E tests - subfolder CRUD, expand/collapse, nested paths, persist)
 - [ ] Implement drag-drop credential organization
 - [ ] Implement folder icons/colors
 
 ### 2.4 Search & Filter
-- [ ] Implement full-text search
-- [ ] Implement filter by folder
-- [ ] Implement filter by tag
-- [ ] Implement filter by favorites
+- [x] Implement full-text search (existing search functionality)
+- [x] Implement filter by folder (included in folders feature)
+- [x] Implement filter by tag (included in tags feature)
+- [x] Implement filter by favorites (included in sorting/favorites)
 - [ ] Implement recent items
 
 ---
