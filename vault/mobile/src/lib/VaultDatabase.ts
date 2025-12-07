@@ -423,6 +423,17 @@ export class VaultDatabase {
   }
 
   /**
+   * Update folder
+   */
+  async updateFolder(id: string, name: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    await this.db.execute(`
+      UPDATE folders SET name = '${this.escapeString(name)}' WHERE id = '${id}'
+    `);
+  }
+
+  /**
    * Delete folder
    */
   async deleteFolder(id: string): Promise<void> {

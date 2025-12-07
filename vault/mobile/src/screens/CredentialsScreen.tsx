@@ -19,13 +19,14 @@ import {
   Clipboard,
 } from 'react-native';
 import { useVaultStore, SortOption } from '../lib/store';
-import { Credential, Tag } from '../lib/VaultDatabase';
+import { Credential, Tag, Folder } from '../lib/VaultDatabase';
 
 interface CredentialsScreenProps {
   onAddCredential: () => void;
   onEditCredential: (id: string) => void;
   onViewDetails: (id: string) => void;
   onSettings: () => void;
+  onFolders: () => void;
   onLock: () => void;
 }
 
@@ -34,10 +35,12 @@ export default function CredentialsScreen({
   onEditCredential,
   onViewDetails,
   onSettings,
+  onFolders,
   onLock,
 }: CredentialsScreenProps) {
   const {
     credentials,
+    folders,
     searchQuery,
     setSearchQuery,
     deleteCredential,
@@ -52,6 +55,25 @@ export default function CredentialsScreen({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [credentialTags, setCredentialTags] = useState<{ [id: string]: Tag[] }>({});
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showFolderFilter, setShowFolderFilter] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+
+  // Get folder name by ID
+  const getFolderName = useCallback((folderId: string | null): string | null => {
+    if (!folderId) return null;
+    const folder = folders.find(f => f.id === folderId);
+    return folder ? folder.name : null;
+  }, [folders]);
+
+  // Filter credentials by selected folder
+  const filteredCredentials = selectedFolderId
+    ? credentials.filter(c => c.folderId === selectedFolderId)
+    : credentials;
+
+  const handleFolderFilterSelect = useCallback((folderId: string | null) => {
+    setSelectedFolderId(folderId);
+    setShowFolderFilter(false);
+  }, []);
 
   // Load sort preference on mount
   useEffect(() => {
@@ -177,6 +199,11 @@ export default function CredentialsScreen({
                 ))}
               </View>
             )}
+            {item.folderId && getFolderName(item.folderId) && (
+              <View testID={`folder-badge-${item.name}`} style={styles.folderBadge}>
+                <Text style={styles.folderBadgeText}>📁 {getFolderName(item.folderId)}</Text>
+              </View>
+            )}
           </View>
           {item.favorite && (
             <Text testID={`favorite-badge-${item.name}`} style={styles.favoriteIcon}>⭐</Text>
@@ -247,6 +274,9 @@ export default function CredentialsScreen({
       <View style={styles.header}>
         <Text style={styles.title}>Vault</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity testID="folders-button" style={styles.sortButton} onPress={onFolders}>
+            <Text style={styles.sortIcon}>📁</Text>
+          </TouchableOpacity>
           <TouchableOpacity testID="sort-button" style={styles.sortButton} onPress={() => setShowSortMenu(!showSortMenu)}>
             <Text style={styles.sortIcon}>↕️</Text>
             <Text testID="current-sort-indicator" style={styles.sortLabel}>{getSortLabel(sortOption)}</Text>
@@ -318,9 +348,46 @@ export default function CredentialsScreen({
         )}
       </View>
 
+      {/* Folder filter bar */}
+      <View style={styles.filterBar}>
+        <TouchableOpacity
+          testID="folder-filter-button"
+          style={styles.filterButton}
+          onPress={() => setShowFolderFilter(!showFolderFilter)}
+        >
+          <Text style={styles.filterIcon}>📁</Text>
+          <Text style={styles.filterLabel}>
+            {selectedFolderId ? getFolderName(selectedFolderId) : 'All Folders'}
+          </Text>
+          <Text style={styles.filterArrow}>▼</Text>
+        </TouchableOpacity>
+      </View>
+
+      {showFolderFilter && (
+        <View style={styles.folderFilterMenu}>
+          <TouchableOpacity
+            style={[styles.folderFilterItem, !selectedFolderId && styles.folderFilterItemActive]}
+            onPress={() => handleFolderFilterSelect(null)}
+          >
+            <Text style={styles.folderFilterText}>All Folders</Text>
+            {!selectedFolderId && <Text style={styles.checkmark}>✓</Text>}
+          </TouchableOpacity>
+          {folders.map(folder => (
+            <TouchableOpacity
+              key={folder.id}
+              style={[styles.folderFilterItem, selectedFolderId === folder.id && styles.folderFilterItemActive]}
+              onPress={() => handleFolderFilterSelect(folder.id)}
+            >
+              <Text style={styles.folderFilterText}>{folder.name}</Text>
+              {selectedFolderId === folder.id && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <FlatList
         testID="credentials-list"
-        data={credentials}
+        data={filteredCredentials}
         renderItem={renderCredential}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
@@ -563,6 +630,64 @@ const styles = StyleSheet.create({
   emptySubtext: {
     color: '#8a8a9a',
     fontSize: 14,
+  },
+  filterBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  filterIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  filterLabel: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+  },
+  filterArrow: {
+    color: '#8a8a9a',
+    fontSize: 10,
+  },
+  folderFilterMenu: {
+    backgroundColor: '#16213e',
+    marginHorizontal: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  folderFilterItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0f3460',
+  },
+  folderFilterItemActive: {
+    backgroundColor: '#0f3460',
+  },
+  folderFilterText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  folderBadge: {
+    backgroundColor: '#0f3460',
+    borderRadius: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    marginTop: 4,
+  },
+  folderBadgeText: {
+    color: '#8a8a9a',
+    fontSize: 10,
   },
   fab: {
     position: 'absolute',

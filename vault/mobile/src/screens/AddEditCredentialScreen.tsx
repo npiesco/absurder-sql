@@ -327,7 +327,7 @@ export default function AddEditCredentialScreen({
   onSave,
   onCancel,
 }: AddEditCredentialScreenProps) {
-  const { credentials, addCredential, updateCredential, getCustomFields, syncCustomFields, getCredentialTags, syncCredentialTags } = useVaultStore();
+  const { credentials, folders, addCredential, updateCredential, getCustomFields, syncCustomFields, getCredentialTags, syncCredentialTags } = useVaultStore();
 
   const isEditing = !!credentialId;
   const existingCredential = credentialId
@@ -340,6 +340,8 @@ export default function AddEditCredentialScreen({
   const [url, setUrl] = useState(existingCredential?.url || '');
   const [notes, setNotes] = useState(existingCredential?.notes || '');
   const [totpSecret, setTotpSecret] = useState(existingCredential?.totpSecret || '');
+  const [folderId, setFolderId] = useState<string | null>(existingCredential?.folderId || null);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [customFields, setCustomFields] = useState<Array<{ name: string; value: string }>>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
@@ -478,7 +480,7 @@ export default function AddEditCredentialScreen({
           url: url.trim() || null,
           totpSecret: totpSecret.trim() || null,
           notes: notes.trim() || null,
-          folderId: null,
+          folderId: folderId,
           favorite: false,
           passwordUpdatedAt: null,
         });
@@ -771,6 +773,43 @@ export default function AddEditCredentialScreen({
           <Text style={styles.totpHint}>
             Enter the secret key from your authenticator app setup
           </Text>
+        </View>
+
+        {/* Folder Picker */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Folder</Text>
+          <TouchableOpacity
+            testID="folder-picker"
+            style={styles.folderPicker}
+            onPress={() => setShowFolderPicker(!showFolderPicker)}
+          >
+            <Text style={styles.folderPickerIcon}>📁</Text>
+            <Text style={styles.folderPickerText}>
+              {folderId ? folders.find(f => f.id === folderId)?.name || 'Select folder' : 'No folder'}
+            </Text>
+            <Text style={styles.folderPickerArrow}>▼</Text>
+          </TouchableOpacity>
+          {showFolderPicker && (
+            <View style={styles.folderPickerMenu}>
+              <TouchableOpacity
+                style={[styles.folderPickerItem, !folderId && styles.folderPickerItemActive]}
+                onPress={() => { setFolderId(null); setShowFolderPicker(false); }}
+              >
+                <Text style={styles.folderPickerItemText}>No folder</Text>
+                {!folderId && <Text style={styles.folderPickerCheck}>✓</Text>}
+              </TouchableOpacity>
+              {folders.map(folder => (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={[styles.folderPickerItem, folderId === folder.id && styles.folderPickerItemActive]}
+                  onPress={() => { setFolderId(folder.id); setShowFolderPicker(false); }}
+                >
+                  <Text style={styles.folderPickerItemText}>{folder.name}</Text>
+                  {folderId === folder.id && <Text style={styles.folderPickerCheck}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Tags Section */}
@@ -1215,6 +1254,52 @@ const styles = StyleSheet.create({
   },
   addFieldText: {
     color: '#8a8a9a',
+    fontSize: 14,
+  },
+  folderPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+  },
+  folderPickerIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  folderPickerText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+  },
+  folderPickerArrow: {
+    color: '#8a8a9a',
+    fontSize: 10,
+  },
+  folderPickerMenu: {
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  folderPickerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0f3460',
+  },
+  folderPickerItemActive: {
+    backgroundColor: '#0f3460',
+  },
+  folderPickerItemText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  folderPickerCheck: {
+    color: '#e94560',
     fontSize: 14,
   },
 });

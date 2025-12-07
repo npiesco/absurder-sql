@@ -58,12 +58,16 @@ describe('Tags', () => {
     // Add a tag
     await element(by.id('add-tag-button')).tap();
     await element(by.id('tag-input')).typeText('Work');
+    // Scroll to make save button visible
+    await element(by.id('credential-form-scroll')).scroll(100, 'down');
+    await waitFor(element(by.id('save-tag-button'))).toBeVisible().withTimeout(3000);
     await element(by.id('save-tag-button')).tap();
 
     // Verify tag chip appears
     await expect(element(by.id('tag-chip-Work'))).toBeVisible();
 
-    // Save credential
+    // Scroll back up and save credential
+    await element(by.id('credential-form-scroll')).scrollTo('top');
     await element(by.id('save-credential-button')).tap();
 
     // Verify credential appears in list
@@ -103,13 +107,16 @@ describe('Tags', () => {
     // Add another tag
     await element(by.id('add-tag-button')).tap();
     await element(by.id('tag-input')).typeText('Email');
+    await element(by.id('credential-form-scroll')).scroll(100, 'down');
+    await waitFor(element(by.id('save-tag-button'))).toBeVisible().withTimeout(3000);
     await element(by.id('save-tag-button')).tap();
 
     // Verify both tags visible
     await expect(element(by.id('tag-chip-Work'))).toBeVisible();
     await expect(element(by.id('tag-chip-Email'))).toBeVisible();
 
-    // Save
+    // Scroll back up and save
+    await element(by.id('credential-form-scroll')).scrollTo('top');
     await element(by.id('save-credential-button')).tap();
 
     // Verify in detail
@@ -138,7 +145,8 @@ describe('Tags', () => {
     await expect(element(by.id('tag-chip-Email'))).not.toBeVisible();
     await expect(element(by.id('tag-chip-Work'))).toBeVisible();
 
-    // Save
+    // Scroll back up and save
+    await element(by.id('credential-form-scroll')).scrollTo('top');
     await element(by.id('save-credential-button')).tap();
 
     // Verify in detail
