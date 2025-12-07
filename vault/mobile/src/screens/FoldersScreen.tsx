@@ -2,20 +2,21 @@
  * Folders Screen
  *
  * Manage folders for organizing credentials:
- * - View all folders
- * - Create new folders
+ * - View all folders with nested hierarchy
+ * - Create new folders and subfolders
  * - Edit folder names
- * - Delete folders
+ * - Delete folders (subfolders move to root)
+ * - Expand/collapse folder trees
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  FlatList,
+  ScrollView,
   Alert,
   Modal,
 } from 'react-native';
@@ -26,24 +27,79 @@ interface FoldersScreenProps {
   onBack: () => void;
 }
 
+interface FolderNode extends Folder {
+  children: FolderNode[];
+  depth: number;
+}
+
 export default function FoldersScreen({ onBack }: FoldersScreenProps) {
-  const { folders, addFolder, deleteFolder, refreshFolders } = useVaultStore();
+  const { folders, addFolder, deleteFolder, refreshFolders, vault } = useVaultStore();
 
   const [showModal, setShowModal] = useState(false);
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
+  const [parentFolderId, setParentFolderId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState('');
-  const [expandedFolderId, setExpandedFolderId] = useState<string | null>(null);
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const [actionExpandedId, setActionExpandedId] = useState<string | null>(null);
+
+  // Build tree structure from flat folder list
+  const folderTree = useMemo(() => {
+    const buildTree = (parentId: string | null, depth: number): FolderNode[] => {
+      return folders
+        .filter(f => f.parentId === parentId)
+        .map(folder => ({
+          ...folder,
+          depth,
+          children: buildTree(folder.id, depth + 1),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    };
+    return buildTree(null, 0);
+  }, [folders]);
+
+  // Flatten tree for rendering with proper order
+  const flattenTree = (nodes: FolderNode[]): FolderNode[] => {
+    const result: FolderNode[] = [];
+    const traverse = (nodeList: FolderNode[]) => {
+      for (const node of nodeList) {
+        result.push(node);
+        if (expandedFolderIds.has(node.id) && node.children.length > 0) {
+          traverse(node.children);
+        }
+      }
+    };
+    traverse(nodes);
+    return result;
+  };
+
+  const flatFolders = useMemo(() => flattenTree(folderTree), [folderTree, expandedFolderIds]);
+
+  // Check if folder has children
+  const hasChildren = (folderId: string): boolean => {
+    return folders.some(f => f.parentId === folderId);
+  };
 
   const handleAddFolder = () => {
     setEditingFolder(null);
+    setParentFolderId(null);
     setFolderName('');
     setShowModal(true);
   };
 
+  const handleAddSubfolder = (parentId: string) => {
+    setEditingFolder(null);
+    setParentFolderId(parentId);
+    setFolderName('');
+    setShowModal(true);
+    setActionExpandedId(null);
+  };
+
   const handleEditFolder = (folder: Folder) => {
     setEditingFolder(folder);
+    setParentFolderId(folder.parentId);
     setFolderName(folder.name);
     setShowModal(true);
+    setActionExpandedId(null);
   };
 
   const handleSaveFolder = async () => {
@@ -54,27 +110,37 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
 
     try {
       if (editingFolder) {
-        // Update existing folder - need to add updateFolder to store
-        const { vault } = useVaultStore.getState();
+        // Update existing folder
         if (vault) {
           await vault.updateFolder(editingFolder.id, folderName.trim());
           await refreshFolders();
         }
       } else {
-        await addFolder(folderName.trim());
+        // Create new folder with optional parent
+        await addFolder(folderName.trim(), parentFolderId);
+        // Auto-expand parent if creating subfolder
+        if (parentFolderId) {
+          setExpandedFolderIds(prev => new Set([...prev, parentFolderId]));
+        }
       }
       setShowModal(false);
       setFolderName('');
       setEditingFolder(null);
+      setParentFolderId(null);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save folder');
     }
   };
 
   const handleDeleteFolder = (folder: Folder) => {
+    const childCount = folders.filter(f => f.parentId === folder.id).length;
+    const message = childCount > 0
+      ? `Are you sure you want to delete "${folder.name}"? ${childCount} subfolder(s) will be moved to root. Credentials in this folder will be moved to the root.`
+      : `Are you sure you want to delete "${folder.name}"? Credentials in this folder will be moved to the root.`;
+
     Alert.alert(
       'Delete Folder',
-      `Are you sure you want to delete "${folder.name}"? Credentials in this folder will be moved to the root.`,
+      message,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -82,8 +148,20 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Move subfolders to root before deleting
+              if (vault) {
+                const subfolders = folders.filter(f => f.parentId === folder.id);
+                for (const subfolder of subfolders) {
+                  await vault.updateFolderParent(subfolder.id, null);
+                }
+              }
               await deleteFolder(folder.id);
-              setExpandedFolderId(null);
+              setActionExpandedId(null);
+              setExpandedFolderIds(prev => {
+                const next = new Set(prev);
+                next.delete(folder.id);
+                return next;
+              });
             } catch (error) {
               Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete folder');
             }
@@ -94,29 +172,78 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
   };
 
   const toggleExpand = (folderId: string) => {
-    setExpandedFolderId(expandedFolderId === folderId ? null : folderId);
+    setExpandedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
   };
 
-  const renderFolder = ({ item }: { item: Folder }) => {
-    const isExpanded = expandedFolderId === item.id;
+  const toggleActionExpand = (folderId: string) => {
+    setActionExpandedId(actionExpandedId === folderId ? null : folderId);
+  };
+
+  const renderFolder = (item: FolderNode) => {
+    const isExpanded = expandedFolderIds.has(item.id);
+    const isActionExpanded = actionExpandedId === item.id;
+    const hasSubfolders = hasChildren(item.id);
+    const isSubfolder = item.parentId !== null;
 
     return (
-      <View style={styles.folderContainer}>
-        <TouchableOpacity
-          style={styles.folderItem}
-          onPress={() => toggleExpand(item.id)}
-        >
-          <View style={styles.folderIcon}>
-            <Text style={styles.folderIconText}>📁</Text>
-          </View>
-          <View style={styles.folderInfo}>
-            <Text style={styles.folderName}>{item.name}</Text>
-          </View>
-          <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
-        </TouchableOpacity>
+      <View key={item.id} style={styles.folderContainer}>
+        <View style={[styles.folderRow, { marginLeft: item.depth * 24 }]}>
+          {/* Subfolder indicator */}
+          {isSubfolder && (
+            <View testID={`subfolder-indicator-${item.name}`} style={styles.subfolderIndicator}>
+              <Text style={styles.subfolderLine}>└</Text>
+            </View>
+          )}
 
-        {isExpanded && (
-          <View style={styles.folderActions}>
+          {/* Expand/Collapse button for folders with children */}
+          {hasSubfolders ? (
+            <TouchableOpacity
+              testID={isExpanded ? `collapse-folder-${item.name}` : `expand-folder-${item.name}`}
+              style={styles.expandButton}
+              onPress={() => toggleExpand(item.id)}
+            >
+              <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.expandPlaceholder} />
+          )}
+
+          <TouchableOpacity
+            style={styles.folderItem}
+            onPress={() => toggleActionExpand(item.id)}
+          >
+            <View style={styles.folderIcon}>
+              <Text style={styles.folderIconText}>{hasSubfolders ? '📂' : '📁'}</Text>
+            </View>
+            <View style={styles.folderInfo}>
+              <Text style={styles.folderName}>{item.name}</Text>
+              {hasSubfolders && (
+                <Text style={styles.subfolderCount}>
+                  {item.children.length} subfolder{item.children.length !== 1 ? 's' : ''}
+                </Text>
+              )}
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {isActionExpanded && (
+          <View style={[styles.folderActions, { marginLeft: item.depth * 24 + (isSubfolder ? 20 : 0) }]}>
+            <TouchableOpacity
+              testID="create-subfolder-button"
+              style={styles.actionButton}
+              onPress={() => handleAddSubfolder(item.id)}
+            >
+              <Text style={styles.actionIcon}>📁+</Text>
+              <Text style={styles.actionText}>Subfolder</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               testID="edit-folder-button"
               style={styles.actionButton}
@@ -149,20 +276,17 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
         <View style={styles.placeholder} />
       </View>
 
-      <FlatList
-        testID="folders-list"
-        data={folders}
-        renderItem={renderFolder}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
+      <ScrollView testID="folders-list" contentContainerStyle={styles.list}>
+        {flatFolders.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📂</Text>
             <Text style={styles.emptyText}>No folders yet</Text>
             <Text style={styles.emptySubtext}>Tap + to create your first folder</Text>
           </View>
-        }
-      />
+        ) : (
+          flatFolders.map(folder => renderFolder(folder))
+        )}
+      </ScrollView>
 
       <TouchableOpacity
         testID="add-folder-fab"
@@ -251,38 +375,66 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   folderContainer: {
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  folderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  subfolderIndicator: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subfolderLine: {
+    color: '#8a8a9a',
+    fontSize: 16,
+  },
+  expandButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandPlaceholder: {
+    width: 28,
   },
   folderItem: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#16213e',
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
   },
   folderIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#0f3460',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   folderIconText: {
-    fontSize: 24,
+    fontSize: 20,
   },
   folderInfo: {
     flex: 1,
   },
   folderName: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
+  },
+  subfolderCount: {
+    color: '#8a8a9a',
+    fontSize: 12,
+    marginTop: 2,
   },
   expandIcon: {
     color: '#8a8a9a',
-    fontSize: 12,
+    fontSize: 14,
   },
   folderActions: {
     flexDirection: 'row',

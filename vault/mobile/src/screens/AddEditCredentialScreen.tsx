@@ -322,6 +322,48 @@ function generatePassphrase(wordCount: number = 4, separator: string = '-'): str
 
 type PasswordMode = 'random' | 'passphrase';
 
+// Helper to get full folder path for nested folders
+function getFolderPath(folderId: string | null, folders: { id: string; name: string; parentId: string | null }[]): string {
+  if (!folderId) return 'No folder';
+  const folder = folders.find(f => f.id === folderId);
+  if (!folder) return 'No folder';
+  
+  const path: string[] = [folder.name];
+  let currentParentId = folder.parentId;
+  
+  while (currentParentId) {
+    const parent = folders.find(f => f.id === currentParentId);
+    if (parent) {
+      path.unshift(parent.name);
+      currentParentId = parent.parentId;
+    } else {
+      break;
+    }
+  }
+  
+  return path.join(' / ');
+}
+
+// Sort folders for display with nested structure
+function getSortedFoldersForPicker(folders: { id: string; name: string; parentId: string | null }[]): { id: string; name: string; parentId: string | null; depth: number; path: string }[] {
+  const result: { id: string; name: string; parentId: string | null; depth: number; path: string }[] = [];
+  
+  const addFolderAndChildren = (parentId: string | null, depth: number) => {
+    const children = folders
+      .filter(f => f.parentId === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    for (const folder of children) {
+      const path = getFolderPath(folder.id, folders);
+      result.push({ ...folder, depth, path });
+      addFolderAndChildren(folder.id, depth + 1);
+    }
+  };
+  
+  addFolderAndChildren(null, 0);
+  return result;
+}
+
 export default function AddEditCredentialScreen({
   credentialId,
   onSave,
@@ -785,7 +827,7 @@ export default function AddEditCredentialScreen({
           >
             <Text style={styles.folderPickerIcon}>📁</Text>
             <Text style={styles.folderPickerText}>
-              {folderId ? folders.find(f => f.id === folderId)?.name || 'Select folder' : 'No folder'}
+              {getFolderPath(folderId, folders)}
             </Text>
             <Text style={styles.folderPickerArrow}>▼</Text>
           </TouchableOpacity>
@@ -798,13 +840,17 @@ export default function AddEditCredentialScreen({
                 <Text style={styles.folderPickerItemText}>No folder</Text>
                 {!folderId && <Text style={styles.folderPickerCheck}>✓</Text>}
               </TouchableOpacity>
-              {folders.map(folder => (
+              {getSortedFoldersForPicker(folders).map(folder => (
                 <TouchableOpacity
                   key={folder.id}
-                  style={[styles.folderPickerItem, folderId === folder.id && styles.folderPickerItemActive]}
+                  style={[
+                    styles.folderPickerItem, 
+                    folderId === folder.id && styles.folderPickerItemActive,
+                    { paddingLeft: 16 + folder.depth * 16 }
+                  ]}
                   onPress={() => { setFolderId(folder.id); setShowFolderPicker(false); }}
                 >
-                  <Text style={styles.folderPickerItemText}>{folder.name}</Text>
+                  <Text style={styles.folderPickerItemText}>{folder.path}</Text>
                   {folderId === folder.id && <Text style={styles.folderPickerCheck}>✓</Text>}
                 </TouchableOpacity>
               ))}

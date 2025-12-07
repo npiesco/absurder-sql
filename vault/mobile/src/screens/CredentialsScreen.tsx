@@ -58,12 +58,50 @@ export default function CredentialsScreen({
   const [showFolderFilter, setShowFolderFilter] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
 
-  // Get folder name by ID
-  const getFolderName = useCallback((folderId: string | null): string | null => {
+  // Get folder path by ID (for nested folders)
+  const getFolderPath = useCallback((folderId: string | null): string | null => {
     if (!folderId) return null;
     const folder = folders.find(f => f.id === folderId);
-    return folder ? folder.name : null;
+    if (!folder) return null;
+    
+    const path: string[] = [folder.name];
+    let currentParentId = folder.parentId;
+    
+    while (currentParentId) {
+      const parent = folders.find(f => f.id === currentParentId);
+      if (parent) {
+        path.unshift(parent.name);
+        currentParentId = parent.parentId;
+      } else {
+        break;
+      }
+    }
+    
+    return path.join(' / ');
   }, [folders]);
+
+  // Alias for backward compatibility
+  const getFolderName = getFolderPath;
+
+  // Get sorted folders for picker with nested structure
+  const getSortedFoldersForFilter = useCallback(() => {
+    const result: { id: string; name: string; parentId: string | null; depth: number; path: string }[] = [];
+    
+    const addFolderAndChildren = (parentId: string | null, depth: number) => {
+      const children = folders
+        .filter(f => f.parentId === parentId)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      
+      for (const folder of children) {
+        const path = getFolderPath(folder.id) || folder.name;
+        result.push({ ...folder, depth, path });
+        addFolderAndChildren(folder.id, depth + 1);
+      }
+    };
+    
+    addFolderAndChildren(null, 0);
+    return result;
+  }, [folders, getFolderPath]);
 
   // Filter credentials by selected folder
   const filteredCredentials = selectedFolderId
@@ -372,13 +410,17 @@ export default function CredentialsScreen({
             <Text style={styles.folderFilterText}>All Folders</Text>
             {!selectedFolderId && <Text style={styles.checkmark}>✓</Text>}
           </TouchableOpacity>
-          {folders.map(folder => (
+          {getSortedFoldersForFilter().map(folder => (
             <TouchableOpacity
               key={folder.id}
-              style={[styles.folderFilterItem, selectedFolderId === folder.id && styles.folderFilterItemActive]}
+              style={[
+                styles.folderFilterItem, 
+                selectedFolderId === folder.id && styles.folderFilterItemActive,
+                { paddingLeft: 16 + folder.depth * 16 }
+              ]}
               onPress={() => handleFolderFilterSelect(folder.id)}
             >
-              <Text style={styles.folderFilterText}>{folder.name}</Text>
+              <Text style={styles.folderFilterText}>{folder.path}</Text>
               {selectedFolderId === folder.id && <Text style={styles.checkmark}>✓</Text>}
             </TouchableOpacity>
           ))}
