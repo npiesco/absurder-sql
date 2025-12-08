@@ -69,7 +69,7 @@ interface VaultState {
   selectCredential: (id: string | null) => void;
 
   // Folder actions
-  addFolder: (name: string, parentId?: string | null) => Promise<string>;
+  addFolder: (name: string, parentId?: string | null, icon?: string | null, color?: string | null) => Promise<string>;
   deleteFolder: (id: string) => Promise<void>;
 
   // Custom field actions
@@ -237,11 +237,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   // Add folder
-  addFolder: async (name, parentId = null) => {
+  addFolder: async (name, parentId = null, icon = null, color = null) => {
     const { vault } = get();
     if (!vault) throw new Error('Vault not open');
 
-    const id = await vault.createFolder(name, parentId);
+    const id = await vault.createFolderWithStyle(name, parentId, icon, color);
     await get().refreshFolders();
     return id;
   },

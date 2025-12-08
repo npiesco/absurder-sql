@@ -19,6 +19,7 @@ import {
   Alert,
   Clipboard,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
 import { CustomField, Tag } from '../lib/VaultDatabase';
 
@@ -60,7 +61,7 @@ export default function CredentialDetailScreen({
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity testID="back-button" style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backIcon}>←</Text>
+            <Icon name="arrow-left" size={24} color="#ffffff" />
           </TouchableOpacity>
           <Text style={styles.title}>Credential Details</Text>
           <View style={styles.placeholder} />
@@ -115,7 +116,7 @@ export default function CredentialDetailScreen({
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity testID="detail-back-button" style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backIcon}>←</Text>
+          <Icon name="arrow-left" size={24} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.title}>Credential Details</Text>
         <TouchableOpacity testID="detail-edit-button" style={styles.editButton} onPress={onEdit}>
@@ -158,7 +159,7 @@ export default function CredentialDetailScreen({
                 style={styles.copyButton}
                 onPress={handleCopyUsername}
               >
-                <Text style={styles.copyIcon}>📋</Text>
+                <Icon name="content-copy" size={18} color="#e94560" />
               </TouchableOpacity>
             </View>
           </View>
@@ -178,14 +179,14 @@ export default function CredentialDetailScreen({
               style={styles.toggleButton}
               onPress={() => setShowPassword(!showPassword)}
             >
-              <Text style={styles.toggleIcon}>{showPassword ? '👁' : '👁‍🗨'}</Text>
+              <Icon name={showPassword ? 'eye' : 'eye-off'} size={20} color="#e94560" />
             </TouchableOpacity>
             <TouchableOpacity
               testID="copy-password-button"
               style={styles.copyButton}
               onPress={handleCopyPassword}
             >
-              <Text style={styles.copyIcon}>📋</Text>
+              <Icon name="content-copy" size={18} color="#e94560" />
             </TouchableOpacity>
           </View>
         </View>
@@ -205,7 +206,7 @@ export default function CredentialDetailScreen({
                 style={styles.copyButton}
                 onPress={handleCopyUrl}
               >
-                <Text style={styles.copyIcon}>📋</Text>
+                <Icon name="content-copy" size={18} color="#e94560" />
               </TouchableOpacity>
             </View>
           </View>

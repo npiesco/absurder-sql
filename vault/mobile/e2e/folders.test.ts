@@ -47,6 +47,7 @@ describe('Folders', () => {
     // Enter folder name
     await expect(element(by.id('folder-name-input'))).toBeVisible();
     await element(by.id('folder-name-input')).typeText('Work');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
 
     // Verify folder appears in list
@@ -57,12 +58,15 @@ describe('Folders', () => {
     // Create second folder
     await element(by.id('add-folder-fab')).tap();
     await element(by.id('folder-name-input')).typeText('Personal');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
     await expect(element(by.text('Personal'))).toBeVisible();
 
     // Create third folder
     await element(by.id('add-folder-fab')).tap();
     await element(by.id('folder-name-input')).typeText('Finance');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
     await expect(element(by.text('Finance'))).toBeVisible();
 
@@ -80,6 +84,7 @@ describe('Folders', () => {
     // Edit name
     await element(by.id('folder-name-input')).clearText();
     await element(by.id('folder-name-input')).typeText('Work Projects');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
 
     // Verify updated name
@@ -155,7 +160,7 @@ describe('Folders', () => {
 
     // Filter by Work Projects folder
     await element(by.id('folder-filter-button')).tap();
-    await element(by.text('Work Projects')).tap();
+    await element(by.text('Work Projects')).atIndex(0).tap();
 
     // Only GitHub should be visible
     await expect(element(by.text('GitHub'))).toBeVisible();

@@ -18,6 +18,7 @@ import {
   Alert,
   Clipboard,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore, SortOption } from '../lib/store';
 import { Credential, Tag, Folder } from '../lib/VaultDatabase';
 
@@ -239,12 +240,15 @@ export default function CredentialsScreen({
             )}
             {item.folderId && getFolderName(item.folderId) && (
               <View testID={`folder-badge-${item.name}`} style={styles.folderBadge}>
-                <Text style={styles.folderBadgeText}>📁 {getFolderName(item.folderId)}</Text>
+                <Icon name="folder" size={12} color="#e94560" />
+                <Text style={styles.folderBadgeText}>{getFolderName(item.folderId)}</Text>
               </View>
             )}
           </View>
           {item.favorite && (
-            <Text testID={`favorite-badge-${item.name}`} style={styles.favoriteIcon}>⭐</Text>
+            <View testID={`favorite-badge-${item.name}`} style={styles.favoriteBadge}>
+              <Icon name="star" size={20} color="#f1c40f" />
+            </View>
           )}
         </View>
 
@@ -255,7 +259,7 @@ export default function CredentialsScreen({
               style={[styles.actionButton, styles.viewDetailsButton]}
               onPress={() => onViewDetails(item.id)}
             >
-              <Text style={styles.actionIcon}>👁</Text>
+              <Icon name="eye" size={18} color="#e94560" />
               <Text style={styles.actionText}>View Details</Text>
             </TouchableOpacity>
 
@@ -264,7 +268,7 @@ export default function CredentialsScreen({
               onPress={() => handleCopyUsername(item)}
               disabled={!item.username}
             >
-              <Text style={styles.actionIcon}>👤</Text>
+              <Icon name="account" size={18} color="#e94560" />
               <Text style={styles.actionText}>Copy Username</Text>
             </TouchableOpacity>
 
@@ -272,7 +276,7 @@ export default function CredentialsScreen({
               style={styles.actionButton}
               onPress={() => handleCopyPassword(item)}
             >
-              <Text style={styles.actionIcon}>🔑</Text>
+              <Icon name="key" size={18} color="#e94560" />
               <Text style={styles.actionText}>Copy Password</Text>
             </TouchableOpacity>
 
@@ -281,7 +285,7 @@ export default function CredentialsScreen({
               style={styles.actionButton}
               onPress={() => handleToggleFavorite(item)}
             >
-              <Text style={styles.actionIcon}>{item.favorite ? '★' : '☆'}</Text>
+              <Icon name={item.favorite ? 'star' : 'star-outline'} size={18} color="#e94560" />
               <Text style={styles.actionText}>{item.favorite ? 'Unfavorite' : 'Favorite'}</Text>
             </TouchableOpacity>
 
@@ -290,7 +294,7 @@ export default function CredentialsScreen({
               style={styles.actionButton}
               onPress={() => onEditCredential(item.id)}
             >
-              <Text style={styles.actionIcon}>✏️</Text>
+              <Icon name="pencil" size={18} color="#e94560" />
               <Text style={styles.actionText}>Edit</Text>
             </TouchableOpacity>
 
@@ -298,7 +302,7 @@ export default function CredentialsScreen({
               style={[styles.actionButton, styles.deleteButton]}
               onPress={() => handleDelete(item)}
             >
-              <Text style={styles.actionIcon}>🗑️</Text>
+              <Icon name="delete" size={18} color="#e94560" />
               <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
             </TouchableOpacity>
           </View>
@@ -313,14 +317,14 @@ export default function CredentialsScreen({
         <Text style={styles.title}>Vault</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity testID="folders-button" style={styles.sortButton} onPress={onFolders}>
-            <Text style={styles.sortIcon}>📁</Text>
+            <Icon name="folder" size={22} color="#ffffff" />
           </TouchableOpacity>
           <TouchableOpacity testID="sort-button" style={styles.sortButton} onPress={() => setShowSortMenu(!showSortMenu)}>
-            <Text style={styles.sortIcon}>↕️</Text>
+            <Icon name="sort" size={22} color="#ffffff" />
             <Text testID="current-sort-indicator" style={styles.sortLabel}>{getSortLabel(sortOption)}</Text>
           </TouchableOpacity>
           <TouchableOpacity testID="settings-button" style={styles.settingsButton} onPress={onSettings}>
-            <Text style={styles.settingsIcon}>⚙️</Text>
+            <Icon name="cog" size={22} color="#ffffff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -333,7 +337,7 @@ export default function CredentialsScreen({
             onPress={() => handleSortSelect('name-asc')}
           >
             <Text style={styles.sortMenuText}>Name A-Z</Text>
-            {sortOption === 'name-asc' && <Text style={styles.checkmark}>✓</Text>}
+            {sortOption === 'name-asc' && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
           <TouchableOpacity
             testID="sort-option-name-desc"
@@ -341,7 +345,7 @@ export default function CredentialsScreen({
             onPress={() => handleSortSelect('name-desc')}
           >
             <Text style={styles.sortMenuText}>Name Z-A</Text>
-            {sortOption === 'name-desc' && <Text style={styles.checkmark}>✓</Text>}
+            {sortOption === 'name-desc' && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
           <TouchableOpacity
             testID="sort-option-updated"
@@ -349,7 +353,7 @@ export default function CredentialsScreen({
             onPress={() => handleSortSelect('updated')}
           >
             <Text style={styles.sortMenuText}>Recently Updated</Text>
-            {sortOption === 'updated' && <Text style={styles.checkmark}>✓</Text>}
+            {sortOption === 'updated' && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
           <TouchableOpacity
             testID="sort-option-created"
@@ -357,7 +361,7 @@ export default function CredentialsScreen({
             onPress={() => handleSortSelect('created')}
           >
             <Text style={styles.sortMenuText}>Recently Created</Text>
-            {sortOption === 'created' && <Text style={styles.checkmark}>✓</Text>}
+            {sortOption === 'created' && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
           <TouchableOpacity
             testID="sort-option-favorites"
@@ -365,13 +369,13 @@ export default function CredentialsScreen({
             onPress={() => handleSortSelect('favorites')}
           >
             <Text style={styles.sortMenuText}>Favorites First</Text>
-            {sortOption === 'favorites' && <Text style={styles.checkmark}>✓</Text>}
+            {sortOption === 'favorites' && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
         </View>
       )}
 
       <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Icon name="magnify" size={20} color="#a0a0a0" />
         <TextInput
           style={styles.searchInput}
           placeholder="Search credentials..."
@@ -381,7 +385,7 @@ export default function CredentialsScreen({
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Text style={styles.clearIcon}>✕</Text>
+            <Icon name="close" size={20} color="#a0a0a0" />
           </TouchableOpacity>
         )}
       </View>
@@ -393,11 +397,11 @@ export default function CredentialsScreen({
           style={styles.filterButton}
           onPress={() => setShowFolderFilter(!showFolderFilter)}
         >
-          <Text style={styles.filterIcon}>📁</Text>
+          <Icon name="folder" size={18} color="#e94560" />
           <Text style={styles.filterLabel}>
             {selectedFolderId ? getFolderName(selectedFolderId) : 'All Folders'}
           </Text>
-          <Text style={styles.filterArrow}>▼</Text>
+          <Icon name="chevron-down" size={18} color="#a0a0a0" />
         </TouchableOpacity>
       </View>
 
@@ -408,7 +412,7 @@ export default function CredentialsScreen({
             onPress={() => handleFolderFilterSelect(null)}
           >
             <Text style={styles.folderFilterText}>All Folders</Text>
-            {!selectedFolderId && <Text style={styles.checkmark}>✓</Text>}
+            {!selectedFolderId && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
           {getSortedFoldersForFilter().map(folder => (
             <TouchableOpacity
@@ -421,7 +425,7 @@ export default function CredentialsScreen({
               onPress={() => handleFolderFilterSelect(folder.id)}
             >
               <Text style={styles.folderFilterText}>{folder.path}</Text>
-              {selectedFolderId === folder.id && <Text style={styles.checkmark}>✓</Text>}
+              {selectedFolderId === folder.id && <Icon name="check" size={18} color="#e94560" />}
             </TouchableOpacity>
           ))}
         </View>
@@ -435,7 +439,7 @@ export default function CredentialsScreen({
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🔐</Text>
+            <Icon name="shield-lock" size={64} color="#4a5568" />
             <Text style={styles.emptyText}>
               {searchQuery
                 ? 'No credentials found'
@@ -451,7 +455,7 @@ export default function CredentialsScreen({
       />
 
       <TouchableOpacity testID="add-credential-fab" style={styles.fab} onPress={onAddCredential}>
-        <Text style={styles.fabIcon}>+</Text>
+        <Icon name="plus" size={28} color="#ffffff" />
       </TouchableOpacity>
     </View>
   );
@@ -726,6 +730,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     paddingHorizontal: 6,
     marginTop: 4,
+  },
+  favoriteBadge: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   folderBadgeText: {
     color: '#8a8a9a',

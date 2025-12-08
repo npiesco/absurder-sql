@@ -20,6 +20,7 @@ import {
   Alert,
   Clipboard,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Slider from '@react-native-community/slider';
 import { useVaultStore } from '../lib/store';
 import { Credential } from '../lib/VaultDatabase';
@@ -625,7 +626,7 @@ export default function AddEditCredentialScreen({
               style={styles.eyeButton}
               onPress={() => setShowPassword(!showPassword)}
             >
-              <Text style={styles.eyeIcon}>{showPassword ? '👁' : '👁‍🗨'}</Text>
+              <Icon name={showPassword ? 'eye' : 'eye-off'} size={20} color="#e94560" />
             </TouchableOpacity>
           </View>
           {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
@@ -635,7 +636,7 @@ export default function AddEditCredentialScreen({
             style={styles.generateButton}
             onPress={handleGeneratePassword}
           >
-            <Text style={styles.generateIcon}>🎲</Text>
+            <Icon name="dice-multiple" size={20} color="#ffffff" />
             <Text style={styles.generateText}>Generate Strong Password</Text>
           </TouchableOpacity>
 
@@ -746,7 +747,7 @@ export default function AddEditCredentialScreen({
                 style={styles.copyGeneratedButton}
                 onPress={handleCopyGeneratedPassword}
               >
-                <Text style={styles.copyIcon}>📋</Text>
+                <Icon name="content-copy" size={18} color="#e94560" />
               </TouchableOpacity>
             </View>
           )}
@@ -764,7 +765,7 @@ export default function AddEditCredentialScreen({
                 style={styles.copyGeneratedButton}
                 onPress={handleCopyGeneratedPassword}
               >
-                <Text style={styles.copyIcon}>📋</Text>
+                <Icon name="content-copy" size={18} color="#e94560" />
               </TouchableOpacity>
             </View>
           )}
@@ -825,11 +826,11 @@ export default function AddEditCredentialScreen({
             style={styles.folderPicker}
             onPress={() => setShowFolderPicker(!showFolderPicker)}
           >
-            <Text style={styles.folderPickerIcon}>📁</Text>
+            <Icon name="folder" size={20} color="#e94560" />
             <Text style={styles.folderPickerText}>
               {getFolderPath(folderId, folders)}
             </Text>
-            <Text style={styles.folderPickerArrow}>▼</Text>
+            <Icon name="chevron-down" size={20} color="#a0a0a0" />
           </TouchableOpacity>
           {showFolderPicker && (
             <View style={styles.folderPickerMenu}>
@@ -838,7 +839,7 @@ export default function AddEditCredentialScreen({
                 onPress={() => { setFolderId(null); setShowFolderPicker(false); }}
               >
                 <Text style={styles.folderPickerItemText}>No folder</Text>
-                {!folderId && <Text style={styles.folderPickerCheck}>✓</Text>}
+                {!folderId && <Icon name="check" size={18} color="#e94560" />}
               </TouchableOpacity>
               {getSortedFoldersForPicker(folders).map(folder => (
                 <TouchableOpacity
@@ -851,7 +852,7 @@ export default function AddEditCredentialScreen({
                   onPress={() => { setFolderId(folder.id); setShowFolderPicker(false); }}
                 >
                   <Text style={styles.folderPickerItemText}>{folder.path}</Text>
-                  {folderId === folder.id && <Text style={styles.folderPickerCheck}>✓</Text>}
+                  {folderId === folder.id && <Icon name="check" size={18} color="#e94560" />}
                 </TouchableOpacity>
               ))}
             </View>
@@ -871,7 +872,7 @@ export default function AddEditCredentialScreen({
                   style={styles.removeTagButton}
                   onPress={() => handleRemoveTag(tag)}
                 >
-                  <Text style={styles.removeTagIcon}>✕</Text>
+                  <Icon name="close" size={16} color="#ffffff" />
                 </TouchableOpacity>
               </View>
             ))}
@@ -902,7 +903,7 @@ export default function AddEditCredentialScreen({
               style={styles.addTagButton}
               onPress={handleAddTag}
             >
-              <Text style={styles.addTagIcon}>+</Text>
+              <Icon name="plus" size={18} color="#e94560" />
               <Text style={styles.addTagText}>Add Tag</Text>
             </TouchableOpacity>
           )}
@@ -937,7 +938,7 @@ export default function AddEditCredentialScreen({
                 style={styles.deleteFieldButton}
                 onPress={() => handleRemoveCustomField(index)}
               >
-                <Text style={styles.deleteFieldIcon}>✕</Text>
+                <Icon name="close" size={18} color="#e94560" />
               </TouchableOpacity>
             </View>
           ))}
@@ -947,7 +948,7 @@ export default function AddEditCredentialScreen({
             style={styles.addFieldButton}
             onPress={handleAddCustomField}
           >
-            <Text style={styles.addFieldIcon}>+</Text>
+            <Icon name="plus" size={20} color="#e94560" />
             <Text style={styles.addFieldText}>Add Custom Field</Text>
           </TouchableOpacity>
         </View>

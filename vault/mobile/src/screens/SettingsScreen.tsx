@@ -17,6 +17,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
 
 interface SettingsScreenProps {
@@ -63,7 +64,7 @@ export default function SettingsScreen({
           style={styles.backButton}
           onPress={onBack}
         >
-          <Text style={styles.backIcon}>←</Text>
+          <Icon name="arrow-left" size={24} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.title}>Settings</Text>
         <View style={styles.placeholder} />

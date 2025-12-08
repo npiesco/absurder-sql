@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
 
 interface UnlockScreenProps {
@@ -146,7 +147,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
                 style={styles.eyeButton}
                 onPress={() => setShowPassword(!showPassword)}
               >
-                <Text style={styles.eyeIcon}>{showPassword ? '👁' : '👁‍🗨'}</Text>
+                <Icon name={showPassword ? 'eye' : 'eye-off'} size={20} color="#e94560" />
               </TouchableOpacity>
             </View>
           </View>

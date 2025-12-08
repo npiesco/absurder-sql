@@ -20,6 +20,7 @@ import {
   Alert,
   Modal,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
 import { Folder } from '../lib/VaultDatabase';
 
@@ -32,6 +33,43 @@ interface FolderNode extends Folder {
   depth: number;
 }
 
+// Available folder icons (using MaterialCommunityIcons)
+const FOLDER_ICONS = [
+  { id: 'default', icon: 'folder', label: 'Default' },
+  { id: 'work', icon: 'briefcase', label: 'Work' },
+  { id: 'personal', icon: 'home', label: 'Personal' },
+  { id: 'finance', icon: 'currency-usd', label: 'Finance' },
+  { id: 'travel', icon: 'airplane', label: 'Travel' },
+  { id: 'health', icon: 'hospital-box', label: 'Health' },
+  { id: 'shopping', icon: 'cart', label: 'Shopping' },
+  { id: 'social', icon: 'account-group', label: 'Social' },
+  { id: 'entertainment', icon: 'gamepad-variant', label: 'Entertainment' },
+  { id: 'education', icon: 'book-open-variant', label: 'Education' },
+];
+
+// Available folder colors
+const FOLDER_COLORS = [
+  { id: 'default', hex: '#0f3460', label: 'Default' },
+  { id: 'blue', hex: '#3498db', label: 'Blue' },
+  { id: 'green', hex: '#27ae60', label: 'Green' },
+  { id: 'red', hex: '#e74c3c', label: 'Red' },
+  { id: 'purple', hex: '#9b59b6', label: 'Purple' },
+  { id: 'orange', hex: '#e67e22', label: 'Orange' },
+  { id: 'yellow', hex: '#f1c40f', label: 'Yellow' },
+  { id: 'pink', hex: '#e91e63', label: 'Pink' },
+  { id: 'teal', hex: '#00bcd4', label: 'Teal' },
+];
+
+const getIconName = (iconId: string | null): string => {
+  const icon = FOLDER_ICONS.find(i => i.id === iconId);
+  return icon ? icon.icon : 'folder';
+};
+
+const getColorHex = (colorId: string | null): string => {
+  const color = FOLDER_COLORS.find(c => c.id === colorId);
+  return color ? color.hex : '#0f3460';
+};
+
 export default function FoldersScreen({ onBack }: FoldersScreenProps) {
   const { folders, addFolder, deleteFolder, refreshFolders, vault } = useVaultStore();
 
@@ -39,6 +77,10 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [parentFolderId, setParentFolderId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState('');
+  const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+  const [showIconPicker, setShowIconPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
   const [actionExpandedId, setActionExpandedId] = useState<string | null>(null);
 
@@ -83,6 +125,10 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
     setEditingFolder(null);
     setParentFolderId(null);
     setFolderName('');
+    setSelectedIcon(null);
+    setSelectedColor(null);
+    setShowIconPicker(false);
+    setShowColorPicker(false);
     setShowModal(true);
   };
 
@@ -90,6 +136,10 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
     setEditingFolder(null);
     setParentFolderId(parentId);
     setFolderName('');
+    setSelectedIcon(null);
+    setSelectedColor(null);
+    setShowIconPicker(false);
+    setShowColorPicker(false);
     setShowModal(true);
     setActionExpandedId(null);
   };
@@ -98,6 +148,10 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
     setEditingFolder(folder);
     setParentFolderId(folder.parentId);
     setFolderName(folder.name);
+    setSelectedIcon(folder.icon);
+    setSelectedColor(folder.color);
+    setShowIconPicker(false);
+    setShowColorPicker(false);
     setShowModal(true);
     setActionExpandedId(null);
   };
@@ -110,14 +164,14 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
 
     try {
       if (editingFolder) {
-        // Update existing folder
+        // Update existing folder with icon and color
         if (vault) {
-          await vault.updateFolder(editingFolder.id, folderName.trim());
+          await vault.updateFolderWithStyle(editingFolder.id, folderName.trim(), selectedIcon, selectedColor);
           await refreshFolders();
         }
       } else {
-        // Create new folder with optional parent
-        await addFolder(folderName.trim(), parentFolderId);
+        // Create new folder with optional parent, icon, and color
+        await addFolder(folderName.trim(), parentFolderId, selectedIcon, selectedColor);
         // Auto-expand parent if creating subfolder
         if (parentFolderId) {
           setExpandedFolderIds(prev => new Set([...prev, parentFolderId]));
@@ -127,6 +181,8 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
       setFolderName('');
       setEditingFolder(null);
       setParentFolderId(null);
+      setSelectedIcon(null);
+      setSelectedColor(null);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save folder');
     }
@@ -210,7 +266,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
               style={styles.expandButton}
               onPress={() => toggleExpand(item.id)}
             >
-              <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
+              <Icon name={isExpanded ? 'chevron-down' : 'chevron-right'} size={18} color="#a0a0a0" />
             </TouchableOpacity>
           ) : (
             <View style={styles.expandPlaceholder} />
@@ -220,8 +276,11 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
             style={styles.folderItem}
             onPress={() => toggleActionExpand(item.id)}
           >
-            <View style={styles.folderIcon}>
-              <Text style={styles.folderIconText}>{hasSubfolders ? '📂' : '📁'}</Text>
+            <View 
+              testID={`folder-item-${item.name}-${item.icon || 'default'}-${item.color || 'default'}`}
+              style={[styles.folderIcon, { backgroundColor: getColorHex(item.color) }]}
+            >
+              <Icon name={getIconName(item.icon)} size={20} color="#ffffff" />
             </View>
             <View style={styles.folderInfo}>
               <Text style={styles.folderName}>{item.name}</Text>
@@ -241,7 +300,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
               style={styles.actionButton}
               onPress={() => handleAddSubfolder(item.id)}
             >
-              <Text style={styles.actionIcon}>📁+</Text>
+              <Icon name="folder-plus" size={18} color="#e94560" />
               <Text style={styles.actionText}>Subfolder</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -249,7 +308,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
               style={styles.actionButton}
               onPress={() => handleEditFolder(item)}
             >
-              <Text style={styles.actionIcon}>✏️</Text>
+              <Icon name="pencil" size={18} color="#e94560" />
               <Text style={styles.actionText}>Edit</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -257,7 +316,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
               style={[styles.actionButton, styles.deleteButton]}
               onPress={() => handleDeleteFolder(item)}
             >
-              <Text style={styles.actionIcon}>🗑️</Text>
+              <Icon name="delete" size={18} color="#e94560" />
               <Text style={styles.actionText}>Delete</Text>
             </TouchableOpacity>
           </View>
@@ -270,7 +329,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-button" style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backIcon}>←</Text>
+          <Icon name="arrow-left" size={24} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.title}>Folders</Text>
         <View style={styles.placeholder} />
@@ -279,7 +338,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
       <ScrollView testID="folders-list" contentContainerStyle={styles.list}>
         {flatFolders.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📂</Text>
+            <Icon name="folder-open" size={64} color="#4a5568" />
             <Text style={styles.emptyText}>No folders yet</Text>
             <Text style={styles.emptySubtext}>Tap + to create your first folder</Text>
           </View>
@@ -293,7 +352,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
         style={styles.fab}
         onPress={handleAddFolder}
       >
-        <Text style={styles.fabIcon}>+</Text>
+        <Icon name="plus" size={28} color="#ffffff" />
       </TouchableOpacity>
 
       <Modal
@@ -303,39 +362,119 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
         onRequestClose={() => setShowModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {editingFolder ? 'Edit Folder' : 'New Folder'}
-            </Text>
-            <TextInput
-              testID="folder-name-input"
-              style={styles.input}
-              placeholder="Folder name"
-              placeholderTextColor="#8a8a9a"
-              value={folderName}
-              onChangeText={setFolderName}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
+          <ScrollView testID="folder-modal-scroll" style={styles.modalScrollView} contentContainerStyle={styles.modalScrollContent}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                {editingFolder ? 'Edit Folder' : 'New Folder'}
+              </Text>
+              <TextInput
+                testID="folder-name-input"
+                style={styles.input}
+                placeholder="Folder name"
+                placeholderTextColor="#8a8a9a"
+                value={folderName}
+                onChangeText={setFolderName}
+                autoFocus
+              />
+
+              {/* Icon Picker */}
+              <Text style={styles.pickerLabel}>Icon</Text>
               <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => {
-                  setShowModal(false);
-                  setFolderName('');
-                  setEditingFolder(null);
-                }}
+                testID="folder-icon-picker"
+                style={styles.pickerButton}
+                onPress={() => { setShowIconPicker(!showIconPicker); setShowColorPicker(false); }}
               >
-                <Text style={styles.modalButtonText}>Cancel</Text>
+                <View testID={selectedIcon ? `selected-icon-${selectedIcon}` : 'selected-icon-default'} style={styles.selectedIconContainer}>
+                  <Icon name={getIconName(selectedIcon)} size={24} color="#ffffff" />
+                </View>
+                <Text style={styles.pickerButtonText}>
+                  {FOLDER_ICONS.find(i => i.id === (selectedIcon || 'default'))?.label || 'Default'}
+                </Text>
+                <Icon name="chevron-down" size={18} color="#a0a0a0" />
               </TouchableOpacity>
+              {showIconPicker && (
+                <View style={styles.pickerOptions}>
+                  {FOLDER_ICONS.map(icon => (
+                    <TouchableOpacity
+                      key={icon.id}
+                      testID={`icon-option-${icon.id}`}
+                      style={[
+                        styles.pickerOption,
+                        (selectedIcon || 'default') === icon.id && styles.pickerOptionSelected
+                      ]}
+                      onPress={() => {
+                        setSelectedIcon(icon.id === 'default' ? null : icon.id);
+                        setShowIconPicker(false);
+                      }}
+                    >
+                      <Icon name={icon.icon} size={24} color="#ffffff" style={styles.pickerOptionIcon} />
+                      <Text style={styles.pickerOptionText}>{icon.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Color Picker */}
+              <Text style={styles.pickerLabel}>Color</Text>
               <TouchableOpacity
-                testID="save-folder-button"
-                style={[styles.modalButton, styles.saveButton]}
-                onPress={handleSaveFolder}
+                testID="folder-color-picker"
+                style={styles.pickerButton}
+                onPress={() => { setShowColorPicker(!showColorPicker); setShowIconPicker(false); }}
               >
-                <Text style={[styles.modalButtonText, styles.saveButtonText]}>Save</Text>
+                <View 
+                  testID={selectedColor ? `selected-color-${selectedColor}` : 'selected-color-default'}
+                  style={[styles.colorSwatch, { backgroundColor: getColorHex(selectedColor) }]} 
+                />
+                <Text style={styles.pickerButtonText}>
+                  {FOLDER_COLORS.find(c => c.id === (selectedColor || 'default'))?.label || 'Default'}
+                </Text>
+                <Icon name="chevron-down" size={18} color="#a0a0a0" />
               </TouchableOpacity>
+              {showColorPicker && (
+                <View style={styles.colorPickerOptions}>
+                  {FOLDER_COLORS.map(color => (
+                    <TouchableOpacity
+                      key={color.id}
+                      testID={`color-option-${color.id}`}
+                      style={[
+                        styles.colorOption,
+                        (selectedColor || 'default') === color.id && styles.colorOptionSelected
+                      ]}
+                      onPress={() => {
+                        setSelectedColor(color.id === 'default' ? null : color.id);
+                        setShowColorPicker(false);
+                      }}
+                    >
+                      <View style={[styles.colorSwatchLarge, { backgroundColor: color.hex }]} />
+                      <Text style={styles.colorOptionText}>{color.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={() => {
+                    setShowModal(false);
+                    setFolderName('');
+                    setEditingFolder(null);
+                    setSelectedIcon(null);
+                    setSelectedColor(null);
+                  }}
+                >
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID="save-folder-button"
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={handleSaveFolder}
+                >
+                  <Text style={[styles.modalButtonText, styles.saveButtonText]}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -513,6 +652,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  modalScrollView: {
+    width: '100%',
+    maxHeight: '80%',
+  },
+  modalScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
   modalContent: {
     backgroundColor: '#16213e',
     borderRadius: 16,
@@ -535,10 +682,102 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 16,
   },
+  pickerLabel: {
+    color: '#8a8a9a',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  pickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f3460',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  pickerButtonIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  selectedIconContainer: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  pickerButtonText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+  },
+  pickerArrow: {
+    color: '#8a8a9a',
+    fontSize: 12,
+  },
+  pickerOptions: {
+    backgroundColor: '#0f3460',
+    borderRadius: 8,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#16213e',
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#1a3a5c',
+  },
+  pickerOptionIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  pickerOptionText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  colorSwatch: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 12,
+  },
+  colorPickerOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: '#0f3460',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  colorOption: {
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    width: '30%',
+  },
+  colorOptionSelected: {
+    backgroundColor: '#1a3a5c',
+  },
+  colorSwatchLarge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginBottom: 4,
+  },
+  colorOptionText: {
+    color: '#fff',
+    fontSize: 10,
+  },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
+    marginTop: 8,
   },
   modalButton: {
     paddingVertical: 10,

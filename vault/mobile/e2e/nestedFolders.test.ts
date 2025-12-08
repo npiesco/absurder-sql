@@ -38,7 +38,9 @@ describe('Nested Folders', () => {
     // Create parent folder
     await element(by.id('add-folder-fab')).tap();
     await element(by.id('folder-name-input')).typeText('Work');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
 
     // Verify folder appears
     await expect(element(by.text('Work'))).toBeVisible();
@@ -58,7 +60,9 @@ describe('Nested Folders', () => {
 
     // Enter subfolder name
     await element(by.id('folder-name-input')).typeText('Projects');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
 
     // Verify subfolder appears with indentation indicator
     await expect(element(by.text('Projects'))).toBeVisible();
@@ -70,7 +74,9 @@ describe('Nested Folders', () => {
     await element(by.text('Work')).tap();
     await element(by.id('create-subfolder-button')).tap();
     await element(by.id('folder-name-input')).typeText('Documents');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
 
     // Verify both subfolders visible
     await expect(element(by.text('Projects'))).toBeVisible();
@@ -103,7 +109,9 @@ describe('Nested Folders', () => {
     await element(by.text('Projects')).tap();
     await element(by.id('create-subfolder-button')).tap();
     await element(by.id('folder-name-input')).typeText('Active');
+    await element(by.id('folder-name-input')).tapReturnKey();
     await element(by.id('save-folder-button')).tap();
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
 
     // Verify deeply nested folder appears
     await expect(element(by.text('Active'))).toBeVisible();
@@ -163,7 +171,7 @@ describe('Nested Folders', () => {
 
     // Filter by nested folder
     await element(by.id('folder-filter-button')).tap();
-    await element(by.text('Work / Projects / Active')).tap();
+    await element(by.text('Work / Projects / Active')).atIndex(0).tap();
 
     // Only GitHub Work should be visible
     await expect(element(by.text('GitHub Work'))).toBeVisible();

@@ -397,8 +397,25 @@ export class VaultDatabase {
     const now = Date.now();
 
     await this.db.execute(`
-      INSERT INTO folders (id, name, parent_id, created_at)
-      VALUES ('${id}', '${this.escapeString(name)}', ${parentId ? `'${parentId}'` : 'NULL'}, ${now})
+      INSERT INTO folders (id, name, parent_id, icon, color, created_at)
+      VALUES ('${id}', '${this.escapeString(name)}', ${parentId ? `'${parentId}'` : 'NULL'}, NULL, NULL, ${now})
+    `);
+
+    return id;
+  }
+
+  /**
+   * Create folder with icon and color
+   */
+  async createFolderWithStyle(name: string, parentId: string | null = null, icon: string | null = null, color: string | null = null): Promise<string> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const id = this.generateId();
+    const now = Date.now();
+
+    await this.db.execute(`
+      INSERT INTO folders (id, name, parent_id, icon, color, created_at)
+      VALUES ('${id}', '${this.escapeString(name)}', ${parentId ? `'${parentId}'` : 'NULL'}, ${icon ? `'${icon}'` : 'NULL'}, ${color ? `'${color}'` : 'NULL'}, ${now})
     `);
 
     return id;
@@ -430,6 +447,17 @@ export class VaultDatabase {
 
     await this.db.execute(`
       UPDATE folders SET name = '${this.escapeString(name)}' WHERE id = '${id}'
+    `);
+  }
+
+  /**
+   * Update folder with icon and color
+   */
+  async updateFolderWithStyle(id: string, name: string, icon: string | null, color: string | null): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    await this.db.execute(`
+      UPDATE folders SET name = '${this.escapeString(name)}', icon = ${icon ? `'${icon}'` : 'NULL'}, color = ${color ? `'${color}'` : 'NULL'} WHERE id = '${id}'
     `);
   }
 

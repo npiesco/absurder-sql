@@ -76,7 +76,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement folder creation/editing
 - [x] Implement folder hierarchy (nested folders) (12 E2E tests - subfolder CRUD, expand/collapse, nested paths, persist)
 - [ ] Implement drag-drop credential organization
-- [ ] Implement folder icons/colors
+- [x] Implement folder icons/colors (6 E2E tests - icon picker, color picker, create with style, edit, persist, default)
 
 ### 2.4 Search & Filter
 - [x] Implement full-text search (existing search functionality)
@@ -268,4 +268,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-06*
+*Last updated: 2025-12-07*
