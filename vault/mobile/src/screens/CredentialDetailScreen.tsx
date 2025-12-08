@@ -9,7 +9,7 @@
  * - Back navigation
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,12 +34,21 @@ export default function CredentialDetailScreen({
   onEdit,
   onBack,
 }: CredentialDetailScreenProps) {
-  const { credentials, getCustomFields, getCredentialTags, updateCredential } = useVaultStore();
+  const { credentials, getCustomFields, getCredentialTags, updateCredential, trackAccess } = useVaultStore();
   const credential = credentials.find(c => c.id === credentialId);
 
   const [showPassword, setShowPassword] = useState(false);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const hasTrackedAccess = useRef(false);
+
+  // Track access once when component mounts with this credential
+  useEffect(() => {
+    if (credentialId && !hasTrackedAccess.current) {
+      hasTrackedAccess.current = true;
+      trackAccess(credentialId);
+    }
+  }, [credentialId, trackAccess]);
 
   useEffect(() => {
     if (credential) {

@@ -17,6 +17,7 @@ import {
   FlatList,
   Alert,
   Clipboard,
+  ScrollView,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore, SortOption } from '../lib/store';
@@ -51,6 +52,7 @@ export default function CredentialsScreen({
     sortOption,
     setSortOption,
     loadSortPreference,
+    trackAccess,
   } = useVaultStore();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -156,6 +158,8 @@ export default function CredentialsScreen({
 
   const handleCopyPassword = async (credential: Credential) => {
     try {
+      // Track access when copying password
+      await trackAccess(credential.id);
       // Note: In production, use expo-clipboard or react-native-clipboard
       await Clipboard.setString(credential.password);
       Alert.alert('Copied', 'Password copied to clipboard');
@@ -167,6 +171,8 @@ export default function CredentialsScreen({
   const handleCopyUsername = async (credential: Credential) => {
     if (!credential.username) return;
     try {
+      // Track access when copying username
+      await trackAccess(credential.id);
       await Clipboard.setString(credential.username);
       Alert.alert('Copied', 'Username copied to clipboard');
     } catch (err) {
@@ -264,6 +270,7 @@ export default function CredentialsScreen({
             </TouchableOpacity>
 
             <TouchableOpacity
+              testID="copy-username-button"
               style={styles.actionButton}
               onPress={() => handleCopyUsername(item)}
               disabled={!item.username}
@@ -273,6 +280,7 @@ export default function CredentialsScreen({
             </TouchableOpacity>
 
             <TouchableOpacity
+              testID="copy-password-button"
               style={styles.actionButton}
               onPress={() => handleCopyPassword(item)}
             >
@@ -370,6 +378,14 @@ export default function CredentialsScreen({
           >
             <Text style={styles.sortMenuText}>Favorites First</Text>
             {sortOption === 'favorites' && <Icon name="check" size={18} color="#e94560" />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="sort-option-recent"
+            style={[styles.sortMenuItem, sortOption === 'recent' && styles.sortMenuItemActive]}
+            onPress={() => handleSortSelect('recent')}
+          >
+            <Text style={styles.sortMenuText}>Recently Accessed</Text>
+            {sortOption === 'recent' && <Icon name="check" size={18} color="#e94560" />}
           </TouchableOpacity>
         </View>
       )}

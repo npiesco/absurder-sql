@@ -12,7 +12,7 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { VaultDatabase, Credential, Folder, CustomField, Tag } from './VaultDatabase';
 
-export type SortOption = 'name-asc' | 'name-desc' | 'updated' | 'created' | 'favorites';
+export type SortOption = 'name-asc' | 'name-desc' | 'updated' | 'created' | 'favorites' | 'recent';
 
 const SORT_PREFERENCE_KEY = '@vault_sort_preference';
 
@@ -32,6 +32,16 @@ function sortCredentials(credentials: Credential[], sortOption: SortOption): Cre
         if (a.favorite && !b.favorite) return -1;
         if (!a.favorite && b.favorite) return 1;
         return a.name.localeCompare(b.name);
+      });
+    case 'recent':
+      return sorted.sort((a, b) => {
+        // Credentials with no access history go to the end
+        if (a.lastAccessedAt === null && b.lastAccessedAt === null) {
+          return a.name.localeCompare(b.name);
+        }
+        if (a.lastAccessedAt === null) return 1;
+        if (b.lastAccessedAt === null) return -1;
+        return b.lastAccessedAt - a.lastAccessedAt;
       });
     default:
       return sorted;
@@ -86,6 +96,9 @@ interface VaultState {
   // Sorting
   setSortOption: (option: SortOption) => Promise<void>;
   loadSortPreference: () => Promise<void>;
+
+  // Access tracking
+  trackAccess: (credentialId: string) => Promise<void>;
 
   // Error handling
   setError: (error: string | null) => void;
@@ -308,11 +321,25 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   loadSortPreference: async () => {
     try {
       const saved = await AsyncStorage.getItem(SORT_PREFERENCE_KEY);
-      if (saved && ['name-asc', 'name-desc', 'updated', 'created', 'favorites'].includes(saved)) {
+      if (saved && ['name-asc', 'name-desc', 'updated', 'created', 'favorites', 'recent'].includes(saved)) {
         set({ sortOption: saved as SortOption });
       }
     } catch (err) {
       console.error('Failed to load sort preference:', err);
+    }
+  },
+
+  // Access tracking
+  trackAccess: async (credentialId) => {
+    const { vault } = get();
+    if (!vault) return;
+
+    try {
+      await vault.updateLastAccessed(credentialId);
+      // Refresh credentials to update the sort order if sorted by recent
+      await get().refreshCredentials();
+    } catch (err) {
+      console.error('Failed to track access:', err);
     }
   },
 

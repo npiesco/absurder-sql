@@ -526,6 +526,7 @@ export default function AddEditCredentialScreen({
           folderId: folderId,
           favorite: false,
           passwordUpdatedAt: null,
+          lastAccessedAt: null,
         });
       }
       // Sync custom fields (filter out empty ones)

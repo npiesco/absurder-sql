@@ -23,6 +23,7 @@ export interface Credential {
   createdAt: number;
   updatedAt: number;
   passwordUpdatedAt: number | null;
+  lastAccessedAt: number | null;
 }
 
 export interface Folder {
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS credentials (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     password_updated_at INTEGER,
+    last_accessed_at INTEGER,
     FOREIGN KEY (folder_id) REFERENCES folders(id)
 );
 
@@ -521,7 +523,21 @@ export class VaultDatabase {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       passwordUpdatedAt: row.password_updated_at,
+      lastAccessedAt: row.last_accessed_at,
     };
+  }
+
+  /**
+   * Update the last accessed timestamp for a credential
+   */
+  async updateLastAccessed(id: string): Promise<void> {
+    if (!this.db) throw new Error('Vault not open');
+
+    const now = Date.now();
+    await this.db.execute(`
+      UPDATE credentials SET last_accessed_at = ${now}
+      WHERE id = '${this.escapeString(id)}'
+    `);
   }
 
   // ==================== CUSTOM FIELDS ====================
