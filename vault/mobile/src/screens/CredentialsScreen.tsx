@@ -18,6 +18,7 @@ import {
   Alert,
   Clipboard,
   ScrollView,
+  Modal,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore, SortOption } from '../lib/store';
@@ -60,6 +61,8 @@ export default function CredentialsScreen({
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFolderFilter, setShowFolderFilter] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [showMoveToFolderModal, setShowMoveToFolderModal] = useState(false);
+  const [credentialToMove, setCredentialToMove] = useState<Credential | null>(null);
 
   // Get folder path by ID (for nested folders)
   const getFolderPath = useCallback((folderId: string | null): string | null => {
@@ -210,6 +213,28 @@ export default function CredentialsScreen({
     }
   };
 
+  const handleMoveToFolder = (credential: Credential) => {
+    setCredentialToMove(credential);
+    setShowMoveToFolderModal(true);
+  };
+
+  const handleSelectFolder = async (folderId: string | null) => {
+    if (!credentialToMove) return;
+    try {
+      await updateCredential(credentialToMove.id, { folderId });
+      setShowMoveToFolderModal(false);
+      setCredentialToMove(null);
+      setSelectedId(null);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to move credential');
+    }
+  };
+
+  const handleCancelMove = () => {
+    setShowMoveToFolderModal(false);
+    setCredentialToMove(null);
+  };
+
   const renderCredential = ({ item }: { item: Credential }) => {
     const isExpanded = selectedId === item.id;
 
@@ -295,6 +320,15 @@ export default function CredentialsScreen({
             >
               <Icon name={item.favorite ? 'star' : 'star-outline'} size={18} color="#e94560" />
               <Text style={styles.actionText}>{item.favorite ? 'Unfavorite' : 'Favorite'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              testID="move-to-folder-button"
+              style={styles.actionButton}
+              onPress={() => handleMoveToFolder(item)}
+            >
+              <Icon name="folder-move" size={18} color="#e94560" />
+              <Text style={styles.actionText}>Move to Folder</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -473,6 +507,57 @@ export default function CredentialsScreen({
       <TouchableOpacity testID="add-credential-fab" style={styles.fab} onPress={onAddCredential}>
         <Icon name="plus" size={28} color="#ffffff" />
       </TouchableOpacity>
+
+      {/* Move to Folder Modal */}
+      <Modal
+        visible={showMoveToFolderModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCancelMove}
+      >
+        <View style={styles.modalOverlay}>
+          <View testID="move-to-folder-modal" style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Move to Folder</Text>
+            
+            <ScrollView style={styles.folderList}>
+              {/* No Folder option */}
+              <TouchableOpacity
+                style={styles.folderOption}
+                onPress={() => handleSelectFolder(null)}
+              >
+                <Icon name="folder-remove" size={20} color="#8a8a9a" />
+                <Text style={styles.folderOptionText}>No Folder</Text>
+              </TouchableOpacity>
+
+              {/* Folder options */}
+              {folders.map((folder) => (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={[
+                    styles.folderOption,
+                    credentialToMove?.folderId === folder.id && styles.folderOptionActive,
+                  ]}
+                  onPress={() => handleSelectFolder(folder.id)}
+                >
+                  <Icon 
+                    name={folder.icon || 'folder'} 
+                    size={20} 
+                    color={folder.color || '#e94560'} 
+                  />
+                  <Text style={styles.folderOptionText}>{folder.name}</Text>
+                  {credentialToMove?.folderId === folder.id && (
+                    <Icon name="check" size={18} color="#e94560" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.cancelButton} onPress={handleCancelMove}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -777,5 +862,57 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 32,
     lineHeight: 32,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#16213e',
+    borderRadius: 12,
+    padding: 20,
+    width: '85%',
+    maxHeight: '70%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  folderList: {
+    maxHeight: 300,
+  },
+  folderOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0f3460',
+    gap: 12,
+  },
+  folderOptionActive: {
+    backgroundColor: '#0f3460',
+  },
+  folderOptionText: {
+    color: '#fff',
+    fontSize: 16,
+    flex: 1,
+  },
+  cancelButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#0f3460',
+    borderRadius: 8,
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

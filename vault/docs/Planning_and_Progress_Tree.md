@@ -75,7 +75,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Create FoldersScreen (6 E2E tests - create, edit, delete, assign, filter, persist)
 - [x] Implement folder creation/editing
 - [x] Implement folder hierarchy (nested folders) (12 E2E tests - subfolder CRUD, expand/collapse, nested paths, persist)
-- [ ] Implement drag-drop credential organization
+- [x] Implement move-to-folder modal (8 E2E tests - display button, show modal, move to folder, change folder, move to root, persist, cancel)
 - [x] Implement folder icons/colors (6 E2E tests - icon picker, color picker, create with style, edit, persist, default)
 
 ### 2.4 Search & Filter
@@ -83,62 +83,62 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement filter by folder (included in folders feature)
 - [x] Implement filter by tag (included in tags feature)
 - [x] Implement filter by favorites (included in sorting/favorites)
-- [ ] Implement recent items
+- [x] Implement recent items (9 E2E tests - sort option, track on view/copy, persist, nulls last)
 
 ---
 
-## Phase 3: Security Features
+## Phase 3: Import/Export & Sync
 
-### 3.1 Biometric Authentication
-- [ ] Add react-native-keychain dependency
-- [ ] Implement Face ID unlock (iOS)
-- [ ] Implement Touch ID unlock (iOS)
-- [ ] Implement fingerprint unlock (Android)
-- [ ] Implement biometric enrollment flow
-
-### 3.2 Auto-Lock
-- [ ] Implement app background detection
-- [ ] Implement configurable auto-lock timeout
-- [ ] Implement lock on app switch
-- [ ] Implement clipboard auto-clear
-
-### 3.3 Security Audit
-- [ ] Implement weak password detection
-- [ ] Implement duplicate password detection
-- [ ] Implement password age tracking
-- [ ] Create security audit dashboard
-- [ ] Implement 2FA adoption score
-
-### 3.4 Master Password
-- [ ] Implement master password change
-- [ ] Implement password strength meter
-- [ ] Implement password requirements validation
-- [ ] Add master password hint (optional)
-
----
-
-## Phase 4: Import/Export & Sync
-
-### 4.1 File Operations
+### 3.1 File Operations
 - [ ] Implement export vault to file
 - [ ] Implement import vault from file
 - [ ] Add file picker integration
 - [ ] Add share sheet integration (iOS)
 - [ ] Add share intent integration (Android)
 
-### 4.2 Import from Other Managers
+### 3.2 Import from Other Managers
 - [ ] Implement 1Password CSV import
 - [ ] Implement Bitwarden JSON import
 - [ ] Implement LastPass CSV import
 - [ ] Implement KeePass XML import
 - [ ] Implement Chrome passwords CSV import
 
-### 4.3 Manual Sync Workflow
+### 3.3 Manual Sync Workflow
 - [ ] Document AirDrop sync workflow
 - [ ] Document USB sync workflow
 - [ ] Document email attachment workflow
 - [ ] Add sync conflict detection
 - [ ] Add merge capability
+
+---
+
+## Phase 4: Security Features
+
+### 4.1 Biometric Authentication
+- [ ] Add react-native-keychain dependency
+- [ ] Implement Face ID unlock (iOS)
+- [ ] Implement Touch ID unlock (iOS)
+- [ ] Implement fingerprint unlock (Android)
+- [ ] Implement biometric enrollment flow
+
+### 4.2 Auto-Lock
+- [ ] Implement app background detection
+- [ ] Implement configurable auto-lock timeout
+- [ ] Implement lock on app switch
+- [ ] Implement clipboard auto-clear
+
+### 4.3 Security Audit
+- [ ] Implement weak password detection
+- [ ] Implement duplicate password detection
+- [ ] Implement password age tracking
+- [ ] Create security audit dashboard
+- [ ] Implement 2FA adoption score
+
+### 4.4 Master Password
+- [ ] Implement master password change
+- [ ] Implement password strength meter
+- [ ] Implement password requirements validation
+- [ ] Add master password hint (optional)
 
 ---
 
@@ -257,8 +257,8 @@ Sequential development checklist from scaffold to finished app.
 
 - [ ] All Phase 1 items complete
 - [ ] All Phase 2 items complete
-- [ ] All Phase 3 items complete
-- [ ] All Phase 4 items complete
+- [ ] All Phase 3 items complete (Import/Export)
+- [ ] All Phase 4 items complete (Security)
 - [ ] All Phase 5 items complete
 - [ ] All Phase 6 items complete
 - [ ] All Phase 7 items complete (App Store release)
@@ -268,4 +268,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-07*
+*Last updated: 2025-12-08*

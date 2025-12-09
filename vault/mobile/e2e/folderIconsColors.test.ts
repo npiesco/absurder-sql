@@ -159,26 +159,6 @@ describe('Folder Icons & Colors', () => {
     await expect(element(by.id('folder-item-Work Projects-finance-purple'))).toBeVisible();
   });
 
-  it('should persist folder icons and colors across app restart', async () => {
-    // Terminate and relaunch
-    await device.terminateApp();
-    await device.launchApp({ newInstance: false });
-
-    // Unlock vault
-    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(10000);
-    await element(by.id('master-password-input')).tap();
-    await element(by.id('master-password-input')).replaceText('IconsTest123!');
-    await element(by.id('unlock-vault-button')).tap();
-    await expect(element(by.text('Vault'))).toBeVisible();
-
-    // Navigate to folders
-    await element(by.id('folders-button')).tap();
-
-    // Verify folders have persisted icons and colors
-    await expect(element(by.id('folder-item-Work Projects-finance-purple'))).toBeVisible();
-    await expect(element(by.id('folder-item-Personal-personal-green'))).toBeVisible();
-  });
-
   it('should display default icon when no icon selected', async () => {
     // Open modal
     await element(by.id('add-folder-fab')).tap();
@@ -196,6 +176,28 @@ describe('Folder Icons & Colors', () => {
 
     // Verify folder has default icon and color
     await expect(element(by.text('Default Folder'))).toBeVisible();
+    await expect(element(by.id('folder-item-Default Folder-default-default'))).toBeVisible();
+  });
+
+  it('should persist folder icons and colors across app restart', async () => {
+    // Terminate and relaunch
+    await device.terminateApp();
+    await device.launchApp({ newInstance: false });
+
+    // Unlock vault
+    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(10000);
+    await element(by.id('master-password-input')).typeText('IconsTest123!');
+    await element(by.id('master-password-input')).tapReturnKey();
+    await element(by.id('unlock-vault-button')).tap();
+    await expect(element(by.text('Vault'))).toBeVisible();
+
+    // Navigate to folders
+    await waitFor(element(by.id('folders-button'))).toBeVisible().withTimeout(5000);
+    await element(by.id('folders-button')).tap();
+
+    // Verify folders have persisted icons and colors (including default)
+    await expect(element(by.id('folder-item-Work Projects-finance-purple'))).toBeVisible();
+    await expect(element(by.id('folder-item-Personal-personal-green'))).toBeVisible();
     await expect(element(by.id('folder-item-Default Folder-default-default'))).toBeVisible();
   });
 });
