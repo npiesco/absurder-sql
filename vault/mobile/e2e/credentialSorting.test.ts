@@ -105,7 +105,11 @@ describe('Credential Sorting', () => {
     await expect(element(by.text('First Created'))).toBeVisible();
 
     // Update the first credential to make it most recently updated
+    // Scroll to find First Created and tap it
+    await element(by.id('credentials-list')).scrollTo('top');
     await element(by.text('First Created')).tap();
+    // Swipe up on the expanded card to reveal action buttons
+    await element(by.id('credentials-list')).swipe('up', 'slow', 0.3);
     await element(by.id('edit-credential-button')).tap();
     await element(by.id('credential-username-input')).clearText();
     await element(by.id('credential-username-input')).typeText('first_updated');

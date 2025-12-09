@@ -8,7 +8,7 @@
  * - About section
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,8 +16,11 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import RNFS from 'react-native-fs';
+import Share from 'react-native-share';
 import { useVaultStore } from '../lib/store';
 
 interface SettingsScreenProps {
@@ -29,11 +32,71 @@ export default function SettingsScreen({
   onBack,
   onLock,
 }: SettingsScreenProps) {
-  const { vaultName, credentials, lock } = useVaultStore();
+  const { vaultName, credentials, lock, vault } = useVaultStore();
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleLockVault = async () => {
     await lock();
     onLock();
+  };
+
+  const performExport = async () => {
+    if (!vault) {
+      Alert.alert('Error', 'Vault is not open');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Generate export filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const exportFileName = `vault-backup-${timestamp}.db`;
+      const exportPath = `${RNFS.DocumentDirectoryPath}/${exportFileName}`;
+
+      // Export the encrypted database to file
+      await vault.exportToFile(exportPath);
+
+      // Verify the file was created
+      const fileExists = await RNFS.exists(exportPath);
+      if (!fileExists) {
+        throw new Error('Export file was not created');
+      }
+
+      // Get file info for user feedback
+      const fileInfo = await RNFS.stat(exportPath);
+      const fileSizeKB = Math.round(fileInfo.size / 1024);
+
+      Alert.alert(
+        'Success',
+        `Vault exported successfully to ${exportFileName} (${fileSizeKB} KB)`,
+        [
+          { text: 'OK', style: 'default' },
+          {
+            text: 'Share',
+            onPress: async () => {
+              try {
+                await Share.open({
+                  url: `file://${exportPath}`,
+                  type: 'application/x-sqlite3',
+                  filename: exportFileName,
+                  title: 'Export Vault Backup',
+                });
+              } catch (shareError: any) {
+                // User cancelled - ignore
+                if (!shareError?.message?.includes('User did not share')) {
+                  console.error('Share error:', shareError);
+                }
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Export error:', error);
+      Alert.alert('Export Failed', error?.message || 'Failed to export vault');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleExportVault = () => {
@@ -44,10 +107,7 @@ export default function SettingsScreen({
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Export',
-          onPress: () => {
-            // In production, use react-native-fs or expo-file-system
-            Alert.alert('Success', 'Vault exported successfully');
-          },
+          onPress: performExport,
         },
       ]
     );
@@ -120,15 +180,20 @@ export default function SettingsScreen({
               testID="export-vault-button"
               style={styles.actionRow}
               onPress={handleExportVault}
+              disabled={isExporting}
             >
-              <Text style={styles.actionIcon}>📤</Text>
+              <Icon name="export" size={24} color="#e94560" style={styles.actionIconVector} />
               <View style={styles.actionContent}>
                 <Text style={styles.actionTitle}>Export Vault</Text>
                 <Text style={styles.actionDescription}>
                   Export encrypted database for backup
                 </Text>
               </View>
-              <Text style={styles.chevron}>›</Text>
+              {isExporting ? (
+                <ActivityIndicator size="small" color="#e94560" />
+              ) : (
+                <Icon name="chevron-right" size={24} color="#666" />
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -239,6 +304,9 @@ const styles = StyleSheet.create({
   },
   actionIcon: {
     fontSize: 24,
+    marginRight: 12,
+  },
+  actionIconVector: {
     marginRight: 12,
   },
   actionContent: {

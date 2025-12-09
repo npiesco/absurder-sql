@@ -90,10 +90,10 @@ Sequential development checklist from scaffold to finished app.
 ## Phase 3: Import/Export & Sync
 
 ### 3.1 File Operations
-- [ ] Implement export vault to file
+- [x] Implement export vault to file (8 E2E tests - setup, navigate, display button, confirmation dialog, cancel, export, dismiss, persist)
 - [ ] Implement import vault from file
 - [ ] Add file picker integration
-- [ ] Add share sheet integration (iOS)
+- [x] Add share sheet integration (iOS) (included in export)
 - [ ] Add share intent integration (Android)
 
 ### 3.2 Import from Other Managers
