@@ -113,6 +113,66 @@ export default function SettingsScreen({
     );
   };
 
+  const [isImporting, setIsImporting] = useState(false);
+
+  const performImport = async () => {
+    if (!vault) {
+      Alert.alert('Error', 'Vault is not open');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      // List available backup files in Documents directory
+      const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
+      const backupFiles = files
+        .filter(f => f.name.startsWith('vault-backup-') && f.name.endsWith('.db'))
+        .sort((a, b) => (b.mtime?.getTime() || 0) - (a.mtime?.getTime() || 0)); // Most recent first
+
+      if (backupFiles.length === 0) {
+        Alert.alert('No Backups Found', 'No vault backup files found in the Documents directory. Export a vault first to create a backup.');
+        return;
+      }
+
+      // Use the most recent backup file
+      const importFile = backupFiles[0];
+      const importPath = importFile.path;
+
+      // Import the database
+      await vault.importFromFile(importPath);
+
+      // Refresh credentials from the imported data
+      const { refreshCredentials, refreshFolders } = useVaultStore.getState();
+      await refreshCredentials();
+      await refreshFolders();
+
+      Alert.alert(
+        'Import Successful',
+        `Imported ${importFile.name} successfully. ${backupFiles.length > 1 ? `(${backupFiles.length - 1} older backups available)` : ''}`,
+        [{ text: 'OK', style: 'default' }]
+      );
+    } catch (error: any) {
+      console.error('Import error:', error);
+      Alert.alert('Import Failed', error?.message || 'Failed to import vault');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleImportVault = () => {
+    Alert.alert(
+      'Import Vault',
+      'Import credentials from a previously exported vault backup. This will merge the imported data with your current vault.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Select File',
+          onPress: performImport,
+        },
+      ]
+    );
+  };
+
   const credentialCount = credentials.length;
   const credentialText = credentialCount === 1 ? '1 credential' : `${credentialCount} credentials`;
 
@@ -190,6 +250,26 @@ export default function SettingsScreen({
                 </Text>
               </View>
               {isExporting ? (
+                <ActivityIndicator size="small" color="#e94560" />
+              ) : (
+                <Icon name="chevron-right" size={24} color="#666" />
+              )}
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              testID="import-vault-button"
+              style={styles.actionRow}
+              onPress={handleImportVault}
+              disabled={isImporting}
+            >
+              <Icon name="import" size={24} color="#e94560" style={styles.actionIconVector} />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Import Vault</Text>
+                <Text style={styles.actionDescription}>
+                  Import credentials from backup file
+                </Text>
+              </View>
+              {isImporting ? (
                 <ActivityIndicator size="small" color="#e94560" />
               ) : (
                 <Icon name="chevron-right" size={24} color="#666" />

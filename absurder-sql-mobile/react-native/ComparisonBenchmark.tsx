@@ -38,7 +38,14 @@ class Order extends Model {
 // Create AbsurderSQL API wrapper that matches the old API
 const AbsurderSQL = {
   createDatabase: async (path: string) => {
-    return await AbsurderSQLModule.createDatabase({name: path, encryptionKey: undefined});
+    return await AbsurderSQLModule.createDatabase({
+      name: path, 
+      encryptionKey: undefined,
+      cacheSize: undefined,
+      pageSize: undefined,
+      journalMode: undefined,
+      autoVacuum: undefined,
+    });
   },
   execute: async (handle: bigint, sql: string) => {
     return AbsurderSQLModule.execute(handle, sql);
@@ -72,7 +79,24 @@ const AbsurderSQL = {
   },
   fetchNext: async (streamHandle: bigint, batchSize: number) => {
     const result = AbsurderSQLModule.fetchNext(streamHandle, batchSize);
-    return JSON.stringify(result.rows.map((rowJson: string) => JSON.parse(rowJson)));
+    // Convert typed Row objects to plain objects keyed by column name
+    const rows = result.rows.map((row: any) => {
+      const mapped: Record<string, any> = {};
+      result.columns.forEach((col: string, i: number) => {
+        const colValue = row.values[i];
+        if (!colValue || colValue.tag === 'Null') {
+          mapped[col] = null;
+        } else if (colValue.inner !== undefined) {
+          mapped[col] = typeof colValue.inner.value === 'bigint' 
+            ? Number(colValue.inner.value) 
+            : colValue.inner.value;
+        } else {
+          mapped[col] = null;
+        }
+      });
+      return mapped;
+    });
+    return JSON.stringify(rows);
   },
   closeStream: async (streamHandle: bigint) => {
     return AbsurderSQLModule.closeStream(streamHandle);

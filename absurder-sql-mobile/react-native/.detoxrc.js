@@ -13,12 +13,12 @@ module.exports = {
     'ios.debug': {
       type: 'ios.app',
       binaryPath: 'ios/build/Build/Products/Debug-iphonesimulator/AbsurderSQLTestApp.app',
-      build: 'xcodebuild -project ios/AbsurderSQLTestApp.xcodeproj -scheme AbsurderSQLTestApp -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build'
+      build: 'xcodebuild -workspace ios/AbsurderSQLTestApp.xcworkspace -scheme AbsurderSQLTestApp -configuration Debug -sdk iphonesimulator -arch arm64 -derivedDataPath ios/build'
     },
     'ios.release': {
       type: 'ios.app',
       binaryPath: 'ios/build/Build/Products/Release-iphonesimulator/AbsurderSQLTestApp.app',
-      build: 'xcodebuild -project ios/AbsurderSQLTestApp.xcodeproj -scheme AbsurderSQLTestApp -configuration Release -sdk iphonesimulator -derivedDataPath ios/build'
+      build: 'xcodebuild -workspace ios/AbsurderSQLTestApp.xcworkspace -scheme AbsurderSQLTestApp -configuration Release -sdk iphonesimulator -arch arm64 -derivedDataPath ios/build'
     },
     'android.debug': {
       type: 'android.apk',
@@ -38,7 +38,7 @@ module.exports = {
     simulator: {
       type: 'ios.simulator',
       device: {
-        type: 'iPhone 15'
+        type: 'iPhone 17 Pro'
       }
     },
     attached: {

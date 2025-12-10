@@ -282,4 +282,92 @@ mod uniffi_export_import_tests {
         let _ = std::fs::remove_file(&db_path1);
         let _ = std::fs::remove_file(&db_path2);
     }
+
+    /// Test export/import round-trip with ENCRYPTED database
+    /// 
+    /// This is the critical test for vault backup/restore functionality.
+    /// When a database is encrypted with SQLCipher, the exported file (via VACUUM INTO)
+    /// is also encrypted with the same key. The import function must be able to
+    /// read this encrypted backup file.
+    #[test]
+    #[serial]
+    fn test_encrypted_export_import_round_trip() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        
+        let thread_id = std::thread::current().id();
+        let encryption_key = "test-vault-password-123!";
+        
+        // Create encrypted database (simulating a vault)
+        let original_config = DatabaseConfig {
+            name: format!("uniffi_encrypted_roundtrip_orig_{:?}.db", thread_id),
+            encryption_key: Some(encryption_key.to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
+        };
+        
+        let original_handle = RUNTIME.block_on(async { create_database(original_config).await })
+            .expect("Failed to create encrypted database");
+        
+        // Create schema and data (simulating vault credentials)
+        execute(original_handle, "DROP TABLE IF EXISTS credentials".to_string()).ok();
+        execute(original_handle, "CREATE TABLE credentials (id INTEGER PRIMARY KEY, name TEXT, username TEXT, password TEXT)".to_string())
+            .expect("Failed to create credentials table");
+        execute(original_handle, "INSERT INTO credentials (name, username, password) VALUES ('GitHub', 'user1', 'secret123')".to_string())
+            .expect("Failed to insert credential 1");
+        execute(original_handle, "INSERT INTO credentials (name, username, password) VALUES ('Gmail', 'user2', 'password456')".to_string())
+            .expect("Failed to insert credential 2");
+        execute(original_handle, "INSERT INTO credentials (name, username, password) VALUES ('AWS', 'admin', 'aws-key-789')".to_string())
+            .expect("Failed to insert credential 3");
+        
+        // Export encrypted database
+        let backup_path = format!("/tmp/uniffi_encrypted_roundtrip_{:?}.db", thread_id);
+        export_database(original_handle, backup_path.clone())
+            .expect("Failed to export encrypted database");
+        
+        // Verify export file exists
+        let path = PathBuf::from(&backup_path);
+        assert!(path.exists(), "Encrypted export file should exist");
+        
+        // Get count from original before closing
+        let original_result = execute(original_handle, "SELECT COUNT(*) as cnt FROM credentials".to_string())
+            .expect("Failed to query original");
+        assert_eq!(original_result.rows.len(), 1, "Should have count row");
+        
+        close_database(original_handle).expect("Failed to close original");
+        
+        // Create NEW encrypted database with SAME key and import
+        // This simulates restoring a vault backup
+        let restored_config = DatabaseConfig {
+            name: format!("uniffi_encrypted_roundtrip_restored_{:?}.db", thread_id),
+            encryption_key: Some(encryption_key.to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
+        };
+        
+        let restored_handle = RUNTIME.block_on(async { create_database(restored_config).await })
+            .expect("Failed to create restored encrypted database");
+        
+        // Import from encrypted backup - THIS IS THE KEY TEST
+        // The backup file is encrypted, so import_database must handle this
+        let import_result = import_database(restored_handle, backup_path.clone());
+        assert!(import_result.is_ok(), "Import of encrypted backup should succeed: {:?}", import_result.err());
+        
+        // Verify data was imported correctly
+        let restored_result = execute(restored_handle, "SELECT COUNT(*) as cnt FROM credentials".to_string())
+            .expect("Failed to query restored");
+        assert_eq!(restored_result.rows.len(), 1, "Should have count row");
+        
+        // Verify actual credential data
+        let credentials = execute(restored_handle, "SELECT name, username, password FROM credentials ORDER BY id".to_string())
+            .expect("Failed to query credentials");
+        assert_eq!(credentials.rows.len(), 3, "Should have 3 credentials");
+        
+        // Clean up
+        close_database(restored_handle).expect("Failed to close restored");
+        std::fs::remove_file(&backup_path).ok();
+    }
 }

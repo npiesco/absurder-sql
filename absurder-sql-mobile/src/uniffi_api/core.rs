@@ -3,7 +3,7 @@
 /// These functions are automatically exported to TypeScript, Swift, and Kotlin
 /// using the #[uniffi::export] macro.
 
-use super::types::{DatabaseConfig, DatabaseError, QueryResult};
+use super::types::{DatabaseConfig, DatabaseError, QueryResult, Row, ColumnValue};
 use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
 #[cfg(target_os = "android")]
 use crate::registry::ANDROID_DATA_DIR;
@@ -13,22 +13,25 @@ use std::path::Path;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::path::PathBuf;
 use parking_lot::Mutex;
-use serde_json;
 
-/// Convert a core Row to a JSON string for UniFFI transport
-fn row_to_json(core_row: &absurder_sql::Row) -> String {
-    let values: Vec<serde_json::Value> = core_row.values.iter().map(|cv| {
-        match cv {
-            CoreColumnValue::Null => serde_json::json!({"type": "Null", "value": null}),
-            CoreColumnValue::Integer(i) => serde_json::json!({"type": "Integer", "value": i}),
-            CoreColumnValue::Real(r) => serde_json::json!({"type": "Real", "value": r}),
-            CoreColumnValue::Text(s) => serde_json::json!({"type": "Text", "value": s}),
-            CoreColumnValue::Blob(b) => serde_json::json!({"type": "Blob", "value": b}),
-            CoreColumnValue::Date(d) => serde_json::json!({"type": "Integer", "value": d}),
-            CoreColumnValue::BigInt(s) => serde_json::json!({"type": "Text", "value": s}),
-        }
-    }).collect();
-    serde_json::json!({"values": values}).to_string()
+/// Convert a core ColumnValue to UniFFI ColumnValue
+fn convert_column_value(cv: &CoreColumnValue) -> ColumnValue {
+    match cv {
+        CoreColumnValue::Null => ColumnValue::Null,
+        CoreColumnValue::Integer(i) => ColumnValue::Integer { value: *i },
+        CoreColumnValue::Real(r) => ColumnValue::Real { value: *r },
+        CoreColumnValue::Text(s) => ColumnValue::Text { value: s.clone() },
+        CoreColumnValue::Blob(b) => ColumnValue::Blob { value: b.clone() },
+        CoreColumnValue::Date(d) => ColumnValue::Integer { value: *d },
+        CoreColumnValue::BigInt(s) => ColumnValue::Text { value: s.clone() },
+    }
+}
+
+/// Convert a core Row to UniFFI Row
+fn convert_row(core_row: &absurder_sql::Row) -> Row {
+    Row {
+        values: core_row.values.iter().map(convert_column_value).collect(),
+    }
 }
 
 /// Resolve database path to an absolute path appropriate for the platform
@@ -162,14 +165,14 @@ pub fn execute(handle: u64, sql: String) -> Result<QueryResult, DatabaseError> {
     
     match result {
         Ok(query_result) => {
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,
@@ -237,14 +240,14 @@ pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Res
     
     match result {
         Ok(query_result) => {
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,
@@ -787,14 +790,14 @@ pub fn execute_statement(stmt_handle: u64, params: Vec<String>) -> Result<QueryR
         Ok(query_result) => {
             log::info!("UniFFI: Statement {} executed successfully", stmt_handle);
 
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,
@@ -1028,15 +1031,15 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
                 }
             }
             
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             // Convert to UniFFI QueryResult
             let uniffi_result = QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,

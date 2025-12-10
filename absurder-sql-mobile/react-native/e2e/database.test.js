@@ -7,8 +7,8 @@ describe('AbsurderSQL Database Operations', () => {
     await device.reloadReactNative();
   });
 
-  it('should display Integration Tests tab', async () => {
-    await expect(element(by.text('Integration Tests'))).toBeVisible();
+  it('should display Tests tab', async () => {
+    await expect(element(by.text('Tests'))).toBeVisible();
   });
 
   it('should display Benchmarks tab', async () => {
@@ -37,8 +37,8 @@ describe('AbsurderSQL Database Operations', () => {
   });
 
   it('should run integration tests successfully', async () => {
-    // Should be on Integration Tests tab by default
-    await expect(element(by.text('Integration Tests'))).toBeVisible();
+    // Should be on Tests tab by default
+    await expect(element(by.text('Tests'))).toBeVisible();
     
     // Tap "Run All Tests" button
     await element(by.text('Run All Tests')).tap();
