@@ -370,4 +370,96 @@ mod uniffi_export_import_tests {
         close_database(restored_handle).expect("Failed to close restored");
         std::fs::remove_file(&backup_path).ok();
     }
+
+    /// Test import into SAME encrypted database (vault restore scenario)
+    /// 
+    /// This reproduces the exact vault use case:
+    /// 1. Create encrypted vault with credentials
+    /// 2. Export vault to backup file
+    /// 3. Delete credentials from vault (simulate data loss)
+    /// 4. Import backup into SAME vault (not a new database)
+    /// 5. Verify credentials are restored
+    /// 
+    /// The key difference from test_encrypted_export_import_round_trip is that
+    /// we import into the SAME database handle, not a new one.
+    #[test]
+    #[serial]
+    fn test_encrypted_import_into_same_vault() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        
+        let thread_id = std::thread::current().id();
+        let encryption_key = "vault-master-password-123!";
+        
+        // Create encrypted vault
+        let vault_config = DatabaseConfig {
+            name: format!("uniffi_same_vault_import_{:?}.db", thread_id),
+            encryption_key: Some(encryption_key.to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
+        };
+        
+        let vault_handle = RUNTIME.block_on(async { create_database(vault_config).await })
+            .expect("Failed to create encrypted vault");
+        
+        // Create credentials table and add data
+        execute(vault_handle, "DROP TABLE IF EXISTS credentials".to_string()).ok();
+        execute(vault_handle, "CREATE TABLE credentials (id INTEGER PRIMARY KEY, name TEXT, username TEXT, password TEXT)".to_string())
+            .expect("Failed to create credentials table");
+        execute(vault_handle, "INSERT INTO credentials (name, username, password) VALUES ('Account1', 'user1@test.com', 'pass1')".to_string())
+            .expect("Failed to insert credential 1");
+        execute(vault_handle, "INSERT INTO credentials (name, username, password) VALUES ('Account2', 'user2@test.com', 'pass2')".to_string())
+            .expect("Failed to insert credential 2");
+        
+        // Verify initial data
+        let initial_count = execute(vault_handle, "SELECT COUNT(*) as cnt FROM credentials".to_string())
+            .expect("Failed to count initial");
+        assert_eq!(initial_count.rows.len(), 1, "Should have count row");
+        
+        // Export vault to backup
+        let backup_path = format!("/tmp/uniffi_same_vault_backup_{:?}.db", thread_id);
+        export_database(vault_handle, backup_path.clone())
+            .expect("Failed to export vault");
+        
+        // Verify backup file exists
+        assert!(PathBuf::from(&backup_path).exists(), "Backup file should exist");
+        
+        // Delete all credentials (simulate data loss)
+        execute(vault_handle, "DELETE FROM credentials".to_string())
+            .expect("Failed to delete credentials");
+        
+        // Verify credentials are gone
+        let after_delete = execute(vault_handle, "SELECT COUNT(*) as cnt FROM credentials".to_string())
+            .expect("Failed to count after delete");
+        // Extract count from first row
+        let count_after_delete = match &after_delete.rows[0].values[0] {
+            crate::uniffi_api::types::ColumnValue::Integer { value } => *value,
+            _ => panic!("Expected integer count"),
+        };
+        assert_eq!(count_after_delete, 0, "Should have 0 credentials after delete");
+        
+        // Import backup into SAME vault - THIS IS THE KEY TEST
+        let import_result = import_database(vault_handle, backup_path.clone());
+        assert!(import_result.is_ok(), "Import into same vault should succeed: {:?}", import_result.err());
+        
+        // Verify credentials were restored
+        let restored_count = execute(vault_handle, "SELECT COUNT(*) as cnt FROM credentials".to_string())
+            .expect("Failed to count restored");
+        let count_restored = match &restored_count.rows[0].values[0] {
+            crate::uniffi_api::types::ColumnValue::Integer { value } => *value,
+            _ => panic!("Expected integer count"),
+        };
+        assert_eq!(count_restored, 2, "Should have 2 credentials after import");
+        
+        // Verify actual data
+        let credentials = execute(vault_handle, "SELECT name, username FROM credentials ORDER BY id".to_string())
+            .expect("Failed to query credentials");
+        assert_eq!(credentials.rows.len(), 2, "Should have 2 credential rows");
+        
+        // Clean up
+        close_database(vault_handle).expect("Failed to close vault");
+        std::fs::remove_file(&backup_path).ok();
+    }
+
 }
