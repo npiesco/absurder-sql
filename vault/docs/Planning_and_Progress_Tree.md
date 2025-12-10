@@ -91,8 +91,8 @@ Sequential development checklist from scaffold to finished app.
 
 ### 3.1 File Operations
 - [x] Implement export vault to file (8 E2E tests - setup, navigate, display button, confirmation dialog, cancel, export, dismiss, persist)
-- [ ] Implement import vault from file
-- [ ] Add file picker integration
+- [x] Implement import vault from file (10 E2E tests - setup, export, display button, confirmation dialog, cancel, delete credentials, import, verify restored, verify details, persist)
+- [x] Add file picker integration (10 E2E tests - setup, export, display modal, cancel modal, recent backups list, cancel backup list, delete credential, import from backup, verify restored, persist)
 - [x] Add share sheet integration (iOS) (included in export)
 - [ ] Add share intent integration (Android)
 
@@ -268,4 +268,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-08*
+*Last updated: 2025-12-10*

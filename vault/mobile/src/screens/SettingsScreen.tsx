@@ -17,10 +17,13 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Modal,
+  FlatList,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
+import DocumentPicker from 'react-native-document-picker';
 import { useVaultStore } from '../lib/store';
 
 interface SettingsScreenProps {
@@ -114,30 +117,20 @@ export default function SettingsScreen({
   };
 
   const [isImporting, setIsImporting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showBackupList, setShowBackupList] = useState(false);
+  const [backupFiles, setBackupFiles] = useState<RNFS.ReadDirItem[]>([]);
 
-  const performImport = async () => {
+  const performImportFromPath = async (importPath: string, fileName: string) => {
     if (!vault) {
       Alert.alert('Error', 'Vault is not open');
       return;
     }
 
     setIsImporting(true);
+    setShowImportModal(false);
+    setShowBackupList(false);
     try {
-      // List available backup files in Documents directory
-      const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
-      const backupFiles = files
-        .filter(f => f.name.startsWith('vault-backup-') && f.name.endsWith('.db'))
-        .sort((a, b) => (b.mtime?.getTime() || 0) - (a.mtime?.getTime() || 0)); // Most recent first
-
-      if (backupFiles.length === 0) {
-        Alert.alert('No Backups Found', 'No vault backup files found in the Documents directory. Export a vault first to create a backup.');
-        return;
-      }
-
-      // Use the most recent backup file
-      const importFile = backupFiles[0];
-      const importPath = importFile.path;
-
       // Import the database
       await vault.importFromFile(importPath);
 
@@ -148,7 +141,7 @@ export default function SettingsScreen({
 
       Alert.alert(
         'Import Successful',
-        `Imported ${importFile.name} successfully. ${backupFiles.length > 1 ? `(${backupFiles.length - 1} older backups available)` : ''}`,
+        `Imported ${fileName} successfully.`,
         [{ text: 'OK', style: 'default' }]
       );
     } catch (error: any) {
@@ -159,18 +152,63 @@ export default function SettingsScreen({
     }
   };
 
+  const handleBrowseFiles = async () => {
+    try {
+      const result = await DocumentPicker.pick({
+        type: [DocumentPicker.types.allFiles],
+        copyTo: 'documentDirectory',
+      });
+
+      if (result && result.length > 0) {
+        const file = result[0];
+        // Use the copied file path if available, otherwise use the original URI
+        const filePath = file.fileCopyUri || file.uri;
+        const fileName = file.name || 'backup.db';
+        
+        // Clean up the file path (remove file:// prefix if present)
+        const cleanPath = filePath.replace('file://', '');
+        
+        await performImportFromPath(cleanPath, fileName);
+      }
+    } catch (error: any) {
+      if (DocumentPicker.isCancel(error)) {
+        // User cancelled - just close the modal
+        setShowImportModal(false);
+      } else {
+        console.error('Document picker error:', error);
+        Alert.alert('Error', 'Failed to select file');
+      }
+    }
+  };
+
+  const handleRecentBackups = async () => {
+    try {
+      // List available backup files in Documents directory
+      const files = await RNFS.readDir(RNFS.DocumentDirectoryPath);
+      const backups = files
+        .filter(f => f.name.startsWith('vault-backup-') && f.name.endsWith('.db'))
+        .sort((a, b) => (b.mtime?.getTime() || 0) - (a.mtime?.getTime() || 0)); // Most recent first
+
+      if (backups.length === 0) {
+        Alert.alert('No Backups Found', 'No vault backup files found. Export a vault first to create a backup.');
+        return;
+      }
+
+      setBackupFiles(backups);
+      setShowImportModal(false);
+      setShowBackupList(true);
+    } catch (error: any) {
+      console.error('Error listing backups:', error);
+      Alert.alert('Error', 'Failed to list backup files');
+    }
+  };
+
+  const handleSelectBackup = async (file: RNFS.ReadDirItem) => {
+    await performImportFromPath(file.path, file.name);
+  };
+
   const handleImportVault = () => {
-    Alert.alert(
-      'Import Vault',
-      'Import credentials from a previously exported vault backup. This will merge the imported data with your current vault.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Select File',
-          onPress: performImport,
-        },
-      ]
-    );
+    setShowImportModal(true);
   };
 
   const credentialCount = credentials.length;
@@ -304,6 +342,93 @@ export default function SettingsScreen({
           </Text>
         </View>
       </ScrollView>
+
+      {/* Import Options Modal */}
+      <Modal
+        visible={showImportModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImportModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Import Vault</Text>
+            <Text style={styles.modalDescription}>
+              Import credentials from a previously exported vault backup. This will merge the imported data with your current vault.
+            </Text>
+            
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleBrowseFiles}
+            >
+              <Icon name="folder-open" size={24} color="#e94560" />
+              <Text style={styles.modalButtonText}>Browse Files</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleRecentBackups}
+            >
+              <Icon name="history" size={24} color="#e94560" />
+              <Text style={styles.modalButtonText}>Recent Backups</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton]}
+              onPress={() => setShowImportModal(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Backup List Modal */}
+      <Modal
+        visible={showBackupList}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowBackupList(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.backupListContent}>
+            <Text style={styles.modalTitle}>Select Backup</Text>
+            
+            <FlatList
+              testID="backup-file-list"
+              data={backupFiles}
+              keyExtractor={(item, index) => `${item.name}-${index}`}
+              renderItem={({ item, index }) => (
+                <TouchableOpacity
+                  testID={`backup-file-item-${index}`}
+                  style={styles.backupItem}
+                  onPress={() => handleSelectBackup(item)}
+                >
+                  <Icon name="database" size={24} color="#e94560" />
+                  <View style={styles.backupItemInfo}>
+                    <Text style={styles.backupItemName}>{item.name}</Text>
+                    <Text style={styles.backupItemDate}>
+                      {item.mtime ? new Date(item.mtime).toLocaleString() : 'Unknown date'}
+                    </Text>
+                  </View>
+                  <Icon name="chevron-right" size={24} color="#666" />
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No backup files found</Text>
+              }
+            />
+            
+            <TouchableOpacity
+              testID="backup-cancel-button"
+              style={[styles.modalButton, styles.modalCancelButton]}
+              onPress={() => setShowBackupList(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -441,5 +566,92 @@ const styles = StyleSheet.create({
   footerSubtext: {
     color: '#3a3a4a',
     fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#16213e',
+    borderRadius: 16,
+    padding: 24,
+    width: '85%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalDescription: {
+    color: '#8a8a9a',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  modalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0f3460',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    gap: 12,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalCancelButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#666',
+  },
+  modalCancelText: {
+    color: '#8a8a9a',
+    fontSize: 16,
+  },
+  backupListContent: {
+    backgroundColor: '#16213e',
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '70%',
+  },
+  backupItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f3460',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    gap: 12,
+  },
+  backupItemInfo: {
+    flex: 1,
+  },
+  backupItemName: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  backupItemDate: {
+    color: '#8a8a9a',
+    fontSize: 12,
+  },
+  emptyText: {
+    color: '#8a8a9a',
+    fontSize: 14,
+    textAlign: 'center',
+    padding: 24,
   },
 });

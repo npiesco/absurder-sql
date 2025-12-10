@@ -83,10 +83,11 @@ describe('Import Vault', () => {
   it('should show import confirmation dialog when tapping import', async () => {
     await element(by.id('import-vault-button')).tap();
 
-    // Verify confirmation dialog appears - check for dialog-specific text
+    // Verify import modal appears with options
     await expect(element(by.text('Import credentials from a previously exported vault backup. This will merge the imported data with your current vault.'))).toBeVisible();
     await expect(element(by.text('Cancel'))).toBeVisible();
-    await expect(element(by.text('Select File'))).toBeVisible();
+    await expect(element(by.text('Browse Files'))).toBeVisible();
+    await expect(element(by.text('Recent Backups'))).toBeVisible();
   });
 
   it('should cancel import when tapping cancel', async () => {
@@ -128,9 +129,13 @@ describe('Import Vault', () => {
     // Tap import
     await element(by.id('import-vault-button')).tap();
     
-    // Verify dialog appeared and select file
-    await waitFor(element(by.text('Select File'))).toBeVisible().withTimeout(3000);
-    await element(by.text('Select File')).tap();
+    // Use Recent Backups to import
+    await waitFor(element(by.text('Recent Backups'))).toBeVisible().withTimeout(3000);
+    await element(by.text('Recent Backups')).tap();
+    
+    // Select the first backup file
+    await waitFor(element(by.id('backup-file-item-0'))).toBeVisible().withTimeout(5000);
+    await element(by.id('backup-file-item-0')).tap();
 
     // Wait for import to complete
     await waitFor(element(by.text('Import Successful'))).toBeVisible().withTimeout(15000);
