@@ -8,7 +8,7 @@
  * - About section
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -25,18 +25,59 @@ import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import DocumentPicker from 'react-native-document-picker';
 import { useVaultStore } from '../lib/store';
+import { biometricService, BiometricType } from '../lib/biometricService';
 
 interface SettingsScreenProps {
   onBack: () => void;
   onLock: () => void;
+  masterPassword?: string;
 }
 
 export default function SettingsScreen({
   onBack,
   onLock,
+  masterPassword,
 }: SettingsScreenProps) {
   const { vaultName, credentials, lock, vault } = useVaultStore();
   const [isExporting, setIsExporting] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricType, setBiometricType] = useState<BiometricType>(null);
+
+  useEffect(() => {
+    checkBiometricStatus();
+  }, []);
+
+  const checkBiometricStatus = async () => {
+    const available = await biometricService.isAvailable();
+    setBiometricAvailable(available);
+    if (available) {
+      const type = await biometricService.getBiometricType();
+      setBiometricType(type);
+      const enabled = await biometricService.isEnabled();
+      setBiometricEnabled(enabled);
+    }
+  };
+
+  const handleBiometricToggle = async () => {
+    if (biometricEnabled) {
+      // Disable biometric
+      await biometricService.disable();
+      setBiometricEnabled(false);
+    } else {
+      // Enable biometric - need master password
+      if (!masterPassword) {
+        Alert.alert('Error', 'Master password not available. Please lock and unlock the vault first.');
+        return;
+      }
+      const success = await biometricService.enable(masterPassword);
+      if (success) {
+        setBiometricEnabled(true);
+      } else {
+        Alert.alert('Error', 'Failed to enable biometric unlock');
+      }
+    }
+  };
 
   const handleLockVault = async () => {
     await lock();
@@ -253,6 +294,43 @@ export default function SettingsScreen({
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Security</Text>
           <View style={styles.card}>
+            {biometricAvailable && (
+              <>
+                <TouchableOpacity
+                  testID="biometric-toggle"
+                  style={styles.actionRow}
+                  onPress={handleBiometricToggle}
+                >
+                  <Icon 
+                    name={biometricType === 'FaceID' ? 'face-recognition' : 'fingerprint'} 
+                    size={24} 
+                    color="#e94560" 
+                    style={styles.actionIconVector} 
+                  />
+                  <View style={styles.actionContent}>
+                    <Text style={styles.actionTitle}>Face ID / Touch ID</Text>
+                    <Text style={styles.actionDescription}>
+                      Unlock vault with biometrics
+                    </Text>
+                  </View>
+                  <View 
+                    testID={biometricEnabled ? 'biometric-toggle-enabled' : 'biometric-toggle-disabled'}
+                    style={[
+                      styles.toggleSwitch,
+                      biometricEnabled && styles.toggleSwitchEnabled,
+                    ]}
+                  >
+                    <View 
+                      style={[
+                        styles.toggleKnob,
+                        biometricEnabled && styles.toggleKnobEnabled,
+                      ]} 
+                    />
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.divider} />
+              </>
+            )}
             <TouchableOpacity
               testID="lock-vault-button"
               style={styles.actionRow}
@@ -653,5 +731,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     padding: 24,
+  },
+  toggleSwitch: {
+    width: 50,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#3a3a4a',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleSwitchEnabled: {
+    backgroundColor: '#e94560',
+  },
+  toggleKnob: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#fff',
+  },
+  toggleKnobEnabled: {
+    alignSelf: 'flex-end',
   },
 });

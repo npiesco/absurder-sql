@@ -21,12 +21,15 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('unlock');
   const [editCredentialId, setEditCredentialId] = useState<string | null>(null);
   const [detailCredentialId, setDetailCredentialId] = useState<string | null>(null);
+  const [masterPassword, setMasterPassword] = useState<string | null>(null);
 
-  const handleUnlock = () => {
+  const handleUnlock = (password: string) => {
+    setMasterPassword(password);
     setCurrentScreen('credentials');
   };
 
   const handleLock = () => {
+    setMasterPassword(null);
     setCurrentScreen('unlock');
   };
 
@@ -135,6 +138,7 @@ export default function App() {
           <SettingsScreen
             onBack={handleBack}
             onLock={handleLock}
+            masterPassword={masterPassword || undefined}
           />
         );
 

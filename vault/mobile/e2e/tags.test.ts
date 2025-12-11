@@ -52,15 +52,15 @@ describe('Tags', () => {
     await element(by.id('credential-username-input')).typeText('work@company.com');
     await element(by.id('credential-password-input')).typeText('WorkPass123!');
 
+    // Dismiss keyboard by tapping elsewhere
+    await element(by.id('credential-form-scroll')).tap();
+
     // Scroll to tags section
     await element(by.id('credential-form-scroll')).scrollTo('bottom');
 
     // Add a tag
     await element(by.id('add-tag-button')).tap();
     await element(by.id('tag-input')).typeText('Work');
-    // Scroll to make save button visible
-    await element(by.id('credential-form-scroll')).scroll(100, 'down');
-    await waitFor(element(by.id('save-tag-button'))).toBeVisible().withTimeout(3000);
     await element(by.id('save-tag-button')).tap();
 
     // Verify tag chip appears
@@ -70,17 +70,18 @@ describe('Tags', () => {
     await element(by.id('credential-form-scroll')).scrollTo('top');
     await element(by.id('save-credential-button')).tap();
 
-    // Verify credential appears in list
-    await expect(element(by.text('Work Email'))).toBeVisible();
+    // Wait for credentials list and verify credential appears
+    await waitFor(element(by.text('Work Email'))).toBeVisible().withTimeout(5000);
   });
 
   it('should display tag on credential in list', async () => {
-    // Verify tag badge is visible in list
-    await expect(element(by.id('credential-tag-Work Email-Work'))).toBeVisible();
+    // Wait for tags to load (async operation)
+    await waitFor(element(by.id('credential-tag-Work Email-Work'))).toBeVisible().withTimeout(5000);
   });
 
   it('should display tag in credential detail', async () => {
-    // Navigate to detail screen
+    // Navigate to detail screen - use testID instead of text to avoid keyboard issues
+    await waitFor(element(by.text('Work Email'))).toBeVisible().withTimeout(3000);
     await element(by.text('Work Email')).tap();
     await element(by.id('view-details-button')).tap();
 

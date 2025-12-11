@@ -94,19 +94,8 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement import vault from file (10 E2E tests - setup, export, display button, confirmation dialog, cancel, delete credentials, import, verify restored, verify details, persist)
 - [x] Add file picker integration (10 E2E tests - setup, export, display modal, cancel modal, recent backups list, cancel backup list, delete credential, import from backup, verify restored, persist)
 - [x] Add share sheet integration (iOS) (included in export)
-- [ ] Add share intent integration (Android)
 
-### 3.2 Import from Other Managers
-- [ ] Implement 1Password CSV import
-- [ ] Implement Bitwarden JSON import
-- [ ] Implement LastPass CSV import
-- [ ] Implement KeePass XML import
-- [ ] Implement Chrome passwords CSV import
-
-### 3.3 Manual Sync Workflow
-- [ ] Document AirDrop sync workflow
-- [ ] Document USB sync workflow
-- [ ] Document email attachment workflow
+### 3.2 Manual Sync Workflow
 - [ ] Add sync conflict detection
 - [ ] Add merge capability
 
@@ -114,12 +103,11 @@ Sequential development checklist from scaffold to finished app.
 
 ## Phase 4: Security Features
 
-### 4.1 Biometric Authentication
+### 4.1 Biometric Authentication (iOS)
 - [ ] Add react-native-keychain dependency
-- [ ] Implement Face ID unlock (iOS)
-- [ ] Implement Touch ID unlock (iOS)
-- [ ] Implement fingerprint unlock (Android)
+- [ ] Implement Face ID/Touch ID unlock
 - [ ] Implement biometric enrollment flow
+- [ ] Store encrypted master password in Keychain
 
 ### 4.2 Auto-Lock
 - [ ] Implement app background detection
@@ -192,7 +180,12 @@ Sequential development checklist from scaffold to finished app.
 - [ ] Submit to App Store Connect
 - [ ] Pass App Store review
 
-### 7.2 Android Release
+### 7.2 Android Build & Release
+- [ ] Build Rust for Android targets (aarch64, armv7, x86_64)
+- [ ] Wire up Kotlin UniFFI bindings
+- [ ] Test on Android Emulator
+- [ ] Implement fingerprint unlock (Android)
+- [ ] Add share intent integration (Android)
 - [ ] Create app icons (all sizes)
 - [ ] Create splash screen
 - [ ] Write Play Store description

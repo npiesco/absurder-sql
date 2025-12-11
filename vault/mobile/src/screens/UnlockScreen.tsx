@@ -6,7 +6,7 @@
  * - Create new vault
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,9 +20,10 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
+import { biometricService } from '../lib/biometricService';
 
 interface UnlockScreenProps {
-  onUnlock: () => void;
+  onUnlock: (masterPassword: string) => void;
 }
 
 export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
@@ -31,8 +32,38 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
   const [masterPassword, setMasterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricType, setBiometricType] = useState<string | null>(null);
 
   const { unlock, createVault, isLoading, error, clearError } = useVaultStore();
+
+  useEffect(() => {
+    checkBiometricStatus();
+  }, []);
+
+  const checkBiometricStatus = async () => {
+    const enabled = await biometricService.isEnabled();
+    setBiometricEnabled(enabled);
+    
+    if (enabled) {
+      const type = await biometricService.getBiometricType();
+      setBiometricType(type);
+    }
+  };
+
+  const attemptBiometricUnlock = async () => {
+    const password = await biometricService.authenticate();
+    if (password) {
+      try {
+        await unlock(vaultName, password);
+        onUnlock(password);
+      } catch (err) {
+        // Biometric succeeded but password was wrong - this shouldn't happen
+        // unless the vault was recreated with a different password
+        console.error('Biometric unlock failed:', err);
+      }
+    }
+  };
 
   const handleUnlock = async () => {
     if (!masterPassword) {
@@ -42,7 +73,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
 
     try {
       await unlock(vaultName, masterPassword);
-      onUnlock();
+      onUnlock(masterPassword);
     } catch (err) {
       // Error is already set in store
     }
@@ -66,7 +97,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
 
     try {
       await createVault(vaultName, masterPassword);
-      onUnlock();
+      onUnlock(masterPassword);
     } catch (err) {
       // Error is already set in store
     }
@@ -111,6 +142,25 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
         {error && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {biometricEnabled && mode === 'unlock' && (
+          <View style={styles.biometricContainer}>
+            <TouchableOpacity
+              testID="biometric-unlock-button"
+              style={styles.biometricButton}
+              onPress={attemptBiometricUnlock}
+            >
+              <Icon 
+                name={biometricType === 'FaceID' ? 'face-recognition' : 'fingerprint'} 
+                size={48} 
+                color="#e94560" 
+              />
+              <Text style={styles.biometricText}>
+                Unlock with {biometricType === 'FaceID' ? 'Face ID' : 'Touch ID'}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -330,5 +380,20 @@ const styles = StyleSheet.create({
   footerText: {
     color: '#4a4a5a',
     fontSize: 14,
+  },
+  biometricContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+    padding: 16,
+  },
+  biometricButton: {
+    alignItems: 'center',
+    padding: 16,
+  },
+  biometricText: {
+    color: '#e94560',
+    fontSize: 16,
+    marginTop: 12,
+    fontWeight: '600',
   },
 });

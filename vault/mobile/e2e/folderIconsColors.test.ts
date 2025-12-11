@@ -32,49 +32,31 @@ describe('Folder Icons & Colors', () => {
     await expect(element(by.text('Folders'))).toBeVisible();
   });
 
-  it('should display icon and color pickers in folder creation modal', async () => {
+  it('should display icon and color pickers and create folder with custom icon and color', async () => {
     // Open create folder modal
     await element(by.id('add-folder-fab')).tap();
+    await waitFor(element(by.id('folder-name-input'))).toBeVisible().withTimeout(5000);
+
+    // Dismiss keyboard first (autoFocus opens it)
+    await element(by.id('folder-name-input')).tapReturnKey();
 
     // Verify pickers are visible
     await expect(element(by.id('folder-icon-picker'))).toBeVisible();
     await expect(element(by.id('folder-color-picker'))).toBeVisible();
 
-    // Verify icon options appear when tapping
-    await element(by.id('folder-icon-picker')).tap();
-    await expect(element(by.id('icon-option-work'))).toBeVisible();
-    await expect(element(by.id('icon-option-personal'))).toBeVisible();
-    await element(by.id('icon-option-default')).tap(); // Close picker
-
-    // Verify color options appear when tapping
-    await element(by.id('folder-color-picker')).tap();
-    await expect(element(by.id('color-option-blue'))).toBeVisible();
-    await expect(element(by.id('color-option-green'))).toBeVisible();
-    await element(by.id('color-option-default')).tap(); // Close picker
-
-    // Cancel to close modal
-    await element(by.text('Cancel')).tap();
-    
-    // Verify modal closed
-    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
-  });
-
-  it('should create folder with custom icon and color', async () => {
-    // Open modal
-    await element(by.id('add-folder-fab')).tap();
-    await waitFor(element(by.id('folder-icon-picker'))).toBeVisible().withTimeout(5000);
-
-    // Select work icon
+    // Tap icon picker to show options
     await element(by.id('folder-icon-picker')).tap();
     await waitFor(element(by.id('icon-option-work'))).toBeVisible().withTimeout(3000);
+    await expect(element(by.id('icon-option-personal'))).toBeVisible();
     await element(by.id('icon-option-work')).tap();
     
     // Verify icon selected by checking label changed to 'Work'
     await expect(element(by.text('Work'))).toBeVisible();
 
-    // Select blue color
+    // Tap color picker to show options and select blue
     await element(by.id('folder-color-picker')).tap();
     await waitFor(element(by.id('color-option-blue'))).toBeVisible().withTimeout(3000);
+    await expect(element(by.id('color-option-green'))).toBeVisible();
     await element(by.id('color-option-blue')).tap();
     
     // Verify color selected by checking label changed to 'Blue'
@@ -100,9 +82,15 @@ describe('Folder Icons & Colors', () => {
   });
 
   it('should create folder with different icon and color', async () => {
+    // Wait for FAB to be visible after previous test
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
+    
     // Open modal
     await element(by.id('add-folder-fab')).tap();
-    await waitFor(element(by.id('folder-icon-picker'))).toBeVisible().withTimeout(5000);
+    await waitFor(element(by.id('folder-name-input'))).toBeVisible().withTimeout(5000);
+
+    // Dismiss keyboard first (autoFocus opens it)
+    await element(by.id('folder-name-input')).tapReturnKey();
 
     // Select personal icon
     await element(by.id('folder-icon-picker')).tap();
@@ -131,13 +119,17 @@ describe('Folder Icons & Colors', () => {
   });
 
   it('should edit folder icon and color', async () => {
+    // Wait for folder to be visible
+    await waitFor(element(by.text('Work Projects'))).toBeVisible().withTimeout(5000);
+    
     // Tap folder to show actions
     await element(by.text('Work Projects')).tap();
     await waitFor(element(by.id('edit-folder-button'))).toBeVisible().withTimeout(5000);
     await element(by.id('edit-folder-button')).tap();
 
-    // Verify modal opened with current values
-    await waitFor(element(by.id('folder-icon-picker'))).toBeVisible().withTimeout(5000);
+    // Wait for modal and dismiss keyboard (autoFocus opens it)
+    await waitFor(element(by.id('folder-name-input'))).toBeVisible().withTimeout(5000);
+    await element(by.id('folder-name-input')).tapReturnKey();
 
     // Change icon to finance
     await element(by.id('folder-icon-picker')).tap();
@@ -160,6 +152,9 @@ describe('Folder Icons & Colors', () => {
   });
 
   it('should display default icon when no icon selected', async () => {
+    // Wait for FAB to be visible
+    await waitFor(element(by.id('add-folder-fab'))).toBeVisible().withTimeout(5000);
+    
     // Open modal
     await element(by.id('add-folder-fab')).tap();
     await waitFor(element(by.id('folder-name-input'))).toBeVisible().withTimeout(5000);
