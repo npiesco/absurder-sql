@@ -104,10 +104,10 @@ Sequential development checklist from scaffold to finished app.
 ## Phase 4: Security Features
 
 ### 4.1 Biometric Authentication (iOS)
-- [ ] Add react-native-keychain dependency
-- [ ] Implement Face ID/Touch ID unlock
-- [ ] Implement biometric enrollment flow
-- [ ] Store encrypted master password in Keychain
+- [x] Add react-native-keychain dependency
+- [x] Implement Face ID/Touch ID unlock (10 E2E tests - setup, toggle display, enable, show prompt, unlock success, password fallback, persist enabled, disable, no prompt after disable, persist disabled)
+- [x] Implement biometric enrollment flow (enable/disable toggle in Settings)
+- [x] Store encrypted master password in Keychain (biometricService.ts)
 
 ### 4.2 Auto-Lock
 - [ ] Implement app background detection
@@ -261,4 +261,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-10*
+*Last updated: 2025-12-11*
