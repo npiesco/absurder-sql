@@ -26,6 +26,7 @@ import Share from 'react-native-share';
 import DocumentPicker from 'react-native-document-picker';
 import { useVaultStore } from '../lib/store';
 import { biometricService, BiometricType } from '../lib/biometricService';
+import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/autoLockService';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -43,10 +44,34 @@ export default function SettingsScreen({
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<BiometricType>(null);
+  const [autoLockTimeout, setAutoLockTimeout] = useState<AutoLockTimeout>('immediate');
+  const [showAutoLockPicker, setShowAutoLockPicker] = useState(false);
+  const [clipboardClearTimeout, setClipboardClearTimeout] = useState<ClipboardClearTimeout>('never');
+  const [showClipboardPicker, setShowClipboardPicker] = useState(false);
 
   useEffect(() => {
     checkBiometricStatus();
+    loadAutoLockSettings();
   }, []);
+
+  const loadAutoLockSettings = async () => {
+    const autoLock = await autoLockService.getAutoLockTimeout();
+    setAutoLockTimeout(autoLock);
+    const clipboardClear = await autoLockService.getClipboardClearTimeout();
+    setClipboardClearTimeout(clipboardClear);
+  };
+
+  const handleAutoLockSelect = async (timeout: AutoLockTimeout) => {
+    await autoLockService.setAutoLockTimeout(timeout);
+    setAutoLockTimeout(timeout);
+    setShowAutoLockPicker(false);
+  };
+
+  const handleClipboardClearSelect = async (timeout: ClipboardClearTimeout) => {
+    await autoLockService.setClipboardClearTimeout(timeout);
+    setClipboardClearTimeout(timeout);
+    setShowClipboardPicker(false);
+  };
 
   const checkBiometricStatus = async () => {
     const available = await biometricService.isAvailable();
@@ -332,6 +357,40 @@ export default function SettingsScreen({
               </>
             )}
             <TouchableOpacity
+              testID="auto-lock-setting"
+              style={styles.actionRow}
+              onPress={() => setShowAutoLockPicker(true)}
+            >
+              <Icon name="timer-outline" size={24} color="#e94560" style={styles.actionIconVector} />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Auto-Lock</Text>
+                <Text style={styles.actionDescription}>
+                  Lock vault when app goes to background
+                </Text>
+              </View>
+              <Text testID="auto-lock-value" style={styles.settingValue}>
+                {autoLockService.getAutoLockLabel(autoLockTimeout)}
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              testID="clipboard-clear-setting"
+              style={styles.actionRow}
+              onPress={() => setShowClipboardPicker(true)}
+            >
+              <Icon name="clipboard-text-clock-outline" size={24} color="#e94560" style={styles.actionIconVector} />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Clear Clipboard</Text>
+                <Text style={styles.actionDescription}>
+                  Auto-clear clipboard after copying
+                </Text>
+              </View>
+              <Text testID="clipboard-clear-value" style={styles.settingValue}>
+                {autoLockService.getClipboardClearLabel(clipboardClearTimeout)}
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
               testID="lock-vault-button"
               style={styles.actionRow}
               onPress={handleLockVault}
@@ -507,6 +566,155 @@ export default function SettingsScreen({
           </View>
         </View>
       </Modal>
+
+      {/* Auto-Lock Picker Modal */}
+      <Modal
+        visible={showAutoLockPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowAutoLockPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+            <Text style={styles.modalTitle}>Auto-Lock</Text>
+            <Text style={styles.modalDescription}>
+              Choose when to automatically lock the vault after the app goes to background.
+            </Text>
+            
+            <ScrollView style={{ flexGrow: 0 }} showsVerticalScrollIndicator={false}>
+              <TouchableOpacity
+                testID="auto-lock-option-immediate"
+                style={[styles.pickerOption, autoLockTimeout === 'immediate' && styles.pickerOptionSelected]}
+                onPress={() => handleAutoLockSelect('immediate')}
+              >
+                <Text style={[styles.pickerOptionText, autoLockTimeout === 'immediate' && styles.pickerOptionTextSelected]}>
+                  Immediately
+                </Text>
+                {autoLockTimeout === 'immediate' && <Icon name="check" size={20} color="#e94560" />}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                testID="auto-lock-option-1min"
+                style={[styles.pickerOption, autoLockTimeout === '1min' && styles.pickerOptionSelected]}
+                onPress={() => handleAutoLockSelect('1min')}
+              >
+                <Text style={[styles.pickerOptionText, autoLockTimeout === '1min' && styles.pickerOptionTextSelected]}>
+                  After 1 minute
+                </Text>
+                {autoLockTimeout === '1min' && <Icon name="check" size={20} color="#e94560" />}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                testID="auto-lock-option-5min"
+                style={[styles.pickerOption, autoLockTimeout === '5min' && styles.pickerOptionSelected]}
+                onPress={() => handleAutoLockSelect('5min')}
+              >
+                <Text style={[styles.pickerOptionText, autoLockTimeout === '5min' && styles.pickerOptionTextSelected]}>
+                  After 5 minutes
+                </Text>
+                {autoLockTimeout === '5min' && <Icon name="check" size={20} color="#e94560" />}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                testID="auto-lock-option-15min"
+                style={[styles.pickerOption, autoLockTimeout === '15min' && styles.pickerOptionSelected]}
+                onPress={() => handleAutoLockSelect('15min')}
+              >
+                <Text style={[styles.pickerOptionText, autoLockTimeout === '15min' && styles.pickerOptionTextSelected]}>
+                  After 15 minutes
+                </Text>
+                {autoLockTimeout === '15min' && <Icon name="check" size={20} color="#e94560" />}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                testID="auto-lock-option-never"
+                style={[styles.pickerOption, autoLockTimeout === 'never' && styles.pickerOptionSelected]}
+                onPress={() => handleAutoLockSelect('never')}
+              >
+                <Text style={[styles.pickerOptionText, autoLockTimeout === 'never' && styles.pickerOptionTextSelected]}>
+                  Never
+                </Text>
+                {autoLockTimeout === 'never' && <Icon name="check" size={20} color="#e94560" />}
+              </TouchableOpacity>
+            </ScrollView>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton, { marginTop: 12 }]}
+              onPress={() => setShowAutoLockPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Clipboard Clear Picker Modal */}
+      <Modal
+        visible={showClipboardPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowClipboardPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Clear Clipboard</Text>
+            <Text style={styles.modalDescription}>
+              Choose when to automatically clear the clipboard after copying a password.
+            </Text>
+            
+            <TouchableOpacity
+              testID="clipboard-clear-option-30sec"
+              style={[styles.pickerOption, clipboardClearTimeout === '30sec' && styles.pickerOptionSelected]}
+              onPress={() => handleClipboardClearSelect('30sec')}
+            >
+              <Text style={[styles.pickerOptionText, clipboardClearTimeout === '30sec' && styles.pickerOptionTextSelected]}>
+                After 30 seconds
+              </Text>
+              {clipboardClearTimeout === '30sec' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="clipboard-clear-option-1min"
+              style={[styles.pickerOption, clipboardClearTimeout === '1min' && styles.pickerOptionSelected]}
+              onPress={() => handleClipboardClearSelect('1min')}
+            >
+              <Text style={[styles.pickerOptionText, clipboardClearTimeout === '1min' && styles.pickerOptionTextSelected]}>
+                After 1 minute
+              </Text>
+              {clipboardClearTimeout === '1min' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="clipboard-clear-option-5min"
+              style={[styles.pickerOption, clipboardClearTimeout === '5min' && styles.pickerOptionSelected]}
+              onPress={() => handleClipboardClearSelect('5min')}
+            >
+              <Text style={[styles.pickerOptionText, clipboardClearTimeout === '5min' && styles.pickerOptionTextSelected]}>
+                After 5 minutes
+              </Text>
+              {clipboardClearTimeout === '5min' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="clipboard-clear-option-never"
+              style={[styles.pickerOption, clipboardClearTimeout === 'never' && styles.pickerOptionSelected]}
+              onPress={() => handleClipboardClearSelect('never')}
+            >
+              <Text style={[styles.pickerOptionText, clipboardClearTimeout === 'never' && styles.pickerOptionTextSelected]}>
+                Never
+              </Text>
+              {clipboardClearTimeout === 'never' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton, { marginTop: 12 }]}
+              onPress={() => setShowClipboardPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -604,6 +812,11 @@ const styles = StyleSheet.create({
   actionDescription: {
     color: '#8a8a9a',
     fontSize: 13,
+  },
+  settingValue: {
+    color: '#e94560',
+    fontSize: 14,
+    fontWeight: '500',
   },
   chevron: {
     color: '#8a8a9a',
@@ -751,5 +964,27 @@ const styles = StyleSheet.create({
   },
   toggleKnobEnabled: {
     alignSelf: 'flex-end',
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0f3460',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#1a3a5c',
+    borderWidth: 1,
+    borderColor: '#e94560',
+  },
+  pickerOptionText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  pickerOptionTextSelected: {
+    color: '#e94560',
+    fontWeight: '600',
   },
 });

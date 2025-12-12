@@ -5,8 +5,10 @@
  * Your passwords. One file. Every device. Forever.
  */
 
-import React, { useState } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { SafeAreaView, StatusBar, StyleSheet, AppState, AppStateStatus } from 'react-native';
+import { autoLockService } from './src/lib/autoLockService';
+import { useVaultStore } from './src/lib/store';
 
 import UnlockScreen from './src/screens/UnlockScreen';
 import CredentialsScreen from './src/screens/CredentialsScreen';
@@ -22,6 +24,34 @@ export default function App() {
   const [editCredentialId, setEditCredentialId] = useState<string | null>(null);
   const [detailCredentialId, setDetailCredentialId] = useState<string | null>(null);
   const [masterPassword, setMasterPassword] = useState<string | null>(null);
+  const appState = useRef(AppState.currentState);
+  const { lock } = useVaultStore();
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [currentScreen]);
+
+  const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+    if (appState.current === 'active' && nextAppState.match(/inactive|background/)) {
+      // App is going to background - record the time
+      await autoLockService.recordBackgroundTime();
+    } else if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+      // App is coming to foreground - check if we should lock
+      if (currentScreen !== 'unlock') {
+        const shouldLock = await autoLockService.shouldLockOnForeground();
+        if (shouldLock) {
+          await lock();
+          setMasterPassword(null);
+          setCurrentScreen('unlock');
+        }
+      }
+      await autoLockService.clearBackgroundTime();
+    }
+    appState.current = nextAppState;
+  };
 
   const handleUnlock = (password: string) => {
     setMasterPassword(password);

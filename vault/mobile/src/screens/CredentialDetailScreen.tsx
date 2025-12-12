@@ -17,11 +17,12 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  Clipboard,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
 import { CustomField, Tag } from '../lib/VaultDatabase';
+import { autoLockService } from '../lib/autoLockService';
 
 interface CredentialDetailScreenProps {
   credentialId: string;
@@ -95,6 +96,7 @@ export default function CredentialDetailScreen({
   const handleCopyPassword = async () => {
     try {
       await Clipboard.setString(credential.password);
+      autoLockService.startClipboardClearTimer();
       Alert.alert('Copied', 'Password copied to clipboard');
     } catch (err) {
       Alert.alert('Error', 'Failed to copy password');

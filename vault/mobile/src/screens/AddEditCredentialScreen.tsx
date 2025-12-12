@@ -18,8 +18,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Clipboard,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Slider from '@react-native-community/slider';
 import { useVaultStore } from '../lib/store';

@@ -110,10 +110,10 @@ Sequential development checklist from scaffold to finished app.
 - [x] Store encrypted master password in Keychain (biometricService.ts)
 
 ### 4.2 Auto-Lock
-- [ ] Implement app background detection
-- [ ] Implement configurable auto-lock timeout
-- [ ] Implement lock on app switch
-- [ ] Implement clipboard auto-clear
+- [x] Implement app background detection (14 E2E tests - AppState listener in App.tsx)
+- [x] Implement configurable auto-lock timeout (immediate, 1min, 5min, 15min, never)
+- [x] Implement lock on app switch (autoLockService.ts with background time tracking)
+- [x] Implement clipboard auto-clear (configurable: 30sec, 1min, 5min, never)
 
 ### 4.3 Security Audit
 - [ ] Implement weak password detection
@@ -261,4 +261,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-11*
+*Last updated: 2025-12-12*
