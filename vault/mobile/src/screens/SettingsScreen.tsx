@@ -27,6 +27,7 @@ import DocumentPicker from 'react-native-document-picker';
 import { useVaultStore } from '../lib/store';
 import { biometricService, BiometricType } from '../lib/biometricService';
 import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/autoLockService';
+import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -186,28 +187,46 @@ export default function SettingsScreen({
   const [showImportModal, setShowImportModal] = useState(false);
   const [showBackupList, setShowBackupList] = useState(false);
   const [backupFiles, setBackupFiles] = useState<RNFS.ReadDirItem[]>([]);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [syncAnalysis, setSyncAnalysis] = useState<SyncAnalysis | null>(null);
+  const [pendingImportPath, setPendingImportPath] = useState<string | null>(null);
+  const [pendingImportName, setPendingImportName] = useState<string | null>(null);
 
   const performImportFromPath = async (importPath: string, fileName: string) => {
-    if (!vault) {
-      Alert.alert('Error', 'Vault is not open');
+    if (!vault || !masterPassword) {
+      Alert.alert('Error', 'Vault is not open or master password not available');
       return;
     }
 
     setIsImporting(true);
     setShowImportModal(false);
     setShowBackupList(false);
-    try {
-      // Import the database
-      await vault.importFromFile(importPath);
 
-      // Refresh credentials from the imported data
+    try {
+      // Analyze the backup for conflicts first
+      const analysis = await syncService.analyzeBackup(vault, importPath, masterPassword);
+
+      if (analysis.conflicts.length > 0) {
+        // Show conflict resolution modal
+        setSyncAnalysis(analysis);
+        setPendingImportPath(importPath);
+        setPendingImportName(fileName);
+        setShowConflictModal(true);
+        setIsImporting(false);
+        return;
+      }
+
+      // No conflicts - perform direct merge
+      const result = await syncService.executeMerge(vault, analysis, importPath, masterPassword);
+
+      // Refresh credentials from the merged data
       const { refreshCredentials, refreshFolders } = useVaultStore.getState();
       await refreshCredentials();
       await refreshFolders();
 
       Alert.alert(
         'Import Successful',
-        `Imported ${fileName} successfully.`,
+        `Imported ${fileName} successfully. ${result.credentialsAdded} credentials added.`,
         [{ text: 'OK', style: 'default' }]
       );
     } catch (error: any) {
@@ -216,6 +235,69 @@ export default function SettingsScreen({
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const handleConflictResolution = (credentialId: string, resolution: 'local' | 'remote' | 'both') => {
+    if (!syncAnalysis) return;
+
+    const updatedConflicts = syncAnalysis.conflicts.map(conflict =>
+      conflict.credentialId === credentialId
+        ? { ...conflict, resolution }
+        : conflict
+    );
+
+    setSyncAnalysis({
+      ...syncAnalysis,
+      conflicts: updatedConflicts,
+    });
+  };
+
+  const handleCompleteMerge = async () => {
+    if (!vault || !syncAnalysis || !pendingImportPath || !masterPassword) {
+      Alert.alert('Error', 'Missing required data for merge');
+      return;
+    }
+
+    // Check for unresolved conflicts
+    if (syncService.hasUnresolvedConflicts(syncAnalysis)) {
+      Alert.alert('Unresolved Conflicts', 'Please resolve all conflicts before completing the merge.');
+      return;
+    }
+
+    setIsImporting(true);
+    setShowConflictModal(false);
+
+    try {
+      const result = await syncService.executeMerge(vault, syncAnalysis, pendingImportPath, masterPassword);
+
+      // Refresh credentials
+      const { refreshCredentials, refreshFolders } = useVaultStore.getState();
+      await refreshCredentials();
+      await refreshFolders();
+
+      // Reset state
+      setSyncAnalysis(null);
+      setPendingImportPath(null);
+      setPendingImportName(null);
+
+      Alert.alert(
+        'Merge Complete',
+        `${result.conflictsResolved} conflict${result.conflictsResolved === 1 ? '' : 's'} resolved. ${result.credentialsAdded} credentials added.`,
+        [{ text: 'OK', style: 'default' }]
+      );
+    } catch (error: any) {
+      console.error('Merge error:', error);
+      Alert.alert('Merge Failed', error?.message || 'Failed to complete merge');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleCancelMerge = () => {
+    setShowConflictModal(false);
+    setSyncAnalysis(null);
+    setPendingImportPath(null);
+    setPendingImportName(null);
   };
 
   const handleBrowseFiles = async () => {
@@ -560,6 +642,116 @@ export default function SettingsScreen({
               testID="backup-cancel-button"
               style={[styles.modalButton, styles.modalCancelButton]}
               onPress={() => setShowBackupList(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Conflict Resolution Modal */}
+      <Modal
+        visible={showConflictModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCancelMerge}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+            <Text style={styles.modalTitle}>Conflicts Detected</Text>
+            <Text style={styles.modalDescription}>
+              {syncAnalysis ? `${syncAnalysis.conflicts.length} credential${syncAnalysis.conflicts.length === 1 ? '' : 's'} has conflicts` : ''}
+            </Text>
+            
+            <ScrollView style={{ flexGrow: 0, maxHeight: 400 }} showsVerticalScrollIndicator={true}>
+              {syncAnalysis?.conflicts.map((conflict, index) => (
+                <View key={conflict.credentialId} style={styles.conflictItem}>
+                  <Text style={styles.conflictName}>{conflict.localCredential.name}</Text>
+                  
+                  <View style={styles.conflictVersions}>
+                    <View style={styles.conflictVersion}>
+                      <Text style={styles.conflictVersionLabel}>Local version</Text>
+                      <Text style={styles.conflictVersionDetail}>
+                        Updated: {new Date(conflict.localCredential.updatedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <View style={styles.conflictVersion}>
+                      <Text style={styles.conflictVersionLabel}>Backup version</Text>
+                      <Text style={styles.conflictVersionDetail}>
+                        Updated: {new Date(conflict.remoteCredential.updatedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.conflictActions}>
+                    <TouchableOpacity
+                      testID="keep-local-button"
+                      style={[
+                        styles.conflictButton,
+                        conflict.resolution === 'local' && styles.conflictButtonSelected,
+                      ]}
+                      onPress={() => handleConflictResolution(conflict.credentialId, 'local')}
+                    >
+                      <Text style={[
+                        styles.conflictButtonText,
+                        conflict.resolution === 'local' && styles.conflictButtonTextSelected,
+                      ]}>Keep Local</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      testID="keep-remote-button"
+                      style={[
+                        styles.conflictButton,
+                        conflict.resolution === 'remote' && styles.conflictButtonSelected,
+                      ]}
+                      onPress={() => handleConflictResolution(conflict.credentialId, 'remote')}
+                    >
+                      <Text style={[
+                        styles.conflictButtonText,
+                        conflict.resolution === 'remote' && styles.conflictButtonTextSelected,
+                      ]}>Keep Backup</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      testID="keep-both-button"
+                      style={[
+                        styles.conflictButton,
+                        conflict.resolution === 'both' && styles.conflictButtonSelected,
+                      ]}
+                      onPress={() => handleConflictResolution(conflict.credentialId, 'both')}
+                    >
+                      <Text style={[
+                        styles.conflictButtonText,
+                        conflict.resolution === 'both' && styles.conflictButtonTextSelected,
+                      ]}>Keep Both</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {conflict.resolution && (
+                    <View testID={`conflict-resolved-${conflict.resolution}`} style={styles.conflictResolved}>
+                      <Icon name="check-circle" size={16} color="#4CAF50" />
+                      <Text style={styles.conflictResolvedText}>
+                        {conflict.resolution === 'local' ? 'Keeping local version' :
+                         conflict.resolution === 'remote' ? 'Using backup version' :
+                         'Keeping both versions'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+            
+            <TouchableOpacity
+              testID="complete-merge-button"
+              style={[styles.modalButton, { backgroundColor: '#e94560', marginTop: 16 }]}
+              onPress={handleCompleteMerge}
+            >
+              <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Complete Merge</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton]}
+              onPress={handleCancelMerge}
             >
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -986,5 +1178,72 @@ const styles = StyleSheet.create({
   pickerOptionTextSelected: {
     color: '#e94560',
     fontWeight: '600',
+  },
+  conflictItem: {
+    backgroundColor: '#0f3460',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  conflictName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  conflictVersions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  conflictVersion: {
+    flex: 1,
+    paddingHorizontal: 4,
+  },
+  conflictVersionLabel: {
+    color: '#e94560',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  conflictVersionDetail: {
+    color: '#8a8a9a',
+    fontSize: 11,
+  },
+  conflictActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  conflictButton: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#3a3a4a',
+  },
+  conflictButtonSelected: {
+    backgroundColor: '#e94560',
+    borderColor: '#e94560',
+  },
+  conflictButtonText: {
+    color: '#8a8a9a',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  conflictButtonTextSelected: {
+    color: '#fff',
+  },
+  conflictResolved: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 8,
+  },
+  conflictResolvedText: {
+    color: '#4CAF50',
+    fontSize: 12,
   },
 });

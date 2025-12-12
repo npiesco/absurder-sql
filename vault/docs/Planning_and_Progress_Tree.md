@@ -96,8 +96,8 @@ Sequential development checklist from scaffold to finished app.
 - [x] Add share sheet integration (iOS) (included in export)
 
 ### 3.2 Manual Sync Workflow
-- [ ] Add sync conflict detection
-- [ ] Add merge capability
+- [x] Add sync conflict detection (22 E2E tests - syncService.ts analyzes backup vs local)
+- [x] Add merge capability (conflict resolution UI: keep local, keep backup, keep both)
 
 ---
 
