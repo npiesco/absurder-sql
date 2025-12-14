@@ -58,13 +58,21 @@ describe('File Picker', () => {
   it('should display import modal with Browse Files and Recent Backups options', async () => {
     // Navigate to settings
     await element(by.id('settings-button')).tap();
-    await expect(element(by.text('Settings'))).toBeVisible();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
 
-    // Tap import
+    // Scroll to make import button visible and tap
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('import-vault-button')).tap();
 
-    // Verify both options are available
-    await expect(element(by.text('Browse Files'))).toBeVisible();
+    // Wait for modal to appear
+    await waitFor(element(by.text('Browse Files')))
+      .toBeVisible()
+      .withTimeout(5000);
     await expect(element(by.text('Recent Backups'))).toBeVisible();
     await expect(element(by.text('Cancel'))).toBeVisible();
   });
@@ -108,10 +116,26 @@ describe('File Picker', () => {
   });
 
   it('should import from recent backup to restore data', async () => {
-    // Navigate to settings and import
+    // Navigate to settings
     await element(by.id('settings-button')).tap();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
+
+    // Scroll to import button and tap
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('import-vault-button')).tap();
+
+    // Wait for modal and tap Recent Backups
+    await waitFor(element(by.text('Recent Backups')))
+      .toBeVisible()
+      .withTimeout(5000);
     await element(by.text('Recent Backups')).tap();
+
+    // Select backup file
     await waitFor(element(by.id('backup-file-item-0'))).toBeVisible().withTimeout(5000);
     await element(by.id('backup-file-item-0')).tap();
 
@@ -123,10 +147,14 @@ describe('File Picker', () => {
   it('should verify credential was restored from backup', async () => {
     // Navigate back to credentials
     await element(by.id('settings-back-button')).tap();
-    await expect(element(by.text('Vault'))).toBeVisible();
+    await waitFor(element(by.text('Vault')))
+      .toBeVisible()
+      .withTimeout(5000);
 
     // Verify credential was restored
-    await expect(element(by.text('File Picker Test'))).toBeVisible();
+    await waitFor(element(by.text('File Picker Test')))
+      .toBeVisible()
+      .withTimeout(5000);
   });
 
   it('should persist restored data across app restart', async () => {

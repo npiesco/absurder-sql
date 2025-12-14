@@ -32,12 +32,14 @@ import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
 interface SettingsScreenProps {
   onBack: () => void;
   onLock: () => void;
+  onSecurityAudit: () => void;
   masterPassword?: string;
 }
 
 export default function SettingsScreen({
   onBack,
   onLock,
+  onSecurityAudit,
   masterPassword,
 }: SettingsScreenProps) {
   const { vaultName, credentials, lock, vault } = useVaultStore();
@@ -473,6 +475,21 @@ export default function SettingsScreen({
             </TouchableOpacity>
             <View style={styles.divider} />
             <TouchableOpacity
+              testID="security-audit-button"
+              style={styles.actionRow}
+              onPress={onSecurityAudit}
+            >
+              <Icon name="shield-search" size={24} color="#e94560" style={styles.actionIconVector} />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Security Audit</Text>
+                <Text style={styles.actionDescription}>
+                  Check password strength and age
+                </Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
               testID="lock-vault-button"
               style={styles.actionRow}
               onPress={handleLockVault}
@@ -564,13 +581,14 @@ export default function SettingsScreen({
 
       {/* Import Options Modal */}
       <Modal
+        testID="import-modal"
         visible={showImportModal}
         transparent={true}
         animationType="fade"
         onRequestClose={() => setShowImportModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <View testID="import-modal-overlay" style={styles.modalOverlay}>
+          <View testID="import-modal-content" style={styles.modalContent}>
             <Text style={styles.modalTitle}>Import Vault</Text>
             <Text style={styles.modalDescription}>
               Import credentials from a previously exported vault backup. This will merge the imported data with your current vault.

@@ -61,6 +61,8 @@ describe('Tags', () => {
     // Add a tag
     await element(by.id('add-tag-button')).tap();
     await element(by.id('tag-input')).typeText('Work');
+    await element(by.id('tag-input')).tapReturnKey();
+    await waitFor(element(by.id('save-tag-button'))).toBeVisible().withTimeout(3000);
     await element(by.id('save-tag-button')).tap();
 
     // Verify tag chip appears
@@ -80,8 +82,8 @@ describe('Tags', () => {
   });
 
   it('should display tag in credential detail', async () => {
-    // Navigate to detail screen - use testID instead of text to avoid keyboard issues
-    await waitFor(element(by.text('Work Email'))).toBeVisible().withTimeout(3000);
+    // Navigate to detail screen
+    await waitFor(element(by.text('Work Email'))).toBeVisible().withTimeout(5000);
     await element(by.text('Work Email')).tap();
     await element(by.id('view-details-button')).tap();
 
@@ -98,7 +100,8 @@ describe('Tags', () => {
   });
 
   it('should add multiple tags to credential', async () => {
-    // Edit credential
+    // Wait for credential to be visible and tap
+    await waitFor(element(by.text('Work Email'))).toBeVisible().withTimeout(5000);
     await element(by.text('Work Email')).tap();
     await element(by.id('edit-credential-button')).tap();
 
@@ -129,11 +132,21 @@ describe('Tags', () => {
     await expect(element(by.id('detail-tag-Email'))).toBeVisible();
 
     await element(by.id('detail-back-button')).tap();
+    // Collapse credential by tapping again
+    await element(by.text('Work Email')).tap();
   });
 
   it('should remove tag from credential', async () => {
-    // Edit credential
-    await element(by.text('Work Email')).tap();
+    // Wait for credential and edit button to be visible (credential may already be expanded)
+    await waitFor(element(by.text('Work Email'))).toBeVisible().withTimeout(5000);
+    
+    // Try to find edit button - if not visible, tap credential to expand
+    try {
+      await waitFor(element(by.id('edit-credential-button'))).toBeVisible().withTimeout(1000);
+    } catch (e) {
+      await element(by.text('Work Email')).tap();
+      await waitFor(element(by.id('edit-credential-button'))).toBeVisible().withTimeout(3000);
+    }
     await element(by.id('edit-credential-button')).tap();
 
     // Scroll to tags

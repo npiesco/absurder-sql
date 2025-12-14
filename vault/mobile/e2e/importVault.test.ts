@@ -76,8 +76,15 @@ describe('Import Vault', () => {
 
   it('should display import vault button in settings', async () => {
     await element(by.id('settings-button')).tap();
-    await expect(element(by.text('Settings'))).toBeVisible();
-    await expect(element(by.id('import-vault-button'))).toBeVisible();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
+    
+    // Scroll to import button
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 
   it('should show import confirmation dialog when tapping import', async () => {
@@ -124,13 +131,21 @@ describe('Import Vault', () => {
   it('should import vault from exported file to restore data', async () => {
     // Navigate to settings
     await element(by.id('settings-button')).tap();
-    await expect(element(by.text('Settings'))).toBeVisible();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
 
-    // Tap import
+    // Scroll to import button
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('import-vault-button')).tap();
     
     // Use Recent Backups to import
-    await waitFor(element(by.text('Recent Backups'))).toBeVisible().withTimeout(3000);
+    await waitFor(element(by.text('Recent Backups')))
+      .toBeVisible()
+      .withTimeout(5000);
     await element(by.text('Recent Backups')).tap();
     
     // Select the first backup file

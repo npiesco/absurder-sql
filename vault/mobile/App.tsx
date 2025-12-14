@@ -16,8 +16,9 @@ import AddEditCredentialScreen from './src/screens/AddEditCredentialScreen';
 import CredentialDetailScreen from './src/screens/CredentialDetailScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import FoldersScreen from './src/screens/FoldersScreen';
+import SecurityAuditScreen from './src/screens/SecurityAuditScreen';
 
-type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail' | 'settings' | 'folders';
+type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail' | 'settings' | 'folders' | 'securityAudit';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('unlock');
@@ -90,6 +91,19 @@ export default function App() {
 
   const handleFolders = () => {
     setCurrentScreen('folders');
+  };
+
+  const handleSecurityAudit = () => {
+    setCurrentScreen('securityAudit');
+  };
+
+  const handleBackFromAudit = () => {
+    setCurrentScreen('settings');
+  };
+
+  const handleViewCredentialFromAudit = (credentialId: string) => {
+    setDetailCredentialId(credentialId);
+    setCurrentScreen('detail');
   };
 
   const handleEditFromDetail = () => {
@@ -168,7 +182,16 @@ export default function App() {
           <SettingsScreen
             onBack={handleBack}
             onLock={handleLock}
+            onSecurityAudit={handleSecurityAudit}
             masterPassword={masterPassword || undefined}
+          />
+        );
+
+      case 'securityAudit':
+        return (
+          <SecurityAuditScreen
+            onBack={handleBackFromAudit}
+            onViewCredential={handleViewCredentialFromAudit}
           />
         );
 

@@ -105,11 +105,20 @@ describe('Sync Conflict Detection', () => {
   it('should detect conflicts when importing older backup', async () => {
     // Navigate to settings
     await element(by.id('settings-button')).tap();
-    await expect(element(by.text('Settings'))).toBeVisible();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
 
-    // Tap import
+    // Scroll to import button
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('import-vault-button')).tap();
-    await waitFor(element(by.text('Recent Backups'))).toBeVisible().withTimeout(3000);
+
+    await waitFor(element(by.text('Recent Backups')))
+      .toBeVisible()
+      .withTimeout(5000);
     await element(by.text('Recent Backups')).tap();
 
     // Select the backup file
@@ -228,7 +237,20 @@ describe('Sync Merge - Keep Remote', () => {
 
   it('should import and choose keep remote', async () => {
     await element(by.id('settings-button')).tap();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
+
+    // Scroll to import button
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('import-vault-button')).tap();
+
+    await waitFor(element(by.text('Recent Backups')))
+      .toBeVisible()
+      .withTimeout(5000);
     await element(by.text('Recent Backups')).tap();
     await waitFor(element(by.id('backup-file-item-0'))).toBeVisible().withTimeout(5000);
     await element(by.id('backup-file-item-0')).tap();
@@ -302,7 +324,20 @@ describe('Sync Merge - Keep Both', () => {
 
   it('should import and choose keep both', async () => {
     await element(by.id('settings-button')).tap();
+    await waitFor(element(by.text('Settings')))
+      .toBeVisible()
+      .withTimeout(5000);
+
+    // Scroll to import button
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('import-vault-button')).tap();
+
+    await waitFor(element(by.text('Recent Backups')))
+      .toBeVisible()
+      .withTimeout(5000);
     await element(by.text('Recent Backups')).tap();
     await waitFor(element(by.id('backup-file-item-0'))).toBeVisible().withTimeout(5000);
     await element(by.id('backup-file-item-0')).tap();
