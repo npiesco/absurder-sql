@@ -60,8 +60,11 @@ describe('Settings Screen', () => {
     // Verify lock vault option
     await expect(element(by.id('lock-vault-button'))).toBeVisible();
 
-    // Verify export option
-    await expect(element(by.id('export-vault-button'))).toBeVisible();
+    // Scroll to export option (may be off-screen due to change password button)
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 
   it('should display about section', async () => {
@@ -103,8 +106,13 @@ describe('Settings Screen', () => {
 
     // Navigate to settings
     await element(by.id('settings-button')).tap();
+    await waitFor(element(by.text('Settings'))).toBeVisible().withTimeout(5000);
 
-    // Tap export
+    // Scroll to export button
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('export-vault-button')).tap();
 
     // Verify export confirmation/dialog appears - look for dialog content

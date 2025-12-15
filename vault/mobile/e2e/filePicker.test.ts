@@ -41,7 +41,11 @@ describe('File Picker', () => {
     await element(by.id('settings-button')).tap();
     await expect(element(by.text('Settings'))).toBeVisible();
 
-    // Export vault
+    // Scroll to export button and tap
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('export-vault-button')).tap();
     await expect(element(by.text('Export'))).toBeVisible();
     await element(by.text('Export')).tap();
@@ -81,7 +85,11 @@ describe('File Picker', () => {
     // Cancel and verify we're back on settings
     await element(by.text('Cancel')).tap();
     await expect(element(by.text('Settings'))).toBeVisible();
-    await expect(element(by.id('import-vault-button'))).toBeVisible();
+    // Scroll to import button
+    await waitFor(element(by.id('import-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 
   it('should show recent backups list when tapping Recent Backups', async () => {
@@ -102,7 +110,8 @@ describe('File Picker', () => {
     await element(by.id('backup-cancel-button')).tap();
     await expect(element(by.text('Settings'))).toBeVisible();
     
-    // Navigate back to credentials for next test
+    // Scroll to top and navigate back to credentials for next test
+    await element(by.id('settings-scroll')).scrollTo('top');
     await element(by.id('settings-back-button')).tap();
     await expect(element(by.text('Vault'))).toBeVisible();
   });

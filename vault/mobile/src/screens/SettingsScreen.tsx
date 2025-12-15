@@ -19,11 +19,13 @@ import {
   ActivityIndicator,
   Modal,
   FlatList,
+  TextInput,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import DocumentPicker from 'react-native-document-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useVaultStore } from '../lib/store';
 import { biometricService, BiometricType } from '../lib/biometricService';
 import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/autoLockService';
@@ -193,6 +195,83 @@ export default function SettingsScreen({
   const [syncAnalysis, setSyncAnalysis] = useState<SyncAnalysis | null>(null);
   const [pendingImportPath, setPendingImportPath] = useState<string | null>(null);
   const [pendingImportName, setPendingImportName] = useState<string | null>(null);
+
+  // Change password state
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState('');
+  const [passwordHintInput, setPasswordHintInput] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const getPasswordStrength = (password: string): 'weak' | 'medium' | 'strong' => {
+    if (password.length < 8) return 'weak';
+    let score = 0;
+    if (password.length >= 12) score++;
+    if (password.length >= 16) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^a-zA-Z0-9]/.test(password)) score++;
+    if (score <= 2) return 'weak';
+    if (score <= 4) return 'medium';
+    return 'strong';
+  };
+
+  const handleChangePassword = async () => {
+    if (!vault || !masterPassword) {
+      Alert.alert('Error', 'Vault is not open');
+      return;
+    }
+
+    // Validate current password
+    if (currentPasswordInput !== masterPassword) {
+      Alert.alert('Error', 'Current password is incorrect');
+      return;
+    }
+
+    // Validate new password length
+    if (newPasswordInput.length < 12) {
+      Alert.alert('Error', 'New password must be at least 12 characters');
+      return;
+    }
+
+    // Validate passwords match
+    if (newPasswordInput !== confirmNewPasswordInput) {
+      Alert.alert('Error', 'New passwords do not match');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      // Change the master password using rekey
+      await vault.changeMasterPassword(newPasswordInput);
+
+      // Save password hint if provided
+      if (passwordHintInput.trim()) {
+        await AsyncStorage.setItem('@vault_password_hint', passwordHintInput.trim());
+      } else {
+        await AsyncStorage.removeItem('@vault_password_hint');
+      }
+
+      // Update biometric if enabled
+      if (biometricEnabled) {
+        await biometricService.enable(newPasswordInput);
+      }
+
+      Alert.alert('Password Changed', 'Your master password has been changed successfully.');
+      setShowChangePasswordModal(false);
+      setCurrentPasswordInput('');
+      setNewPasswordInput('');
+      setConfirmNewPasswordInput('');
+      setPasswordHintInput('');
+    } catch (error: any) {
+      console.error('Change password error:', error);
+      Alert.alert('Error', error?.message || 'Failed to change password');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   const performImportFromPath = async (importPath: string, fileName: string) => {
     if (!vault || !masterPassword) {
@@ -484,6 +563,21 @@ export default function SettingsScreen({
                 <Text style={styles.actionTitle}>Security Audit</Text>
                 <Text style={styles.actionDescription}>
                   Check password strength and age
+                </Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              testID="change-password-button"
+              style={styles.actionRow}
+              onPress={() => setShowChangePasswordModal(true)}
+            >
+              <Icon name="key-change" size={24} color="#e94560" style={styles.actionIconVector} />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Change Master Password</Text>
+                <Text style={styles.actionDescription}>
+                  Update your vault encryption key
                 </Text>
               </View>
               <Text style={styles.chevron}>›</Text>
@@ -925,6 +1019,120 @@ export default function SettingsScreen({
           </View>
         </View>
       </Modal>
+
+      {/* Change Password Modal */}
+      <Modal
+        visible={showChangePasswordModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowChangePasswordModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <Text style={styles.modalTitle}>Change Master Password</Text>
+            <Text style={styles.modalDescription}>
+              Enter your current password and choose a new one. Your vault will be re-encrypted with the new password.
+            </Text>
+            
+            <ScrollView style={{ flexGrow: 0 }} showsVerticalScrollIndicator={false}>
+              <Text style={styles.inputLabel}>Current Password</Text>
+              <TextInput
+                testID="current-password-input"
+                style={styles.passwordInput}
+                value={currentPasswordInput}
+                onChangeText={setCurrentPasswordInput}
+                placeholder="Enter current password"
+                placeholderTextColor="#666"
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              
+              <Text style={styles.inputLabel}>New Password</Text>
+              <TextInput
+                testID="new-password-input"
+                style={styles.passwordInput}
+                value={newPasswordInput}
+                onChangeText={setNewPasswordInput}
+                placeholder="Enter new password (min 12 chars)"
+                placeholderTextColor="#666"
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              
+              {newPasswordInput.length > 0 && (
+                <View testID="password-strength-meter" style={styles.strengthMeter}>
+                  <View 
+                    testID={`password-strength-${getPasswordStrength(newPasswordInput)}`}
+                    style={[
+                      styles.strengthBar,
+                      getPasswordStrength(newPasswordInput) === 'weak' && styles.strengthWeak,
+                      getPasswordStrength(newPasswordInput) === 'medium' && styles.strengthMedium,
+                      getPasswordStrength(newPasswordInput) === 'strong' && styles.strengthStrong,
+                    ]} 
+                  />
+                  <Text style={[
+                    styles.strengthText,
+                    getPasswordStrength(newPasswordInput) === 'weak' && { color: '#ff4444' },
+                    getPasswordStrength(newPasswordInput) === 'medium' && { color: '#ffaa00' },
+                    getPasswordStrength(newPasswordInput) === 'strong' && { color: '#44ff44' },
+                  ]}>
+                    {getPasswordStrength(newPasswordInput).charAt(0).toUpperCase() + getPasswordStrength(newPasswordInput).slice(1)}
+                  </Text>
+                </View>
+              )}
+              
+              <Text style={styles.inputLabel}>Confirm New Password</Text>
+              <TextInput
+                testID="confirm-new-password-input"
+                style={styles.passwordInput}
+                value={confirmNewPasswordInput}
+                onChangeText={setConfirmNewPasswordInput}
+                placeholder="Confirm new password"
+                placeholderTextColor="#666"
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              
+              <Text style={styles.inputLabel}>Password Hint (Optional)</Text>
+              <TextInput
+                testID="password-hint-input"
+                style={styles.passwordInput}
+                value={passwordHintInput}
+                onChangeText={setPasswordHintInput}
+                placeholder="Enter a hint to help remember"
+                placeholderTextColor="#666"
+                autoCapitalize="none"
+              />
+            </ScrollView>
+            
+            <TouchableOpacity
+              testID="save-password-button"
+              style={[styles.modalButton, { backgroundColor: '#e94560', marginTop: 16 }]}
+              onPress={handleChangePassword}
+              disabled={isChangingPassword}
+            >
+              {isChangingPassword ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Change Password</Text>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton]}
+              onPress={() => {
+                setShowChangePasswordModal(false);
+                setCurrentPasswordInput('');
+                setNewPasswordInput('');
+                setConfirmNewPasswordInput('');
+                setPasswordHintInput('');
+              }}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1263,5 +1471,46 @@ const styles = StyleSheet.create({
   conflictResolvedText: {
     color: '#4CAF50',
     fontSize: 12,
+  },
+  inputLabel: {
+    color: '#8a8a9a',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  passwordInput: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 14,
+    color: '#fff',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#3a3a4a',
+  },
+  strengthMeter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  strengthBar: {
+    height: 4,
+    flex: 1,
+    borderRadius: 2,
+    backgroundColor: '#3a3a4a',
+  },
+  strengthWeak: {
+    backgroundColor: '#ff4444',
+  },
+  strengthMedium: {
+    backgroundColor: '#ffaa00',
+  },
+  strengthStrong: {
+    backgroundColor: '#44ff44',
+  },
+  strengthText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

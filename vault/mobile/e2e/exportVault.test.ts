@@ -36,7 +36,11 @@ describe('Export Vault', () => {
   });
 
   it('should display export vault button', async () => {
-    await expect(element(by.id('export-vault-button'))).toBeVisible();
+    // Scroll to export button (may be off-screen due to change password button)
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 
   it('should show export confirmation dialog when tapping export', async () => {
@@ -53,10 +57,15 @@ describe('Export Vault', () => {
     
     // Should still be on settings screen
     await expect(element(by.text('Settings'))).toBeVisible();
-    await expect(element(by.id('export-vault-button'))).toBeVisible();
+    // Scroll to export button
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 
   it('should export vault when tapping export button', async () => {
+    // Export button should already be visible from previous scroll
     await element(by.id('export-vault-button')).tap();
     await expect(element(by.text('Export'))).toBeVisible();
     await element(by.text('Export')).tap();
@@ -74,7 +83,11 @@ describe('Export Vault', () => {
     
     // Should still be on settings screen after export
     await expect(element(by.text('Settings'))).toBeVisible();
-    await expect(element(by.id('export-vault-button'))).toBeVisible();
+    // Scroll to export button
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 
   it('should persist export capability across app restart', async () => {
@@ -97,7 +110,10 @@ describe('Export Vault', () => {
     await element(by.id('settings-button')).tap();
     await expect(element(by.text('Settings'))).toBeVisible();
 
-    // Export button should still be available
-    await expect(element(by.id('export-vault-button'))).toBeVisible();
+    // Export button should still be available (scroll to it)
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
   });
 });

@@ -116,14 +116,14 @@ Sequential development checklist from scaffold to finished app.
 - [x] Implement clipboard auto-clear (configurable: 30sec, 1min, 5min, never)
 
 ### 4.3 Security Audit
-- [ ] Implement weak password detection (informative only, not blocking)
-- [ ] Implement password age tracking (show old passwords that should be rotated)
-- [ ] Create security audit dashboard (summary view of vault health)
+- [x] Implement weak password detection (informative only, not blocking)
+- [x] Implement password age tracking (show old passwords that should be rotated)
+- [x] Create security audit dashboard (summary view of vault health)
 
 ### 4.4 Master Password
-- [ ] Implement master password change
-- [ ] Implement password strength meter (informative only)
-- [ ] Add master password hint (optional)
+- [x] Implement master password change (12 E2E tests - display button, modal fields, strength meter, reject incorrect password, reject mismatch, reject short password, change with hint, verify old fails, unlock with new, preserve data, show hint on unlock, persist across restart)
+- [x] Implement password strength meter (informative only)
+- [x] Add master password hint (optional)
 
 ---
 
@@ -258,4 +258,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-12*
+*Last updated: 2025-12-14*

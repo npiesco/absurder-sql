@@ -60,7 +60,11 @@ describe('Import Vault', () => {
     await element(by.id('settings-button')).tap();
     await expect(element(by.text('Settings'))).toBeVisible();
 
-    // Export vault
+    // Scroll to export button and tap
+    await waitFor(element(by.id('export-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
     await element(by.id('export-vault-button')).tap();
     await expect(element(by.text('Export'))).toBeVisible();
     await element(by.text('Export')).tap();
@@ -102,9 +106,9 @@ describe('Import Vault', () => {
 
     // Should still be on settings screen
     await expect(element(by.text('Settings'))).toBeVisible();
-    await expect(element(by.id('import-vault-button'))).toBeVisible();
     
-    // Navigate back to credentials
+    // Scroll to top and navigate back to credentials
+    await element(by.id('settings-scroll')).scrollTo('top');
     await element(by.id('settings-back-button')).tap();
     await expect(element(by.text('Vault'))).toBeVisible();
   });

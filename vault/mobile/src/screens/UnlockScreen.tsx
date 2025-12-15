@@ -19,6 +19,7 @@ import {
   Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useVaultStore } from '../lib/store';
 import { biometricService } from '../lib/biometricService';
 
@@ -34,12 +35,19 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricType, setBiometricType] = useState<string | null>(null);
+  const [passwordHint, setPasswordHint] = useState<string | null>(null);
 
   const { unlock, createVault, isLoading, error, clearError } = useVaultStore();
 
   useEffect(() => {
     checkBiometricStatus();
+    loadPasswordHint();
   }, []);
+
+  const loadPasswordHint = async () => {
+    const hint = await AsyncStorage.getItem('@vault_password_hint');
+    setPasswordHint(hint);
+  };
 
   const checkBiometricStatus = async () => {
     const enabled = await biometricService.isEnabled();
@@ -201,6 +209,12 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
               </TouchableOpacity>
             </View>
           </View>
+
+          {mode === 'unlock' && passwordHint && (
+            <View testID="password-hint-display" style={styles.hintDisplay}>
+              <Text style={styles.hintDisplayText}>Hint: {passwordHint}</Text>
+            </View>
+          )}
 
           {mode === 'create' && (
             <View style={styles.inputContainer}>
@@ -395,5 +409,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 12,
     fontWeight: '600',
+  },
+  hintDisplay: {
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  hintDisplayText: {
+    color: '#8a8a9a',
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });
