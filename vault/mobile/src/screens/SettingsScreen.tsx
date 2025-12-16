@@ -30,6 +30,7 @@ import { useVaultStore } from '../lib/store';
 import { biometricService, BiometricType } from '../lib/biometricService';
 import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/autoLockService';
 import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
+import { useTheme, ThemeMode } from '../lib/theme';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -45,6 +46,7 @@ export default function SettingsScreen({
   masterPassword,
 }: SettingsScreenProps) {
   const { vaultName, credentials, lock, vault } = useVaultStore();
+  const { themeMode, setThemeMode, isDark } = useTheme();
   const [isExporting, setIsExporting] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -53,6 +55,20 @@ export default function SettingsScreen({
   const [showAutoLockPicker, setShowAutoLockPicker] = useState(false);
   const [clipboardClearTimeout, setClipboardClearTimeout] = useState<ClipboardClearTimeout>('never');
   const [showClipboardPicker, setShowClipboardPicker] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
+
+  const getThemeModeLabel = (mode: ThemeMode): string => {
+    switch (mode) {
+      case 'light': return 'Light';
+      case 'dark': return 'Dark';
+      case 'system': return 'System';
+    }
+  };
+
+  const handleThemeSelect = (mode: ThemeMode) => {
+    setThemeMode(mode);
+    setShowThemePicker(false);
+  };
 
   useEffect(() => {
     checkBiometricStatus();
@@ -475,6 +491,34 @@ export default function SettingsScreen({
                 {credentialText}
               </Text>
             </View>
+          </View>
+        </View>
+
+        {/* Appearance Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Appearance</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              testID="theme-setting"
+              style={styles.actionRow}
+              onPress={() => setShowThemePicker(true)}
+            >
+              <Icon 
+                name={isDark ? 'weather-night' : 'white-balance-sunny'} 
+                size={24} 
+                color="#e94560" 
+                style={styles.actionIconVector} 
+              />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Theme</Text>
+                <Text style={styles.actionDescription}>
+                  Choose light, dark, or system theme
+                </Text>
+              </View>
+              <Text testID="theme-value" style={styles.settingValue}>
+                {getThemeModeLabel(themeMode)}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1013,6 +1057,66 @@ export default function SettingsScreen({
             <TouchableOpacity
               style={[styles.modalButton, styles.modalCancelButton, { marginTop: 12 }]}
               onPress={() => setShowClipboardPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Theme Picker Modal */}
+      <Modal
+        visible={showThemePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowThemePicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Theme</Text>
+            <Text style={styles.modalDescription}>
+              Choose your preferred appearance.
+            </Text>
+            
+            <TouchableOpacity
+              testID="theme-option-light"
+              style={[styles.pickerOption, themeMode === 'light' && styles.pickerOptionSelected]}
+              onPress={() => handleThemeSelect('light')}
+            >
+              <Icon name="white-balance-sunny" size={20} color={themeMode === 'light' ? '#e94560' : '#999'} style={{ marginRight: 12 }} />
+              <Text style={[styles.pickerOptionText, themeMode === 'light' && styles.pickerOptionTextSelected]}>
+                Light
+              </Text>
+              {themeMode === 'light' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="theme-option-dark"
+              style={[styles.pickerOption, themeMode === 'dark' && styles.pickerOptionSelected]}
+              onPress={() => handleThemeSelect('dark')}
+            >
+              <Icon name="weather-night" size={20} color={themeMode === 'dark' ? '#e94560' : '#999'} style={{ marginRight: 12 }} />
+              <Text style={[styles.pickerOptionText, themeMode === 'dark' && styles.pickerOptionTextSelected]}>
+                Dark
+              </Text>
+              {themeMode === 'dark' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="theme-option-system"
+              style={[styles.pickerOption, themeMode === 'system' && styles.pickerOptionSelected]}
+              onPress={() => handleThemeSelect('system')}
+            >
+              <Icon name="cellphone" size={20} color={themeMode === 'system' ? '#e94560' : '#999'} style={{ marginRight: 12 }} />
+              <Text style={[styles.pickerOptionText, themeMode === 'system' && styles.pickerOptionTextSelected]}>
+                System
+              </Text>
+              {themeMode === 'system' && <Icon name="check" size={20} color="#e94560" />}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton, { marginTop: 12 }]}
+              onPress={() => setShowThemePicker(false)}
             >
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>

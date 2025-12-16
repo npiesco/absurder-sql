@@ -9,6 +9,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { SafeAreaView, StatusBar, StyleSheet, AppState, AppStateStatus } from 'react-native';
 import { autoLockService } from './src/lib/autoLockService';
 import { useVaultStore } from './src/lib/store';
+import { ThemeProvider, useTheme } from './src/lib/theme';
 
 import UnlockScreen from './src/screens/UnlockScreen';
 import CredentialsScreen from './src/screens/CredentialsScreen';
@@ -23,7 +24,7 @@ import {TOTPConfig} from './src/lib/totpUriParser';
 
 type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail' | 'settings' | 'folders' | 'securityAudit' | 'qrScanner' | 'totpQuickView';
 
-export default function App() {
+function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('unlock');
   const [editCredentialId, setEditCredentialId] = useState<string | null>(null);
   const [detailCredentialId, setDetailCredentialId] = useState<string | null>(null);
@@ -257,17 +258,31 @@ export default function App() {
     }
   };
 
+  const {colors, isDark} = useTheme();
+
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
+    <SafeAreaView style={[styles.container, {backgroundColor: colors.background}]}>
+      <StatusBar 
+        barStyle={isDark ? 'light-content' : 'dark-content'} 
+        backgroundColor={colors.background} 
+      />
       {renderScreen()}
     </SafeAreaView>
   );
 }
 
+function AppWrapper() {
+  return (
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  );
+}
+
+export default AppWrapper;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
   },
 });

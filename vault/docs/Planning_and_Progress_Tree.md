@@ -146,7 +146,7 @@ Sequential development checklist from scaffold to finished app.
 ## Phase 6: Polish & UX
 
 ### 6.1 UI/UX Improvements
-- [ ] Implement dark/light theme toggle
+- [x] Implement dark/light theme toggle (7 E2E tests - display setting, show value, open picker, select light, select dark, select system, persist across restart)
 - [ ] Add haptic feedback
 - [ ] Add loading states
 - [ ] Add error handling UI
@@ -245,11 +245,11 @@ Sequential development checklist from scaffold to finished app.
 
 ## Completion Checklist
 
-- [ ] All Phase 1 items complete
-- [ ] All Phase 2 items complete
-- [ ] All Phase 3 items complete (Import/Export)
-- [ ] All Phase 4 items complete (Security)
-- [ ] All Phase 5 items complete
+- [x] All Phase 1 items complete (except Android testing)
+- [x] All Phase 2 items complete
+- [x] All Phase 3 items complete (Import/Export)
+- [x] All Phase 4 items complete (Security)
+- [x] All Phase 5 items complete (TOTP Authenticator)
 - [ ] All Phase 6 items complete
 - [ ] All Phase 7 items complete (App Store release)
 - [ ] All Phase 8 items complete (PWA)
@@ -258,4 +258,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-14*
+*Last updated: 2025-12-16*
