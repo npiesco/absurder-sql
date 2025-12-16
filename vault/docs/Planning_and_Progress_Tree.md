@@ -132,14 +132,14 @@ Sequential development checklist from scaffold to finished app.
 ### 5.1 TOTP Core
 - [x] Implement TOTP code generation (11 E2E tests - create credential with TOTP secret, display TOTP code in detail, display 6-digit code, countdown timer, progress indicator, copy button, copy to clipboard, navigate back, create without TOTP, no TOTP section without secret, persist across restart)
 - [x] Implement countdown timer
-- [ ] Implement QR code scanner
+- [x] Implement QR code scanner (8 E2E tests - scan QR button visible, open scanner, close button, manual entry modal, secret input field, close manual entry, return to add credential, cancel flow)
 - [x] Implement manual secret entry
 
 ### 5.2 TOTP UI
 - [x] Create TOTP display component
 - [x] Add copy TOTP code functionality
 - [x] Add TOTP to credential detail view
-- [ ] Implement TOTP-only quick view
+- [x] Implement TOTP-only quick view (5 E2E tests - quick view button in header, navigate to screen, empty state, back button, navigate back)
 
 ---
 

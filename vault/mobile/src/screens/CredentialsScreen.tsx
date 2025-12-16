@@ -32,6 +32,7 @@ interface CredentialsScreenProps {
   onSettings: () => void;
   onFolders: () => void;
   onLock: () => void;
+  onTOTPQuickView?: () => void;
 }
 
 export default function CredentialsScreen({
@@ -41,6 +42,7 @@ export default function CredentialsScreen({
   onSettings,
   onFolders,
   onLock,
+  onTOTPQuickView,
 }: CredentialsScreenProps) {
   const {
     credentials,
@@ -363,6 +365,11 @@ export default function CredentialsScreen({
           <TouchableOpacity testID="folders-button" style={styles.sortButton} onPress={onFolders}>
             <Icon name="folder" size={22} color="#ffffff" />
           </TouchableOpacity>
+          {onTOTPQuickView && (
+            <TouchableOpacity testID="totp-quickview-button" style={styles.sortButton} onPress={onTOTPQuickView}>
+              <Icon name="shield-key" size={22} color="#ffffff" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity testID="sort-button" style={styles.sortButton} onPress={() => setShowSortMenu(!showSortMenu)}>
             <Icon name="sort" size={22} color="#ffffff" />
             <Text testID="current-sort-indicator" style={styles.sortLabel}>{getSortLabel(sortOption)}</Text>

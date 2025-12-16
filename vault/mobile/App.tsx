@@ -17,14 +17,18 @@ import CredentialDetailScreen from './src/screens/CredentialDetailScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import FoldersScreen from './src/screens/FoldersScreen';
 import SecurityAuditScreen from './src/screens/SecurityAuditScreen';
+import QRScannerScreen from './src/screens/QRScannerScreen';
+import TOTPQuickViewScreen from './src/screens/TOTPQuickViewScreen';
+import {TOTPConfig} from './src/lib/totpUriParser';
 
-type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail' | 'settings' | 'folders' | 'securityAudit';
+type Screen = 'unlock' | 'credentials' | 'add' | 'edit' | 'detail' | 'settings' | 'folders' | 'securityAudit' | 'qrScanner' | 'totpQuickView';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('unlock');
   const [editCredentialId, setEditCredentialId] = useState<string | null>(null);
   const [detailCredentialId, setDetailCredentialId] = useState<string | null>(null);
   const [masterPassword, setMasterPassword] = useState<string | null>(null);
+  const [scannedTOTPConfig, setScannedTOTPConfig] = useState<TOTPConfig | null>(null);
   const appState = useRef(AppState.currentState);
   const { lock } = useVaultStore();
 
@@ -66,7 +70,34 @@ export default function App() {
 
   const handleAddCredential = () => {
     setEditCredentialId(null);
+    setScannedTOTPConfig(null);
     setCurrentScreen('add');
+  };
+
+  const handleScanQR = () => {
+    setCurrentScreen('qrScanner');
+  };
+
+  const handleQRScanned = (config: TOTPConfig) => {
+    setScannedTOTPConfig(config);
+    setCurrentScreen('add');
+  };
+
+  const handleQRScannerClose = () => {
+    setCurrentScreen('add');
+  };
+
+  const handleTOTPQuickView = () => {
+    setCurrentScreen('totpQuickView');
+  };
+
+  const handleBackFromTOTPQuickView = () => {
+    setCurrentScreen('credentials');
+  };
+
+  const handleViewCredentialFromTOTP = (credentialId: string) => {
+    setDetailCredentialId(credentialId);
+    setCurrentScreen('detail');
   };
 
   const handleEditCredential = (id: string) => {
@@ -139,6 +170,7 @@ export default function App() {
             onSettings={handleSettings}
             onFolders={handleFolders}
             onLock={handleLock}
+            onTOTPQuickView={handleTOTPQuickView}
           />
         );
 
@@ -147,6 +179,24 @@ export default function App() {
           <AddEditCredentialScreen
             onSave={handleBack}
             onCancel={handleBack}
+            onScanQR={handleScanQR}
+            scannedTOTPConfig={scannedTOTPConfig}
+          />
+        );
+
+      case 'qrScanner':
+        return (
+          <QRScannerScreen
+            onScan={handleQRScanned}
+            onClose={handleQRScannerClose}
+          />
+        );
+
+      case 'totpQuickView':
+        return (
+          <TOTPQuickViewScreen
+            onBack={handleBackFromTOTPQuickView}
+            onViewCredential={handleViewCredentialFromTOTP}
           />
         );
 

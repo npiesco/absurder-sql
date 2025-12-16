@@ -24,11 +24,15 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Slider from '@react-native-community/slider';
 import { useVaultStore } from '../lib/store';
 import { Credential } from '../lib/VaultDatabase';
+import { TOTPConfig } from '../lib/totpUriParser';
+import { buildCredentialName } from '../lib/totpUriParser';
 
 interface AddEditCredentialScreenProps {
   credentialId?: string | null;
   onSave: () => void;
   onCancel: () => void;
+  onScanQR?: () => void;
+  scannedTOTPConfig?: TOTPConfig | null;
 }
 
 // Password generation utility
@@ -369,6 +373,8 @@ export default function AddEditCredentialScreen({
   credentialId,
   onSave,
   onCancel,
+  onScanQR,
+  scannedTOTPConfig,
 }: AddEditCredentialScreenProps) {
   const { credentials, folders, addCredential, updateCredential, getCustomFields, syncCustomFields, getCredentialTags, syncCredentialTags } = useVaultStore();
 
@@ -416,6 +422,19 @@ export default function AddEditCredentialScreen({
       });
     }
   }, [existingCredential, getCustomFields, getCredentialTags]);
+
+  // Pre-fill from scanned TOTP config
+  useEffect(() => {
+    if (scannedTOTPConfig && !isEditing) {
+      setTotpSecret(scannedTOTPConfig.secret);
+      if (scannedTOTPConfig.issuer || scannedTOTPConfig.account) {
+        setName(buildCredentialName(scannedTOTPConfig));
+      }
+      if (scannedTOTPConfig.account) {
+        setUsername(scannedTOTPConfig.account);
+      }
+    }
+  }, [scannedTOTPConfig, isEditing]);
 
   const handleAddCustomField = () => {
     setCustomFields([...customFields, { name: '', value: '' }]);
@@ -803,7 +822,19 @@ export default function AddEditCredentialScreen({
         </View>
 
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>TOTP Secret (2FA)</Text>
+          <View style={styles.totpLabelRow}>
+            <Text style={styles.label}>TOTP Secret (2FA)</Text>
+            {onScanQR && !isEditing && (
+              <TouchableOpacity
+                testID="scan-qr-button"
+                style={styles.scanQRButton}
+                onPress={onScanQR}
+              >
+                <Icon name="qrcode-scan" size={18} color="#007AFF" />
+                <Text style={styles.scanQRButtonText}>Scan QR</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <TextInput
             testID="credential-totp-input"
             style={styles.input}
@@ -1152,6 +1183,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  totpLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  scanQRButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  scanQRButtonText: {
+    color: '#007AFF',
+    fontSize: 14,
+    marginLeft: 6,
+    fontWeight: '500',
   },
   tagsSection: {
     marginTop: 16,

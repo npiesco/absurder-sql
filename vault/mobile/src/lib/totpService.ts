@@ -63,3 +63,11 @@ export function isValidTOTPSecret(secret: string): boolean {
     return false;
   }
 }
+
+/**
+ * Get remaining seconds in current TOTP period
+ */
+export function getRemainingSeconds(period: number = 30): number {
+  const now = Math.floor(Date.now() / 1000);
+  return period - (now % period);
+}
