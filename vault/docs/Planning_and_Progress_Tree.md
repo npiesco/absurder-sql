@@ -130,15 +130,15 @@ Sequential development checklist from scaffold to finished app.
 ## Phase 5: TOTP Authenticator
 
 ### 5.1 TOTP Core
-- [ ] Implement TOTP code generation
-- [ ] Implement countdown timer
+- [x] Implement TOTP code generation (11 E2E tests - create credential with TOTP secret, display TOTP code in detail, display 6-digit code, countdown timer, progress indicator, copy button, copy to clipboard, navigate back, create without TOTP, no TOTP section without secret, persist across restart)
+- [x] Implement countdown timer
 - [ ] Implement QR code scanner
-- [ ] Implement manual secret entry
+- [x] Implement manual secret entry
 
 ### 5.2 TOTP UI
-- [ ] Create TOTP display component
-- [ ] Add copy TOTP code functionality
-- [ ] Add TOTP to credential detail view
+- [x] Create TOTP display component
+- [x] Add copy TOTP code functionality
+- [x] Add TOTP to credential detail view
 - [ ] Implement TOTP-only quick view
 
 ---

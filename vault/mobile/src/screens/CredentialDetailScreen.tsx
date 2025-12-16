@@ -23,6 +23,8 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useVaultStore } from '../lib/store';
 import { CustomField, Tag } from '../lib/VaultDatabase';
 import { autoLockService } from '../lib/autoLockService';
+import TOTPDisplay from '../components/TOTPDisplay';
+import { isValidTOTPSecret } from '../lib/totpService';
 
 interface CredentialDetailScreenProps {
   credentialId: string;
@@ -235,11 +237,16 @@ export default function CredentialDetailScreen({
           </View>
         )}
 
+        {/* TOTP Code Display */}
+        {credential.totpSecret && isValidTOTPSecret(credential.totpSecret) && (
+          <TOTPDisplay secret={credential.totpSecret} />
+        )}
+
         {/* TOTP Secret Field */}
         {credential.totpSecret && (
           <View testID="totp-secret-field" style={styles.fieldContainer}>
             <View style={styles.fieldHeader}>
-              <Text style={styles.fieldLabel}>TOTP Secret (2FA)</Text>
+              <Text style={styles.fieldLabel}>TOTP Secret</Text>
             </View>
             <View style={styles.fieldContent}>
               <Text style={styles.fieldValue}>

@@ -12,6 +12,9 @@ const absurderSqlMobilePath = path.resolve(__dirname, '../../absurder-sql-mobile
  * @type {import('metro-config').MetroConfig}
  */
 const config = {
+  server: {
+    port: 8088,
+  },
   watchFolders: [absurderSqlMobilePath],
   resolver: {
     // Block absurder-sql-mobile's node_modules to prevent version conflicts

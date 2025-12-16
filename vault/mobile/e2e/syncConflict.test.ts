@@ -313,6 +313,10 @@ describe('Sync Merge - Keep Both', () => {
   });
 
   it('should modify credential locally', async () => {
+    await waitFor(element(by.text('Both Test Account')))
+      .toBeVisible()
+      .whileElement(by.id('credentials-list'))
+      .scroll(200, 'down');
     await element(by.text('Both Test Account')).tap();
     await element(by.id('edit-credential-button')).tap();
     await waitFor(element(by.id('credential-password-input'))).toBeVisible().withTimeout(5000);
@@ -320,9 +324,22 @@ describe('Sync Merge - Keep Both', () => {
     await element(by.id('credential-password-input')).typeText('ModifiedBoth!');
     await element(by.id('credential-password-input')).tapReturnKey();
     await element(by.id('save-credential-button')).tap();
+
+    // Ensure we're back on the Vault list (so Settings button is available)
+    await waitFor(element(by.text('Vault')))
+      .toBeVisible()
+      .withTimeout(5000);
+    await waitFor(element(by.id('settings-button')))
+      .toBeVisible()
+      .withTimeout(5000);
   });
 
   it('should import and choose keep both', async () => {
+    // Ensure we're on the Vault list
+    await waitFor(element(by.id('settings-button')))
+      .toBeVisible()
+      .withTimeout(5000);
+
     await element(by.id('settings-button')).tap();
     await waitFor(element(by.text('Settings')))
       .toBeVisible()
@@ -356,8 +373,14 @@ describe('Sync Merge - Keep Both', () => {
     await element(by.id('settings-back-button')).tap();
 
     // Should see both the original and a copy
-    await expect(element(by.text('Both Test Account'))).toBeVisible();
-    await expect(element(by.text('Both Test Account (from backup)'))).toBeVisible();
+    await waitFor(element(by.text('Both Test Account')))
+      .toBeVisible()
+      .withTimeout(5000);
+
+    await element(by.id('credentials-list')).scrollTo('bottom');
+    await waitFor(element(by.text('Both Test Account (from backup)')))
+      .toBeVisible()
+      .withTimeout(5000);
   });
 
   it('should persist merge results across app restart', async () => {
@@ -370,7 +393,13 @@ describe('Sync Merge - Keep Both', () => {
     await element(by.id('unlock-vault-button')).tap();
 
     // Verify both versions still exist
-    await expect(element(by.text('Both Test Account'))).toBeVisible();
-    await expect(element(by.text('Both Test Account (from backup)'))).toBeVisible();
+    await waitFor(element(by.text('Both Test Account')))
+      .toBeVisible()
+      .withTimeout(5000);
+
+    await element(by.id('credentials-list')).scrollTo('bottom');
+    await waitFor(element(by.text('Both Test Account (from backup)')))
+      .toBeVisible()
+      .withTimeout(5000);
   });
 });

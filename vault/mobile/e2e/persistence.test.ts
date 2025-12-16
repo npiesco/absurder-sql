@@ -5,7 +5,7 @@
  * This tests the encrypted SQLite database backed by absurder-sql-mobile.
  */
 
-import { device, element, by, expect } from 'detox';
+import { device, element, by, expect, waitFor } from 'detox';
 
 describe('Credential Persistence', () => {
   beforeAll(async () => {
@@ -120,6 +120,10 @@ describe('Credential Persistence', () => {
 
   it('should persist deletes across app restart', async () => {
     // Delete Gmail credential
+    await waitFor(element(by.text('Gmail')))
+      .toBeVisible()
+      .whileElement(by.id('credentials-list'))
+      .scroll(200, 'down');
     await element(by.text('Gmail')).longPress();
     await element(by.text('Delete')).tap();
 
