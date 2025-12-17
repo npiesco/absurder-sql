@@ -154,7 +154,7 @@ Sequential development checklist from scaffold to finished app.
 
 ### 6.2 Accessibility
 - [x] Add screen reader support (3 E2E tests - accessibility labels on FAB, settings, search)
-- [ ] Add dynamic font sizing
+- [x] Add dynamic font sizing (5 E2E tests - display setting, show value, change to large, change to small, persist)
 - [ ] Add high contrast mode
 - [ ] Test with VoiceOver (iOS)
 - [ ] Test with TalkBack (Android)

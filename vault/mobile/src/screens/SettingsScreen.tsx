@@ -32,6 +32,7 @@ import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/
 import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
 import { useTheme, ThemeMode } from '../lib/theme';
 import { hapticService } from '../lib/hapticService';
+import { fontSizeService, FontSize } from '../lib/fontSizeService';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -58,6 +59,8 @@ export default function SettingsScreen({
   const [showClipboardPicker, setShowClipboardPicker] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [hapticEnabled, setHapticEnabled] = useState(true);
+  const [fontSize, setFontSize] = useState<FontSize>('medium');
+  const [showFontSizePicker, setShowFontSizePicker] = useState(false);
 
   const getThemeModeLabel = (mode: ThemeMode): string => {
     switch (mode) {
@@ -76,6 +79,7 @@ export default function SettingsScreen({
     checkBiometricStatus();
     loadAutoLockSettings();
     loadHapticSetting();
+    loadFontSizeSetting();
   }, []);
 
   const loadAutoLockSettings = async () => {
@@ -88,6 +92,17 @@ export default function SettingsScreen({
   const loadHapticSetting = async () => {
     const enabled = await hapticService.isEnabled();
     setHapticEnabled(enabled);
+  };
+
+  const loadFontSizeSetting = async () => {
+    const size = await fontSizeService.getFontSize();
+    setFontSize(size);
+  };
+
+  const handleFontSizeSelect = async (size: FontSize) => {
+    await fontSizeService.setFontSize(size);
+    setFontSize(size);
+    setShowFontSizePicker(false);
   };
 
   const handleHapticToggle = async () => {
@@ -568,6 +583,29 @@ export default function SettingsScreen({
                   ]} 
                 />
               </View>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              testID="font-size-setting"
+              style={styles.actionRow}
+              onPress={() => setShowFontSizePicker(true)}
+            >
+              <Icon 
+                name="format-size" 
+                size={24} 
+                color="#e94560" 
+                style={styles.actionIconVector} 
+              />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Font Size</Text>
+                <Text style={styles.actionDescription}>
+                  Adjust text size for readability
+                </Text>
+              </View>
+              <Text testID="font-size-value" style={styles.actionValue}>
+                {fontSizeService.getFontSizeLabel(fontSize)}
+              </Text>
+              <Icon name="chevron-right" size={20} color="#8a8a9a" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1174,6 +1212,72 @@ export default function SettingsScreen({
         </View>
       </Modal>
 
+      {/* Font Size Picker Modal */}
+      <Modal
+        visible={showFontSizePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFontSizePicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Font Size</Text>
+            <Text style={styles.modalDescription}>
+              Choose your preferred text size
+            </Text>
+            
+            <TouchableOpacity
+              testID="font-size-option-small"
+              style={[
+                styles.modalButton,
+                fontSize === 'small' && styles.modalButtonActive,
+              ]}
+              onPress={() => handleFontSizeSelect('small')}
+            >
+              <Text style={[
+                styles.modalButtonText,
+                fontSize === 'small' && styles.modalButtonTextActive,
+              ]}>Small</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="font-size-option-medium"
+              style={[
+                styles.modalButton,
+                fontSize === 'medium' && styles.modalButtonActive,
+              ]}
+              onPress={() => handleFontSizeSelect('medium')}
+            >
+              <Text style={[
+                styles.modalButtonText,
+                fontSize === 'medium' && styles.modalButtonTextActive,
+              ]}>Medium</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              testID="font-size-option-large"
+              style={[
+                styles.modalButton,
+                fontSize === 'large' && styles.modalButtonActive,
+              ]}
+              onPress={() => handleFontSizeSelect('large')}
+            >
+              <Text style={[
+                styles.modalButtonText,
+                fontSize === 'large' && styles.modalButtonTextActive,
+              ]}>Large</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCancelButton, { marginTop: 12 }]}
+              onPress={() => setShowFontSizePicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Change Password Modal */}
       <Modal
         visible={showChangePasswordModal}
@@ -1385,6 +1489,11 @@ const styles = StyleSheet.create({
     color: '#8a8a9a',
     fontSize: 13,
   },
+  actionValue: {
+    color: '#8a8a9a',
+    fontSize: 14,
+    marginRight: 4,
+  },
   settingValue: {
     color: '#e94560',
     fontSize: 14,
@@ -1471,6 +1580,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  modalButtonActive: {
+    backgroundColor: '#e94560',
+  },
+  modalButtonTextActive: {
+    color: '#fff',
+    fontWeight: '700',
   },
   modalCancelButton: {
     backgroundColor: 'transparent',
