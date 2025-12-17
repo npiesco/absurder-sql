@@ -31,6 +31,7 @@ import { biometricService, BiometricType } from '../lib/biometricService';
 import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/autoLockService';
 import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
 import { useTheme, ThemeMode } from '../lib/theme';
+import { hapticService } from '../lib/hapticService';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -56,6 +57,7 @@ export default function SettingsScreen({
   const [clipboardClearTimeout, setClipboardClearTimeout] = useState<ClipboardClearTimeout>('never');
   const [showClipboardPicker, setShowClipboardPicker] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [hapticEnabled, setHapticEnabled] = useState(true);
 
   const getThemeModeLabel = (mode: ThemeMode): string => {
     switch (mode) {
@@ -73,6 +75,7 @@ export default function SettingsScreen({
   useEffect(() => {
     checkBiometricStatus();
     loadAutoLockSettings();
+    loadHapticSetting();
   }, []);
 
   const loadAutoLockSettings = async () => {
@@ -80,6 +83,20 @@ export default function SettingsScreen({
     setAutoLockTimeout(autoLock);
     const clipboardClear = await autoLockService.getClipboardClearTimeout();
     setClipboardClearTimeout(clipboardClear);
+  };
+
+  const loadHapticSetting = async () => {
+    const enabled = await hapticService.isEnabled();
+    setHapticEnabled(enabled);
+  };
+
+  const handleHapticToggle = async () => {
+    const newValue = !hapticEnabled;
+    await hapticService.setEnabled(newValue);
+    setHapticEnabled(newValue);
+    if (newValue) {
+      hapticService.light();
+    }
   };
 
   const handleAutoLockSelect = async (timeout: AutoLockTimeout) => {
@@ -518,6 +535,39 @@ export default function SettingsScreen({
               <Text testID="theme-value" style={styles.settingValue}>
                 {getThemeModeLabel(themeMode)}
               </Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              testID="haptic-feedback-setting"
+              style={styles.actionRow}
+              onPress={handleHapticToggle}
+            >
+              <Icon 
+                name="vibrate" 
+                size={24} 
+                color="#e94560" 
+                style={styles.actionIconVector} 
+              />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Haptic Feedback</Text>
+                <Text style={styles.actionDescription}>
+                  Vibration feedback on interactions
+                </Text>
+              </View>
+              <View 
+                testID={hapticEnabled ? 'haptic-feedback-toggle-enabled' : 'haptic-feedback-toggle-disabled'}
+                style={[
+                  styles.toggleSwitch,
+                  hapticEnabled && styles.toggleSwitchEnabled,
+                ]}
+              >
+                <View 
+                  style={[
+                    styles.toggleKnob,
+                    hapticEnabled && styles.toggleKnobEnabled,
+                  ]} 
+                />
+              </View>
             </TouchableOpacity>
           </View>
         </View>

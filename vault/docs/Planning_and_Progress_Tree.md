@@ -147,7 +147,7 @@ Sequential development checklist from scaffold to finished app.
 
 ### 6.1 UI/UX Improvements
 - [x] Implement dark/light theme toggle (7 E2E tests - display setting, show value, open picker, select light, select dark, select system, persist across restart)
-- [ ] Add haptic feedback
+- [x] Add haptic feedback (2 E2E tests - display/toggle setting, persist across restart)
 - [ ] Add loading states
 - [ ] Add error handling UI
 - [ ] Add empty states
