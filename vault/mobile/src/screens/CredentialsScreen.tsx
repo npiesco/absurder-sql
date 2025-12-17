@@ -374,7 +374,7 @@ export default function CredentialsScreen({
             <Icon name="sort" size={22} color="#ffffff" />
             <Text testID="current-sort-indicator" style={styles.sortLabel}>{getSortLabel(sortOption)}</Text>
           </TouchableOpacity>
-          <TouchableOpacity testID="settings-button" style={styles.settingsButton} onPress={onSettings}>
+          <TouchableOpacity testID="settings-button" style={styles.settingsButton} onPress={onSettings} accessibilityLabel="Open settings" accessibilityRole="button">
             <Icon name="cog" size={22} color="#ffffff" />
           </TouchableOpacity>
         </View>
@@ -436,11 +436,13 @@ export default function CredentialsScreen({
       <View style={styles.searchContainer}>
         <Icon name="magnify" size={20} color="#a0a0a0" />
         <TextInput
+          testID="search-input"
           style={styles.searchInput}
           placeholder="Search credentials..."
           placeholderTextColor="#8a8a9a"
           value={searchQuery}
           onChangeText={setSearchQuery}
+          accessibilityLabel="Search credentials"
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -513,7 +515,7 @@ export default function CredentialsScreen({
         }
       />
 
-      <TouchableOpacity testID="add-credential-fab" style={styles.fab} onPress={onAddCredential}>
+      <TouchableOpacity testID="add-credential-fab" style={styles.fab} onPress={onAddCredential} accessibilityLabel="Add new credential" accessibilityRole="button">
         <Icon name="plus" size={28} color="#ffffff" />
       </TouchableOpacity>
 

@@ -153,7 +153,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Add empty states (1 E2E test - empty credentials list)
 
 ### 6.2 Accessibility
-- [ ] Add screen reader support
+- [x] Add screen reader support (3 E2E tests - accessibility labels on FAB, settings, search)
 - [ ] Add dynamic font sizing
 - [ ] Add high contrast mode
 - [ ] Test with VoiceOver (iOS)
