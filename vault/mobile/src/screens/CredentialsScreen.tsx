@@ -7,7 +7,7 @@
  * - Quick actions (copy password, view details)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -112,10 +112,11 @@ export default function CredentialsScreen({
     return result;
   }, [folders, getFolderPath]);
 
-  // Filter credentials by selected folder
-  const filteredCredentials = selectedFolderId
-    ? credentials.filter(c => c.folderId === selectedFolderId)
-    : credentials;
+  // Memoized filtered credentials for performance
+  const filteredCredentials = useMemo(() => {
+    if (!selectedFolderId) return credentials;
+    return credentials.filter(c => c.folderId === selectedFolderId);
+  }, [credentials, selectedFolderId]);
 
   const handleFolderFilterSelect = useCallback((folderId: string | null) => {
     setSelectedFolderId(folderId);
@@ -238,6 +239,9 @@ export default function CredentialsScreen({
     setShowMoveToFolderModal(false);
     setCredentialToMove(null);
   };
+
+  // Memoized keyExtractor for FlatList performance
+  const keyExtractor = useCallback((item: Credential) => item.id, []);
 
   const renderCredential = ({ item }: { item: Credential }) => {
     const isExpanded = selectedId === item.id;
@@ -496,8 +500,13 @@ export default function CredentialsScreen({
         testID="credentials-list"
         data={filteredCredentials}
         renderItem={renderCredential}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         contentContainerStyle={styles.list}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        initialNumToRender={15}
+        updateCellsBatchingPeriod={50}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Icon name="shield-lock" size={64} color="#4a5568" />

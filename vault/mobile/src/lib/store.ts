@@ -16,6 +16,9 @@ export type SortOption = 'name-asc' | 'name-desc' | 'updated' | 'created' | 'fav
 
 const SORT_PREFERENCE_KEY = '@vault_sort_preference';
 
+// Debounce timer for search performance
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 function sortCredentials(credentials: Credential[], sortOption: SortOption): Credential[] {
   const sorted = [...credentials];
   switch (sortOption) {
@@ -301,10 +304,17 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     await vault.syncCredentialTags(credentialId, tagNames);
   },
 
-  // Search
+  // Search with debounce for performance
   setSearchQuery: (query) => {
     set({ searchQuery: query });
-    get().refreshCredentials();
+    // Clear any existing debounce timer
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+    }
+    // Debounce search by 150ms for better performance
+    searchDebounceTimer = setTimeout(() => {
+      get().refreshCredentials();
+    }, 150);
   },
 
   // Sorting

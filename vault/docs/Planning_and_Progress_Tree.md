@@ -158,10 +158,10 @@ Sequential development checklist from scaffold to finished app.
 - [x] Add high contrast mode (4 E2E tests - display setting, show disabled, toggle on, persist)
 
 ### 6.3 Performance
-- [ ] Implement lazy loading for large vaults
-- [ ] Optimize search performance
-- [ ] Add credential list virtualization
-- [ ] Profile and optimize renders
+- [x] Implement lazy loading for large vaults (FlatList virtualization props)
+- [x] Optimize search performance (debounced search, memoized filtering)
+- [x] Add credential list virtualization (removeClippedSubviews, windowSize, maxToRenderPerBatch)
+- [x] Profile and optimize renders (useMemo, useCallback for expensive operations)
 
 ---
 
