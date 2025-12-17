@@ -620,6 +620,8 @@ export default function AddEditCredentialScreen({
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
+            textContentType="oneTimeCode"
+            autoComplete="off"
           />
         </View>
 
@@ -641,6 +643,8 @@ export default function AddEditCredentialScreen({
               secureTextEntry={!showPassword}
               autoCapitalize="none"
               autoCorrect={false}
+              textContentType="oneTimeCode"
+              autoComplete="off"
             />
             <TouchableOpacity
               style={styles.eyeButton}

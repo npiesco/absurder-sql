@@ -157,11 +157,12 @@ Sequential development checklist from scaffold to finished app.
 - [x] Add dynamic font sizing (5 E2E tests - display setting, show value, change to large, change to small, persist)
 - [x] Add high contrast mode (4 E2E tests - display setting, show disabled, toggle on, persist)
 
-### 6.3 Performance
+### 6.3 Performance (4 E2E tests)
 - [x] Implement lazy loading for large vaults (FlatList virtualization props)
 - [x] Optimize search performance (debounced search, memoized filtering)
 - [x] Add credential list virtualization (removeClippedSubviews, windowSize, maxToRenderPerBatch)
 - [x] Profile and optimize renders (useMemo, useCallback for expensive operations)
+- [x] E2E tests: large list handling, scroll performance, search performance, filter performance
 
 ---
 
