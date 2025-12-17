@@ -33,6 +33,7 @@ import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
 import { useTheme, ThemeMode } from '../lib/theme';
 import { hapticService } from '../lib/hapticService';
 import { fontSizeService, FontSize } from '../lib/fontSizeService';
+import { highContrastService } from '../lib/highContrastService';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -61,6 +62,7 @@ export default function SettingsScreen({
   const [hapticEnabled, setHapticEnabled] = useState(true);
   const [fontSize, setFontSize] = useState<FontSize>('medium');
   const [showFontSizePicker, setShowFontSizePicker] = useState(false);
+  const [highContrastEnabled, setHighContrastEnabled] = useState(false);
 
   const getThemeModeLabel = (mode: ThemeMode): string => {
     switch (mode) {
@@ -80,6 +82,7 @@ export default function SettingsScreen({
     loadAutoLockSettings();
     loadHapticSetting();
     loadFontSizeSetting();
+    loadHighContrastSetting();
   }, []);
 
   const loadAutoLockSettings = async () => {
@@ -103,6 +106,17 @@ export default function SettingsScreen({
     await fontSizeService.setFontSize(size);
     setFontSize(size);
     setShowFontSizePicker(false);
+  };
+
+  const loadHighContrastSetting = async () => {
+    const enabled = await highContrastService.isEnabled();
+    setHighContrastEnabled(enabled);
+  };
+
+  const handleHighContrastToggle = async () => {
+    const newValue = !highContrastEnabled;
+    await highContrastService.setEnabled(newValue);
+    setHighContrastEnabled(newValue);
   };
 
   const handleHapticToggle = async () => {
@@ -606,6 +620,39 @@ export default function SettingsScreen({
                 {fontSizeService.getFontSizeLabel(fontSize)}
               </Text>
               <Icon name="chevron-right" size={20} color="#8a8a9a" />
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              testID="high-contrast-setting"
+              style={styles.actionRow}
+              onPress={handleHighContrastToggle}
+            >
+              <Icon 
+                name="contrast-circle" 
+                size={24} 
+                color="#e94560" 
+                style={styles.actionIconVector} 
+              />
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>High Contrast</Text>
+                <Text style={styles.actionDescription}>
+                  Increase visual contrast for readability
+                </Text>
+              </View>
+              <View 
+                testID={highContrastEnabled ? 'high-contrast-toggle-enabled' : 'high-contrast-toggle-disabled'}
+                style={[
+                  styles.toggleSwitch,
+                  highContrastEnabled && styles.toggleSwitchEnabled,
+                ]}
+              >
+                <View 
+                  style={[
+                    styles.toggleKnob,
+                    highContrastEnabled && styles.toggleKnobEnabled,
+                  ]} 
+                />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
