@@ -150,7 +150,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Add haptic feedback (2 E2E tests - display/toggle setting, persist across restart)
 - [x] Add loading states (3 E2E tests - vault creation, vault unlock, credential save)
 - [x] Add error handling UI (3 E2E tests - password mismatch, wrong unlock password, empty credential name)
-- [ ] Add empty states
+- [x] Add empty states (1 E2E test - empty credentials list)
 
 ### 6.2 Accessibility
 - [ ] Add screen reader support
