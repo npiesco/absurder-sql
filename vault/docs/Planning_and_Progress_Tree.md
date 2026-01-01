@@ -39,7 +39,7 @@ Sequential development checklist from scaffold to finished app.
 - [x] Create Android project (Android Studio) - android/
 - [x] Link absurder-sql-mobile native libraries (CocoaPods)
 - [x] Test on iOS Simulator (builds successfully)
-- [ ] Test on Android Emulator
+- [x] Test on Android Emulator (Detox tests passing)
 
 ### 1.6 E2E Testing (Detox)
 - [x] Configure Detox for iOS
