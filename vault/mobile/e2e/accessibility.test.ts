@@ -6,12 +6,15 @@
  * - Button accessibility hints
  */
 
-import {by, device, element, expect} from 'detox';
+import {by, device, element, expect, waitFor} from 'detox';
 
 describe('Accessibility', () => {
   beforeAll(async () => {
     await device.launchApp({newInstance: true, delete: true});
-    // Create vault
+    // Wait for app to load and create vault
+    await waitFor(element(by.text('Create New')))
+      .toBeVisible()
+      .withTimeout(30000);
     await element(by.text('Create New')).tap();
     await element(by.id('master-password-input')).tap();
     await element(by.id('master-password-input')).replaceText('TestPassword123!');
