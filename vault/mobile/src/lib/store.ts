@@ -12,6 +12,21 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { VaultDatabase, Credential, Folder, CustomField, Tag } from './VaultDatabase';
 
+// Helper to extract error message from DatabaseError or regular Error
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object') {
+    // DatabaseError from uniffi has inner.message
+    if ('inner' in error && error.inner && typeof error.inner === 'object' && 'message' in error.inner) {
+      return String((error.inner as { message: string }).message);
+    }
+    // Regular Error
+    if ('message' in error && typeof error.message === 'string') {
+      return error.message;
+    }
+  }
+  return fallback;
+}
+
 export type SortOption = 'name-asc' | 'name-desc' | 'updated' | 'created' | 'favorites' | 'recent';
 
 const SORT_PREFERENCE_KEY = '@vault_sort_preference';
@@ -137,7 +152,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     } catch (error) {
       set({
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to unlock vault',
+        error: getErrorMessage(error, 'Failed to unlock vault'),
       });
       throw error;
     }
@@ -172,7 +187,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     } catch (error) {
       set({
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to create vault',
+        error: getErrorMessage(error, 'Failed to create vault'),
       });
       throw error;
     }
@@ -193,7 +208,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       set({ credentials });
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : 'Failed to load credentials',
+        error: getErrorMessage(error, 'Failed to load credentials'),
       });
     }
   },
@@ -208,7 +223,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       set({ folders });
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : 'Failed to load folders',
+        error: getErrorMessage(error, 'Failed to load folders'),
       });
     }
   },

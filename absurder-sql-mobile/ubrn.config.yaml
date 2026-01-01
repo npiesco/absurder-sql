@@ -36,6 +36,10 @@ android:
 turboModule:
   entrypoint: "src/index.ts"
 
-# Don't overwrite our custom main.ts entry point
+# Don't overwrite our custom files
 noOverwrite:
   - "src/main.ts"
+  - "android/build.gradle"
+  - "android/src/main/java/com/absurdersqlmobile/AbsurderSqlPackage.kt"
+  - "android/src/main/java/com/absurdersqlmobile/AbsurderSqlInitializer.kt"
+  - "android/src/main/java/com/absurdersqlmobile/AbsurderSqlInitializerPackage.kt"

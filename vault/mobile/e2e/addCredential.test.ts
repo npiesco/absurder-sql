@@ -42,9 +42,15 @@ describe('Add Credential Flow', () => {
     await element(by.id('credential-username-input')).typeText('testuser@example.com');
     await element(by.id('credential-password-input')).typeText('MyGitHubPassword123!');
 
-    // Scroll down to make URL field visible (keyboard covers it, form is taller with mode toggle)
+    // Dismiss keyboard before scrolling to URL field
+    await device.pressBack();
+
+    // Scroll down to make URL field visible
     await element(by.id('credential-form-scroll')).scroll(400, 'down');
-    await element(by.id('credential-url-input')).typeText('https://github.com');
+
+    // Tap and use replaceText to avoid keyboard visibility issues
+    await element(by.id('credential-url-input')).tap();
+    await element(by.id('credential-url-input')).replaceText('https://github.com');
 
     // Step 5: Save credential
     await element(by.id('save-credential-button')).tap();

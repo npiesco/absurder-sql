@@ -22,7 +22,7 @@ import {
 import Clipboard from '@react-native-clipboard/clipboard';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Slider from '@react-native-community/slider';
-import { useVaultStore } from '../lib/store';
+import { useVaultStore, getErrorMessage } from '../lib/store';
 import { Credential } from '../lib/VaultDatabase';
 import { TOTPConfig } from '../lib/totpUriParser';
 import { buildCredentialName } from '../lib/totpUriParser';
@@ -557,7 +557,7 @@ export default function AddEditCredentialScreen({
     } catch (error) {
       Alert.alert(
         'Error',
-        error instanceof Error ? error.message : 'Failed to save credential'
+        getErrorMessage(error, 'Failed to save credential')
       );
     } finally {
       setIsLoading(false);

@@ -21,7 +21,7 @@ import {
   Modal,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useVaultStore } from '../lib/store';
+import { useVaultStore, getErrorMessage } from '../lib/store';
 import { Folder } from '../lib/VaultDatabase';
 
 interface FoldersScreenProps {
@@ -184,7 +184,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
       setSelectedIcon(null);
       setSelectedColor(null);
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save folder');
+      Alert.alert('Error', getErrorMessage(error, 'Failed to save folder'));
     }
   };
 
@@ -219,7 +219,7 @@ export default function FoldersScreen({ onBack }: FoldersScreenProps) {
                 return next;
               });
             } catch (error) {
-              Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete folder');
+              Alert.alert('Error', getErrorMessage(error, 'Failed to delete folder'));
             }
           },
         },

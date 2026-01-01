@@ -26,7 +26,7 @@ import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import DocumentPicker from 'react-native-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useVaultStore } from '../lib/store';
+import { useVaultStore, getErrorMessage } from '../lib/store';
 import { biometricService, BiometricType } from '../lib/biometricService';
 import { autoLockService, AutoLockTimeout, ClipboardClearTimeout } from '../lib/autoLockService';
 import { syncService, SyncAnalysis, ConflictItem } from '../lib/syncService';
@@ -229,7 +229,7 @@ export default function SettingsScreen({
       );
     } catch (error: any) {
       console.error('Export error:', error);
-      Alert.alert('Export Failed', error?.message || 'Failed to export vault');
+      Alert.alert('Export Failed', getErrorMessage(error, 'Failed to export vault'));
     } finally {
       setIsExporting(false);
     }
@@ -329,7 +329,7 @@ export default function SettingsScreen({
       setPasswordHintInput('');
     } catch (error: any) {
       console.error('Change password error:', error);
-      Alert.alert('Error', error?.message || 'Failed to change password');
+      Alert.alert('Error', getErrorMessage(error, 'Failed to change password'));
     } finally {
       setIsChangingPassword(false);
     }
@@ -374,7 +374,7 @@ export default function SettingsScreen({
       );
     } catch (error: any) {
       console.error('Import error:', error);
-      Alert.alert('Import Failed', error?.message || 'Failed to import vault');
+      Alert.alert('Import Failed', getErrorMessage(error, 'Failed to import vault'));
     } finally {
       setIsImporting(false);
     }
@@ -430,7 +430,7 @@ export default function SettingsScreen({
       );
     } catch (error: any) {
       console.error('Merge error:', error);
-      Alert.alert('Merge Failed', error?.message || 'Failed to complete merge');
+      Alert.alert('Merge Failed', getErrorMessage(error, 'Failed to complete merge'));
     } finally {
       setIsImporting(false);
     }

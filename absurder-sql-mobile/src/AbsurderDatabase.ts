@@ -4,6 +4,7 @@
  */
 
 import * as uniffi from './generated/absurder_sql_mobile';
+import { initializePlatform, resolveDatabasePath } from './platformInit';
 
 export interface QueryResult {
   columns: string[];
@@ -129,9 +130,18 @@ export class AbsurderDatabase {
       throw new Error('Database is already open');
     }
 
+    // Ensure platform is initialized before any database operations
+    // On Android, this gets the data directory for path resolution
+    await initializePlatform();
+
     const cfg = typeof this.config === 'object' ? this.config : { name: this.config };
+
+    // Resolve the database path for the current platform
+    // On Android, this converts relative paths to absolute paths
+    const resolvedPath = resolveDatabasePath(cfg.name);
+
     const uniffiConfig = {
-      name: cfg.name,
+      name: resolvedPath,
       encryptionKey: cfg.encryption?.key,
       cacheSize: cfg.cacheSize !== undefined ? BigInt(cfg.cacheSize) : undefined,
       pageSize: cfg.pageSize !== undefined ? BigInt(cfg.pageSize) : undefined,
