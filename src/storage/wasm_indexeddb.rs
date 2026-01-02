@@ -17,6 +17,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 #[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -530,7 +532,7 @@ async fn restore_blocks_from_indexeddb(
                     &format!("[RESTORE] Found key in IndexedDB: {}", key).into(),
                 );
 
-                // Parse key: "db_name:block_id:checksum"
+                // Parse key: "db_name:block_id" (FIX: no more checksum in key)
                 let parts: Vec<&str> = key.split(':').collect();
                 if parts.len() >= 2 {
                     if let Ok(block_id) = parts[1].parse::<u64>() {
@@ -1012,26 +1014,25 @@ async fn persist_to_indexeddb_event_based_internal(
         )
     })?;
 
-    // Store blocks with idempotent keys: (db_name, block_id, version)
+    // Store blocks with truly idempotent keys: (db_name, block_id)
+    // FIX: Removed checksum from key - updates now OVERWRITE instead of creating duplicates
     for (block_id, block_data) in &blocks {
-        // Find the corresponding version for this block_id
-        if let Some((_, version)) = metadata.iter().find(|(id, _)| *id == *block_id) {
-            let key = format!("{}:{}:{}", db_name, block_id, version);
-            let value = js_sys::Uint8Array::from(&block_data[..]);
-            #[cfg(target_arch = "wasm32")]
-            {
-                log::debug!("Storing block with idempotent key: {}", key);
-                web_sys::console::log_1(
-                    &format!("[PERSIST] Writing block to IndexedDB with key: {}", key).into(),
-                );
-            }
-            let _ = blocks_store.put_with_key(&value, &key.into());
+        let key = format!("{}:{}", db_name, block_id);
+        let value = js_sys::Uint8Array::from(&block_data[..]);
+        #[cfg(target_arch = "wasm32")]
+        {
+            log::debug!("Storing block with idempotent key: {}", key);
+            web_sys::console::log_1(
+                &format!("[PERSIST] Writing block to IndexedDB with key: {}", key).into(),
+            );
         }
+        let _ = blocks_store.put_with_key(&value, &key.into());
     }
 
-    // Store metadata with idempotent keys: (db_name, block_id, version)
+    // Store metadata with truly idempotent keys: (db_name, block_id)
+    // Store the version/checksum as the VALUE, not in the KEY
     for (block_id, version) in metadata {
-        let key = format!("{}:{}:{}", db_name, block_id, version);
+        let key = format!("{}:{}", db_name, block_id);
         let value = js_sys::Number::from(version as f64);
         #[cfg(target_arch = "wasm32")]
         log::debug!("Storing metadata with idempotent key: {}", key);
@@ -1417,117 +1418,26 @@ pub async fn delete_blocks_from_indexeddb(
         .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
 
     // Delete all blocks and their metadata
-    // We need to delete all versions of each block (keys are "db_name:block_id:version")
+    // FIX: Keys are now "db_name:block_id" (no version), so just delete directly
     for block_id in block_ids {
-        // Delete blocks with this block_id (all versions)
-        // Use key range to delete all entries matching "db_name:block_id:*"
-        let key_prefix_start = format!("{}:{}:", db_name, block_id);
-        let key_prefix_end = format!("{}:{}:\u{FFFF}", db_name, block_id);
+        let key = format!("{}:{}", db_name, block_id);
 
-        let key_range =
-            web_sys::IdbKeyRange::bound(&key_prefix_start.into(), &key_prefix_end.into()).map_err(
-                |_| {
-                    DatabaseError::new("INDEXEDDB_ERROR", "Failed to create key range for deletion")
-                },
-            )?;
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("[DELETE] Deleting block key: {}", key).into());
 
-        // Open cursor to delete all matching entries
-        let blocks_cursor_req = blocks_store
-            .open_cursor_with_range(&key_range)
-            .map_err(|_| {
-                DatabaseError::new("INDEXEDDB_ERROR", "Failed to open cursor for deletion")
-            })?;
+        // Delete block
+        let delete_result = blocks_store.delete(&JsValue::from_str(&key));
+        if delete_result.is_err() {
+            log::warn!("Failed to delete block key: {}", key);
+        }
 
-        // Use event-based approach to iterate and delete
-        let (delete_tx, delete_rx) = oneshot::channel::<Result<(), String>>();
-        let delete_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(delete_tx)));
+        // Delete metadata
+        let meta_delete_result = metadata_store.delete(&JsValue::from_str(&key));
+        if meta_delete_result.is_err() {
+            log::warn!("Failed to delete metadata key: {}", key);
+        }
 
-        let delete_closure = {
-            let delete_tx = delete_tx.clone();
-            Closure::wrap(Box::new(move |event: web_sys::Event| {
-                let target = event.target().unwrap();
-                let request: web_sys::IdbRequest = target.unchecked_into();
-                let result = request.result().unwrap();
-
-                if !result.is_null() {
-                    let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
-
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        if let Ok(key) = cursor.key() {
-                            if let Some(key_str) = key.as_string() {
-                                web_sys::console::log_1(
-                                    &format!("[DELETE] Deleting key: {}", key_str).into(),
-                                );
-                            }
-                        }
-                    }
-
-                    // Delete this entry
-                    let _ = cursor.delete();
-
-                    // Continue to next
-                    let _ = cursor.continue_();
-                } else {
-                    // Done iterating
-                    if let Some(sender) = delete_tx.borrow_mut().take() {
-                        let _ = sender.send(Ok(()));
-                    }
-                }
-            }) as Box<dyn FnMut(_)>)
-        };
-
-        blocks_cursor_req.set_onsuccess(Some(delete_closure.as_ref().unchecked_ref()));
-        delete_closure.forget();
-
-        // Wait for deletion to complete
-        let _ = delete_rx.await;
-
-        // Also delete metadata entries
-        let metadata_cursor_req =
-            metadata_store
-                .open_cursor_with_range(&key_range)
-                .map_err(|_| {
-                    DatabaseError::new(
-                        "INDEXEDDB_ERROR",
-                        "Failed to open metadata cursor for deletion",
-                    )
-                })?;
-
-        let (meta_delete_tx, meta_delete_rx) = oneshot::channel::<Result<(), String>>();
-        let meta_delete_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(meta_delete_tx)));
-
-        let meta_delete_closure = {
-            let meta_delete_tx = meta_delete_tx.clone();
-            Closure::wrap(Box::new(move |event: web_sys::Event| {
-                let target = event.target().unwrap();
-                let request: web_sys::IdbRequest = target.unchecked_into();
-                let result = request.result().unwrap();
-
-                if !result.is_null() {
-                    let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
-
-                    // Delete this entry
-                    let _ = cursor.delete();
-
-                    // Continue to next
-                    let _ = cursor.continue_();
-                } else {
-                    // Done iterating
-                    if let Some(sender) = meta_delete_tx.borrow_mut().take() {
-                        let _ = sender.send(Ok(()));
-                    }
-                }
-            }) as Box<dyn FnMut(_)>)
-        };
-
-        metadata_cursor_req.set_onsuccess(Some(meta_delete_closure.as_ref().unchecked_ref()));
-        meta_delete_closure.forget();
-
-        // Wait for metadata deletion to complete
-        let _ = meta_delete_rx.await;
-
-        log::debug!("Deleted block {} (all versions) from IndexedDB", block_id);
+        log::debug!("Deleted block {} from IndexedDB", block_id);
     }
 
     // Wait for transaction to complete
@@ -1588,7 +1498,7 @@ pub async fn delete_blocks_from_indexeddb(
 /// * `Err(DatabaseError)` - If deletion fails
 ///
 /// # Key Format
-/// Blocks are stored with keys: `{db_name}:{block_id}:{checksum}`
+/// Blocks are stored with keys: `{db_name}:{block_id}`
 /// This function deletes all keys starting with `{db_name}:`
 #[cfg(target_arch = "wasm32")]
 pub async fn delete_all_database_blocks_from_indexeddb(db_name: &str) -> Result<(), DatabaseError> {
