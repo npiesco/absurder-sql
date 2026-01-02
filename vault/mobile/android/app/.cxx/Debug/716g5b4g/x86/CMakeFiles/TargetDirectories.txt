@@ -1,0 +1,9 @@
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/CMakeFiles/appmodules.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/CMakeFiles/edit_cache.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/CMakeFiles/rebuild_cache.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/RNCSlider_autolinked_build/CMakeFiles/react_codegen_RNCSlider.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/RNCSlider_autolinked_build/CMakeFiles/edit_cache.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/RNCSlider_autolinked_build/CMakeFiles/rebuild_cache.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/NativeAbsurderSql_autolinked_build/CMakeFiles/edit_cache.dir
+/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86/NativeAbsurderSql_autolinked_build/CMakeFiles/rebuild_cache.dir

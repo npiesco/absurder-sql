@@ -214,6 +214,13 @@ function makeMutClosure(arg0, arg1, dtor, f) {
     return real;
 }
 
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
 export function init_logger() {
     wasm.init_logger();
 }
@@ -223,32 +230,29 @@ function takeFromExternrefTable0(idx) {
     wasm.__externref_table_dealloc(idx);
     return value;
 }
-
-function passArray8ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 1, 1) >>> 0;
-    getUint8ArrayMemory0().set(arg, ptr / 1);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-function wasm_bindgen__convert__closures_____invoke__hdb81571fda85014e(arg0, arg1, arg2) {
-    const ret = wasm.wasm_bindgen__convert__closures_____invoke__hdb81571fda85014e(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__hc80f3df486f58344(arg0, arg1, arg2) {
+    const ret = wasm.wasm_bindgen__convert__closures_____invoke__hc80f3df486f58344(arg0, arg1, arg2);
     return ret;
 }
 
-function wasm_bindgen__convert__closures_____invoke__h4cdac4f455882175(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h4cdac4f455882175(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__h36789b90bcbbddeb(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h36789b90bcbbddeb(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h2c14621d0df4fe02(arg0, arg1) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h2c14621d0df4fe02(arg0, arg1);
+function wasm_bindgen__convert__closures_____invoke__hf4d7257c55f477a7(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hf4d7257c55f477a7(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__hadfd653a361c80f5(arg0, arg1) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hadfd653a361c80f5(arg0, arg1);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f(arg0, arg1, arg2, arg3);
+function wasm_bindgen__convert__closures_____invoke__hfc1ac144d6ff7bff(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hfc1ac144d6ff7bff(arg0, arg1, arg2);
+}
+
+function wasm_bindgen__convert__closures_____invoke__h7ed3bbda376b63d1(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h7ed3bbda376b63d1(arg0, arg1, arg2, arg3);
 }
 
 const __wbindgen_enum_IdbTransactionMode = ["readonly", "readwrite", "versionchange", "readwriteflush", "cleanup"];
@@ -279,104 +283,23 @@ export class Database {
         wasm.__wbg_database_free(ptr, 0);
     }
     /**
-     * @param {string} name
-     * @returns {Promise<Database>}
-     */
-    static newDatabase(name) {
-        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.database_newDatabase(ptr0, len0);
-        return ret;
-    }
-    /**
-     * Get the database name
-     * @returns {string}
-     */
-    get name() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const ret = wasm.database_name(this.__wbg_ptr);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
-        } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * Get all database names stored in IndexedDB
+     * Queue a write operation to be executed by the leader
      *
-     * Returns an array of database names (sorted alphabetically)
-     * @returns {Promise<any>}
-     */
-    static getAllDatabases() {
-        const ret = wasm.database_getAllDatabases();
-        return ret;
-    }
-    /**
-     * Delete a database from storage
+     * Non-leader tabs can use this to request writes from the leader.
+     * The write is forwarded via BroadcastChannel and executed by the leader.
      *
-     * Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
-     * @param {string} name
+     * # Arguments
+     * * `sql` - SQL statement to execute (must be a write operation)
+     *
+     * # Returns
+     * Result indicating success or failure
+     * @param {string} sql
      * @returns {Promise<void>}
      */
-    static deleteDatabase(name) {
-        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.database_deleteDatabase(ptr0, len0);
-        return ret;
-    }
-    /**
-     * @param {string} sql
-     * @returns {Promise<any>}
-     */
-    execute(sql) {
+    queueWrite(sql) {
         const ptr0 = passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.database_execute(this.__wbg_ptr, ptr0, len0);
-        return ret;
-    }
-    /**
-     * @param {string} sql
-     * @param {any} params
-     * @returns {Promise<any>}
-     */
-    executeWithParams(sql, params) {
-        const ptr0 = passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.database_executeWithParams(this.__wbg_ptr, ptr0, len0, params);
-        return ret;
-    }
-    /**
-     * @returns {Promise<void>}
-     */
-    close() {
-        const ret = wasm.database_close(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Force close connection and remove from pool (for test cleanup)
-     * @returns {Promise<void>}
-     */
-    forceCloseConnection() {
-        const ret = wasm.database_forceCloseConnection(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {Promise<void>}
-     */
-    sync() {
-        const ret = wasm.database_sync(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Allow non-leader writes (for single-tab apps or testing)
-     * @param {boolean} allow
-     * @returns {Promise<void>}
-     */
-    allowNonLeaderWrites(allow) {
-        const ret = wasm.database_allowNonLeaderWrites(this.__wbg_ptr, allow);
+        const ret = wasm.database_queueWrite(this.__wbg_ptr, ptr0, len0);
         return ret;
     }
     /**
@@ -402,12 +325,31 @@ export class Database {
         return ret;
     }
     /**
-     * Test method for concurrent locking - simple increment counter
-     * @param {number} value
-     * @returns {Promise<number>}
+     * @returns {Promise<any>}
      */
-    testLock(value) {
-        const ret = wasm.database_testLock(this.__wbg_ptr, value);
+    isLeader() {
+        const ret = wasm.database_isLeader(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Delete a database from storage
+     *
+     * Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
+     * @param {string} name
+     * @returns {Promise<void>}
+     */
+    static deleteDatabase(name) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.database_deleteDatabase(ptr0, len0);
+        return ret;
+    }
+    /**
+     * Get leader information
+     * @returns {Promise<any>}
+     */
+    getLeaderInfo() {
+        const ret = wasm.database_getLeaderInfo(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -447,11 +389,21 @@ export class Database {
         return ret;
     }
     /**
-     * Wait for this instance to become leader
-     * @returns {Promise<void>}
+     * Get all database names stored in IndexedDB
+     *
+     * Returns an array of database names (sorted alphabetically)
+     * @returns {Promise<any>}
      */
-    waitForLeadership() {
-        const ret = wasm.database_waitForLeadership(this.__wbg_ptr);
+    static getAllDatabases() {
+        const ret = wasm.database_getAllDatabases();
+        return ret;
+    }
+    /**
+     * Check if optimistic mode is enabled
+     * @returns {Promise<boolean>}
+     */
+    isOptimisticMode() {
+        const ret = wasm.database_isOptimisticMode(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -463,62 +415,14 @@ export class Database {
         return ret;
     }
     /**
-     * Get leader information
+     * @param {string} sql
+     * @param {any} params
      * @returns {Promise<any>}
      */
-    getLeaderInfo() {
-        const ret = wasm.database_getLeaderInfo(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Queue a write operation to be executed by the leader
-     *
-     * Non-leader tabs can use this to request writes from the leader.
-     * The write is forwarded via BroadcastChannel and executed by the leader.
-     *
-     * # Arguments
-     * * `sql` - SQL statement to execute (must be a write operation)
-     *
-     * # Returns
-     * Result indicating success or failure
-     * @param {string} sql
-     * @returns {Promise<void>}
-     */
-    queueWrite(sql) {
+    executeWithParams(sql, params) {
         const ptr0 = passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.database_queueWrite(this.__wbg_ptr, ptr0, len0);
-        return ret;
-    }
-    /**
-     * Queue a write operation with a specific timeout
-     *
-     * # Arguments
-     * * `sql` - SQL statement to execute
-     * * `timeout_ms` - Timeout in milliseconds
-     * @param {string} sql
-     * @param {number} timeout_ms
-     * @returns {Promise<void>}
-     */
-    queueWriteWithTimeout(sql, timeout_ms) {
-        const ptr0 = passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.database_queueWriteWithTimeout(this.__wbg_ptr, ptr0, len0, timeout_ms);
-        return ret;
-    }
-    /**
-     * @returns {Promise<any>}
-     */
-    isLeader() {
-        const ret = wasm.database_isLeader(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Check if this instance is the leader (non-wasm version for internal use/tests)
-     * @returns {Promise<boolean>}
-     */
-    is_leader() {
-        const ret = wasm.database_is_leader(this.__wbg_ptr);
+        const ret = wasm.database_executeWithParams(this.__wbg_ptr, ptr0, len0, params);
         return ret;
     }
     /**
@@ -531,20 +435,27 @@ export class Database {
         }
     }
     /**
-     * Enable or disable optimistic updates mode
-     * @param {boolean} enabled
+     * Wait for this instance to become leader
      * @returns {Promise<void>}
      */
-    enableOptimisticUpdates(enabled) {
-        const ret = wasm.database_enableOptimisticUpdates(this.__wbg_ptr, enabled);
+    waitForLeadership() {
+        const ret = wasm.database_waitForLeadership(this.__wbg_ptr);
         return ret;
     }
     /**
-     * Check if optimistic mode is enabled
-     * @returns {Promise<boolean>}
+     * Record a write conflict (non-leader write attempt)
+     * @returns {Promise<void>}
      */
-    isOptimisticMode() {
-        const ret = wasm.database_isOptimisticMode(this.__wbg_ptr);
+    recordWriteConflict() {
+        const ret = wasm.database_recordWriteConflict(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Force close connection and remove from pool (for test cleanup)
+     * @returns {Promise<void>}
+     */
+    forceCloseConnection() {
+        const ret = wasm.database_forceCloseConnection(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -559,11 +470,12 @@ export class Database {
         return ret;
     }
     /**
-     * Get count of pending writes
-     * @returns {Promise<number>}
+     * Allow non-leader writes (for single-tab apps or testing)
+     * @param {boolean} allow
+     * @returns {Promise<void>}
      */
-    getPendingWritesCount() {
-        const ret = wasm.database_getPendingWritesCount(this.__wbg_ptr);
+    allowNonLeaderWrites(allow) {
+        const ret = wasm.database_allowNonLeaderWrites(this.__wbg_ptr, allow);
         return ret;
     }
     /**
@@ -572,49 +484,6 @@ export class Database {
      */
     clearOptimisticWrites() {
         const ret = wasm.database_clearOptimisticWrites(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Enable or disable coordination metrics tracking
-     * @param {boolean} enabled
-     * @returns {Promise<void>}
-     */
-    enableCoordinationMetrics(enabled) {
-        const ret = wasm.database_enableCoordinationMetrics(this.__wbg_ptr, enabled);
-        return ret;
-    }
-    /**
-     * Check if coordination metrics tracking is enabled
-     * @returns {Promise<boolean>}
-     */
-    isCoordinationMetricsEnabled() {
-        const ret = wasm.database_isCoordinationMetricsEnabled(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Record a leadership change
-     * @param {boolean} became_leader
-     * @returns {Promise<void>}
-     */
-    recordLeadershipChange(became_leader) {
-        const ret = wasm.database_recordLeadershipChange(this.__wbg_ptr, became_leader);
-        return ret;
-    }
-    /**
-     * Record a notification latency in milliseconds
-     * @param {number} latency_ms
-     * @returns {Promise<void>}
-     */
-    recordNotificationLatency(latency_ms) {
-        const ret = wasm.database_recordNotificationLatency(this.__wbg_ptr, latency_ms);
-        return ret;
-    }
-    /**
-     * Record a write conflict (non-leader write attempt)
-     * @returns {Promise<void>}
-     */
-    recordWriteConflict() {
-        const ret = wasm.database_recordWriteConflict(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -634,11 +503,146 @@ export class Database {
         return ret;
     }
     /**
+     * Get count of pending writes
+     * @returns {Promise<number>}
+     */
+    getPendingWritesCount() {
+        const ret = wasm.database_getPendingWritesCount(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Queue a write operation with a specific timeout
+     *
+     * # Arguments
+     * * `sql` - SQL statement to execute
+     * * `timeout_ms` - Timeout in milliseconds
+     * @param {string} sql
+     * @param {number} timeout_ms
+     * @returns {Promise<void>}
+     */
+    queueWriteWithTimeout(sql, timeout_ms) {
+        const ptr0 = passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.database_queueWriteWithTimeout(this.__wbg_ptr, ptr0, len0, timeout_ms);
+        return ret;
+    }
+    /**
+     * Record a leadership change
+     * @param {boolean} became_leader
+     * @returns {Promise<void>}
+     */
+    recordLeadershipChange(became_leader) {
+        const ret = wasm.database_recordLeadershipChange(this.__wbg_ptr, became_leader);
+        return ret;
+    }
+    /**
+     * Enable or disable optimistic updates mode
+     * @param {boolean} enabled
+     * @returns {Promise<void>}
+     */
+    enableOptimisticUpdates(enabled) {
+        const ret = wasm.database_enableOptimisticUpdates(this.__wbg_ptr, enabled);
+        return ret;
+    }
+    /**
      * Reset all coordination metrics
      * @returns {Promise<void>}
      */
     resetCoordinationMetrics() {
         const ret = wasm.database_resetCoordinationMetrics(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Enable or disable coordination metrics tracking
+     * @param {boolean} enabled
+     * @returns {Promise<void>}
+     */
+    enableCoordinationMetrics(enabled) {
+        const ret = wasm.database_enableCoordinationMetrics(this.__wbg_ptr, enabled);
+        return ret;
+    }
+    /**
+     * Record a notification latency in milliseconds
+     * @param {number} latency_ms
+     * @returns {Promise<void>}
+     */
+    recordNotificationLatency(latency_ms) {
+        const ret = wasm.database_recordNotificationLatency(this.__wbg_ptr, latency_ms);
+        return ret;
+    }
+    /**
+     * Check if coordination metrics tracking is enabled
+     * @returns {Promise<boolean>}
+     */
+    isCoordinationMetricsEnabled() {
+        const ret = wasm.database_isCoordinationMetricsEnabled(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get the database name
+     * @returns {string}
+     */
+    get name() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.database_name(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {Promise<void>}
+     */
+    sync() {
+        const ret = wasm.database_sync(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Promise<void>}
+     */
+    close() {
+        const ret = wasm.database_close(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {string} sql
+     * @returns {Promise<any>}
+     */
+    execute(sql) {
+        const ptr0 = passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.database_execute(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * @param {string} name
+     * @returns {Promise<Database>}
+     */
+    static newDatabase(name) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.database_newDatabase(ptr0, len0);
+        return ret;
+    }
+    /**
+     * Check if this instance is the leader (non-wasm version for internal use/tests)
+     * @returns {Promise<boolean>}
+     */
+    is_leader() {
+        const ret = wasm.database_is_leader(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Test method for concurrent locking - simple increment counter
+     * @param {number} value
+     * @returns {Promise<number>}
+     */
+    testLock(value) {
+        const ret = wasm.database_testLock(this.__wbg_ptr, value);
         return ret;
     }
 }
@@ -670,18 +674,28 @@ export class WasmColumnValue {
         wasm.__wbg_wasmcolumnvalue_free(ptr, 0);
     }
     /**
+     * @param {Uint8Array} value
+     * @returns {WasmColumnValue}
+     */
+    static createBlob(value) {
+        const ptr0 = passArray8ToWasm0(value, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmcolumnvalue_createBlob(ptr0, len0);
+        return WasmColumnValue.__wrap(ret);
+    }
+    /**
+     * @param {number} timestamp
+     * @returns {WasmColumnValue}
+     */
+    static createDate(timestamp) {
+        const ret = wasm.wasmcolumnvalue_createDate(timestamp);
+        return WasmColumnValue.__wrap(ret);
+    }
+    /**
      * @returns {WasmColumnValue}
      */
     static createNull() {
         const ret = wasm.wasmcolumnvalue_createNull();
-        return WasmColumnValue.__wrap(ret);
-    }
-    /**
-     * @param {bigint} value
-     * @returns {WasmColumnValue}
-     */
-    static createInteger(value) {
-        const ret = wasm.wasmcolumnvalue_createInteger(value);
         return WasmColumnValue.__wrap(ret);
     }
     /**
@@ -703,16 +717,6 @@ export class WasmColumnValue {
         return WasmColumnValue.__wrap(ret);
     }
     /**
-     * @param {Uint8Array} value
-     * @returns {WasmColumnValue}
-     */
-    static createBlob(value) {
-        const ptr0 = passArray8ToWasm0(value, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.wasmcolumnvalue_createBlob(ptr0, len0);
-        return WasmColumnValue.__wrap(ret);
-    }
-    /**
      * @param {string} value
      * @returns {WasmColumnValue}
      */
@@ -720,14 +724,6 @@ export class WasmColumnValue {
         const ptr0 = passStringToWasm0(value, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.wasmcolumnvalue_createBigInt(ptr0, len0);
-        return WasmColumnValue.__wrap(ret);
-    }
-    /**
-     * @param {number} timestamp
-     * @returns {WasmColumnValue}
-     */
-    static createDate(timestamp) {
-        const ret = wasm.wasmcolumnvalue_createDate(timestamp);
         return WasmColumnValue.__wrap(ret);
     }
     /**
@@ -739,18 +735,36 @@ export class WasmColumnValue {
         return WasmColumnValue.__wrap(ret);
     }
     /**
+     * @param {bigint} value
+     * @returns {WasmColumnValue}
+     */
+    static createInteger(value) {
+        const ret = wasm.wasmcolumnvalue_createInteger(value);
+        return WasmColumnValue.__wrap(ret);
+    }
+    /**
+     * @param {Uint8Array} value
+     * @returns {WasmColumnValue}
+     */
+    static blob(value) {
+        const ptr0 = passArray8ToWasm0(value, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmcolumnvalue_blob(ptr0, len0);
+        return WasmColumnValue.__wrap(ret);
+    }
+    /**
+     * @param {number} timestamp_ms
+     * @returns {WasmColumnValue}
+     */
+    static date(timestamp_ms) {
+        const ret = wasm.wasmcolumnvalue_createDate(timestamp_ms);
+        return WasmColumnValue.__wrap(ret);
+    }
+    /**
      * @returns {WasmColumnValue}
      */
     static null() {
         const ret = wasm.wasmcolumnvalue_createNull();
-        return WasmColumnValue.__wrap(ret);
-    }
-    /**
-     * @param {number} value
-     * @returns {WasmColumnValue}
-     */
-    static integer(value) {
-        const ret = wasm.wasmcolumnvalue_integer(value);
         return WasmColumnValue.__wrap(ret);
     }
     /**
@@ -772,16 +786,6 @@ export class WasmColumnValue {
         return WasmColumnValue.__wrap(ret);
     }
     /**
-     * @param {Uint8Array} value
-     * @returns {WasmColumnValue}
-     */
-    static blob(value) {
-        const ptr0 = passArray8ToWasm0(value, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.wasmcolumnvalue_blob(ptr0, len0);
-        return WasmColumnValue.__wrap(ret);
-    }
-    /**
      * @param {string} value
      * @returns {WasmColumnValue}
      */
@@ -792,11 +796,11 @@ export class WasmColumnValue {
         return WasmColumnValue.__wrap(ret);
     }
     /**
-     * @param {number} timestamp_ms
+     * @param {number} value
      * @returns {WasmColumnValue}
      */
-    static date(timestamp_ms) {
-        const ret = wasm.wasmcolumnvalue_createDate(timestamp_ms);
+    static integer(value) {
+        const ret = wasm.wasmcolumnvalue_integer(value);
         return WasmColumnValue.__wrap(ret);
     }
 }
@@ -1204,7 +1208,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return wasm_bindgen__convert__closures_____invoke__h0645e20ee34c432f(a, state0.b, arg0, arg1);
+                    return wasm_bindgen__convert__closures_____invoke__h7ed3bbda376b63d1(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1427,9 +1431,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_warn_1d74dddbe2fd1dbb = function(arg0) {
         console.warn(arg0);
     };
-    imports.wbg.__wbindgen_cast_21a4be74e3de656a = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 351, function: Function { arguments: [], shim_idx: 352, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h65ab4603c6af79ea, wasm_bindgen__convert__closures_____invoke__h2c14621d0df4fe02);
+    imports.wbg.__wbindgen_cast_1a10b6f54805ce06 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 349, function: Function { arguments: [NamedExternref("Event")], shim_idx: 350, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h642e82f9c73e1df8, wasm_bindgen__convert__closures_____invoke__h36789b90bcbbddeb);
         return ret;
     };
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
@@ -1437,29 +1441,19 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return ret;
     };
-    imports.wbg.__wbindgen_cast_286afe2beb25f43e = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 923, function: Function { arguments: [Externref], shim_idx: 924, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hddca379abe978273, wasm_bindgen__convert__closures_____invoke__h3ba5f0fbfb39f2bc);
-        return ret;
-    };
     imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function(arg0) {
         // Cast intrinsic for `U64 -> Externref`.
         const ret = BigInt.asUintN(64, arg0);
         return ret;
     };
-    imports.wbg.__wbindgen_cast_4afe623fbc865034 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 351, function: Function { arguments: [Externref], shim_idx: 356, ret: NamedExternref("Promise<any>"), inner_ret: Some(NamedExternref("Promise<any>")) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h65ab4603c6af79ea, wasm_bindgen__convert__closures_____invoke__hdb81571fda85014e);
+    imports.wbg.__wbindgen_cast_5ca497c4e273e8d7 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 373, function: Function { arguments: [Externref], shim_idx: 376, ret: NamedExternref("Promise<any>"), inner_ret: Some(NamedExternref("Promise<any>")) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h881ef102e6c10f20, wasm_bindgen__convert__closures_____invoke__hc80f3df486f58344);
         return ret;
     };
-    imports.wbg.__wbindgen_cast_5de252db6fe1c4ab = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 351, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 354, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h65ab4603c6af79ea, wasm_bindgen__convert__closures_____invoke__h4cdac4f455882175);
-        return ret;
-    };
-    imports.wbg.__wbindgen_cast_6a9dc609eba56b51 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 351, function: Function { arguments: [NamedExternref("Event")], shim_idx: 354, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h65ab4603c6af79ea, wasm_bindgen__convert__closures_____invoke__h4cdac4f455882175);
+    imports.wbg.__wbindgen_cast_8c9d81595f858ea8 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 927, function: Function { arguments: [Externref], shim_idx: 928, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__haa081cb57237dc5b, wasm_bindgen__convert__closures_____invoke__hfc1ac144d6ff7bff);
         return ret;
     };
     imports.wbg.__wbindgen_cast_9ae0607507abb057 = function(arg0) {
@@ -1467,9 +1461,24 @@ function __wbg_get_imports() {
         const ret = arg0;
         return ret;
     };
+    imports.wbg.__wbindgen_cast_a28d67ee2329e2e2 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 373, function: Function { arguments: [Externref], shim_idx: 374, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h881ef102e6c10f20, wasm_bindgen__convert__closures_____invoke__hf4d7257c55f477a7);
+        return ret;
+    };
+    imports.wbg.__wbindgen_cast_b5ad569ae95af174 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 349, function: Function { arguments: [], shim_idx: 353, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h642e82f9c73e1df8, wasm_bindgen__convert__closures_____invoke__hadfd653a361c80f5);
+        return ret;
+    };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
         // Cast intrinsic for `F64 -> Externref`.
         const ret = arg0;
+        return ret;
+    };
+    imports.wbg.__wbindgen_cast_d96947a424319913 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 349, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 350, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h642e82f9c73e1df8, wasm_bindgen__convert__closures_____invoke__h36789b90bcbbddeb);
         return ret;
     };
     imports.wbg.__wbindgen_init_externref_table = function() {

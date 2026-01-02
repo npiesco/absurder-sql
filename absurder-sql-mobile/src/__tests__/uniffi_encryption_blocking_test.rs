@@ -17,6 +17,10 @@ mod uniffi_encryption_blocking_tests {
         let config = DatabaseConfig {
             name: format!("encrypted_async_test_{:?}.db", thread_id),
             encryption_key: Some("test_password_12345".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         let start = Instant::now();
@@ -53,6 +57,10 @@ mod uniffi_encryption_blocking_tests {
         let config = DatabaseConfig {
             name: format!("encrypted_async_proof_{:?}.db", thread_id),
             encryption_key: Some("test_password_12345".to_string()),
+            cache_size: None,
+            page_size: None,
+            journal_mode: None,
+            auto_vacuum: None,
         };
         
         // If create_encrypted_database was async, this is how it would work

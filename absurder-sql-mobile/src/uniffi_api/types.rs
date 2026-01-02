@@ -5,13 +5,29 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Column value types matching SQLite's type system
+#[derive(uniffi::Enum, Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ColumnValue {
+    Null,
+    Integer { value: i64 },
+    Real { value: f64 },
+    Text { value: String },
+    Blob { value: Vec<u8> },
+}
+
+/// A single row of query results
+#[derive(uniffi::Record, Debug, Clone, Serialize, Deserialize)]
+pub struct Row {
+    pub values: Vec<ColumnValue>,
+}
+
 /// Result of a database query
 #[derive(uniffi::Record, Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     /// Column names
     pub columns: Vec<String>,
-    /// Rows as JSON strings (each row is a serialized object with column values)
-    pub rows: Vec<String>,
+    /// Typed rows with column values
+    pub rows: Vec<Row>,
     /// Number of rows affected
     pub rows_affected: u64,
     /// Last inserted row ID (populated for INSERT statements)

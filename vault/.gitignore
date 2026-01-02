@@ -1,0 +1,49 @@
+# Dependencies
+mobile/node_modules/
+mobile/vendor/
+
+# iOS
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/ios/*.xcworkspace/xcuserdata/
+mobile/ios/*.xcodeproj/xcuserdata/
+*.pbxuser
+*.perspectivev3
+*.xcuserstate
+*.xcworkspacedata
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Android
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
+*.apk
+*.aab
+
+# Metro
+.metro-health-check*
+
+# Bundle artifacts
+*.jsbundle
+*.bundle
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+mobile/coverage/
+
+# Temporary
+*.tmp
+*.temp
+.cache

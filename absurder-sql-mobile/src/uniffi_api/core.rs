@@ -3,7 +3,7 @@
 /// These functions are automatically exported to TypeScript, Swift, and Kotlin
 /// using the #[uniffi::export] macro.
 
-use super::types::{DatabaseConfig, DatabaseError, QueryResult};
+use super::types::{DatabaseConfig, DatabaseError, QueryResult, Row, ColumnValue};
 use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
 #[cfg(target_os = "android")]
 use crate::registry::ANDROID_DATA_DIR;
@@ -13,22 +13,25 @@ use std::path::Path;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::path::PathBuf;
 use parking_lot::Mutex;
-use serde_json;
 
-/// Convert a core Row to a JSON string for UniFFI transport
-fn row_to_json(core_row: &absurder_sql::Row) -> String {
-    let values: Vec<serde_json::Value> = core_row.values.iter().map(|cv| {
-        match cv {
-            CoreColumnValue::Null => serde_json::json!({"type": "Null", "value": null}),
-            CoreColumnValue::Integer(i) => serde_json::json!({"type": "Integer", "value": i}),
-            CoreColumnValue::Real(r) => serde_json::json!({"type": "Real", "value": r}),
-            CoreColumnValue::Text(s) => serde_json::json!({"type": "Text", "value": s}),
-            CoreColumnValue::Blob(b) => serde_json::json!({"type": "Blob", "value": b}),
-            CoreColumnValue::Date(d) => serde_json::json!({"type": "Integer", "value": d}),
-            CoreColumnValue::BigInt(s) => serde_json::json!({"type": "Text", "value": s}),
-        }
-    }).collect();
-    serde_json::json!({"values": values}).to_string()
+/// Convert a core ColumnValue to UniFFI ColumnValue
+fn convert_column_value(cv: &CoreColumnValue) -> ColumnValue {
+    match cv {
+        CoreColumnValue::Null => ColumnValue::Null,
+        CoreColumnValue::Integer(i) => ColumnValue::Integer { value: *i },
+        CoreColumnValue::Real(r) => ColumnValue::Real { value: *r },
+        CoreColumnValue::Text(s) => ColumnValue::Text { value: s.clone() },
+        CoreColumnValue::Blob(b) => ColumnValue::Blob { value: b.clone() },
+        CoreColumnValue::Date(d) => ColumnValue::Integer { value: *d },
+        CoreColumnValue::BigInt(s) => ColumnValue::Text { value: s.clone() },
+    }
+}
+
+/// Convert a core Row to UniFFI Row
+fn convert_row(core_row: &absurder_sql::Row) -> Row {
+    Row {
+        values: core_row.values.iter().map(convert_column_value).collect(),
+    }
 }
 
 /// Resolve database path to an absolute path appropriate for the platform
@@ -162,14 +165,14 @@ pub fn execute(handle: u64, sql: String) -> Result<QueryResult, DatabaseError> {
     
     match result {
         Ok(query_result) => {
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,
@@ -237,14 +240,14 @@ pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Res
     
     match result {
         Ok(query_result) => {
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,
@@ -501,6 +504,9 @@ pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
 /// Restores a database from a backup file created by export_database.
 /// This will copy all tables and data from the backup into the current database.
 /// 
+/// For encrypted databases, uses ATTACH DATABASE which inherits the encryption key
+/// from the main connection, allowing import of encrypted backup files.
+/// 
 /// # Arguments
 /// * `handle` - Database handle
 /// * `path` - File path of the backup to import
@@ -532,82 +538,75 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
         });
     }
     
-    use absurder_sql::rusqlite::Connection;
-    
     // Execute import using async runtime
+    // Use ATTACH DATABASE to open the backup file with the same encryption key
     let result = RUNTIME.block_on(async {
         let mut dest_guard = db_arc.lock();
         
-        // Open the export file as a native SQLite connection
-        let source_conn = Connection::open(&resolved_path)
-            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to open export file: {}", e)))?;
+        // Escape path for SQL
+        let escaped_path = resolved_path.replace('\'', "''");
         
-        // Get list of tables
-        let mut stmt = source_conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to query tables: {}", e)))?;
+        // Attach the backup database - this uses the same encryption key as main db
+        let attach_sql = format!("ATTACH DATABASE '{}' AS import_db", escaped_path);
+        dest_guard.execute(&attach_sql).await?;
+        log::info!("UniFFI: Attached import database");
         
-        let table_names: Vec<String> = stmt.query_map([], |row| row.get(0))
-            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to get table names: {}", e)))?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to collect table names: {}", e)))?;
+        // Get list of tables from the attached database
+        let tables_result = dest_guard.execute(
+            "SELECT name FROM import_db.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).await?;
         
-        for table_name in table_names {
+        log::info!("UniFFI: Tables query returned {} rows, columns: {:?}", tables_result.rows.len(), tables_result.columns);
+        for (i, row) in tables_result.rows.iter().enumerate() {
+            log::info!("UniFFI: Row {}: {:?}", i, row.values);
+        }
+        
+        let table_names: Vec<String> = tables_result.rows.iter()
+            .filter_map(|row| {
+                if let Some(absurder_sql::ColumnValue::Text(value)) = row.values.first() {
+                    Some(value.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        log::info!("UniFFI: Found {} tables to import: {:?}", table_names.len(), table_names);
+        
+        for table_name in &table_names {
             log::info!("UniFFI: Importing table: {}", table_name);
             
-            // Get CREATE TABLE statement
-            let create_sql: String = source_conn.query_row(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-                [&table_name],
-                |row| row.get(0)
-            ).map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to get schema for {}: {}", table_name, e)))?;
+            // Get CREATE TABLE statement from import_db
+            let schema_result = dest_guard.execute(
+                &format!("SELECT sql FROM import_db.sqlite_master WHERE type='table' AND name='{}'", table_name)
+            ).await?;
             
-            // Drop and recreate table in destination
+            let create_sql = if let Some(row) = schema_result.rows.first() {
+                if let Some(absurder_sql::ColumnValue::Text(value)) = row.values.first() {
+                    value.clone()
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+            
+            // Drop existing table and recreate
             let _ = dest_guard.execute(&format!("DROP TABLE IF EXISTS {}", table_name)).await;
             dest_guard.execute(&create_sql).await?;
             
-            // Get all data from source table
-            let mut data_stmt = source_conn.prepare(&format!("SELECT * FROM {}", table_name))
-                .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to select from {}: {}", table_name, e)))?;
-            
-            let column_count = data_stmt.column_count();
-            let mut rows = data_stmt.query([])
-                .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to query {}: {}", table_name, e)))?;
-            
-            // Begin transaction for bulk insert
-            dest_guard.execute("BEGIN TRANSACTION").await?;
-            
-            let mut row_count = 0;
-            while let Some(row) = rows.next()
-                .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to fetch row from {}: {}", table_name, e)))? {
-                
-                // Build INSERT VALUES string
-                let mut values = Vec::new();
-                for i in 0..column_count {
-                    let value_str = match row.get_ref(i)
-                        .map_err(|e| absurder_sql::DatabaseError::new("SQLITE_ERROR", &format!("Failed to get column {}: {}", i, e)))? {
-                        absurder_sql::rusqlite::types::ValueRef::Null => "NULL".to_string(),
-                        absurder_sql::rusqlite::types::ValueRef::Integer(n) => n.to_string(),
-                        absurder_sql::rusqlite::types::ValueRef::Real(r) => r.to_string(),
-                        absurder_sql::rusqlite::types::ValueRef::Text(t) => {
-                            let text = String::from_utf8_lossy(t);
-                            format!("'{}'", text.replace("'", "''"))
-                        }
-                        absurder_sql::rusqlite::types::ValueRef::Blob(b) => {
-                            format!("X'{}'", b.iter().map(|byte| format!("{:02x}", byte)).collect::<String>())
-                        }
-                    };
-                    values.push(value_str);
-                }
-                
-                let insert_sql = format!("INSERT INTO {} VALUES ({})", table_name, values.join(", "));
-                dest_guard.execute(&insert_sql).await?;
-                row_count += 1;
-            }
-            
-            // Commit transaction
-            dest_guard.execute("COMMIT").await?;
-            log::info!("UniFFI: Imported {} rows into table {}", row_count, table_name);
+            // Copy data from import_db to main db
+            let insert_sql = format!(
+                "INSERT INTO main.{} SELECT * FROM import_db.{}",
+                table_name, table_name
+            );
+            let insert_result = dest_guard.execute(&insert_sql).await?;
+            log::info!("UniFFI: Imported {} rows into table {}", insert_result.affected_rows, table_name);
         }
+        
+        // Detach the import database
+        dest_guard.execute("DETACH DATABASE import_db").await?;
+        log::info!("UniFFI: Detached import database");
         
         Ok::<(), absurder_sql::DatabaseError>(())
     });
@@ -787,14 +786,14 @@ pub fn execute_statement(stmt_handle: u64, params: Vec<String>) -> Result<QueryR
         Ok(query_result) => {
             log::info!("UniFFI: Statement {} executed successfully", stmt_handle);
 
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,
@@ -1028,15 +1027,15 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
                 }
             }
             
-            // Convert rows to JSON strings for UniFFI transport
-            let json_rows: Vec<String> = query_result.rows.iter()
-                .map(row_to_json)
+            // Convert rows to typed Row structs
+            let rows: Vec<Row> = query_result.rows.iter()
+                .map(convert_row)
                 .collect();
 
             // Convert to UniFFI QueryResult
             let uniffi_result = QueryResult {
                 columns: query_result.columns,
-                rows: json_rows,
+                rows,
                 rows_affected: query_result.affected_rows as u64,
                 last_insert_id: query_result.last_insert_id,
                 execution_time_ms: query_result.execution_time_ms,

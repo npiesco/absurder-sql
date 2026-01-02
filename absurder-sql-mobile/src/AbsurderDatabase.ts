@@ -4,6 +4,7 @@
  */
 
 import * as uniffi from './generated/absurder_sql_mobile';
+import { initializePlatform, resolveDatabasePath } from './platformInit';
 
 export interface QueryResult {
   columns: string[];
@@ -41,31 +42,54 @@ export interface Migration {
 }
 
 /**
- * Convert a JSON row string to a plain object keyed by column name
+ * Extract the value from a UniFFI ColumnValue tagged union
+ * ColumnValue has: tag (Null|Integer|Real|Text|Blob) and inner.value
  */
-function parseRowJson(rowJson: string, columns: string[]): Record<string, any> {
-  const row = JSON.parse(rowJson);
-  if (row.values) {
-    const mapped: Record<string, any> = {};
-    columns.forEach((col, i) => {
-      const colValue = row.values[i];
-      if (colValue) {
-        // Extract value from ColumnValue: {type: "Integer", value: 123}
-        mapped[col] = colValue.value !== undefined ? colValue.value : null;
-      } else {
-        mapped[col] = null;
-      }
-    });
-    return mapped;
+function extractColumnValue(colValue: any): any {
+  if (!colValue) return null;
+  
+  // Handle tagged union format from UniFFI
+  if (colValue.tag === 'Null') {
+    return null;
   }
-  return row;
+  
+  // For Integer, Real, Text, Blob - value is in inner.value
+  if (colValue.inner !== undefined && colValue.inner.value !== undefined) {
+    const val = colValue.inner.value;
+    // Convert bigint to number for Integer type (safe for most use cases)
+    if (typeof val === 'bigint') {
+      return Number(val);
+    }
+    // Convert ArrayBuffer to Uint8Array for Blob type
+    if (val instanceof ArrayBuffer) {
+      return new Uint8Array(val);
+    }
+    return val;
+  }
+  
+  return null;
+}
+
+/**
+ * Convert a UniFFI Row (with typed values) to a plain object keyed by column name
+ */
+function convertRow(row: any, columns: string[]): Record<string, any> {
+  const mapped: Record<string, any> = {};
+  
+  if (row.values && Array.isArray(row.values)) {
+    columns.forEach((col, i) => {
+      mapped[col] = extractColumnValue(row.values[i]);
+    });
+  }
+  
+  return mapped;
 }
 
 /**
  * Convert UniFFI QueryResult to our QueryResult interface
  */
 function convertQueryResult(result: any): QueryResult {
-  const rows = result.rows.map((rowJson: string) => parseRowJson(rowJson, result.columns));
+  const rows = result.rows.map((row: any) => convertRow(row, result.columns));
 
   return {
     columns: result.columns,
@@ -106,9 +130,18 @@ export class AbsurderDatabase {
       throw new Error('Database is already open');
     }
 
+    // Ensure platform is initialized before any database operations
+    // On Android, this gets the data directory for path resolution
+    await initializePlatform();
+
     const cfg = typeof this.config === 'object' ? this.config : { name: this.config };
+
+    // Resolve the database path for the current platform
+    // On Android, this converts relative paths to absolute paths
+    const resolvedPath = resolveDatabasePath(cfg.name);
+
     const uniffiConfig = {
-      name: cfg.name,
+      name: resolvedPath,
       encryptionKey: cfg.encryption?.key,
       cacheSize: cfg.cacheSize !== undefined ? BigInt(cfg.cacheSize) : undefined,
       pageSize: cfg.pageSize !== undefined ? BigInt(cfg.pageSize) : undefined,
@@ -224,7 +257,7 @@ export class AbsurderDatabase {
 
   async fetchNext(streamHandle: bigint, batchSize: number): Promise<any[]> {
     const batch = uniffi.fetchNext(streamHandle, batchSize);
-    return batch.rows.map((rowJson: string) => parseRowJson(rowJson, batch.columns));
+    return batch.rows.map((row: any) => convertRow(row, batch.columns));
   }
 
   async closeStream(streamHandle: bigint): Promise<void> {
@@ -249,8 +282,8 @@ export class AbsurderDatabase {
           break;
         }
 
-        for (const rowJson of batch.rows) {
-          yield parseRowJson(rowJson, batch.columns);
+        for (const row of batch.rows) {
+          yield convertRow(row, batch.columns);
         }
       }
     } finally {

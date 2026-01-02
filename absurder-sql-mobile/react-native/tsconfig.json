@@ -1,5 +1,23 @@
 {
-  "extends": "@react-native/typescript-config",
-  "include": ["**/*.ts", "**/*.tsx"],
+  "compilerOptions": {
+    "jsx": "react-native",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "absurder-sql-mobile": ["../src/index.ts"]
+    },
+    "typeRoots": ["./types", "./node_modules/@types"]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "types/**/*.d.ts"],
   "exclude": ["**/node_modules", "**/Pods"]
 }

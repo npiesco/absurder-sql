@@ -1,0 +1,362 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/intermediates/cxx/Debug/716g5b4g/obj/x86_64/libappmodules.so"
+		}
+	],
+	"backtrace" : 3,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"include",
+			"target_link_libraries",
+			"target_compile_options",
+			"target_include_directories"
+		],
+		"files" : 
+		[
+			"/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/react-native/ReactAndroid/cmake-utils/ReactNative-application.cmake",
+			"CMakeLists.txt",
+			"/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 31,
+				"parent" : 0
+			},
+			{
+				"file" : 0,
+				"parent" : 1
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 56,
+				"parent" : 2
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 101,
+				"parent" : 2
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 87,
+				"parent" : 2
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 63,
+				"parent" : 2
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 58,
+				"parent" : 2
+			},
+			{
+				"file" : 2
+			},
+			{
+				"command" : 4,
+				"file" : 2,
+				"line" : 89,
+				"parent" : 8
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-Wall"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-Werror"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-Wno-error=cpp"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-fexceptions"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-frtti"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-std=c++20"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-DLOG_TAG=\\\"ReactNative\\\""
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-DFOLLY_NO_CONFIG=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_HAVE_CLOCK_GETTIME=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_USE_LIBCPP=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_CFG_NO_COROUTINES=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_MOBILE=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_HAVE_RECVMMSG=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_HAVE_PTHREAD=1"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-DFOLLY_HAVE_XSI_STRERROR_R=1"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"define" : "appmodules_EXPORTS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 7,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup"
+				},
+				{
+					"backtrace" : 7,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/generated/autolinking/src/main/jni"
+				},
+				{
+					"backtrace" : 9,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni/."
+				},
+				{
+					"backtrace" : 4,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni/../../../../common/cpp"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni/../../../build/generated/source/codegen/jni"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/RNCSlider"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/."
+				},
+				{
+					"backtrace" : 4,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/react/renderer/components/NativeAbsurderSql"
+				},
+				{
+					"backtrace" : 5,
+					"isSystem" : true,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/ecaf85af74491e145fd7c1a1474ff70a/transformed/fbjni-0.6.0/prefab/modules/fbjni/include"
+				},
+				{
+					"backtrace" : 5,
+					"isSystem" : true,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/jsi/include"
+				},
+				{
+					"backtrace" : 5,
+					"isSystem" : true,
+					"path" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/reactnative/include"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				0,
+				1
+			],
+			"sysroot" : 
+			{
+				"path" : "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/darwin-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 4,
+			"id" : "react_codegen_RNCSlider::@4898bc4726ecf1751b6a"
+		},
+		{
+			"backtrace" : 4,
+			"id" : "react_codegen_NativeAbsurderSql::@33ab728bcf293140afa2"
+		}
+	],
+	"id" : "appmodules::@6890427a1f51a3e7e1df",
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "-Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/intermediates/cxx/Debug/716g5b4g/obj/x86_64/libreact_codegen_RNCSlider.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 5,
+				"fragment" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/ecaf85af74491e145fd7c1a1474ff70a/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 5,
+				"fragment" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 5,
+				"fragment" : "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "-latomic -lm",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX",
+		"sysroot" : 
+		{
+			"path" : "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/darwin-x86_64/sysroot"
+		}
+	},
+	"name" : "appmodules",
+	"nameOnDisk" : "libappmodules.so",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1
+			]
+		},
+		{
+			"name" : "Object Libraries",
+			"sourceIndexes" : 
+			[
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 3,
+			"compileGroupIndex" : 0,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/generated/autolinking/src/main/jni/autolinking.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 3,
+			"compileGroupIndex" : 0,
+			"path" : "OnLoad.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/NativeAbsurderSql-generated.cpp.o",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/react/renderer/components/NativeAbsurderSql/ComponentDescriptors.cpp.o",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/react/renderer/components/NativeAbsurderSql/EventEmitters.cpp.o",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/react/renderer/components/NativeAbsurderSql/NativeAbsurderSqlJSI-generated.cpp.o",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/react/renderer/components/NativeAbsurderSql/Props.cpp.o",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/react/renderer/components/NativeAbsurderSql/ShadowNodes.cpp.o",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 4,
+			"isGenerated" : true,
+			"path" : "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64/NativeAbsurderSql_autolinked_build/CMakeFiles/react_codegen_NativeAbsurderSql.dir/react/renderer/components/NativeAbsurderSql/States.cpp.o",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "SHARED_LIBRARY"
+}

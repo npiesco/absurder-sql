@@ -1,0 +1,61 @@
+{
+  "buildFiles": [
+    "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/@react-native-community/slider/android/src/main/jni/CMakeLists.txt",
+    "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/absurder-sql-mobile/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/.cxx/Debug/716g5b4g/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "appmodules::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "appmodules",
+      "output": "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/intermediates/cxx/Debug/716g5b4g/obj/x86_64/libappmodules.so",
+      "runtimeFiles": [
+        "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/intermediates/cxx/Debug/716g5b4g/obj/x86_64/libreact_codegen_RNCSlider.so",
+        "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/ecaf85af74491e145fd7c1a1474ff70a/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+        "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
+      ]
+    },
+    "react_codegen_NativeAbsurderSql::@33ab728bcf293140afa2": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "react_codegen_NativeAbsurderSql"
+    },
+    "react_codegen_RNCSlider::@4898bc4726ecf1751b6a": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "react_codegen_RNCSlider",
+      "output": "/Users/nicholas.piescobraintrustdata.com/absurder-sql/vault/mobile/android/app/build/intermediates/cxx/Debug/716g5b4g/obj/x86_64/libreact_codegen_RNCSlider.so",
+      "runtimeFiles": [
+        "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/ecaf85af74491e145fd7c1a1474ff70a/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+        "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/Users/nicholas.piescobraintrustdata.com/.gradle/caches/8.10.2/transforms/5bfdf811371c923347fe339a9da5996d/transformed/react-android-0.76.9-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
+      ]
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/Users/nicholas.piescobraintrustdata.com/Library/Android/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

@@ -3,6 +3,8 @@
 //! React Native bindings for iOS and Android using UniFFI auto-generated bindings.
 //! Provides native SQLite with filesystem persistence and SQLCipher encryption.
 
+// Registry module only needed when UniFFI bindings are enabled
+#[cfg(feature = "uniffi-bindings")]
 mod registry;
 
 // UniFFI API (opt-in with uniffi-bindings feature)
