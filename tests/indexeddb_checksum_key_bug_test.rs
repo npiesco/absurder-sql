@@ -8,8 +8,8 @@
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_tests {
+    use absurder_sql::{ColumnValue, Database, DatabaseConfig};
     use wasm_bindgen_test::*;
-    use absurder_sql::{Database, DatabaseConfig, ColumnValue};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -27,8 +27,12 @@ mod wasm_tests {
         };
         let mut db = Database::new(config).await.unwrap();
 
-        db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)").await.unwrap();
-        db.execute("INSERT INTO test (id, value) VALUES (1, 100)").await.unwrap();
+        db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)")
+            .await
+            .unwrap();
+        db.execute("INSERT INTO test (id, value) VALUES (1, 100)")
+            .await
+            .unwrap();
 
         // Step 2: Checkpoint and sync (this creates block with checksum A)
         log::info!("=== Step 2: First sync (checksum A) ===");
@@ -37,7 +41,9 @@ mod wasm_tests {
 
         // Step 3: Update the row (this modifies the same block, new checksum B)
         log::info!("=== Step 3: Update row to value=200 ===");
-        db.execute("UPDATE test SET value = 200 WHERE id = 1").await.unwrap();
+        db.execute("UPDATE test SET value = 200 WHERE id = 1")
+            .await
+            .unwrap();
 
         // Step 4: Checkpoint and sync again (this creates ANOTHER block with checksum B)
         // BUG: This creates a NEW IndexedDB key instead of overwriting the old one
@@ -46,7 +52,10 @@ mod wasm_tests {
         db.sync().await.unwrap();
 
         // Verify data is correct before close
-        let query_js = db.execute("SELECT value FROM test WHERE id = 1").await.unwrap();
+        let query_js = db
+            .execute("SELECT value FROM test WHERE id = 1")
+            .await
+            .unwrap();
         let result: absurder_sql::QueryResult = serde_wasm_bindgen::from_value(query_js).unwrap();
         let value_before = match &result.rows[0].values[0] {
             ColumnValue::Integer(n) => *n,
@@ -78,7 +87,8 @@ mod wasm_tests {
             query_js.err()
         );
 
-        let result: absurder_sql::QueryResult = serde_wasm_bindgen::from_value(query_js.unwrap()).unwrap();
+        let result: absurder_sql::QueryResult =
+            serde_wasm_bindgen::from_value(query_js.unwrap()).unwrap();
         let value_after = match &result.rows[0].values[0] {
             ColumnValue::Integer(n) => *n,
             _ => panic!("Expected integer"),
@@ -111,21 +121,30 @@ mod wasm_tests {
         };
         let mut db = Database::new(config).await.unwrap();
 
-        db.execute("CREATE TABLE counter (id INTEGER PRIMARY KEY, count INTEGER)").await.unwrap();
-        db.execute("INSERT INTO counter (id, count) VALUES (1, 0)").await.unwrap();
+        db.execute("CREATE TABLE counter (id INTEGER PRIMARY KEY, count INTEGER)")
+            .await
+            .unwrap();
+        db.execute("INSERT INTO counter (id, count) VALUES (1, 0)")
+            .await
+            .unwrap();
 
         // Perform many updates with syncs
         // Each update creates a NEW IndexedDB key with different checksum
         // BUG: IndexedDB accumulates many versions of the same block
         for i in 1..=5 {
             log::info!("=== Update {} ===", i);
-            db.execute(&format!("UPDATE counter SET count = {} WHERE id = 1", i)).await.unwrap();
+            db.execute(&format!("UPDATE counter SET count = {} WHERE id = 1", i))
+                .await
+                .unwrap();
             db.execute("PRAGMA wal_checkpoint(TRUNCATE)").await.unwrap();
             db.sync().await.unwrap();
         }
 
         // Verify final value is 5
-        let query_js = db.execute("SELECT count FROM counter WHERE id = 1").await.unwrap();
+        let query_js = db
+            .execute("SELECT count FROM counter WHERE id = 1")
+            .await
+            .unwrap();
         let result: absurder_sql::QueryResult = serde_wasm_bindgen::from_value(query_js).unwrap();
         let count_before = match &result.rows[0].values[0] {
             ColumnValue::Integer(n) => *n,
@@ -145,7 +164,8 @@ mod wasm_tests {
         let query_js = db2.execute("SELECT count FROM counter WHERE id = 1").await;
         assert!(query_js.is_ok(), "Query failed: {:?}", query_js.err());
 
-        let result: absurder_sql::QueryResult = serde_wasm_bindgen::from_value(query_js.unwrap()).unwrap();
+        let result: absurder_sql::QueryResult =
+            serde_wasm_bindgen::from_value(query_js.unwrap()).unwrap();
         let count_after = match &result.rows[0].values[0] {
             ColumnValue::Integer(n) => *n,
             _ => panic!("Expected integer"),
