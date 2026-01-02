@@ -2,7 +2,13 @@
  * Database Backup/Restore Utilities
  *
  * Uses exportToFile/importFromFile pattern for reliable persistence.
- * This avoids the sync() corruption bug in absurder-sql's VFS layer.
+ * This creates atomic snapshots stored in a separate IndexedDB backup store.
+ *
+ * Note: sync() now works correctly in v0.1.24+ (IndexedDB key bug fixed),
+ * but export/import pattern is still recommended for:
+ * - Atomic snapshots that can be versioned
+ * - Separate backup store isolated from VFS blocks
+ * - Easier backup/restore across different databases
  *
  * Pattern from basalt PWA: https://github.com/npiesco/basalt
  */
