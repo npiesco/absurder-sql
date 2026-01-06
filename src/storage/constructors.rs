@@ -10,6 +10,8 @@ use super::vfs_sync;
 #[cfg(target_arch = "wasm32")]
 use crate::types::DatabaseError;
 #[cfg(target_arch = "wasm32")]
+use crate::utils::normalize_db_name;
+#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -34,6 +36,9 @@ struct FsDealloc {
 /// Create a new BlockStorage instance for WASM platform
 #[cfg(target_arch = "wasm32")]
 pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
+    // CRITICAL: Use centralized normalize_db_name to match VFS and Database.name
+    let db_name = normalize_db_name(db_name);
+    let db_name = db_name.as_str();
     log::info!("Creating BlockStorage for database: {}", db_name);
 
     // Perform IndexedDB recovery scan first
@@ -222,22 +227,18 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
             (allocated_blocks, next_block_id)
         }
 
-        // Native tests: restore allocation from test-global (when fs_persist is disabled)
-        #[cfg(all(
-            not(target_arch = "wasm32"),
-            any(test, debug_assertions),
-            not(feature = "fs_persist")
-        ))]
+        // Native non-fs_persist: restore allocation from global
+        #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
         {
             let mut allocated_blocks = HashSet::new();
             let mut next_block_id: u64 = 1;
 
             vfs_sync::with_global_allocation_map(|allocation_map| {
-                if let Some(existing_allocations) = allocation_map.get(db_name) {
+                if let Some(existing_allocations) = allocation_map.borrow().get(db_name) {
                     allocated_blocks = existing_allocations.clone();
                     next_block_id = allocated_blocks.iter().max().copied().unwrap_or(0) + 1;
                     log::info!(
-                        "[test] Restored {} allocated blocks for database: {}",
+                        "Restored {} allocated blocks for database: {}",
                         allocated_blocks.len(),
                         db_name
                     );
@@ -245,12 +246,6 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
             });
 
             (allocated_blocks, next_block_id)
-        }
-
-        // Native defaults
-        #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
-        {
-            (HashSet::new(), 1u64)
         }
     };
 
@@ -383,18 +378,15 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         set
     };
 
-    // Native tests: restore from test-global metadata (when fs_persist is disabled)
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    // Native non-fs_persist: restore from global metadata
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     let checksums_init: HashMap<u64, u64> = {
         let mut map = HashMap::new();
-        let committed =
-            vfs_sync::with_global_commit_marker(|cm| cm.get(db_name).copied().unwrap_or(0));
+        let committed = vfs_sync::with_global_commit_marker(|cm| {
+            cm.borrow().get(db_name).copied().unwrap_or(0)
+        });
         GLOBAL_METADATA_TEST.with(|meta| {
-            let meta_map = meta.borrow_mut();
+            let meta_map = meta.lock();
             if let Some(db_meta) = meta_map.get(db_name) {
                 for (bid, m) in db_meta.iter() {
                     if (m.version as u64) <= committed {
@@ -402,7 +394,7 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
                     }
                 }
                 log::info!(
-                    "[test] Restored {} checksum entries for database: {}",
+                    "Restored {} checksum entries for database: {}",
                     db_meta.len(),
                     db_name
                 );
@@ -411,18 +403,15 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         map
     };
 
-    // Native tests: restore per-block algorithms (when fs_persist is disabled)
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    // Native non-fs_persist: restore per-block algorithms
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = {
         let mut map = HashMap::new();
-        let committed =
-            vfs_sync::with_global_commit_marker(|cm| cm.get(db_name).copied().unwrap_or(0));
+        let committed = vfs_sync::with_global_commit_marker(|cm| {
+            cm.borrow().get(db_name).copied().unwrap_or(0)
+        });
         GLOBAL_METADATA_TEST.with(|meta| {
-            let meta_map = meta.borrow_mut();
+            let meta_map = meta.lock();
             if let Some(db_meta) = meta_map.get(db_name) {
                 for (bid, m) in db_meta.iter() {
                     if (m.version as u64) <= committed {
@@ -433,14 +422,6 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         });
         map
     };
-
-    // Native non-test: start empty
-    #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
-    let checksums_init: HashMap<u64, u64> = HashMap::new();
-
-    // Native non-test: start empty for algorithms
-    #[cfg(all(not(target_arch = "wasm32"), not(any(test, debug_assertions))))]
-    let checksum_algos_init: HashMap<u64, ChecksumAlgorithm> = HashMap::new();
 
     // WASM: restore per-block algorithms
     #[cfg(target_arch = "wasm32")]

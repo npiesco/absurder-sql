@@ -22,11 +22,7 @@ use super::block_storage::BlockStorage;
 use crate::types::DatabaseError;
 #[cfg(any(
     target_arch = "wasm32",
-    all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    )
+    all(not(target_arch = "wasm32"), not(feature = "fs_persist"))
 ))]
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -38,21 +34,13 @@ use std::{
     path::PathBuf,
 };
 
-#[cfg(target_arch = "wasm32")]
-use super::vfs_sync;
-
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(test, debug_assertions),
-    not(feature = "fs_persist")
+#[cfg(any(
+    target_arch = "wasm32",
+    all(not(target_arch = "wasm32"), not(feature = "fs_persist"))
 ))]
 use super::vfs_sync;
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(test, debug_assertions),
-    not(feature = "fs_persist")
-))]
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
 use super::block_storage::GLOBAL_METADATA_TEST;
 
 // On-disk JSON schema for fs_persist
@@ -152,12 +140,8 @@ pub async fn allocate_block_impl(storage: &mut BlockStorage) -> Result<u64, Data
         }
     }
 
-    // For native tests, mirror allocation state to test-global (when fs_persist disabled)
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    // For native non-fs_persist builds, mirror allocation state to global
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     {
         vfs_sync::with_global_allocation_map(|allocation_map| {
             let mut map = allocation_map.borrow_mut();
@@ -321,12 +305,8 @@ pub async fn deallocate_block_impl(
         }
     }
 
-    // For native tests, mirror removal from test-globals (when fs_persist disabled)
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    // For native non-fs_persist builds, mirror removal from globals
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     {
         vfs_sync::with_global_storage(|gs| {
             let mut storage_map = gs.borrow_mut();

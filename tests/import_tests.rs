@@ -13,7 +13,7 @@ fn test_import_database_from_bytes() {
     use absurder_sql::storage::import::import_database_from_bytes;
     use absurder_sql::storage::vfs_sync::with_global_storage;
 
-    let db_name = "test_import_db";
+    let db_name = "test_import_db.db";
 
     // Create a minimal valid SQLite file (2 pages of 4096 bytes each)
     let mut data = vec![0u8; 8192];
@@ -66,7 +66,7 @@ fn test_import_database_different_page_size() {
     use absurder_sql::storage::import::import_database_from_bytes;
     use absurder_sql::storage::vfs_sync::with_global_storage;
 
-    let db_name = "test_import_2k_pages";
+    let db_name = "test_import_2k_pages.db";
 
     // Create SQLite file with 2048-byte pages (4 pages = 8192 bytes)
     let mut data = vec![0u8; 8192];
@@ -96,7 +96,7 @@ fn test_import_database_different_page_size() {
 fn test_import_invalid_database_fails() {
     use absurder_sql::storage::import::import_database_from_bytes;
 
-    let db_name = "test_import_invalid";
+    let db_name = "test_import_invalid.db";
 
     // Invalid SQLite file (wrong magic string)
     let mut data = vec![0u8; 4096];
@@ -115,7 +115,7 @@ fn test_import_clears_existing_data() {
     use absurder_sql::storage::vfs_sync::with_global_storage;
     use std::collections::HashMap;
 
-    let db_name = "test_import_clear";
+    let db_name = "test_import_clear.db";
 
     // Populate with old data
     with_global_storage(|gs| {
@@ -157,7 +157,7 @@ fn test_import_database_with_padding() {
     use absurder_sql::storage::import::import_database_from_bytes;
     use absurder_sql::storage::vfs_sync::with_global_storage;
 
-    let db_name = "test_import_padding";
+    let db_name = "test_import_padding.db";
 
     // Create database with 3 pages of 2048 bytes = 6144 bytes total
     // This is not a multiple of BLOCK_SIZE (4096), so needs padding
@@ -208,7 +208,7 @@ async fn test_import_clears_block_storage_cache() {
     use absurder_sql::storage::block_storage::BlockStorage;
     use absurder_sql::storage::import::import_database_from_bytes;
 
-    let db_name = "test_cache_clear";
+    let db_name = "test_cache_clear.db";
 
     // Step 1: Create and initialize BlockStorage with original data
     let mut storage = BlockStorage::new(db_name).await.expect("create storage");
@@ -263,7 +263,7 @@ fn test_import_cache_invalidation_api_exists() {
 
     // This test verifies the API exists for cache invalidation
     // The function should be callable and not panic
-    let db_name = "test_invalidate_api";
+    let db_name = "test_invalidate_api.db";
     invalidate_block_storage_caches(db_name);
     // If we get here without panic, the API exists and works
 }

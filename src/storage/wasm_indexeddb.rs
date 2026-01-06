@@ -249,7 +249,7 @@ async fn restore_from_indexeddb_internal(db_name: &str, force: bool) -> Result<(
             web_sys::console::log_1(
                 &format!("[RESTORE] IndexedDB opened, starting block restoration").into(),
             );
-            restore_blocks_from_indexeddb(&db, db_name).await?;
+            restore_blocks_from_indexeddb(&db, db_name, force).await?;
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&format!("[RESTORE] Block restoration complete").into());
             return Ok(());
@@ -417,7 +417,7 @@ async fn restore_from_indexeddb_internal(db_name: &str, force: bool) -> Result<(
                                     #[cfg(target_arch = "wasm32")]
                                     log::debug!("About to call restore_blocks_from_indexeddb");
 
-                                    restore_blocks_from_indexeddb(&db, db_name).await?;
+                                    restore_blocks_from_indexeddb(&db, db_name, force).await?;
                                     log::info!("Successfully restored blocks");
                                     return Ok(());
                                 } else {
@@ -462,10 +462,12 @@ async fn restore_from_indexeddb_internal(db_name: &str, force: bool) -> Result<(
 }
 
 /// Restore blocks from IndexedDB into global storage
+/// When force=true, overwrite existing blocks and clear stale metadata
 #[cfg(target_arch = "wasm32")]
 async fn restore_blocks_from_indexeddb(
     db: &web_sys::IdbDatabase,
     db_name: &str,
+    force: bool,
 ) -> Result<(), DatabaseError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
@@ -588,7 +590,25 @@ async fn restore_blocks_from_indexeddb(
         .into(),
     );
 
-    // Only write blocks that DON'T already exist in GLOBAL_STORAGE (respects fresh imports)
+    // CRITICAL: When force=true (multi-tab reload), clear stale metadata BEFORE restoring blocks
+    // This prevents checksum mismatches from old metadata that doesn't match new block data
+    if force {
+        vfs_sync::with_global_metadata(|gm| {
+            gm.borrow_mut().remove(db_name);
+        });
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(
+            &format!(
+                "[RESTORE] Cleared stale GLOBAL_METADATA for {} (force=true)",
+                db_name
+            )
+            .into(),
+        );
+    }
+
+    // Write blocks to GLOBAL_STORAGE
+    // When force=true, overwrite existing blocks with fresh IndexedDB data
+    // When force=false, only write blocks that don't exist (respects fresh imports)
     let total_deduped = deduped_blocks.len();
     let blocks_written = vfs_sync::with_global_storage(|gs| {
         let mut storage_map = gs.borrow_mut();
@@ -597,12 +617,14 @@ async fn restore_blocks_from_indexeddb(
             .or_insert_with(HashMap::new);
         let mut count = 0;
         for (block_id, data) in deduped_blocks {
-            if !db_storage.contains_key(&block_id) {
+            let already_exists = db_storage.contains_key(&block_id);
+            let should_write = force || !already_exists;
+            if should_write {
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(
                     &format!(
-                        "[RESTORE] Writing block {} to GLOBAL_STORAGE[{}]",
-                        block_id, db_name
+                        "[RESTORE] Writing block {} to GLOBAL_STORAGE[{}] (force={}, existed={})",
+                        block_id, db_name, force, already_exists
                     )
                     .into(),
                 );
@@ -612,7 +634,7 @@ async fn restore_blocks_from_indexeddb(
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(
                     &format!(
-                        "[RESTORE] Skipping block {} - already in GLOBAL_STORAGE",
+                        "[RESTORE] Skipping block {} - already in GLOBAL_STORAGE (force=false)",
                         block_id
                     )
                     .into(),

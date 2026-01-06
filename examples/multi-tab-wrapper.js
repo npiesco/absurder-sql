@@ -59,8 +59,18 @@ export class MultiTabDatabase {
     // Create database instance
     this.db = await this.Database.newDatabase(this.dbName);
 
-    this.db.onDataChange((changeType) => {
+    this.db.onDataChange(async (changeType) => {
       console.log(`[MultiTabDatabase] Data change received: ${changeType}`);
+      // Always reload from IndexedDB when receiving a data change notification
+      // This ensures we see data written by other tabs, regardless of our leader status
+      // (Leadership can change between when data was written and when we receive the notification)
+      try {
+        console.log(`[MultiTabDatabase] Reloading from IndexedDB...`);
+        await this.db.reloadFromIndexedDB();
+        console.log(`[MultiTabDatabase] Reloaded from IndexedDB`);
+      } catch (error) {
+        console.error(`[MultiTabDatabase] Failed to reload from IndexedDB:`, error);
+      }
       this._triggerRefreshCallbacks();
     });
 

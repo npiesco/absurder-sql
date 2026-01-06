@@ -168,11 +168,19 @@ async fn test_prepare_statement_reuse() {
         .expect("Failed to count");
     assert_eq!(result.rows[0].values[0], ColumnValue::Integer(100));
 
-    // Duration should be reasonable (less than 1 second for 100 inserts)
+    // Duration should be reasonable
+    // fs_persist writes to disk so needs more time (5 seconds)
+    // In-memory mode should complete in under 1 second
+    #[cfg(feature = "fs_persist")]
+    let max_duration_ms = 5000;
+    #[cfg(not(feature = "fs_persist"))]
+    let max_duration_ms = 1000;
+
     assert!(
-        duration.as_millis() < 1000,
-        "100 prepared inserts took too long: {:?}",
-        duration
+        duration.as_millis() < max_duration_ms,
+        "100 prepared inserts took too long: {:?} (limit: {}ms)",
+        duration,
+        max_duration_ms
     );
 }
 

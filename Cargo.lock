@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "absurder-sql"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "console_error_panic_hook",
  "console_log",

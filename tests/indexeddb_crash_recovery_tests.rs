@@ -5,6 +5,7 @@
 #![allow(unused_imports)]
 
 use absurder_sql::storage::{BLOCK_SIZE, BlockStorage, CrashRecoveryAction};
+use absurder_sql::utils::normalize_db_name;
 use std::collections::HashMap;
 use wasm_bindgen_test::*;
 
@@ -291,14 +292,17 @@ async fn test_indexeddb_rollback_deletes_blocks() {
 
     // Step 3: Manually simulate incomplete transaction state
     // Roll back commit marker to baseline but keep block2 in IndexedDB
+    // Use normalized name to match what BlockStorage uses
+    let normalized_db_name = normalize_db_name(db_name);
     vfs_sync::with_global_commit_marker(|cm| {
-        cm.borrow_mut().insert(db_name.to_string(), baseline_marker);
+        cm.borrow_mut()
+            .insert(normalized_db_name.clone(), baseline_marker);
     });
 
     // Verify block2 is still in global storage (simulating incomplete state)
     let block2_exists_before = vfs_sync::with_global_storage(|gs| {
         gs.borrow()
-            .get(db_name)
+            .get(&normalized_db_name)
             .and_then(|db| db.get(&block2))
             .is_some()
     });
@@ -329,7 +333,7 @@ async fn test_indexeddb_rollback_deletes_blocks() {
     // Step 5: Verify both blocks are accessible after finalize
     let block2_exists_after = vfs_sync::with_global_storage(|gs| {
         gs.borrow()
-            .get(db_name)
+            .get(&normalized_db_name)
             .and_then(|db| db.get(&block2))
             .is_some()
     });
@@ -386,11 +390,13 @@ async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
     let data3 = vec![0xCCu8; BLOCK_SIZE];
 
     // Manually create inconsistent metadata (version 3 and 4, not sequential from marker 1)
+    // Use normalized name to match what BlockStorage uses
+    let normalized_db_name = normalize_db_name(db_name);
     vfs_sync::with_global_metadata(|meta| {
         use absurder_sql::storage::{metadata::BlockMetadataPersist, metadata::ChecksumAlgorithm};
         let mut binding = meta.borrow_mut();
         let db_meta = binding
-            .entry(db_name.to_string())
+            .entry(normalized_db_name.clone())
             .or_insert_with(std::collections::HashMap::new);
         db_meta.insert(
             block2,
@@ -416,7 +422,7 @@ async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
     vfs_sync::with_global_storage(|gs| {
         let mut binding = gs.borrow_mut();
         let db_storage = binding
-            .entry(db_name.to_string())
+            .entry(normalized_db_name.clone())
             .or_insert_with(std::collections::HashMap::new);
         db_storage.insert(block2, data2);
         db_storage.insert(block3, data3);
@@ -447,13 +453,13 @@ async fn test_indexeddb_rollback_deletes_orphaned_blocks() {
     // Step 4: Verify orphaned blocks were deleted from global storage
     let block2_exists = vfs_sync::with_global_storage(|gs| {
         gs.borrow()
-            .get(db_name)
+            .get(&normalized_db_name)
             .and_then(|db| db.get(&block2))
             .is_some()
     });
     let block3_exists = vfs_sync::with_global_storage(|gs| {
         gs.borrow()
-            .get(db_name)
+            .get(&normalized_db_name)
             .and_then(|db| db.get(&block3))
             .is_some()
     });

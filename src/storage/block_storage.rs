@@ -114,8 +114,8 @@ thread_local! {
     pub(super) static GLOBAL_METADATA_TEST: parking_lot::Mutex<HashMap<String, HashMap<u64, BlockMetadataPersist>>> = parking_lot::Mutex::new(HashMap::new());
 }
 
-// Test-only commit marker mirror for native builds (when fs_persist is disabled)
-#[cfg(all(not(target_arch = "wasm32"), any(test, debug_assertions)))]
+// Commit marker mirror for native builds (when fs_persist is disabled)
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
 thread_local! {
     static GLOBAL_COMMIT_MARKER_TEST: parking_lot::Mutex<HashMap<String, u64>> = parking_lot::Mutex::new(HashMap::new());
 }
@@ -442,6 +442,9 @@ impl BlockStorage {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(db_name: &str) -> Result<Self, DatabaseError> {
+        // CRITICAL: Use centralized normalize_db_name to match VFS and Database.name
+        let db_name = crate::utils::normalize_db_name(db_name);
+        let db_name = db_name.as_str();
         log::info!("Creating BlockStorage for database: {}", db_name);
 
         // Initialize allocation tracking for native
@@ -476,8 +479,23 @@ impl BlockStorage {
 
             #[cfg(not(feature = "fs_persist"))]
             {
-                // Native test mode: use default allocation
-                (HashSet::new(), 1)
+                // Native non-fs_persist: restore allocation from global storage
+                let mut allocated_blocks = HashSet::new();
+                let mut next_block_id: u64 = 1;
+
+                super::vfs_sync::with_global_allocation_map(|allocation_map| {
+                    if let Some(existing_allocations) = allocation_map.borrow().get(db_name) {
+                        allocated_blocks = existing_allocations.clone();
+                        next_block_id = allocated_blocks.iter().max().copied().unwrap_or(0) + 1;
+                        log::info!(
+                            "Restored {} allocated blocks for database: {}",
+                            allocated_blocks.len(),
+                            db_name
+                        );
+                    }
+                });
+
+                (allocated_blocks, next_block_id)
             }
         };
 
@@ -517,14 +535,9 @@ impl BlockStorage {
 
             #[cfg(not(feature = "fs_persist"))]
             {
-                // Native test mode: restore checksums from global test storage
-                #[allow(unused_mut)]
+                // Native non-fs_persist: restore checksums from global test storage
                 let mut map = HashMap::new();
-                #[cfg(any(test, debug_assertions))]
                 GLOBAL_METADATA_TEST.with(|meta| {
-                    #[cfg(target_arch = "wasm32")]
-                    let meta_map = meta.borrow_mut();
-                    #[cfg(not(target_arch = "wasm32"))]
                     let meta_map = meta.lock();
                     if let Some(db_meta) = meta_map.get(db_name) {
                         for (block_id, metadata) in db_meta.iter() {
@@ -576,14 +589,9 @@ impl BlockStorage {
 
             #[cfg(not(feature = "fs_persist"))]
             {
-                // Native test mode: restore algorithms from global test storage
-                #[allow(unused_mut)]
+                // Native non-fs_persist: restore algorithms from global test storage
                 let mut map = HashMap::new();
-                #[cfg(any(test, debug_assertions))]
                 GLOBAL_METADATA_TEST.with(|meta| {
-                    #[cfg(target_arch = "wasm32")]
-                    let meta_map = meta.borrow_mut();
-                    #[cfg(not(target_arch = "wasm32"))]
                     let meta_map = meta.lock();
                     if let Some(db_meta) = meta_map.get(db_name) {
                         for (block_id, metadata) in db_meta.iter() {
@@ -1131,17 +1139,10 @@ impl BlockStorage {
             }
             out
         }
-        #[cfg(all(
-            not(target_arch = "wasm32"),
-            any(test, debug_assertions),
-            not(feature = "fs_persist")
-        ))]
+        #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
         {
             let mut out = HashMap::new();
             GLOBAL_METADATA_TEST.with(|meta| {
-                #[cfg(target_arch = "wasm32")]
-                let meta_map = meta.borrow_mut();
-                #[cfg(not(target_arch = "wasm32"))]
                 let meta_map = meta.lock();
                 if let Some(db_meta) = meta_map.get(&self.db_name) {
                     for (bid, m) in db_meta.iter() {
@@ -2354,14 +2355,18 @@ mod wasm_commit_marker_tests {
 
     // Helper: set commit marker for a db name in WASM global
     fn set_commit_marker(db: &str, v: u64) {
+        // Normalize name to match BlockStorage.db_name
+        let db = crate::utils::normalize_db_name(db);
         super::vfs_sync::with_global_commit_marker(|cm| {
-            cm.borrow_mut().insert(db.to_string(), v);
+            cm.borrow_mut().insert(db, v);
         });
     }
 
     // Helper: get commit marker for a db name in WASM global
     fn get_commit_marker(db: &str) -> u64 {
-        vfs_sync::with_global_commit_marker(|cm| cm.borrow().get(db).copied().unwrap_or(0))
+        // Normalize name to match BlockStorage.db_name
+        let db = crate::utils::normalize_db_name(db);
+        vfs_sync::with_global_commit_marker(|cm| cm.borrow().get(&db).copied().unwrap_or(0))
     }
 
     #[wasm_bindgen_test]
@@ -2478,14 +2483,18 @@ mod commit_marker_tests {
 
     // Helper: set commit marker for a db name in test-global mirror
     fn set_commit_marker(db: &str, v: u64) {
+        // Normalize name to match BlockStorage.db_name
+        let db = crate::utils::normalize_db_name(db);
         super::vfs_sync::with_global_commit_marker(|cm| {
-            cm.borrow_mut().insert(db.to_string(), v);
+            cm.borrow_mut().insert(db, v);
         });
     }
 
     // Helper: get commit marker for a db name in test-global mirror
     fn get_commit_marker(db: &str) -> u64 {
-        super::vfs_sync::with_global_commit_marker(|cm| cm.borrow().get(db).copied().unwrap_or(0))
+        // Normalize name to match BlockStorage.db_name
+        let db = crate::utils::normalize_db_name(db);
+        super::vfs_sync::with_global_commit_marker(|cm| cm.borrow().get(&db).copied().unwrap_or(0))
     }
 
     #[tokio::test(flavor = "current_thread")]

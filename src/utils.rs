@@ -1,7 +1,54 @@
 use crate::types::DatabaseError;
 use wasm_bindgen::prelude::*;
 
-/// Utility functions for the SQLite IndexedDB library
+// Utility functions for the SQLite IndexedDB library
+
+// ============================================================================
+// DATABASE NAME NORMALIZATION - SINGLE SOURCE OF TRUTH
+// ============================================================================
+//
+// CRITICAL: All database name normalization MUST use this function.
+// This ensures GLOBAL_STORAGE keys, IndexedDB keys, VFS filenames, and
+// Database.name all use the same format.
+//
+// The canonical format is: "{name}.db" (always with .db suffix)
+//
+// Used by:
+// - Database::new() in lib.rs
+// - VFS xOpen in vfs/indexeddb_vfs.rs
+// - import_from_file, sync_internal, etc.
+//
+// DO NOT duplicate this logic elsewhere. If you need to normalize a db name,
+// use this function.
+// ============================================================================
+
+/// Normalize database name to canonical format with .db extension.
+///
+/// This is the SINGLE SOURCE OF TRUTH for database name normalization.
+/// All code that stores or retrieves data by database name MUST use this
+/// function to ensure consistency.
+///
+/// # Arguments
+/// * `name` - Raw database name (with or without .db extension)
+///
+/// # Returns
+/// Normalized name with .db extension (e.g., "mydb" -> "mydb.db")
+///
+/// # Example
+/// ```rust
+/// use absurder_sql::utils::normalize_db_name;
+///
+/// assert_eq!(normalize_db_name("mydb"), "mydb.db");
+/// assert_eq!(normalize_db_name("mydb.db"), "mydb.db");
+/// ```
+#[inline]
+pub fn normalize_db_name(name: &str) -> String {
+    if name.ends_with(".db") {
+        name.to_string()
+    } else {
+        format!("{}.db", name)
+    }
+}
 
 #[wasm_bindgen]
 extern "C" {
@@ -392,5 +439,40 @@ mod tests {
         assert!(validate_sql("INSERT INTO users (name) VALUES ('test')").is_ok());
         assert!(validate_sql("DROP TABLE users").is_err());
         assert!(validate_sql("DELETE FROM users WHERE id = 1").is_err());
+    }
+
+    #[test]
+    fn test_normalize_db_name() {
+        // Already has .db suffix - should be unchanged
+        assert_eq!(normalize_db_name("mydb.db"), "mydb.db");
+        assert_eq!(normalize_db_name("test.db"), "test.db");
+
+        // Missing .db suffix - should be added
+        assert_eq!(normalize_db_name("mydb"), "mydb.db");
+        assert_eq!(normalize_db_name("test"), "test.db");
+
+        // Edge cases
+        assert_eq!(normalize_db_name(""), ".db");
+        assert_eq!(normalize_db_name("a"), "a.db");
+        assert_eq!(normalize_db_name("my.database"), "my.database.db");
+
+        // Important: suffix must be exactly ".db", not just contain "db"
+        assert_eq!(normalize_db_name("mydb_backup"), "mydb_backup.db");
+        assert_eq!(normalize_db_name("testdb"), "testdb.db");
+    }
+
+    #[test]
+    fn test_normalize_db_name_idempotent() {
+        // Normalization should be idempotent - applying twice gives same result
+        let names = vec!["mydb", "test.db", "complex.name.db", "simple"];
+        for name in names {
+            let once = normalize_db_name(name);
+            let twice = normalize_db_name(&once);
+            assert_eq!(
+                once, twice,
+                "normalize_db_name should be idempotent for '{}'",
+                name
+            );
+        }
     }
 }

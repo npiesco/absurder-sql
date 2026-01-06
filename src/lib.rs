@@ -42,20 +42,10 @@ pub fn init_logger() {
     log::info!("AbsurderSQL logging initialized at level: {:?}", log_level);
 }
 
-/// SINGLE SOURCE OF TRUTH: Normalize database name to ALWAYS include .db extension
-/// This matches main branch behavior where all GLOBAL_STORAGE keys use name WITH .db
-/// Used by: Database::new, import_from_file, sync_internal, IndexedDB operations
-#[inline]
+// Use centralized normalize_db_name from utils - SINGLE SOURCE OF TRUTH
+// See utils.rs for documentation and rationale
 #[cfg(target_arch = "wasm32")]
-fn normalize_db_name(name: &str) -> String {
-    // Main branch uses full name with .db - we must do the same for consistency
-    // BlockStorage, GLOBAL_STORAGE, and IndexedDB all use this normalized name
-    if name.ends_with(".db") {
-        name.to_string()
-    } else {
-        format!("{}.db", name)
-    }
-}
+use crate::utils::normalize_db_name;
 
 // Module declarations
 mod cleanup;
@@ -1513,6 +1503,38 @@ impl Database {
         {
             use crate::storage::vfs_sync;
 
+            // CRITICAL: Checkpoint WAL and flush page cache to ensure all data is in GLOBAL_STORAGE
+            let db_ptr = self.connection_state.db.get();
+            if !db_ptr.is_null() {
+                // Step 1: Checkpoint WAL to write all WAL data to main database
+                // TRUNCATE mode ensures WAL is cleared after checkpoint
+                let checkpoint_sql =
+                    std::ffi::CString::new("PRAGMA wal_checkpoint(TRUNCATE)").expect("valid SQL");
+                let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
+                let prepare_result = unsafe {
+                    sqlite_wasm_rs::sqlite3_prepare_v2(
+                        db_ptr,
+                        checkpoint_sql.as_ptr(),
+                        -1,
+                        &mut stmt,
+                        std::ptr::null_mut(),
+                    )
+                };
+                if prepare_result == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
+                    unsafe {
+                        sqlite_wasm_rs::sqlite3_step(stmt);
+                        sqlite_wasm_rs::sqlite3_finalize(stmt);
+                    }
+                    log::debug!("WAL checkpoint completed");
+                }
+
+                // Step 2: Flush page cache to VFS
+                let flush_result = unsafe { sqlite_wasm_rs::sqlite3_db_cacheflush(db_ptr) };
+                if flush_result != sqlite_wasm_rs::SQLITE_OK {
+                    log::warn!("sqlite3_db_cacheflush returned {}", flush_result);
+                }
+            }
+
             // Collect blocks from GLOBAL_STORAGE (where VFS writes them)
             // CRITICAL: Use self.name WITH .db - matches main branch behavior
             // Database.name already normalized by normalize_db_name() in Database::new()
@@ -2913,6 +2935,92 @@ impl Database {
         })?;
 
         log::debug!("onDataChange callback registered for {}", self.name);
+        Ok(())
+    }
+
+    /// Reload data from IndexedDB into memory
+    /// Call this when another tab has written data and you need to see the changes
+    /// This closes and reopens the SQLite connection to invalidate its page cache
+    #[wasm_bindgen(js_name = "reloadFromIndexedDB")]
+    pub async fn reload_from_indexed_db(&mut self) -> Result<(), JsValue> {
+        log::info!("Reloading data from IndexedDB for {}", self.name);
+
+        let db_name = self.name.clone();
+
+        // Step 1: Close the SQLite connection to invalidate page cache
+        let pool_key = db_name.trim_end_matches(".db");
+        crate::connection_pool::force_close_connection(pool_key);
+        self.connection_state.db.set(std::ptr::null_mut());
+        log::info!("[RELOAD] Closed SQLite connection for {}", db_name);
+
+        // Step 2: Restore from IndexedDB into global storage (force reload)
+        crate::storage::wasm_indexeddb::restore_from_indexeddb_force(&db_name)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to restore from IndexedDB: {}", e)))?;
+        log::info!("[RELOAD] Restored from IndexedDB for {}", db_name);
+
+        // Step 3: Reload BlockStorage cache from global storage
+        use crate::vfs::indexeddb_vfs::STORAGE_REGISTRY;
+        STORAGE_REGISTRY.with(|reg| unsafe {
+            let registry = &*reg.get();
+            if let Some(storage_rc) = registry.get(&db_name) {
+                storage_rc.reload_cache_from_global_storage();
+                log::info!("[RELOAD] Reloaded BlockStorage cache for {}", db_name);
+            }
+        });
+
+        // Step 4: Reopen the SQLite connection
+        use std::ffi::CString;
+
+        let vfs_name = format!("vfs_{}", db_name.trim_end_matches(".db"));
+        let pool_key = db_name.trim_end_matches(".db").to_string();
+        let db_name_for_closure = db_name.clone();
+        let vfs_name_for_closure = vfs_name.clone();
+
+        let new_state = crate::connection_pool::get_or_create_connection(&pool_key, || {
+            let mut db = std::ptr::null_mut();
+            let db_name_cstr = CString::new(db_name_for_closure.clone())
+                .map_err(|_| "Invalid database name".to_string())?;
+            let vfs_cstr = CString::new(vfs_name_for_closure.as_str())
+                .map_err(|_| "Invalid VFS name".to_string())?;
+
+            log::info!(
+                "[RELOAD] Reopening database: {} with VFS: {}",
+                db_name_for_closure,
+                vfs_name_for_closure
+            );
+
+            let ret = unsafe {
+                sqlite_wasm_rs::sqlite3_open_v2(
+                    db_name_cstr.as_ptr(),
+                    &mut db as *mut _,
+                    sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
+                    vfs_cstr.as_ptr(),
+                )
+            };
+
+            if ret != sqlite_wasm_rs::SQLITE_OK {
+                let err_msg = unsafe {
+                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
+                    if !msg_ptr.is_null() {
+                        std::ffi::CStr::from_ptr(msg_ptr)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        "Unknown error".to_string()
+                    }
+                };
+                return Err(format!("Failed to reopen database: {}", err_msg));
+            }
+
+            log::info!("[RELOAD] Database reopened successfully");
+            Ok(db)
+        })
+        .map_err(|e| JsValue::from_str(&format!("Failed to reopen connection: {}", e)))?;
+
+        self.connection_state = new_state;
+        log::info!("[RELOAD] Connection state updated for {}", db_name);
+
         Ok(())
     }
 

@@ -41,7 +41,7 @@ fn test_import_from_rusqlite_file() {
 
     // Import
     futures::executor::block_on(import_database_from_bytes(
-        "imported_from_rusqlite",
+        "imported_from_rusqlite.db",
         file_bytes,
     ))
     .expect("Should import");
@@ -53,7 +53,7 @@ fn test_import_from_rusqlite_file() {
         #[cfg(not(target_arch = "wasm32"))]
         let storage_map = gs.borrow();
         let blocks = storage_map
-            .get("imported_from_rusqlite")
+            .get("imported_from_rusqlite.db")
             .expect("Should have blocks");
 
         assert!(!blocks.is_empty(), "Should have imported blocks");
@@ -112,7 +112,7 @@ fn test_import_rusqlite_with_multiple_tables() {
     validate_sqlite_file(&file_bytes).expect("Should be valid");
 
     // Import
-    futures::executor::block_on(import_database_from_bytes("complex_db", file_bytes))
+    futures::executor::block_on(import_database_from_bytes("complex_db.db", file_bytes))
         .expect("Should import complex database");
 
     // Verify in GLOBAL_STORAGE
@@ -121,7 +121,9 @@ fn test_import_rusqlite_with_multiple_tables() {
         let storage_map = gs;
         #[cfg(not(target_arch = "wasm32"))]
         let storage_map = gs.borrow();
-        let blocks = storage_map.get("complex_db").expect("Should have blocks");
+        let blocks = storage_map
+            .get("complex_db.db")
+            .expect("Should have blocks");
 
         assert!(!blocks.is_empty(), "Should have multiple blocks");
 

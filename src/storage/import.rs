@@ -5,6 +5,7 @@
 use super::block_storage::BLOCK_SIZE;
 use super::export::validate_sqlite_file;
 use crate::types::DatabaseError;
+use crate::utils::normalize_db_name;
 
 /// Clear all storage data for a specific database
 ///
@@ -38,6 +39,10 @@ pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> 
     use super::vfs_sync::{
         with_global_allocation_map, with_global_commit_marker, with_global_storage,
     };
+
+    // CRITICAL: Normalize db_name to match storage keys
+    let db_name = normalize_db_name(db_name);
+    let db_name = db_name.as_str();
 
     log::info!("Clearing storage for database: {}", db_name);
 
@@ -89,23 +94,16 @@ pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> 
         });
     }
 
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     {
         use super::block_storage::GLOBAL_METADATA_TEST;
         GLOBAL_METADATA_TEST.with(|gm| {
-            #[cfg(target_arch = "wasm32")]
-            let metadata = gm;
-            #[cfg(not(target_arch = "wasm32"))]
             let mut metadata = gm.lock();
             if let Some(meta) = metadata.get_mut(db_name) {
                 let count = meta.len();
                 meta.clear();
                 log::debug!(
-                    "Cleared {} metadata entries from GLOBAL_METADATA_TEST for {} (native test)",
+                    "Cleared {} metadata entries from GLOBAL_METADATA_TEST for {} (native)",
                     count,
                     db_name
                 );
@@ -184,6 +182,10 @@ pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> 
 pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<(), DatabaseError> {
     use super::vfs_sync::{with_global_allocation_map, with_global_storage};
     use std::collections::{HashMap, HashSet};
+
+    // CRITICAL: Normalize db_name to match storage keys
+    let db_name = normalize_db_name(db_name);
+    let db_name = db_name.as_str();
 
     log::info!(
         "Starting database import for: {} ({} bytes)",
@@ -305,20 +307,13 @@ pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<
         );
     }
 
-    // For native tests (without fs_persist), use GLOBAL_METADATA_TEST directly
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    // For native non-fs_persist builds, use GLOBAL_METADATA_TEST directly
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     {
         use super::block_storage::GLOBAL_METADATA_TEST;
         use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm, ChecksumManager};
 
         GLOBAL_METADATA_TEST.with(|gm| {
-            #[cfg(target_arch = "wasm32")]
-            let metadata = gm;
-            #[cfg(not(target_arch = "wasm32"))]
             let mut metadata = gm.lock();
             let mut db_metadata = std::collections::HashMap::new();
 

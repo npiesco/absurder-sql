@@ -406,7 +406,7 @@ fn test_clear_database_storage() {
     };
     use std::collections::HashMap;
 
-    let db_name = "test_clear_db";
+    let db_name = "test_clear_db.db";
 
     // Manually populate GLOBAL_STORAGE with test data
     with_global_storage(|gs| {
@@ -508,7 +508,7 @@ fn test_clear_database_storage() {
 fn test_clear_nonexistent_database() {
     use absurder_sql::storage::import::clear_database_storage;
 
-    let db_name = "nonexistent_db_12345";
+    let db_name = "nonexistent_db_12345.db";
 
     // Should not error when clearing non-existent database
     let result = futures::executor::block_on(clear_database_storage(db_name));
@@ -606,8 +606,8 @@ fn test_clear_database_isolation() {
     use absurder_sql::storage::vfs_sync::with_global_storage;
     use std::collections::HashMap;
 
-    let db1 = "test_db1";
-    let db2 = "test_db2";
+    let db1 = "test_db1.db";
+    let db2 = "test_db2.db";
 
     // Populate two databases
     with_global_storage(|gs| {
@@ -831,7 +831,7 @@ async fn test_concurrent_export_attempts() {
     use absurder_sql::storage::export::export_database_to_bytes;
     use std::sync::Arc;
 
-    let db_name = "test_concurrent_exports";
+    let db_name = "test_concurrent_exports.db";
 
     // Create and populate a test database
     let mut storage = BlockStorage::new(db_name).await.expect("create storage");

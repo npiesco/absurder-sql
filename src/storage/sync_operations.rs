@@ -37,50 +37,31 @@ macro_rules! try_lock_mutex {
 use super::block_storage::BlockStorage;
 use crate::types::DatabaseError;
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(test, debug_assertions),
-    not(feature = "fs_persist")
-))]
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
 use std::collections::HashMap;
 #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
 use std::sync::atomic::Ordering;
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(test, debug_assertions),
-    not(feature = "fs_persist")
+#[cfg(any(
+    target_arch = "wasm32",
+    all(not(target_arch = "wasm32"), not(feature = "fs_persist"))
 ))]
 use super::metadata::BlockMetadataPersist;
 #[cfg(any(
     target_arch = "wasm32",
-    all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    )
+    all(not(target_arch = "wasm32"), not(feature = "fs_persist"))
 ))]
 use super::vfs_sync;
 
 #[cfg(target_arch = "wasm32")]
-use super::metadata::BlockMetadataPersist;
-#[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(test, debug_assertions),
-    not(feature = "fs_persist")
-))]
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
 use super::block_storage::GLOBAL_METADATA_TEST;
 
 /// Internal sync implementation shared by sync() and sync_now()
 pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), DatabaseError> {
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     let start = std::time::Instant::now();
 
     // Record sync start for observability
@@ -96,31 +77,14 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         callback(dirty_count, dirty_bytes);
     }
 
-    // Early return for native release builds without fs_persist
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        not(any(test, debug_assertions)),
-        not(feature = "fs_persist")
-    ))]
-    {
-        // In release mode without fs_persist, just clear dirty blocks
-        lock_mutex!(storage.dirty_blocks).clear();
-        storage.sync_count.fetch_add(1, Ordering::SeqCst);
-        return Ok(());
-    }
-
     // Call the existing fs_persist implementation for native builds
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     {
         storage.fs_persist_sync()
     }
 
-    // For native non-fs_persist builds (test/debug only), use simple in-memory sync with commit marker handling
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        any(test, debug_assertions),
-        not(feature = "fs_persist")
-    ))]
+    // For native non-fs_persist builds, use simple in-memory sync with commit marker handling
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "fs_persist")))]
     {
         let current_dirty = lock_mutex!(storage.dirty_blocks).len();
         log::info!(
@@ -135,21 +99,15 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
         let ids: Vec<u64> = to_persist.iter().map(|(k, _)| *k).collect();
         let blocks_synced = ids.len(); // Capture length before moving ids
 
-        // Determine next commit version for native test path
+        // Determine next commit version for native path
         let next_commit: u64 = vfs_sync::with_global_commit_marker(|cm| {
-            #[cfg(target_arch = "wasm32")]
-            let cm = cm;
-            #[cfg(not(target_arch = "wasm32"))]
             let cm = cm.borrow();
             let current = cm.get(&storage.db_name).copied().unwrap_or(0);
             current + 1
         });
 
-        // Store blocks in global test storage with versioning
+        // Store blocks in global storage with versioning
         vfs_sync::with_global_storage(|gs| {
-            #[cfg(target_arch = "wasm32")]
-            let storage_map = gs;
-            #[cfg(not(target_arch = "wasm32"))]
             let mut storage_map = gs.borrow_mut();
             let db_storage = storage_map
                 .entry(storage.db_name.clone())
@@ -161,9 +119,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
 
         // Store metadata with per-commit versioning
         GLOBAL_METADATA_TEST.with(|meta| {
-            #[cfg(target_arch = "wasm32")]
-            let mut meta_map = meta.borrow_mut();
-            #[cfg(not(target_arch = "wasm32"))]
             let mut meta_map = meta.lock();
             let db_meta = meta_map
                 .entry(storage.db_name.clone())
@@ -190,9 +145,6 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
 
         // Atomically advance the commit marker after all data and metadata are persisted
         vfs_sync::with_global_commit_marker(|cm| {
-            #[cfg(target_arch = "wasm32")]
-            let cm_map = cm;
-            #[cfg(not(target_arch = "wasm32"))]
             let mut cm_map = cm.borrow_mut();
             cm_map.insert(storage.db_name.clone(), next_commit);
         });
@@ -416,9 +368,10 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                         let metadata_store = transaction.object_store("metadata").unwrap();
 
                         // Persist all blocks
+                        // IMPORTANT: Use COLON format to match wasm_indexeddb.rs and restore logic
                         for (block_id, data) in &to_persist {
                             let key = wasm_bindgen::JsValue::from_str(&format!(
-                                "{}_{}",
+                                "{}:{}",
                                 db_name, block_id
                             ));
                             let value = js_sys::Uint8Array::from(&data[..]);
@@ -426,8 +379,9 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                         }
 
                         // Persist commit marker
+                        // IMPORTANT: Use COLON format to match wasm_indexeddb.rs and restore logic
                         let commit_key =
-                            wasm_bindgen::JsValue::from_str(&format!("{}_commit_marker", db_name));
+                            wasm_bindgen::JsValue::from_str(&format!("{}:commit_marker", db_name));
                         let commit_value = wasm_bindgen::JsValue::from_f64(next_commit as f64);
                         metadata_store
                             .put_with_key(&commit_value, &commit_key)

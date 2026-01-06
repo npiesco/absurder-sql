@@ -4,6 +4,9 @@ use crate::storage::BLOCK_SIZE;
 use crate::storage::BlockStorage;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::SyncPolicy;
+// Use centralized normalize_db_name - SINGLE SOURCE OF TRUTH (see utils.rs)
+#[cfg(target_arch = "wasm32")]
+use crate::utils::normalize_db_name;
 
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -841,15 +844,23 @@ unsafe extern "C" fn x_open_simple(
     };
 
     // Strip "file:" prefix if present
-    let db_name = if name_str.starts_with("file:") {
+    let raw_name = if name_str.starts_with("file:") {
         name_str[5..].to_string()
     } else {
         name_str
     };
 
     // Determine if this is an ephemeral file (journal only, WAL uses shared storage)
-    let ephemeral = db_name.contains("-journal");
-    let is_wal = db_name.contains("-wal");
+    let ephemeral = raw_name.contains("-journal");
+    let is_wal = raw_name.contains("-wal");
+
+    // Use centralized normalize_db_name for non-ephemeral files
+    // Ephemeral/WAL files keep original name (they use memory storage)
+    let db_name = if ephemeral || is_wal {
+        raw_name
+    } else {
+        normalize_db_name(&raw_name)
+    };
 
     // Simple VFS open - just initialize the file structure with our methods
     let vf: *mut VfsFile = unsafe { file_from_ptr(p_file) };
@@ -939,7 +950,9 @@ unsafe extern "C" fn x_open(
             break;
         }
     }
-    let db_name = norm;
+    // Use centralized normalize_db_name - SINGLE SOURCE OF TRUTH (see utils.rs)
+    // Without this, VFS writes to GLOBAL_STORAGE["mydb"] but sync looks for ["mydb.db"]
+    let db_name = normalize_db_name(&norm);
 
     // Ensure storage exists for base db - create if needed for existing databases
     let has_storage = registry_contains_key(&db_name);
@@ -1149,6 +1162,13 @@ unsafe extern "C" fn x_write_stub(
 
         // Store the updated block
         with_global_storage(|gs| {
+            web_sys::console::log_1(
+                &format!(
+                    "[VFS_WRITE] Writing block {} to GLOBAL_STORAGE[{}]",
+                    block_id, db_name
+                )
+                .into(),
+            );
             gs.borrow_mut()
                 .entry(db_name.clone())
                 .or_insert_with(std::collections::HashMap::new)

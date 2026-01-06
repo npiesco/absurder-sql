@@ -544,9 +544,10 @@ impl super::BlockStorage {
                             let metadata_store = transaction.object_store("metadata").unwrap();
 
                             // Persist all blocks
+                            // IMPORTANT: Use COLON format to match wasm_indexeddb.rs and restore logic
                             for (block_id, data) in &to_persist {
                                 let key = wasm_bindgen::JsValue::from_str(&format!(
-                                    "{}_{}",
+                                    "{}:{}",
                                     db_name, block_id
                                 ));
                                 let value = js_sys::Uint8Array::from(&data[..]);
@@ -556,8 +557,9 @@ impl super::BlockStorage {
                             }
 
                             // Persist commit marker
+                            // IMPORTANT: Use COLON format to match wasm_indexeddb.rs and restore logic
                             let commit_key = wasm_bindgen::JsValue::from_str(&format!(
-                                "{}_commit_marker",
+                                "{}:commit_marker",
                                 db_name
                             ));
                             let commit_value = wasm_bindgen::JsValue::from_f64(next_commit as f64);
