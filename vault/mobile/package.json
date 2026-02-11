@@ -11,9 +11,9 @@
     "detox:build:ios": "detox build --configuration ios.sim.debug",
     "detox:test:ios": "detox test --configuration ios.sim.debug",
     "detox:build:android": "detox build --configuration android.emu.debug.api33",
-    "detox:test:android": "detox test --configuration android.emu.debug.api33",
+    "detox:test:android": "NODE_OPTIONS='--require ./scripts/detox_network_interfaces_shim.js' detox test --configuration android.emu.debug.api33",
     "detox:build:android:api34": "detox build --configuration android.emu.debug",
-    "detox:test:android:api34": "detox test --configuration android.emu.debug"
+    "detox:test:android:api34": "NODE_OPTIONS='--require ./scripts/detox_network_interfaces_shim.js' detox test --configuration android.emu.debug"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",

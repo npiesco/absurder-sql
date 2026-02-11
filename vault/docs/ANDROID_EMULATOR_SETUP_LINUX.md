@@ -55,6 +55,18 @@ done
 adb devices
 ```
 
+Important:
+- Do not pass `-no-window` if you want to watch tests run visually.
+- If multiple emulators are running, Detox can attach to the wrong one unless you pin `ANDROID_SERIAL`.
+
+Optional visibility check:
+
+```bash
+pgrep -af "emulator.*kiokudb_api33|qemu-system"
+```
+
+You should **not** see `-no-window` in the emulator command line.
+
 ## 4) Build native libs
 
 ```bash
@@ -121,7 +133,28 @@ npm run detox:build:android
 npm run detox:test:android
 ```
 
+To force Detox onto the exact visible emulator, pin the serial:
+
+```bash
+ANDROID_SERIAL=emulator-5554 npm run detox:test:android -- --testPathPattern e2e/addCredential.test.ts
+```
+
+Find current serial:
+
+```bash
+adb devices
+```
+
 These target Detox config `android.emu.debug.api33` (AVD: `kiokudb_api33`).
+
+Kioku-style stability handling is enabled in Vault Detox via `vault/mobile/e2e/setup.ts`:
+- auto-start Metro on `8081` when needed
+- force `adb reverse tcp:8081 tcp:8081`
+- set RN debug host prefs to `localhost:8081` (root/run-as fallback)
+- ensure emulator user is unlocked before launch
+- ensure debug + test APKs are installed
+
+Detox test commands also preload `vault/mobile/scripts/detox_network_interfaces_shim.js` to harden interface/status polling in flaky environments.
 Working baseline verification:
 
 ```bash
