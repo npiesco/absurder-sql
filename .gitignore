@@ -10,7 +10,7 @@ manager_test_db/
 threshold_immediate_db/
 test_sqlite_creation.db/
 test_*/
-.DS_Storenode_modules/
+.DS_Store
 package-lock.json
 
 # Python
@@ -44,6 +44,7 @@ absurder-sql-mobile/test_json_output.rs
 absurder-sql-mobile/react-native/android/app/src/main/assets/index.android.bundle
 absurder-sql-mobile/react-native/android/app/src/main/res/drawable-*
 absurder-sql-mobile/react-native/android/app/src/main/res/raw/
+vault/mobile/artifacts/
 
 # Android
 absurder-sql-mobile/android/.gradle/
