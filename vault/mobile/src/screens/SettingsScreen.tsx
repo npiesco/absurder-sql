@@ -40,6 +40,11 @@ interface SettingsScreenProps {
   onLock: () => void;
   onSecurityAudit: () => void;
   masterPassword?: string;
+  incomingImportRequest?: {
+    path: string;
+    fileName: string;
+  } | null;
+  onIncomingImportHandled?: () => void;
 }
 
 export default function SettingsScreen({
@@ -47,6 +52,8 @@ export default function SettingsScreen({
   onLock,
   onSecurityAudit,
   masterPassword,
+  incomingImportRequest,
+  onIncomingImportHandled,
 }: SettingsScreenProps) {
   const { vaultName, credentials, lock, vault } = useVaultStore();
   const { themeMode, setThemeMode, isDark } = useTheme();
@@ -84,6 +91,39 @@ export default function SettingsScreen({
     loadFontSizeSetting();
     loadHighContrastSetting();
   }, []);
+
+  useEffect(() => {
+    if (!incomingImportRequest) {
+      return;
+    }
+    if (!vault || !masterPassword) {
+      return;
+    }
+
+    const { path, fileName } = incomingImportRequest;
+    Alert.alert(
+      'Import Shared Backup',
+      `Import "${fileName}" into this vault?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => onIncomingImportHandled?.(),
+        },
+        {
+          text: 'Import',
+          onPress: async () => {
+            try {
+              const resolvedPath = await resolveImportPath(path, fileName);
+              await performImportFromPath(resolvedPath, fileName);
+            } finally {
+              onIncomingImportHandled?.();
+            }
+          },
+        },
+      ]
+    );
+  }, [incomingImportRequest, vault, masterPassword]);
 
   const loadAutoLockSettings = async () => {
     const autoLock = await autoLockService.getAutoLockTimeout();
@@ -175,6 +215,19 @@ export default function SettingsScreen({
     await lock();
     onLock();
   };
+
+  async function resolveImportPath(rawPath: string, fileName: string): Promise<string> {
+    const cleanPath = rawPath.replace('file://', '');
+    if (!cleanPath.startsWith('content://')) {
+      return cleanPath;
+    }
+
+    const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const tempDir = RNFS.TemporaryDirectoryPath || RNFS.CachesDirectoryPath;
+    const targetPath = `${tempDir}shared-import-${Date.now()}-${safeFileName}`;
+    await RNFS.copyFile(cleanPath, targetPath);
+    return targetPath;
+  }
 
   const performExport = async () => {
     if (!vault) {
@@ -455,11 +508,9 @@ export default function SettingsScreen({
         // Use the copied file path if available, otherwise use the original URI
         const filePath = file.fileCopyUri || file.uri;
         const fileName = file.name || 'backup.db';
-        
-        // Clean up the file path (remove file:// prefix if present)
-        const cleanPath = filePath.replace('file://', '');
-        
-        await performImportFromPath(cleanPath, fileName);
+
+        const resolvedPath = await resolveImportPath(filePath, fileName);
+        await performImportFromPath(resolvedPath, fileName);
       }
     } catch (error: any) {
       if (DocumentPicker.isCancel(error)) {
@@ -675,7 +726,7 @@ export default function SettingsScreen({
                     style={styles.actionIconVector} 
                   />
                   <View style={styles.actionContent}>
-                    <Text style={styles.actionTitle}>Face ID / Touch ID</Text>
+                    <Text style={styles.actionTitle}>{biometricService.getBiometricLabel(biometricType)}</Text>
                     <Text style={styles.actionDescription}>
                       Unlock vault with biometrics
                     </Text>

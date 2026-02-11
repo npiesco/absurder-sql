@@ -13,10 +13,46 @@
 import { by, device, element, expect, waitFor } from 'detox';
 
 describe('Biometric Authentication', () => {
+  const isAndroid = device.getPlatform() === 'android';
+  const settingsLabel = isAndroid ? 'Fingerprint' : 'Face ID / Touch ID';
+  const unlockLabel = isAndroid ? 'Unlock with Fingerprint' : 'Unlock with Face ID';
+  const revealBiometricToggle = async () => {
+    try {
+      await expect(element(by.id('biometric-toggle'))).toBeVisible();
+      return;
+    } catch {
+      // continue
+    }
+
+    for (let i = 0; i < 8; i++) {
+      try {
+        await element(by.id('settings-scroll')).scroll(160, 'down');
+        await expect(element(by.id('biometric-toggle'))).toBeVisible();
+        return;
+      } catch {
+        // continue scrolling
+      }
+    }
+  };
+  const lockVaultFromSettings = async () => {
+    await waitFor(element(by.id('settings-scroll'))).toBeVisible().withTimeout(5000);
+    await element(by.id('settings-scroll')).scrollTo('top');
+    await waitFor(element(by.id('lock-vault-button')))
+      .toBeVisible()
+      .whileElement(by.id('settings-scroll'))
+      .scroll(200, 'down');
+    await element(by.id('lock-vault-button')).tap();
+    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(5000);
+  };
+
   beforeAll(async () => {
     await device.launchApp({ newInstance: true, delete: true });
-    // Enroll device in biometric authentication
-    await device.setBiometricEnrollment(true);
+    // Enroll device in biometric authentication (best-effort on Android emulators)
+    try {
+      await device.setBiometricEnrollment(true);
+    } catch {
+      // Continue: some emulator images do not support this API reliably.
+    }
   });
 
   it('should setup vault for biometric testing', async () => {
@@ -48,11 +84,14 @@ describe('Biometric Authentication', () => {
     await expect(element(by.text('Settings'))).toBeVisible();
 
     // Verify biometric toggle is visible
+    await revealBiometricToggle();
     await expect(element(by.id('biometric-toggle'))).toBeVisible();
-    await expect(element(by.text('Face ID / Touch ID'))).toBeVisible();
+    await expect(element(by.text(settingsLabel))).toBeVisible();
   });
 
   it('should enable biometric unlock', async () => {
+    await revealBiometricToggle();
+
     // Toggle biometric on
     await element(by.id('biometric-toggle')).tap();
 
@@ -64,25 +103,22 @@ describe('Biometric Authentication', () => {
   });
 
   it('should show biometric prompt on unlock after lock', async () => {
-    // Tap lock button (scroll if needed)
-    try {
-      await element(by.id('lock-vault-button')).tap();
-    } catch {
-      await element(by.id('settings-scroll')).scrollTo('bottom');
-      await element(by.id('lock-vault-button')).tap();
-    }
-    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(5000);
+    await lockVaultFromSettings();
 
     // Biometric prompt should appear (button visible)
-    await waitFor(element(by.text('Unlock with Face ID'))).toBeVisible().withTimeout(5000);
+    await waitFor(element(by.text(unlockLabel))).toBeVisible().withTimeout(5000);
   });
 
   it('should unlock vault with successful biometric', async () => {
     // Tap the biometric unlock button
     await element(by.id('biometric-unlock-button')).tap();
 
-    // Simulate successful Face ID
-    await device.matchFace();
+    // Simulate successful biometric auth
+    if (isAndroid) {
+      await device.matchFinger();
+    } else {
+      await device.matchFace();
+    }
 
     // Should be unlocked and show credentials
     await waitFor(element(by.text('Vault'))).toBeVisible().withTimeout(5000);
@@ -96,13 +132,8 @@ describe('Biometric Authentication', () => {
     
     // Lock the vault again
     await element(by.id('settings-button')).tap();
-    try {
-      await element(by.id('lock-vault-button')).tap();
-    } catch {
-      await element(by.id('settings-scroll')).scrollTo('bottom');
-      await element(by.id('lock-vault-button')).tap();
-    }
-    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(5000);
+    await waitFor(element(by.text('Settings'))).toBeVisible().withTimeout(5000);
+    await lockVaultFromSettings();
 
     // Verify both biometric and password options are available
     await waitFor(element(by.id('biometric-unlock-button'))).toBeVisible().withTimeout(5000);
@@ -122,11 +153,15 @@ describe('Biometric Authentication', () => {
 
     // Should show biometric prompt on unlock screen
     await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(10000);
-    await waitFor(element(by.text('Unlock with Face ID'))).toBeVisible().withTimeout(5000);
+    await waitFor(element(by.text(unlockLabel))).toBeVisible().withTimeout(5000);
 
     // Unlock with biometric - tap button then match
     await element(by.id('biometric-unlock-button')).tap();
-    await device.matchFace();
+    if (isAndroid) {
+      await device.matchFinger();
+    } else {
+      await device.matchFace();
+    }
     await waitFor(element(by.text('Vault'))).toBeVisible().withTimeout(5000);
   });
 
@@ -147,11 +182,10 @@ describe('Biometric Authentication', () => {
 
   it('should not show biometric prompt after disabling', async () => {
     // Lock the vault
-    await element(by.id('lock-vault-button')).tap();
-    await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(5000);
+    await lockVaultFromSettings();
 
     // Biometric prompt should NOT appear
-    await expect(element(by.text('Unlock with Face ID'))).not.toBeVisible();
+    await expect(element(by.text(unlockLabel))).not.toBeVisible();
 
     // Only password input should be available
     await expect(element(by.id('master-password-input'))).toBeVisible();
@@ -170,7 +204,7 @@ describe('Biometric Authentication', () => {
 
     // Should show password input without biometric prompt
     await waitFor(element(by.id('master-password-input'))).toBeVisible().withTimeout(10000);
-    await expect(element(by.text('Unlock with Face ID'))).not.toBeVisible();
+    await expect(element(by.text(unlockLabel))).not.toBeVisible();
 
     // Unlock with password
     await element(by.id('master-password-input')).typeText('BiometricTest123!');

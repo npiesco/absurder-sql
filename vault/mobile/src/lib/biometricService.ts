@@ -7,6 +7,7 @@
 
 import * as Keychain from 'react-native-keychain';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const BIOMETRIC_ENABLED_KEY = '@vault/biometric_enabled';
 const KEYCHAIN_SERVICE = 'com.vault.biometric';
@@ -44,11 +45,23 @@ export interface BiometricService {
    * Authenticate with biometrics and retrieve stored master password
    */
   authenticate(): Promise<string | null>;
+
+  /**
+   * Convert biometric type into user-visible label.
+   */
+  getBiometricLabel(type: BiometricType): string;
 }
 
 class BiometricServiceImpl implements BiometricService {
   async isAvailable(): Promise<boolean> {
     try {
+      // Android biometric capability detection is inconsistent across OEMs
+      // and emulators. Surface the toggle and let enable/auth operations
+      // determine runtime support.
+      if (Platform.OS === 'android') {
+        return true;
+      }
+
       const biometryType = await Keychain.getSupportedBiometryType();
       if (biometryType !== null) {
         return true;
@@ -59,11 +72,15 @@ class BiometricServiceImpl implements BiometricService {
       const canAuthenticate = await Keychain.canImplyAuthentication({
         authenticationType: Keychain.AUTHENTICATION_TYPE.BIOMETRICS,
       });
-      return canAuthenticate;
+      if (canAuthenticate) {
+        return true;
+      }
+
+      return false;
     } catch {
-      // In simulator with biometric enrollment, always show the option
-      // This allows E2E testing of the biometric flow
-      return true;
+      // In simulator with biometric enrollment, show the option to allow
+      // E2E testing of the biometric flow.
+      return __DEV__;
     }
   }
 
@@ -77,10 +94,10 @@ class BiometricServiceImpl implements BiometricService {
       } else if (biometryType === Keychain.BIOMETRY_TYPE.FINGERPRINT) {
         return 'Fingerprint';
       }
-      // Default to FaceID for simulator testing
-      return 'FaceID';
+      // Platform-aware fallback when simulator/device API returns null/unknown.
+      return Platform.OS === 'android' ? 'Fingerprint' : 'FaceID';
     } catch {
-      return 'FaceID';
+      return Platform.OS === 'android' ? 'Fingerprint' : 'FaceID';
     }
   }
 
@@ -144,10 +161,11 @@ class BiometricServiceImpl implements BiometricService {
 
   async authenticate(): Promise<string | null> {
     try {
+      const biometricType = await this.getBiometricType();
       const credentials = await Keychain.getGenericPassword({
         service: KEYCHAIN_SERVICE,
         authenticationPrompt: {
-          title: 'Unlock with Face ID',
+          title: `Unlock with ${this.getBiometricLabel(biometricType)}`,
           subtitle: 'Authenticate to unlock your vault',
           cancel: 'Use Password',
         },
@@ -161,6 +179,16 @@ class BiometricServiceImpl implements BiometricService {
       console.error('Biometric authentication failed:', error);
       return null;
     }
+  }
+
+  getBiometricLabel(type: BiometricType): string {
+    if (type === 'FaceID') {
+      return 'Face ID';
+    }
+    if (type === 'TouchID') {
+      return 'Touch ID';
+    }
+    return 'Fingerprint';
   }
 }
 

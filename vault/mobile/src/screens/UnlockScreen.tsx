@@ -21,7 +21,7 @@ import {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useVaultStore } from '../lib/store';
-import { biometricService } from '../lib/biometricService';
+import { biometricService, BiometricType } from '../lib/biometricService';
 
 interface UnlockScreenProps {
   onUnlock: (masterPassword: string) => void;
@@ -34,7 +34,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricType, setBiometricType] = useState<string | null>(null);
+  const [biometricType, setBiometricType] = useState<BiometricType>(null);
   const [passwordHint, setPasswordHint] = useState<string | null>(null);
 
   const { unlock, createVault, isLoading, error, clearError } = useVaultStore();
@@ -166,7 +166,7 @@ export default function UnlockScreen({ onUnlock }: UnlockScreenProps) {
                 color="#e94560" 
               />
               <Text style={styles.biometricText}>
-                Unlock with {biometricType === 'FaceID' ? 'Face ID' : 'Touch ID'}
+                Unlock with {biometricService.getBiometricLabel(biometricType)}
               </Text>
             </TouchableOpacity>
           </View>

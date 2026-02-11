@@ -19,23 +19,23 @@ Sequential development checklist from scaffold to finished app.
 Context: iOS work is temporarily blocked, so current delivery focus is Phase 7.2.
 
 ### Android Sprint Plan (Current)
-- [ ] A1. Toolchain readiness gate (blocked as of 2026-02-11)
-- [ ] Confirm Android SDK/NDK/JDK env vars are exported in shell (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME`, `JAVA_HOME`).
+- [x] A1. Toolchain readiness gate
+- [x] Confirm Android SDK/NDK/JDK env vars are exported in shell (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME`, `JAVA_HOME`).
 - [x] Confirm Rust Android targets are installed (`aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`; `i686-linux-android` also installed).
-- [ ] Confirm `absurder-sql-mobile` Android SQLCipher static libs are present for target ABIs (`libsqlcipher.a`, `libcrypto.a`, `libssl.a` missing; include headers present).
-- [ ] A2. Rust + UniFFI Android build gate
-- [ ] Run `npm run ubrn:android` in `absurder-sql-mobile/` and verify generated Android bindings.
-- [ ] Verify Vault app resolves local `absurder-sql-mobile` dependency cleanly.
-- [ ] A3. Android release build gate
-- [ ] Build release artifact (`AAB` preferred, APK fallback for device install checks).
-- [ ] Validate ABI packaging and startup on emulator/device.
-- [ ] A4. Android feature completion gate
-- [ ] Implement and verify Android biometric unlock path.
-- [ ] Implement and verify Android share intent integration.
-- [ ] Finalize Android icons + splash assets for store packaging.
-- [ ] A5. Android test + readiness gate
-- [ ] Run Detox Android build/test (`npm run detox:build:android` and `npm run detox:test:android` in `vault/mobile/`).
-- [ ] Produce release-readiness notes with pass/fail, blockers, and remaining Play Store submission tasks.
+- [x] Confirm `absurder-sql-mobile` Android SQLCipher static libs are present for target ABIs (`arm64-v8a`, `x86_64`).
+- [x] A2. Rust + UniFFI Android build gate
+- [x] Run `npm run ubrn:android` in `absurder-sql-mobile/` and verify generated Android bindings.
+- [x] Verify Vault app resolves local `absurder-sql-mobile` dependency cleanly.
+- [x] A3. Android release build gate
+- [x] Build release artifact (`AAB` preferred, APK fallback for device install checks).
+- [x] Validate ABI packaging and startup on emulator/device.
+- [x] A4. Android feature completion gate
+- [x] Implement and verify Android biometric unlock path.
+- [x] Implement and verify Android share intent integration.
+- [x] Finalize Android icons + splash assets for store packaging.
+- [x] A5. Android test + readiness gate
+- [x] Run Detox Android build/test (`npm run detox:build:android` and `npm run detox:test:android` in `vault/mobile/`).
+- [x] Produce release-readiness notes with pass/fail, blockers, and remaining Play Store submission tasks (current blocker: release signing/distribution tasks pending).
 
 ---
 
@@ -214,11 +214,11 @@ Context: iOS work is temporarily blocked, so current delivery focus is Phase 7.2
 ### 7.2 Android Build & Release
 - [ ] Build Rust for Android targets (aarch64, armv7, x86_64)
 - [ ] Wire up Kotlin UniFFI bindings
-- [ ] Test on Android Emulator
-- [ ] Implement fingerprint unlock (Android)
-- [ ] Add share intent integration (Android)
-- [ ] Create app icons (all sizes)
-- [ ] Create splash screen
+- [x] Test on Android Emulator
+- [x] Implement fingerprint unlock (Android)
+- [x] Add share intent integration (Android)
+- [x] Create app icons (all sizes)
+- [x] Create splash screen
 - [ ] Write Play Store description
 - [ ] Create Play Store screenshots
 - [ ] Generate signed APK/AAB
