@@ -212,25 +212,25 @@ Context: iOS work is temporarily blocked, so current delivery focus is Phase 7.2
 - [ ] Pass App Store review
 
 ### 7.2 Android Build & Release
-- [ ] Build Rust for Android targets (aarch64, armv7, x86_64)
-- [ ] Wire up Kotlin UniFFI bindings
+- [x] Build Rust for Android targets (aarch64, armv7, x86_64) - `ubrn:android` now builds `arm64-v8a`, `armeabi-v7a`, and `x86_64` after adding SQLCipher/OpenSSL static libs for `armeabi-v7a`.
+- [x] Wire up Kotlin UniFFI bindings
 - [x] Test on Android Emulator
 - [x] Implement fingerprint unlock (Android)
 - [x] Add share intent integration (Android)
 - [x] Create app icons (all sizes)
 - [x] Create splash screen
-- [ ] Write Play Store description
-- [ ] Create Play Store screenshots
-- [ ] Generate signed APK/AAB
-- [ ] Submit to Google Play Console
-- [ ] Pass Play Store review
+- [x] Write Play Store description
+- [x] Create Play Store screenshots (initial Android draft set generated via Detox at `vault/docs/play-store-screenshots-draft/`)
+- [x] Generate signed APK/AAB (`vault/mobile/android/app/build/outputs/bundle/release/app-release.aab`; currently signed with debug config in project, production keystore still required for store upload)
+- [ ] Submit to Google Play Console (blocked on Play Console credentials + production signing key setup)
+- [ ] Pass Play Store review (blocked until submission)
 
 ### 7.3 Documentation
-- [ ] Write user guide
-- [ ] Create FAQ
-- [ ] Document security model
-- [ ] Create privacy policy
-- [ ] Create terms of service
+- [x] Write user guide
+- [x] Create FAQ
+- [x] Document security model
+- [x] Create privacy policy
+- [x] Create terms of service
 
 ---
 
