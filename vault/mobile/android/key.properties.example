@@ -1,0 +1,6 @@
+# Copy this file to key.properties and fill with real values.
+# Keep key.properties out of git.
+storeFile=/absolute/path/to/upload-keystore.jks
+storePassword=change_me
+keyAlias=upload
+keyPassword=change_me

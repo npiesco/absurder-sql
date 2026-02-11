@@ -221,7 +221,8 @@ Context: iOS work is temporarily blocked, so current delivery focus is Phase 7.2
 - [x] Create splash screen
 - [x] Write Play Store description
 - [x] Create Play Store screenshots (initial Android draft set generated via Detox at `vault/docs/play-store-screenshots-draft/`)
-- [x] Generate signed APK/AAB (`vault/mobile/android/app/build/outputs/bundle/release/app-release.aab`; currently signed with debug config in project, production keystore still required for store upload)
+- [x] Wire production signing config (`vault/mobile/android/app/build.gradle` now reads `vault/mobile/android/key.properties`; template at `vault/mobile/android/key.properties.example`; fallback remains debug signing when key file is absent)
+- [x] Generate release APK/AAB (`vault/mobile/android/app/build/outputs/bundle/release/app-release.aab`; upload-ready signing requires filling `vault/mobile/android/key.properties` with production keystore values)
 - [ ] Submit to Google Play Console (blocked on Play Console credentials + production signing key setup)
 - [ ] Pass Play Store review (blocked until submission)
 

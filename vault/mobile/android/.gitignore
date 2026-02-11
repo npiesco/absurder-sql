@@ -8,3 +8,8 @@ app/src/debug/res/
 
 # Generated React Native config
 app/src/main/res/values/react_native_config.xml
+
+# Signing material (never commit real values)
+key.properties
+*.jks
+*.keystore
