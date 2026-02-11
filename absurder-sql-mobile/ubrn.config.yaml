@@ -27,7 +27,7 @@ android:
     - arm64-v8a                   # ARM64 devices
     # - armeabi-v7a                 # ARMv7 devices
     # - x86                         # x86 emulator
-    # - x86_64                      # x86_64 emulator
+    - x86_64                      # x86_64 emulator
   cargoExtras:
     - --features
     - uniffi-bindings,encryption,fs_persist

@@ -13,7 +13,7 @@ const absurderSqlMobilePath = path.resolve(__dirname, '../../absurder-sql-mobile
  */
 const config = {
   server: {
-    port: 8088,
+    port: 8081,
   },
   watchFolders: [absurderSqlMobilePath],
   resolver: {

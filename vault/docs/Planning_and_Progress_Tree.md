@@ -4,7 +4,42 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-## Phase 1: Mobile Core (Current)
+## Audit Snapshot (2026-02-11)
+
+- [x] Confirmed `vault/mobile` exists with implemented app screens/services and 38 Detox E2E specs.
+- [x] Confirmed Phase 6 feature implementation and E2E coverage files are present (theme, haptics, loading/error/empty states, accessibility, performance).
+- [x] Confirmed iOS launch screen file exists at `vault/mobile/ios/VaultApp/LaunchScreen.storyboard`.
+- [ ] iOS app icon assets still appear to be placeholder slots (`Images.xcassets/AppIcon.appiconset/Contents.json` has no image filenames).
+- [ ] Android release tasks (Rust target builds/signing/store submission) are not fully evidenced in this repo.
+
+---
+
+## Active Focus: Android-Only Execution Window (2026-02-11)
+
+Context: iOS work is temporarily blocked, so current delivery focus is Phase 7.2.
+
+### Android Sprint Plan (Current)
+- [ ] A1. Toolchain readiness gate (blocked as of 2026-02-11)
+- [ ] Confirm Android SDK/NDK/JDK env vars are exported in shell (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME`, `JAVA_HOME`).
+- [x] Confirm Rust Android targets are installed (`aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`; `i686-linux-android` also installed).
+- [ ] Confirm `absurder-sql-mobile` Android SQLCipher static libs are present for target ABIs (`libsqlcipher.a`, `libcrypto.a`, `libssl.a` missing; include headers present).
+- [ ] A2. Rust + UniFFI Android build gate
+- [ ] Run `npm run ubrn:android` in `absurder-sql-mobile/` and verify generated Android bindings.
+- [ ] Verify Vault app resolves local `absurder-sql-mobile` dependency cleanly.
+- [ ] A3. Android release build gate
+- [ ] Build release artifact (`AAB` preferred, APK fallback for device install checks).
+- [ ] Validate ABI packaging and startup on emulator/device.
+- [ ] A4. Android feature completion gate
+- [ ] Implement and verify Android biometric unlock path.
+- [ ] Implement and verify Android share intent integration.
+- [ ] Finalize Android icons + splash assets for store packaging.
+- [ ] A5. Android test + readiness gate
+- [ ] Run Detox Android build/test (`npm run detox:build:android` and `npm run detox:test:android` in `vault/mobile/`).
+- [ ] Produce release-readiness notes with pass/fail, blockers, and remaining Play Store submission tasks.
+
+---
+
+## Phase 1: Mobile Core (Complete)
 
 ### 1.1 Project Setup
 - [x] Create vault/mobile directory structure
@@ -170,7 +205,7 @@ Sequential development checklist from scaffold to finished app.
 
 ### 7.1 iOS Release
 - [ ] Create app icons (all sizes)
-- [ ] Create launch screen
+- [x] Create launch screen
 - [ ] Write App Store description
 - [ ] Create App Store screenshots
 - [ ] Submit to App Store Connect
@@ -244,12 +279,12 @@ Sequential development checklist from scaffold to finished app.
 
 ## Completion Checklist
 
-- [x] All Phase 1 items complete (except Android testing)
+- [x] All Phase 1 items complete
 - [x] All Phase 2 items complete
 - [x] All Phase 3 items complete (Import/Export)
 - [x] All Phase 4 items complete (Security)
 - [x] All Phase 5 items complete (TOTP Authenticator)
-- [ ] All Phase 6 items complete
+- [x] All Phase 6 items complete
 - [ ] All Phase 7 items complete (App Store release)
 - [ ] All Phase 8 items complete (PWA)
 - [ ] All Phase 9 items complete (Desktop)
@@ -257,4 +292,4 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-*Last updated: 2025-12-16*
+*Last updated: 2026-02-11*

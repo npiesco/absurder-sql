@@ -3,8 +3,7 @@ app/.cxx/
 app/build/
 build/
 
-# Generated test files
-app/src/androidTest/
+# Generated test resources
 app/src/debug/res/
 
 # Generated React Native config
