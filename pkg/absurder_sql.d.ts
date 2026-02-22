@@ -1,21 +1,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export function init_logger(): void;
-export interface DatabaseError {
-    code: string;
-    message: string;
-    sql: string | null;
-}
-
-export type ColumnValue = { type: "Null" } | { type: "Integer"; value: number } | { type: "Real"; value: number } | { type: "Text"; value: string } | { type: "Blob"; value: number[] } | { type: "Date"; value: number } | { type: "BigInt"; value: string };
-
-export interface TransactionOptions {
-    isolation_level: IsolationLevel;
-    timeout_ms: number | null;
-}
-
-export interface Row {
-    values: ColumnValue[];
+export interface QueryResult {
+    columns: string[];
+    rows: Row[];
+    affectedRows: number;
+    lastInsertId: number | null;
+    executionTimeMs: number;
 }
 
 export interface DatabaseConfig {
@@ -28,15 +19,24 @@ export interface DatabaseConfig {
     max_export_size_bytes: number | null;
 }
 
-export interface QueryResult {
-    columns: string[];
-    rows: Row[];
-    affectedRows: number;
-    lastInsertId: number | null;
-    executionTimeMs: number;
+export interface DatabaseError {
+    code: string;
+    message: string;
+    sql: string | null;
 }
 
 export type IsolationLevel = "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable";
+
+export type ColumnValue = { type: "Null" } | { type: "Integer"; value: number } | { type: "Real"; value: number } | { type: "Text"; value: string } | { type: "Blob"; value: number[] } | { type: "Date"; value: number } | { type: "BigInt"; value: string };
+
+export interface Row {
+    values: ColumnValue[];
+}
+
+export interface TransactionOptions {
+    isolation_level: IsolationLevel;
+    timeout_ms: number | null;
+}
 
 export class Database {
   private constructor();
@@ -294,19 +294,19 @@ export interface InitOutput {
   readonly wasmcolumnvalue_createNull: () => number;
   readonly wasmcolumnvalue_createReal: (a: number) => number;
   readonly wasmcolumnvalue_createText: (a: number, b: number) => number;
+  readonly wasmcolumnvalue_date: (a: number) => number;
   readonly wasmcolumnvalue_fromJsValue: (a: any) => number;
   readonly wasmcolumnvalue_integer: (a: number) => number;
-  readonly wasmcolumnvalue_date: (a: number) => number;
-  readonly wasmcolumnvalue_text: (a: number, b: number) => number;
-  readonly wasmcolumnvalue_real: (a: number) => number;
   readonly wasmcolumnvalue_null: () => number;
+  readonly wasmcolumnvalue_real: (a: number) => number;
+  readonly wasmcolumnvalue_text: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_acosh: (a: number) => number;
   readonly rust_sqlite_wasm_shim_asinh: (a: number) => number;
   readonly rust_sqlite_wasm_shim_atanh: (a: number) => number;
   readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
+  readonly rust_sqlite_wasm_shim_malloc: (a: number) => number;
   readonly rust_sqlite_wasm_shim_free: (a: number) => void;
   readonly rust_sqlite_wasm_shim_localtime: (a: number) => number;
-  readonly rust_sqlite_wasm_shim_malloc: (a: number) => number;
   readonly rust_sqlite_wasm_shim_memchr: (a: number, b: number, c: number) => number;
   readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_sqrt: (a: number) => number;
@@ -318,15 +318,20 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_strspn: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_trunc: (a: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__h7f337ef9eafd31ce: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__hd6eb0d215b976ad9: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h6867d68f48037fa4: (a: number, b: number, c: any) => any;
-  readonly wasm_bindgen__closure__destroy__h6182d69b68c5e453: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h11d242e614582409: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h6e615bff0930c4eb: (a: number, b: number) => void;
-  readonly wasm_bindgen__closure__destroy__h42a040f85db23dc2: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h159594d1cf3e00ce: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h1ad58e6badc0dc17: (a: number, b: number, c: any, d: any) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h7b592b15a50909ae: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h09628abfb5d8ea0d: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h4d792b5b357f4d71: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h2a4e3088f62dd089: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__hd8aa79081192ccf8: (a: number, b: number) => void;
+  readonly wasm_bindgen__closure__destroy__hcd0057feffa895a0: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h5c162259a168426f: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h5ede5c9ccf3738bb: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__ha4deeb3e849cca78: (a: number, b: number, c: any) => any;
+  readonly wasm_bindgen__closure__destroy__h2da99f1837637896: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h123bc198cfbff2d8: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h9ca7795f6ea80ef9: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h0a7aa352d38cbf30: (a: number, b: number) => number;
+  readonly wasm_bindgen__convert__closures_____invoke__hb5c238f393a31867: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
