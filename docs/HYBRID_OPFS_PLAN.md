@@ -19,8 +19,10 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Added `wasm_opfs.rs` with a single-file OPFS bridge and initial block write/read/delete helpers.
 - Wired backend-aware persistence into the current WASM sync paths so worker `Hybrid` / `OPFS` sync mirrors blocks into OPFS while continuing to mirror into IndexedDB.
 - Implemented OPFS-first restore in `constructors.rs` for `Hybrid` / `OPFS` backends, with fallback to IndexedDB when no OPFS data exists.
-- Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, and reopen reads both with and without the IndexedDB mirror present.
-- Current limitation: full hybrid orchestration and checksum cross-validation on reload are still pending.
+- Added `hybrid_store.rs` so `Hybrid` reopen now restores OPFS blocks, loads IndexedDB metadata, cross-validates checksums, and falls back to IndexedDB when OPFS data is corrupted.
+- Upgraded the IndexedDB metadata mirror to persist real block metadata instead of version-only placeholders, with checksum values encoded in a JS-safe format.
+- Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, OPFS-only reopen when the IndexedDB mirror is deleted, and Hybrid fallback when OPFS bytes are corrupted.
+- Current limitation: `hybrid_persist()` is still inlined in existing sync paths, and export/import/recovery flows are not yet OPFS-aware.
 
 Validation completed for this slice:
 
@@ -28,6 +30,7 @@ Validation completed for this slice:
 - `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js --reporter=line` passed.
 - `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line` passed.
 - `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "restores from OPFS after IndexedDB mirror deletion"` passed.
+- `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "falls back to IndexedDB when OPFS data is corrupted"` passed.
 - Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
 - `cargo test` passed.
 - `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
@@ -276,9 +279,9 @@ match storage.backend {
 - [ ] Benchmark: OPFS vs IDB for 100/1000/10000 blocks
 
 ### Phase 3: Hybrid Mode (~3-4 days)
-- [ ] Create `hybrid_store.rs` orchestrator
+- [x] Create `hybrid_store.rs` orchestrator
 - [ ] Implement `hybrid_persist()` — OPFS blocks + IDB metadata in parallel
-- [ ] Implement `hybrid_restore()` — cross-validate checksums on load
+- [x] Implement `hybrid_restore()` — cross-validate checksums on load
 - [ ] OPFS recovery: detect orphan files, reconcile with IDB metadata
 
 ### Phase 4: Integration (~2-3 days)

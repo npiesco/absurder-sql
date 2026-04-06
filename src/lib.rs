@@ -1630,7 +1630,7 @@ impl Database {
                             );
                             db_meta
                                 .iter()
-                                .map(|(&id, metadata)| (id, metadata.checksum))
+                                .map(|(&id, metadata)| (id, metadata.clone()))
                                 .collect::<Vec<_>>()
                         } else {
                             web_sys::console::log_1(&format!("[SYNC] No metadata found").into());

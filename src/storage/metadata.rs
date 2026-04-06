@@ -36,17 +36,15 @@ use js_sys::Date;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // MOVED from block_storage.rs lines 38-41
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[allow(dead_code)]
-#[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]
 pub enum ChecksumAlgorithm {
     FastHash,
     CRC32,
 }
 
 // MOVED from block_storage.rs lines 43-54
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "fs_persist", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockMetadataPersist {
     pub checksum: u64,
     #[allow(dead_code)]

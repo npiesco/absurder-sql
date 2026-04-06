@@ -68,7 +68,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
             if let Some(db_meta) = meta.borrow().get(&db_name_clone) {
                 db_meta
                     .iter()
-                    .map(|(&id, metadata)| (id, metadata.checksum))
+                    .map(|(&id, metadata)| (id, metadata.clone()))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -207,7 +207,7 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
             if let Some(db_meta) = meta.borrow().get(db_name) {
                 db_meta
                     .iter()
-                    .map(|(&id, metadata)| (id, metadata.checksum))
+                    .map(|(&id, metadata)| (id, metadata.clone()))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()

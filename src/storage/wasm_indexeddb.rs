@@ -2,7 +2,7 @@
 //! This module contains WASM-specific IndexedDB functionality
 
 #[cfg(target_arch = "wasm32")]
-use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm};
+use super::metadata::{BlockMetadataPersist, ChecksumAlgorithm, ChecksumManager};
 #[cfg(target_arch = "wasm32")]
 use super::{BlockStorage, vfs_sync};
 #[cfg(target_arch = "wasm32")]
@@ -25,6 +25,22 @@ thread_local! {
     /// Global mutex to serialize IndexedDB open operations
     /// Chrome blocks concurrent opens even after close(), so we must serialize all IndexedDB access
     static INDEXEDDB_MUTEX: RefCell<Arc<Mutex<()>>> = RefCell::new(Arc::new(Mutex::new(())));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Debug)]
+pub(crate) struct PersistedMetadataEntry {
+    pub metadata: BlockMetadataPersist,
+    pub authoritative_checksum: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct IndexedDbMetadataRecord {
+    checksum: String,
+    last_modified_ms: u64,
+    version: u32,
+    algo: ChecksumAlgorithm,
 }
 
 // Reentrancy-safe lock macros
@@ -78,6 +94,298 @@ fn get_indexeddb_factory() -> Result<web_sys::IdbFactory, DatabaseError> {
         })?;
 
     Ok(indexed_db)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn parse_persisted_metadata_entry(value: &JsValue) -> Option<PersistedMetadataEntry> {
+    if let Ok(record) = serde_wasm_bindgen::from_value::<IndexedDbMetadataRecord>(value.clone()) {
+        if let Ok(checksum) = record.checksum.parse::<u64>() {
+            return Some(PersistedMetadataEntry {
+                metadata: BlockMetadataPersist {
+                    checksum,
+                    last_modified_ms: record.last_modified_ms,
+                    version: record.version,
+                    algo: record.algo,
+                },
+                authoritative_checksum: true,
+            });
+        }
+    }
+
+    if let Ok(metadata) = serde_wasm_bindgen::from_value::<BlockMetadataPersist>(value.clone()) {
+        return Some(PersistedMetadataEntry {
+            metadata,
+            authoritative_checksum: true,
+        });
+    }
+
+    value.as_f64().map(|version| PersistedMetadataEntry {
+        metadata: BlockMetadataPersist {
+            checksum: 0,
+            last_modified_ms: 0,
+            version: version as u32,
+            algo: ChecksumAlgorithm::FastHash,
+        },
+        authoritative_checksum: false,
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn await_open_db_request(
+    open_req: web_sys::IdbOpenDbRequest,
+) -> Result<web_sys::IdbDatabase, DatabaseError> {
+    use wasm_bindgen::JsCast;
+
+    let (tx, rx) = futures::channel::oneshot::channel::<Result<web_sys::IdbDatabase, String>>();
+    let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
+
+    let success_tx = tx.clone();
+    let success_callback =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(tx) = success_tx.borrow_mut().take() {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
+                let result = request.result().unwrap();
+                let db: web_sys::IdbDatabase = result.unchecked_into();
+                let _ = tx.send(Ok(db));
+            }
+        }) as Box<dyn FnMut(_)>);
+
+    let error_tx = tx.clone();
+    let error_callback =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(tx) = error_tx.borrow_mut().take() {
+                let _ = tx.send(Err(format!("IndexedDB open failed: {:?}", event)));
+            }
+        }) as Box<dyn FnMut(_)>);
+
+    open_req.set_onsuccess(Some(success_callback.as_ref().unchecked_ref()));
+    open_req.set_onerror(Some(error_callback.as_ref().unchecked_ref()));
+    success_callback.forget();
+    error_callback.forget();
+
+    match rx.await {
+        Ok(Ok(db)) => Ok(db),
+        Ok(Err(error)) => Err(DatabaseError::new("INDEXEDDB_ERROR", &error)),
+        Err(_) => Err(DatabaseError::new(
+            "INDEXEDDB_ERROR",
+            "Channel error awaiting IndexedDB open",
+        )),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn await_request_result(request: web_sys::IdbRequest) -> Result<JsValue, DatabaseError> {
+    use wasm_bindgen::JsCast;
+
+    let (tx, rx) = futures::channel::oneshot::channel::<Result<JsValue, String>>();
+    let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
+
+    let success_tx = tx.clone();
+    let success_callback =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(tx) = success_tx.borrow_mut().take() {
+                let target = event.target().unwrap();
+                let request: web_sys::IdbRequest = target.unchecked_into();
+                let result = request.result().unwrap();
+                let _ = tx.send(Ok(result));
+            }
+        }) as Box<dyn FnMut(_)>);
+
+    let error_tx = tx.clone();
+    let error_callback =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(tx) = error_tx.borrow_mut().take() {
+                let _ = tx.send(Err(format!("IndexedDB request failed: {:?}", event)));
+            }
+        }) as Box<dyn FnMut(_)>);
+
+    request.set_onsuccess(Some(success_callback.as_ref().unchecked_ref()));
+    request.set_onerror(Some(error_callback.as_ref().unchecked_ref()));
+    success_callback.forget();
+    error_callback.forget();
+
+    match rx.await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(DatabaseError::new("INDEXEDDB_ERROR", &error)),
+        Err(_) => Err(DatabaseError::new(
+            "INDEXEDDB_ERROR",
+            "Channel error awaiting IndexedDB request",
+        )),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn restore_metadata_from_indexeddb(
+    db_name: &str,
+    overwrite_existing: bool,
+) -> Result<HashMap<u64, PersistedMetadataEntry>, DatabaseError> {
+    use wasm_bindgen::JsCast;
+
+    let mutex = INDEXEDDB_MUTEX.with(|m| m.borrow().clone());
+    let _guard = mutex.lock().await;
+
+    let open_req = open_indexeddb("block_storage", 2)?;
+    let upgrade_closure =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let target = event.target().unwrap();
+            let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
+            let result = request.result().unwrap();
+            let db: web_sys::IdbDatabase = result.unchecked_into();
+
+            if !db.object_store_names().contains("blocks") {
+                let _ = db.create_object_store("blocks");
+            }
+            if !db.object_store_names().contains("metadata") {
+                let _ = db.create_object_store("metadata");
+            }
+        }) as Box<dyn FnMut(_)>);
+    open_req.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
+    upgrade_closure.forget();
+
+    let db = await_open_db_request(open_req).await?;
+    let transaction = db.transaction_with_str("metadata").map_err(|_| {
+        DatabaseError::new("INDEXEDDB_ERROR", "Failed to create metadata transaction")
+    })?;
+    let metadata_store = transaction
+        .object_store("metadata")
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
+
+    let commit_key = format!("{}:commit_marker", db_name);
+    let commit_value = await_request_result(
+        metadata_store
+            .get(&commit_key.clone().into())
+            .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get commit marker"))?,
+    )
+    .await?;
+    let commit_marker = commit_value.as_f64().map(|value| value as u64);
+
+    let key_start = format!("{}:", db_name);
+    let key_end = format!("{}:{}", db_name, char::from_u32(0xFFFF).unwrap());
+
+    let key_range =
+        web_sys::IdbKeyRange::bound(&JsValue::from_str(&key_start), &JsValue::from_str(&key_end))
+            .map_err(|_| {
+            DatabaseError::new("INDEXEDDB_ERROR", "Failed to create metadata key range")
+        })?;
+
+    let cursor_request = metadata_store
+        .open_cursor_with_range(&key_range)
+        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open metadata cursor"))?;
+
+    let (tx, rx) = futures::channel::oneshot::channel::<
+        Result<HashMap<u64, PersistedMetadataEntry>, String>,
+    >();
+    let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
+    let metadata_entries = std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
+
+    let entries_clone = metadata_entries.clone();
+    let success_tx = tx.clone();
+    let success_callback =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let target = event.target().unwrap();
+            let request: web_sys::IdbRequest = target.unchecked_into();
+            let result = request.result().unwrap();
+
+            if result.is_null() || result.is_undefined() {
+                if let Some(tx) = success_tx.borrow_mut().take() {
+                    let _ = tx.send(Ok(entries_clone.borrow().clone()));
+                }
+                return;
+            }
+
+            let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
+            let key = cursor
+                .key()
+                .ok()
+                .and_then(|value| value.as_string())
+                .unwrap_or_default();
+
+            if !key.ends_with(":commit_marker") {
+                let parts: Vec<&str> = key.split(':').collect();
+                if parts.len() >= 2 {
+                    if let Ok(block_id) = parts[1].parse::<u64>() {
+                        if let Some(entry) =
+                            parse_persisted_metadata_entry(&cursor.value().unwrap())
+                        {
+                            entries_clone.borrow_mut().insert(block_id, entry);
+                        }
+                    }
+                }
+            }
+
+            let _ = cursor.continue_();
+        }) as Box<dyn FnMut(_)>);
+
+    let error_tx = tx.clone();
+    let error_callback =
+        wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(tx) = error_tx.borrow_mut().take() {
+                let _ = tx.send(Err(format!("Metadata cursor failed: {:?}", event)));
+            }
+        }) as Box<dyn FnMut(_)>);
+
+    cursor_request.set_onsuccess(Some(success_callback.as_ref().unchecked_ref()));
+    cursor_request.set_onerror(Some(error_callback.as_ref().unchecked_ref()));
+    success_callback.forget();
+    error_callback.forget();
+
+    let metadata_entries = match rx.await {
+        Ok(Ok(entries)) => entries,
+        Ok(Err(error)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &error)),
+        Err(_) => {
+            return Err(DatabaseError::new(
+                "INDEXEDDB_ERROR",
+                "Channel error restoring metadata from IndexedDB",
+            ));
+        }
+    };
+
+    db.close();
+
+    if let Some(commit_marker) = commit_marker {
+        vfs_sync::with_global_commit_marker(|cm| {
+            cm.borrow_mut().insert(db_name.to_string(), commit_marker);
+        });
+    }
+
+    if !metadata_entries.is_empty() {
+        let storage_snapshot = vfs_sync::with_global_storage(|storage_map| {
+            storage_map
+                .borrow()
+                .get(db_name)
+                .cloned()
+                .unwrap_or_default()
+        });
+
+        let resolved_metadata = metadata_entries
+            .iter()
+            .map(|(&block_id, entry)| {
+                let mut metadata = entry.metadata.clone();
+                if !entry.authoritative_checksum {
+                    if let Some(data) = storage_snapshot.get(&block_id) {
+                        metadata.checksum =
+                            ChecksumManager::compute_checksum_with(data, metadata.algo);
+                    }
+                }
+                (block_id, metadata)
+            })
+            .collect::<HashMap<_, _>>();
+
+        vfs_sync::with_global_metadata(|gm| {
+            let mut metadata_map = gm.borrow_mut();
+            if overwrite_existing {
+                metadata_map.insert(db_name.to_string(), resolved_metadata.clone());
+            } else {
+                metadata_map
+                    .entry(db_name.to_string())
+                    .or_insert_with(HashMap::new)
+                    .extend(resolved_metadata.clone());
+            }
+        });
+    }
+
+    Ok(metadata_entries)
 }
 
 /// Helper: Open IndexedDB database
@@ -703,17 +1011,12 @@ async fn restore_blocks_from_indexeddb(
                 // Parse key: "db_name:block_id:version" or "db_name:commit_marker"
                 if !key.contains("commit_marker") {
                     let parts: Vec<&str> = key.split(':').collect();
-                    if parts.len() >= 3 {
+                    if parts.len() >= 2 {
                         if let Ok(block_id) = parts[1].parse::<u64>() {
-                            if let Ok(version) = parts[2].parse::<u32>() {
-                                // Get the version value (stored as Number)
-                                if let Some(version_f64) = value.as_f64() {
-                                    metadata_data_clone.borrow_mut().push((
-                                        block_id,
-                                        version,
-                                        version_f64 as u32,
-                                    ));
-                                }
+                            if let Some(entry) = parse_persisted_metadata_entry(&value) {
+                                metadata_data_clone
+                                    .borrow_mut()
+                                    .push((block_id, entry.metadata));
                             }
                         }
                     }
@@ -742,34 +1045,20 @@ async fn restore_blocks_from_indexeddb(
     );
 
     // Restore metadata to global metadata storage
-    // Note: We compute checksums from the restored block data since IndexedDB only stores versions
     vfs_sync::with_global_metadata(|gm| {
         let mut meta_map = gm.borrow_mut();
         let db_meta = meta_map
             .entry(db_name.to_string())
             .or_insert_with(HashMap::new);
 
-        for (block_id, _key_version, stored_version) in &restored_metadata {
-            // Find the corresponding block data to compute checksum
-            if let Some((_, data)) = restored_blocks.iter().find(|(bid, _)| bid == block_id) {
-                let checksum = {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = DefaultHasher::new();
-                    data.hash(&mut hasher);
-                    hasher.finish()
-                };
-
-                db_meta.insert(
-                    *block_id,
-                    BlockMetadataPersist {
-                        checksum,
-                        version: *stored_version,
-                        last_modified_ms: 0, // Will be updated on next write
-                        algo: ChecksumAlgorithm::FastHash,
-                    },
-                );
+        for (block_id, restored_metadata) in &restored_metadata {
+            let mut metadata = restored_metadata.clone();
+            if metadata.checksum == 0 {
+                if let Some((_, data)) = restored_blocks.iter().find(|(bid, _)| bid == block_id) {
+                    metadata.checksum = ChecksumManager::compute_checksum_with(data, metadata.algo);
+                }
             }
+            db_meta.insert(*block_id, metadata);
         }
     });
 
@@ -782,7 +1071,7 @@ async fn restore_blocks_from_indexeddb(
 pub async fn persist_to_indexeddb_event_based(
     db_name: &str,
     blocks: Vec<(u64, Vec<u8>)>,
-    metadata: Vec<(u64, u64)>,
+    metadata: Vec<(u64, BlockMetadataPersist)>,
     commit_marker: u64,
     #[cfg(feature = "telemetry")] span_recorder: Option<crate::telemetry::SpanRecorder>,
     #[cfg(feature = "telemetry")] parent_span_id: Option<String>,
@@ -849,7 +1138,7 @@ pub async fn persist_to_indexeddb_event_based(
 async fn persist_to_indexeddb_event_based_internal(
     db_name: &str,
     blocks: Vec<(u64, Vec<u8>)>,
-    metadata: Vec<(u64, u64)>,
+    metadata: Vec<(u64, BlockMetadataPersist)>,
     commit_marker: u64,
 ) -> Result<(), DatabaseError> {
     use wasm_bindgen::JsCast;
@@ -1052,10 +1341,27 @@ async fn persist_to_indexeddb_event_based_internal(
     }
 
     // Store metadata with truly idempotent keys: (db_name, block_id)
-    // Store the version/checksum as the VALUE, not in the KEY
-    for (block_id, version) in metadata {
+    for (block_id, mut metadata) in metadata {
         let key = format!("{}:{}", db_name, block_id);
-        let value = js_sys::Number::from(version as f64);
+        metadata.version = u32::try_from(commit_marker).unwrap_or(u32::MAX);
+        if metadata.last_modified_ms == 0 {
+            metadata.last_modified_ms = js_sys::Date::now() as u64;
+        }
+        let persisted_metadata = IndexedDbMetadataRecord {
+            checksum: metadata.checksum.to_string(),
+            last_modified_ms: metadata.last_modified_ms,
+            version: metadata.version,
+            algo: metadata.algo,
+        };
+        let value = serde_wasm_bindgen::to_value(&persisted_metadata).map_err(|error| {
+            DatabaseError::new(
+                "INDEXEDDB_ERROR",
+                &format!(
+                    "Failed to serialize metadata for {}:{}: {}",
+                    db_name, block_id, error
+                ),
+            )
+        })?;
         #[cfg(target_arch = "wasm32")]
         log::debug!("Storing metadata with idempotent key: {}", key);
         let _ = metadata_store.put_with_key(&value, &key.into());
@@ -1192,7 +1498,21 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         }
 
         // ALWAYS update metadata when commit marker advances, regardless of data changes
-        metadata_to_persist.push((block_id, next_commit));
+        let checksum = storage
+            .checksum_manager
+            .get_checksum(block_id)
+            .unwrap_or_else(|| {
+                ChecksumManager::compute_checksum_with(&block_data, ChecksumAlgorithm::FastHash)
+            });
+        metadata_to_persist.push((
+            block_id,
+            BlockMetadataPersist {
+                version: next_commit as u32,
+                checksum,
+                algo: storage.checksum_manager.get_algorithm(block_id),
+                last_modified_ms: js_sys::Date::now() as u64,
+            },
+        ));
         #[cfg(target_arch = "wasm32")]
         log::debug!(
             "SYNC updating metadata for block {} to version {}",
@@ -1218,16 +1538,8 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         let db_metadata = guard
             .entry(storage.db_name.clone())
             .or_insert_with(std::collections::HashMap::new);
-        for (block_id, version) in &metadata_to_persist {
-            db_metadata.insert(
-                *block_id,
-                BlockMetadataPersist {
-                    version: *version as u32,
-                    checksum: 0,
-                    algo: ChecksumAlgorithm::FastHash,
-                    last_modified_ms: js_sys::Date::now() as u64,
-                },
-            );
+        for (block_id, metadata) in &metadata_to_persist {
+            db_metadata.insert(*block_id, metadata.clone());
         }
     });
 
@@ -1274,7 +1586,7 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
 pub async fn persist_to_indexeddb(
     db_name: &str,
     blocks: std::collections::HashMap<u64, Vec<u8>>,
-    metadata: Vec<(u64, u64)>,
+    metadata: Vec<(u64, BlockMetadataPersist)>,
 ) -> Result<(), DatabaseError> {
     log::debug!("persist_to_indexeddb called for {} blocks", blocks.len());
 

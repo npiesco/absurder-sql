@@ -238,6 +238,33 @@ async function deleteIndexedDbMirror(page, dbName) {
   }, { dbName });
 }
 
+async function corruptOpfsMirror(page, dbName) {
+  return await page.evaluate(async ({ dbName }) => {
+    const root = await navigator.storage.getDirectory();
+    const corruptionBytes = new Uint8Array(4096);
+    corruptionBytes.fill(0x5a);
+
+    for await (const [entryName, handle] of root.entries()) {
+      if (!entryName.includes(dbName) || handle.kind !== 'file') {
+        continue;
+      }
+
+      const writable = await handle.createWritable({ keepExistingData: true });
+      await writable.write({ type: 'write', position: 0, data: corruptionBytes });
+      await writable.close();
+
+      const file = await handle.getFile();
+      return {
+        entryName,
+        size: file.size,
+        corruptedPrefixBytes: corruptionBytes.length,
+      };
+    }
+
+    return null;
+  }, { dbName });
+}
+
 test.describe('Worker Hybrid OPFS Backend', () => {
   test('worker auto backend selects Hybrid and writes OPFS data on sync', async ({ page }) => {
     await page.goto(STATIC_URL);
@@ -280,6 +307,33 @@ test.describe('Worker Hybrid OPFS Backend', () => {
     expect(reopened.success, reopened.error ?? 'worker OPFS restore reopen failed').toBe(true);
     expect(reopened.reopenedBackend).toBe('Hybrid');
     expect(reopened.opfsFile).not.toBeNull();
+    expect(reopened.rows).toEqual([
+      { id: 1, value: 'opfs-alpha' },
+      { id: 2, value: 'opfs-beta' },
+    ]);
+  });
+
+  test('worker reopen falls back to IndexedDB when OPFS data is corrupted', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_corrupt_${Date.now()}`;
+
+    const seeded = await runWorkerScenario(page, dbName, 'seed');
+    console.log((seeded.logs || []).join('\n'));
+
+    expect(seeded.success, seeded.error ?? 'worker hybrid seed failed').toBe(true);
+    expect(seeded.selectedBackend).toBe('Hybrid');
+    expect(seeded.opfsFile).not.toBeNull();
+
+    const corrupted = await corruptOpfsMirror(page, dbName);
+    expect(corrupted).not.toBeNull();
+    expect(corrupted.corruptedPrefixBytes).toBe(4096);
+
+    const reopened = await runWorkerScenario(page, dbName, 'reopen');
+    console.log((reopened.logs || []).join('\n'));
+
+    expect(reopened.success, reopened.error ?? 'worker Hybrid corruption recovery failed').toBe(true);
+    expect(reopened.reopenedBackend).toBe('Hybrid');
     expect(reopened.rows).toEqual([
       { id: 1, value: 'opfs-alpha' },
       { id: 2, value: 'opfs-beta' },

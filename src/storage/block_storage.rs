@@ -1684,11 +1684,28 @@ impl BlockStorage {
                 );
 
                 // Use the existing IndexedDB persistence logic but don't advance commit marker
-                let metadata_to_persist: Vec<(u64, u64)> = dirty_blocks
-                    .keys()
-                    .map(|&block_id| {
-                        let next_commit = self.get_commit_marker() + 1;
-                        (block_id, next_commit)
+                let next_commit = self.get_commit_marker() + 1;
+                let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = dirty_blocks
+                    .iter()
+                    .map(|(&block_id, block_data)| {
+                        let checksum =
+                            self.checksum_manager
+                                .get_checksum(block_id)
+                                .unwrap_or_else(|| {
+                                    ChecksumManager::compute_checksum_with(
+                                        block_data,
+                                        self.checksum_manager.get_algorithm(block_id),
+                                    )
+                                });
+                        (
+                            block_id,
+                            BlockMetadataPersist {
+                                checksum,
+                                last_modified_ms: BlockStorage::now_millis(),
+                                version: next_commit as u32,
+                                algo: self.checksum_manager.get_algorithm(block_id),
+                            },
+                        )
                     })
                     .collect();
 
@@ -1760,11 +1777,28 @@ impl BlockStorage {
                 blocks_to_write.len()
             );
 
-            let metadata_to_persist: Vec<(u64, u64)> = partial_blocks
-                .keys()
-                .map(|&block_id| {
-                    let next_commit = self.get_commit_marker() + 1;
-                    (block_id, next_commit)
+            let next_commit = self.get_commit_marker() + 1;
+            let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = partial_blocks
+                .iter()
+                .map(|(&block_id, block_data)| {
+                    let checksum =
+                        self.checksum_manager
+                            .get_checksum(block_id)
+                            .unwrap_or_else(|| {
+                                ChecksumManager::compute_checksum_with(
+                                    block_data,
+                                    self.checksum_manager.get_algorithm(block_id),
+                                )
+                            });
+                    (
+                        block_id,
+                        BlockMetadataPersist {
+                            checksum,
+                            last_modified_ms: BlockStorage::now_millis(),
+                            version: next_commit as u32,
+                            algo: self.checksum_manager.get_algorithm(block_id),
+                        },
+                    )
                 })
                 .collect();
 

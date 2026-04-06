@@ -476,7 +476,7 @@ pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<
                     if let Some(db_meta) = meta.borrow().get(db_name) {
                         db_meta
                             .iter()
-                            .map(|(&id, metadata)| (id, metadata.checksum))
+                            .map(|(&id, metadata)| (id, metadata.clone()))
                             .collect::<Vec<_>>()
                     } else {
                         Vec::new()

@@ -67,46 +67,59 @@ pub async fn new_wasm_with_backend(
         log::info!("IndexedDB recovery scan completed for: {}", db_name);
     }
 
-    let restored_from_opfs = if matches!(backend, StorageBackend::Opfs | StorageBackend::Hybrid) {
-        match super::wasm_opfs::restore_from_opfs(db_name).await {
-            Ok(restored_blocks) if restored_blocks > 0 => {
-                log::info!(
-                    "Successfully restored {} blocks from OPFS for: {}",
-                    restored_blocks,
+    match backend {
+        StorageBackend::IndexedDb => {
+            match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
+                Ok(_) => log::info!(
+                    "Successfully restored BlockStorage from IndexedDB for: {}",
                     db_name
-                );
-                true
-            }
-            Ok(_) => {
-                log::info!("No OPFS blocks found for: {}", db_name);
-                false
-            }
-            Err(e) => {
-                log::warn!("OPFS restoration failed for {}: {}", db_name, e.message);
-                false
+                ),
+                Err(e) => log::warn!(
+                    "IndexedDB restoration failed for {}: {}",
+                    db_name,
+                    e.message
+                ),
             }
         }
-    } else {
-        false
-    };
+        StorageBackend::Opfs => {
+            let restored_from_opfs = match super::wasm_opfs::restore_from_opfs(db_name).await {
+                Ok(restored_blocks) if restored_blocks > 0 => {
+                    log::info!(
+                        "Successfully restored {} blocks from OPFS for: {}",
+                        restored_blocks,
+                        db_name
+                    );
+                    true
+                }
+                Ok(_) => {
+                    log::info!("No OPFS blocks found for: {}", db_name);
+                    false
+                }
+                Err(e) => {
+                    log::warn!("OPFS restoration failed for {}: {}", db_name, e.message);
+                    false
+                }
+            };
 
-    if !restored_from_opfs {
-        match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
-            Ok(_) => log::info!(
-                "Successfully restored BlockStorage from IndexedDB for: {}",
-                db_name
-            ),
-            Err(e) => log::warn!(
-                "IndexedDB restoration failed for {}: {}",
-                db_name,
-                e.message
-            ),
+            if !restored_from_opfs {
+                match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
+                    Ok(_) => log::info!(
+                        "Successfully restored BlockStorage from IndexedDB for: {}",
+                        db_name
+                    ),
+                    Err(e) => log::warn!(
+                        "IndexedDB restoration failed for {}: {}",
+                        db_name,
+                        e.message
+                    ),
+                }
+            }
         }
-    } else {
-        log::info!(
-            "Skipping IndexedDB restore for {} because OPFS restore succeeded",
-            db_name
-        );
+        StorageBackend::Hybrid => {
+            if let Err(e) = super::hybrid_store::hybrid_restore(db_name).await {
+                log::warn!("Hybrid restoration failed for {}: {}", db_name, e.message);
+            }
+        }
     }
 
     // Debug: Log what's in global storage after restoration

@@ -11,6 +11,8 @@ pub mod coordination_metrics;
 pub mod export;
 pub mod export_import_lock;
 pub mod fs_persist;
+#[cfg(target_arch = "wasm32")]
+pub mod hybrid_store;
 pub mod import;
 #[cfg(target_arch = "wasm32")]
 pub mod indexeddb_queue;
