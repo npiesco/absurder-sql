@@ -113,9 +113,17 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
                     .await
                 }
                 StorageBackend::Opfs | StorageBackend::Hybrid => {
-                    if let Err(error) =
-                        super::wasm_opfs::persist_to_opfs(&db_name_clone, blocks_to_persist.clone())
-                            .await
+                    if let Err(error) = super::hybrid_store::hybrid_persist(
+                        &db_name_clone,
+                        blocks_to_persist,
+                        metadata_to_persist,
+                        next_commit,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                    )
+                    .await
                     {
                         web_sys::console::log_1(
                             &format!(
@@ -126,17 +134,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
                         );
                         Err(error)
                     } else {
-                        super::wasm_indexeddb::persist_to_indexeddb_event_based(
-                            &db_name_clone,
-                            blocks_to_persist,
-                            metadata_to_persist,
-                            next_commit,
-                            #[cfg(feature = "telemetry")]
-                            None,
-                            #[cfg(feature = "telemetry")]
-                            None,
-                        )
-                        .await
+                        Ok(())
                     }
                 }
             };
@@ -246,25 +244,21 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
                         .await
                     }
                     StorageBackend::Opfs | StorageBackend::Hybrid => {
-                        if let Err(error) = super::wasm_opfs::persist_to_opfs(
+                        if let Err(error) = super::hybrid_store::hybrid_persist(
                             &db_name_string,
-                            blocks_to_persist.clone(),
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                            #[cfg(feature = "telemetry")]
+                            None,
                         )
                         .await
                         {
                             Err(error)
                         } else {
-                            super::wasm_indexeddb::persist_to_indexeddb_event_based(
-                                &db_name_string,
-                                blocks_to_persist,
-                                metadata_to_persist,
-                                next_commit,
-                                #[cfg(feature = "telemetry")]
-                                None,
-                                #[cfg(feature = "telemetry")]
-                                None,
-                            )
-                            .await
+                            Ok(())
                         }
                     }
                 };

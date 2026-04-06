@@ -1692,12 +1692,7 @@ impl Database {
                             )
                             .into(),
                         );
-                        crate::storage::wasm_opfs::persist_to_opfs(
-                            storage_name,
-                            blocks_to_persist.clone(),
-                        )
-                        .await?;
-                        crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
+                        crate::storage::hybrid_store::hybrid_persist(
                             storage_name,
                             blocks_to_persist,
                             metadata_to_persist,

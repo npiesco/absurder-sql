@@ -20,6 +20,7 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Wired backend-aware persistence into the current WASM sync paths so worker `Hybrid` / `OPFS` sync mirrors blocks into OPFS while continuing to mirror into IndexedDB.
 - Implemented OPFS-first restore in `constructors.rs` for `Hybrid` / `OPFS` backends, with fallback to IndexedDB when no OPFS data exists.
 - Added `hybrid_store.rs` so `Hybrid` reopen now restores OPFS blocks, loads IndexedDB metadata, cross-validates checksums, and falls back to IndexedDB when OPFS data is corrupted.
+- Added `hybrid_persist()` in `hybrid_store.rs` and routed the existing WASM sync paths through it instead of keeping OPFS+IDB mirroring duplicated inline.
 - Upgraded the IndexedDB metadata mirror to persist real block metadata instead of version-only placeholders, with checksum values encoded in a JS-safe format.
 - Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, OPFS-only reopen when the IndexedDB mirror is deleted, and Hybrid fallback when OPFS bytes are corrupted.
 - Current limitation: `hybrid_persist()` is still inlined in existing sync paths, and export/import/recovery flows are not yet OPFS-aware.
@@ -280,7 +281,7 @@ match storage.backend {
 
 ### Phase 3: Hybrid Mode (~3-4 days)
 - [x] Create `hybrid_store.rs` orchestrator
-- [ ] Implement `hybrid_persist()` — OPFS blocks + IDB metadata in parallel
+- [x] Implement `hybrid_persist()` — OPFS blocks + IDB metadata in parallel
 - [x] Implement `hybrid_restore()` — cross-validate checksums on load
 - [ ] OPFS recovery: detect orphan files, reconcile with IDB metadata
 

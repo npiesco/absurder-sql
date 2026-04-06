@@ -1,6 +1,32 @@
-use super::metadata::ChecksumManager;
+use super::metadata::{BlockMetadataPersist, ChecksumManager};
 use super::vfs_sync;
 use crate::types::DatabaseError;
+
+pub async fn hybrid_persist(
+    db_name: &str,
+    blocks: Vec<(u64, Vec<u8>)>,
+    metadata: Vec<(u64, BlockMetadataPersist)>,
+    commit_marker: u64,
+    #[cfg(feature = "telemetry")] span_recorder: Option<crate::telemetry::SpanRecorder>,
+    #[cfg(feature = "telemetry")] parent_span_id: Option<String>,
+) -> Result<(), DatabaseError> {
+    if blocks.is_empty() {
+        return Ok(());
+    }
+
+    super::wasm_opfs::persist_to_opfs(db_name, blocks.clone()).await?;
+    super::wasm_indexeddb::persist_to_indexeddb_event_based(
+        db_name,
+        blocks,
+        metadata,
+        commit_marker,
+        #[cfg(feature = "telemetry")]
+        span_recorder,
+        #[cfg(feature = "telemetry")]
+        parent_span_id,
+    )
+    .await
+}
 
 fn clear_db_state(db_name: &str) {
     vfs_sync::with_global_storage(|storage_map| {
