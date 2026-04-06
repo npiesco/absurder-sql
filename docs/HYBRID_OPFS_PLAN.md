@@ -23,7 +23,10 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Added `hybrid_persist()` in `hybrid_store.rs` and routed the existing WASM sync paths through it instead of keeping OPFS+IDB mirroring duplicated inline.
 - Upgraded the IndexedDB metadata mirror to persist real block metadata instead of version-only placeholders, with checksum values encoded in a JS-safe format.
 - Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, OPFS-only reopen when the IndexedDB mirror is deleted, and Hybrid fallback when OPFS bytes are corrupted.
-- Current limitation: `hybrid_persist()` is still inlined in existing sync paths, and export/import/recovery flows are not yet OPFS-aware.
+- Made `exportToFile()` / `importFromFile()` worker-safe by routing them through `export_import_lock.rs`, which now falls back to a local async lock when `Window` is unavailable.
+- Updated `import.rs` so browser imports clear stale OPFS mirrors and persist imported blocks through `hybrid_persist()` for `Hybrid` / `OPFS` backends instead of treating IndexedDB as the only durable target.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker import regression proving imported data survives after deleting the IndexedDB mirror.
+- Current limitation: recovery and the remaining export/reload orchestration still need a fuller OPFS-aware cleanup pass.
 
 Validation completed for this slice:
 
@@ -32,6 +35,8 @@ Validation completed for this slice:
 - `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line` passed.
 - `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "restores from OPFS after IndexedDB mirror deletion"` passed.
 - `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "falls back to IndexedDB when OPFS data is corrupted"` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --reporter=line` passed.
+- `npx playwright test tests/e2e/import-export.spec.js --reporter=line` passed.
 - Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
 - `cargo test` passed.
 - `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
@@ -289,7 +294,7 @@ match storage.backend {
 - [x] Modify `constructors.rs` — `new_wasm_with_backend()`, `new_wasm_auto()`
 - [x] Modify `wasm_vfs_sync.rs` — backend-aware sync dispatch
 - [ ] Modify `sync_operations.rs` — backend-aware flush
-- [ ] Modify `export.rs` / `import.rs` — read from OPFS when applicable
+- [ ] Modify `export.rs` / `import.rs` — finish the remaining OPFS-aware export/reload cleanup
 - [ ] Modify `recovery.rs` — OPFS recovery path
 - [ ] Expose `StorageBackend` choice in WASM API (`Database::newDatabaseWithBackend()`)
 

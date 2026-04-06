@@ -3,6 +3,7 @@
 //! This module handles importing SQLite .db files into the block-based storage system.
 
 use super::block_storage::BLOCK_SIZE;
+use super::block_storage::StorageBackend;
 use super::export::validate_sqlite_file;
 use crate::types::DatabaseError;
 use crate::utils::normalize_db_name;
@@ -180,6 +181,17 @@ pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> 
 /// # }
 /// ```
 pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<(), DatabaseError> {
+    import_database_from_bytes_with_backend(db_name, data, StorageBackend::IndexedDb).await
+}
+
+pub async fn import_database_from_bytes_with_backend(
+    db_name: &str,
+    data: Vec<u8>,
+    backend: StorageBackend,
+) -> Result<(), DatabaseError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = backend;
+
     use super::vfs_sync::{with_global_allocation_map, with_global_storage};
     use std::collections::{HashMap, HashSet};
 
@@ -212,6 +224,10 @@ pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<
         );
         super::wasm_indexeddb::delete_all_database_blocks_from_indexeddb(db_name).await?;
         log::debug!("All old blocks deleted from IndexedDB");
+
+        log::debug!("Deleting any existing OPFS mirror for: {}", db_name);
+        super::wasm_opfs::delete_all_from_opfs(db_name).await?;
+        log::debug!("Existing OPFS mirror cleared");
     }
 
     // Step 4: Split data into BLOCK_SIZE chunks
@@ -446,10 +462,14 @@ pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<
 
     log::debug!("Commit marker set to 1 for immediate visibility");
 
-    // Step 10: For WASM, sync imported data to IndexedDB immediately and WAIT for it
+    // Step 10: For WASM, sync imported data to the active browser backend immediately and WAIT for it
     #[cfg(target_arch = "wasm32")]
     {
-        log::debug!("Syncing imported data to IndexedDB for {}", db_name);
+        log::debug!(
+            "Syncing imported data to {} for {}",
+            backend.as_str(),
+            db_name
+        );
 
         // Advance commit marker
         let next_commit = with_global_commit_marker(|cm| {
@@ -489,34 +509,60 @@ pub async fn import_database_from_bytes(db_name: &str, data: Vec<u8>) -> Result<
 
         if !blocks_to_persist.is_empty() {
             log::debug!(
-                "Persisting {} blocks to IndexedDB with commit marker {}",
+                "Persisting {} blocks to {} with commit marker {}",
                 blocks_to_persist.len(),
+                backend.as_str(),
                 next_commit
             );
 
-            // CRITICAL: AWAIT the persistence to complete BEFORE returning
-            super::wasm_indexeddb::persist_to_indexeddb_event_based(
-                db_name,
-                blocks_to_persist,
-                metadata_to_persist,
-                next_commit,
-                #[cfg(feature = "telemetry")]
-                None,
-                #[cfg(feature = "telemetry")]
-                None,
-            )
-            .await
-            .map_err(|e| {
-                log::error!("Failed to persist imported data to IndexedDB: {}", e);
+            let persist_result = match backend {
+                StorageBackend::IndexedDb => {
+                    super::wasm_indexeddb::persist_to_indexeddb_event_based(
+                        db_name,
+                        blocks_to_persist,
+                        metadata_to_persist,
+                        next_commit,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                    )
+                    .await
+                }
+                StorageBackend::Opfs | StorageBackend::Hybrid => {
+                    super::hybrid_store::hybrid_persist(
+                        db_name,
+                        blocks_to_persist,
+                        metadata_to_persist,
+                        next_commit,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                    )
+                    .await
+                }
+            };
+
+            persist_result.map_err(|e| {
+                log::error!(
+                    "Failed to persist imported data to {}: {}",
+                    backend.as_str(),
+                    e
+                );
                 DatabaseError::new(
                     "IMPORT_SYNC_FAILED",
                     &format!("Failed to persist imported data: {}", e),
                 )
             })?;
 
-            log::debug!("Import sync to IndexedDB complete for {}", db_name);
+            log::debug!(
+                "Import sync to {} complete for {}",
+                backend.as_str(),
+                db_name
+            );
         } else {
-            log::warn!("No blocks to persist to IndexedDB for {}", db_name);
+            log::warn!("No blocks to persist for {}", db_name);
         }
     }
 

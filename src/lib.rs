@@ -2401,78 +2401,75 @@ impl Database {
         let db_name = self.name.clone();
         let max_export_size = self.max_export_size_bytes;
 
-        log::info!("[EXPORT] ===== Step 1: Acquiring lock");
+        crate::storage::export_import_lock::with_lock(&db_name, || async {
+            log::info!("[EXPORT] ===== Step 1: Lock acquired");
 
-        // Acquire lock FIRST to serialize operations
-        let _guard = weblocks::acquire(&db_name, weblocks::AcquireOptions::exclusive()).await?;
-        log::info!("[EXPORT] ===== Step 2: Lock acquired");
+            // Get storage and sync AFTER lock - this ensures only one export syncs at a time
+            use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
+            log::info!("[EXPORT] ===== Step 2: Getting storage");
+            let storage_rc = get_storage_with_fallback(&db_name).ok_or_else(|| {
+                JsValue::from_str(&format!("Storage not found for database: {}", db_name))
+            })?;
+            log::info!("[EXPORT] ===== Step 3: Got storage, reloading cache");
 
-        // Get storage and sync AFTER lock - this ensures only one export syncs at a time
-        use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        log::info!("[EXPORT] ===== Step 3: Getting storage");
-        let storage_rc = get_storage_with_fallback(&db_name).ok_or_else(|| {
-            JsValue::from_str(&format!("Storage not found for database: {}", db_name))
-        })?;
-        log::info!("[EXPORT] ===== Step 4: Got storage, reloading cache");
+            // Reload cache from GLOBAL_STORAGE
+            #[cfg(target_arch = "wasm32")]
+            {
+                storage_rc.reload_cache_from_global_storage();
+            }
 
-        // Reload cache from GLOBAL_STORAGE
-        #[cfg(target_arch = "wasm32")]
-        {
-            storage_rc.reload_cache_from_global_storage();
-        }
-
-        // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
-        // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
-        log::info!("[EXPORT] ===== Step 5: Checkpointing WAL");
-        if !self.connection_state.db.get().is_null() {
-            // Use raw SQLite call since export_to_file takes &self, not &mut self
-            use std::ffi::CString;
-            let pragma = CString::new("PRAGMA wal_checkpoint(PASSIVE)").unwrap();
-            unsafe {
-                let mut stmt = std::ptr::null_mut();
-                let rc = sqlite_wasm_rs::sqlite3_prepare_v2(
-                    self.connection_state.db.get(),
-                    pragma.as_ptr(),
-                    -1,
-                    &mut stmt,
-                    std::ptr::null_mut(),
-                );
-                if rc == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
-                    sqlite_wasm_rs::sqlite3_step(stmt);
-                    sqlite_wasm_rs::sqlite3_finalize(stmt);
-                    log::info!("[EXPORT] WAL checkpoint completed");
-                } else {
-                    log::warn!("[EXPORT] WAL checkpoint failed with rc: {}", rc);
+            // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
+            // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
+            log::info!("[EXPORT] ===== Step 4: Checkpointing WAL");
+            if !self.connection_state.db.get().is_null() {
+                // Use raw SQLite call since export_to_file takes &self, not &mut self
+                use std::ffi::CString;
+                let pragma = CString::new("PRAGMA wal_checkpoint(PASSIVE)").unwrap();
+                unsafe {
+                    let mut stmt = std::ptr::null_mut();
+                    let rc = sqlite_wasm_rs::sqlite3_prepare_v2(
+                        self.connection_state.db.get(),
+                        pragma.as_ptr(),
+                        -1,
+                        &mut stmt,
+                        std::ptr::null_mut(),
+                    );
+                    if rc == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
+                        sqlite_wasm_rs::sqlite3_step(stmt);
+                        sqlite_wasm_rs::sqlite3_finalize(stmt);
+                        log::info!("[EXPORT] WAL checkpoint completed");
+                    } else {
+                        log::warn!("[EXPORT] WAL checkpoint failed with rc: {}", rc);
+                    }
                 }
             }
-        }
 
-        log::info!("[EXPORT] ===== Step 6: Starting sync");
-        // Sync to ensure all data is persisted before export
-        storage_rc
-            .sync()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Sync failed: {}", e)))?;
-        log::info!("[EXPORT] ===== Step 7: Sync complete");
-
-        // Export with configured size limit
-        log::info!("[EXPORT] Calling export_database_to_bytes");
-        let db_bytes = {
-            let storage = &*storage_rc;
-            crate::storage::export::export_database_to_bytes(storage, max_export_size)
+            log::info!("[EXPORT] ===== Step 5: Starting sync");
+            storage_rc
+                .sync()
                 .await
-                .map_err(|e| {
-                    log::error!("[EXPORT] Export failed: {}", e);
-                    JsValue::from_str(&format!("Export failed: {}", e))
-                })?
-        };
+                .map_err(|e| JsValue::from_str(&format!("Sync failed: {}", e)))?;
+            log::info!("[EXPORT] ===== Step 6: Sync complete");
 
-        log::info!("[EXPORT] Export complete: {} bytes", db_bytes.len());
+            log::info!("[EXPORT] Calling export_database_to_bytes");
+            let db_bytes = {
+                let storage = &*storage_rc;
+                crate::storage::export::export_database_to_bytes(storage, max_export_size)
+                    .await
+                    .map_err(|e| {
+                        log::error!("[EXPORT] Export failed: {}", e);
+                        JsValue::from_str(&format!("Export failed: {}", e))
+                    })?
+            };
 
-        let uint8_array = js_sys::Uint8Array::new_with_length(db_bytes.len() as u32);
-        uint8_array.copy_from(&db_bytes);
+            log::info!("[EXPORT] Export complete: {} bytes", db_bytes.len());
 
-        Ok(uint8_array)
+            let uint8_array = js_sys::Uint8Array::new_with_length(db_bytes.len() as u32);
+            uint8_array.copy_from(&db_bytes);
+
+            Ok(uint8_array)
+        })
+        .await
     }
 
     /// Test method for concurrent locking - simple increment counter
@@ -2541,102 +2538,98 @@ impl Database {
         let db_name = self.name.clone();
         let data = file_data.to_vec();
 
-        // Acquire lock FIRST to serialize operations
-        let _guard = weblocks::acquire(&db_name, weblocks::AcquireOptions::exclusive()).await?;
-        log::info!("[IMPORT] Lock acquired for: {}", db_name);
+        crate::storage::export_import_lock::with_lock(&db_name, || async {
+            log::info!("[IMPORT] Lock acquired for: {}", db_name);
+            log::debug!("Import data size: {} bytes", data.len());
 
-        log::debug!("Import data size: {} bytes", data.len());
+            let storage_backend = crate::vfs::indexeddb_vfs::get_storage_with_fallback(&db_name)
+                .map(|storage| storage.storage_backend())
+                .unwrap_or(crate::storage::StorageBackend::IndexedDb);
 
-        // CRITICAL: Force-close database connection BEFORE import
-        // Must use force_close to remove from connection pool, not just decrement ref_count
-        // Otherwise new Database instances will reuse stale SQLite connection
-        log::debug!("Force-closing database connection before import");
+            log::debug!("Force-closing database connection before import");
 
-        // First do normal close to cleanup leader election etc
-        self.close_internal()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to close before import: {}", e)))?;
+            self.close_internal()
+                .await
+                .map_err(|e| JsValue::from_str(&format!("Failed to close before import: {}", e)))?;
 
-        // Then force-remove from connection pool
-        let pool_key = self.name.trim_end_matches(".db");
-        crate::connection_pool::force_close_connection(pool_key);
+            let pool_key = self.name.trim_end_matches(".db");
+            crate::connection_pool::force_close_connection(pool_key);
+            self.connection_state.db.set(std::ptr::null_mut());
+            log::debug!("Removed connection from pool for import");
 
-        // Mark our connection as null since we force-closed it
-        self.connection_state.db.set(std::ptr::null_mut());
-        log::debug!("Removed connection from pool for import");
-
-        // Call the import function with full name (WITH .db)
-        crate::storage::import::import_database_from_bytes(&db_name, data)
+            crate::storage::import::import_database_from_bytes_with_backend(
+                &db_name,
+                data,
+                storage_backend,
+            )
             .await
             .map_err(|e| {
                 log::error!("Import failed for {}: {}", db_name, e);
                 JsValue::from_str(&format!("Import failed: {}", e))
             })?;
 
-        log::info!("[IMPORT] Import complete for: {}", db_name);
+            log::info!("[IMPORT] Import complete for: {}", db_name);
+            log::info!("[IMPORT] Reopening connection for: {}", db_name);
 
-        // Reopen the SQLite connection so this Database instance is usable after import
-        // The VFS should already exist from when the Database was first created
-        log::info!("[IMPORT] Reopening connection for: {}", db_name);
+            use std::ffi::CString;
 
-        use std::ffi::CString;
+            let vfs_name = format!("vfs_{}", db_name.trim_end_matches(".db"));
+            let pool_key = db_name.trim_end_matches(".db").to_string();
+            let db_name_for_closure = db_name.clone();
+            let vfs_name_for_closure = vfs_name.clone();
 
-        let vfs_name = format!("vfs_{}", db_name.trim_end_matches(".db"));
-        let pool_key = db_name.trim_end_matches(".db").to_string();
-        let db_name_for_closure = db_name.clone();
-        let vfs_name_for_closure = vfs_name.clone();
+            let new_state = crate::connection_pool::get_or_create_connection(&pool_key, || {
+                let mut db = std::ptr::null_mut();
+                let db_name_cstr = CString::new(db_name_for_closure.clone())
+                    .map_err(|_| "Invalid database name".to_string())?;
+                let vfs_cstr = CString::new(vfs_name_for_closure.as_str())
+                    .map_err(|_| "Invalid VFS name".to_string())?;
 
-        let new_state = crate::connection_pool::get_or_create_connection(&pool_key, || {
-            let mut db = std::ptr::null_mut();
-            let db_name_cstr = CString::new(db_name_for_closure.clone())
-                .map_err(|_| "Invalid database name".to_string())?;
-            let vfs_cstr = CString::new(vfs_name_for_closure.as_str())
-                .map_err(|_| "Invalid VFS name".to_string())?;
+                log::info!(
+                    "[IMPORT] Reopening database: {} with VFS: {}",
+                    db_name_for_closure,
+                    vfs_name_for_closure
+                );
 
-            log::info!(
-                "[IMPORT] Reopening database: {} with VFS: {}",
-                db_name_for_closure,
-                vfs_name_for_closure
-            );
-
-            let ret = unsafe {
-                sqlite_wasm_rs::sqlite3_open_v2(
-                    db_name_cstr.as_ptr(),
-                    &mut db as *mut _,
-                    sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
-                    vfs_cstr.as_ptr(),
-                )
-            };
-
-            if ret != sqlite_wasm_rs::SQLITE_OK {
-                let err_msg = unsafe {
-                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
-                    if !msg_ptr.is_null() {
-                        std::ffi::CStr::from_ptr(msg_ptr)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "Unknown error".to_string()
-                    }
+                let ret = unsafe {
+                    sqlite_wasm_rs::sqlite3_open_v2(
+                        db_name_cstr.as_ptr(),
+                        &mut db as *mut _,
+                        sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
+                        vfs_cstr.as_ptr(),
+                    )
                 };
-                return Err(format!(
-                    "Failed to reopen database after import: {}",
-                    err_msg
-                ));
-            }
 
-            log::info!("[IMPORT] Database reopened successfully");
-            Ok(db)
+                if ret != sqlite_wasm_rs::SQLITE_OK {
+                    let err_msg = unsafe {
+                        let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
+                        if !msg_ptr.is_null() {
+                            std::ffi::CStr::from_ptr(msg_ptr)
+                                .to_string_lossy()
+                                .into_owned()
+                        } else {
+                            "Unknown error".to_string()
+                        }
+                    };
+                    return Err(format!(
+                        "Failed to reopen database after import: {}",
+                        err_msg
+                    ));
+                }
+
+                log::info!("[IMPORT] Database reopened successfully");
+                Ok(db)
+            })
+            .map_err(|e| {
+                JsValue::from_str(&format!("Failed to reopen connection after import: {}", e))
+            })?;
+
+            self.connection_state = new_state;
+            log::info!("[IMPORT] Connection state updated for: {}", db_name);
+
+            Ok(())
         })
-        .map_err(|e| {
-            JsValue::from_str(&format!("Failed to reopen connection after import: {}", e))
-        })?;
-
-        // Update our connection state to use the new connection
-        self.connection_state = new_state;
-        log::info!("[IMPORT] Connection state updated for: {}", db_name);
-
-        Ok(())
+        .await
     }
 
     /// Wait for this instance to become leader

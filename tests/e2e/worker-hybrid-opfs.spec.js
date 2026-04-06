@@ -3,8 +3,12 @@ import { test, expect } from '@playwright/test';
 const STATIC_URL = 'http://localhost:8080/examples/worker-example.html';
 const PKG_URL = 'http://localhost:8080/pkg/absurder_sql.js';
 
-async function runWorkerScenario(page, dbName, mode) {
-  return await page.evaluate(async ({ pkgUrl, dbName, mode }) => {
+async function runWorkerScenario(page, dbNameOrOptions, maybeMode) {
+  const options = typeof dbNameOrOptions === 'string'
+    ? { dbName: dbNameOrOptions, mode: maybeMode }
+    : dbNameOrOptions;
+
+  return await page.evaluate(async ({ pkgUrl, options }) => {
     const workerSource = `
       import init, { Database } from '${pkgUrl}';
 
@@ -30,7 +34,7 @@ async function runWorkerScenario(page, dbName, mode) {
 
       self.onmessage = async (event) => {
         const logs = [];
-        const { dbName, mode } = event.data;
+        const { dbName, mode, sourceDbName } = event.data;
 
         try {
           await init();
@@ -134,6 +138,101 @@ async function runWorkerScenario(page, dbName, mode) {
             return;
           }
 
+          if (mode === 'import-seed') {
+            const source = await Database.newDatabaseAuto(sourceDbName);
+            source.allowNonLeaderWrites(true);
+            const sourceBackend = source.getStorageBackend();
+            logs.push('source backend: ' + sourceBackend);
+
+            await source.execute('CREATE TABLE IF NOT EXISTS imported_data (id INTEGER PRIMARY KEY, label TEXT)');
+            await source.execute('DELETE FROM imported_data');
+            await source.execute("INSERT INTO imported_data (id, label) VALUES (1, 'fresh-alpha'), (2, 'fresh-beta')");
+            await source.sync();
+            const exported = await source.exportToFile();
+            logs.push('export size: ' + exported.length);
+            await source.close();
+
+            const target = await Database.newDatabaseAuto(dbName);
+            target.allowNonLeaderWrites(true);
+            const selectedBackend = target.getStorageBackend();
+            logs.push('target backend: ' + selectedBackend);
+
+            await target.execute('CREATE TABLE IF NOT EXISTS stale_data (id INTEGER PRIMARY KEY, value TEXT)');
+            await target.execute('DELETE FROM stale_data');
+            await target.execute("INSERT INTO stale_data (id, value) VALUES (1, 'stale-before-import')");
+            await target.sync();
+
+            const staleOpfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('stale opfs file: ' + JSON.stringify(staleOpfsFile));
+
+            await target.importFromFile(exported);
+
+            const importedQuery = await target.execute('SELECT id, label AS value FROM imported_data ORDER BY id');
+            const importedRows = serializeRows(importedQuery);
+            logs.push('imported row count: ' + importedRows.length);
+
+            const staleTableQuery = await target.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stale_data'");
+            const staleTablePresentAfterImport = staleTableQuery.rows.length > 0;
+            logs.push('stale table present after import: ' + staleTablePresentAfterImport);
+
+            await target.close();
+            try {
+              await Database.deleteDatabase(sourceDbName);
+            } catch (cleanupError) {
+              logs.push('source cleanup warning: ' + String(cleanupError));
+            }
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('target opfs file after import: ' + JSON.stringify(opfsFile));
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              sourceBackend,
+              staleOpfsFile,
+              opfsFile,
+              importedRows,
+              staleTablePresentAfterImport,
+            });
+            return;
+          }
+
+          if (mode === 'reopen-imported') {
+            const reopened = await Database.newDatabaseAuto(dbName);
+            reopened.allowNonLeaderWrites(true);
+            const reopenedBackend = reopened.getStorageBackend();
+            logs.push('reopened backend: ' + reopenedBackend);
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file: ' + JSON.stringify(opfsFile));
+
+            const importedQuery = await reopened.execute('SELECT id, label AS value FROM imported_data ORDER BY id');
+            const rows = serializeRows(importedQuery);
+            logs.push('imported row count: ' + rows.length);
+
+            const staleTableQuery = await reopened.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stale_data'");
+            const staleTablePresent = staleTableQuery.rows.length > 0;
+            logs.push('stale table present after reopen: ' + staleTablePresent);
+
+            await reopened.close();
+            try {
+              await Database.deleteDatabase(dbName);
+            } catch (cleanupError) {
+              logs.push('cleanup warning: ' + String(cleanupError));
+            }
+
+            self.postMessage({
+              success: true,
+              logs,
+              reopenedBackend,
+              opfsFile,
+              rows,
+              staleTablePresent,
+            });
+            return;
+          }
+
           throw new Error('Unknown worker mode: ' + mode);
         } catch (error) {
           const errorMessage = error?.message ?? String(error);
@@ -164,9 +263,9 @@ async function runWorkerScenario(page, dbName, mode) {
         resolve(event.data);
       };
 
-      worker.postMessage({ dbName, mode });
+      worker.postMessage(options);
     });
-  }, { pkgUrl: PKG_URL, dbName, mode });
+  }, { pkgUrl: PKG_URL, options });
 }
 
 async function deleteIndexedDbMirror(page, dbName) {
@@ -338,5 +437,45 @@ test.describe('Worker Hybrid OPFS Backend', () => {
       { id: 1, value: 'opfs-alpha' },
       { id: 2, value: 'opfs-beta' },
     ]);
+  });
+
+  test('worker import updates OPFS so imported data survives IndexedDB mirror deletion', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_import_${Date.now()}`;
+    const sourceDbName = `${dbName}_source`;
+
+    const imported = await runWorkerScenario(page, {
+      dbName,
+      sourceDbName,
+      mode: 'import-seed',
+    });
+    console.log((imported.logs || []).join('\n'));
+
+    expect(imported.success, imported.error ?? 'worker hybrid import seed failed').toBe(true);
+    expect(imported.selectedBackend).toBe('Hybrid');
+    expect(imported.importedRows).toEqual([
+      { id: 1, value: 'fresh-alpha' },
+      { id: 2, value: 'fresh-beta' },
+    ]);
+    expect(imported.staleTablePresentAfterImport).toBe(false);
+    expect(imported.opfsFile).not.toBeNull();
+
+    const deletedMirror = await deleteIndexedDbMirror(page, dbName);
+    expect(deletedMirror.deletedAny).toBe(true);
+
+    const reopened = await runWorkerScenario(page, {
+      dbName,
+      mode: 'reopen-imported',
+    });
+    console.log((reopened.logs || []).join('\n'));
+
+    expect(reopened.success, reopened.error ?? 'worker hybrid imported reopen failed').toBe(true);
+    expect(reopened.reopenedBackend).toBe('Hybrid');
+    expect(reopened.rows).toEqual([
+      { id: 1, value: 'fresh-alpha' },
+      { id: 2, value: 'fresh-beta' },
+    ]);
+    expect(reopened.staleTablePresent).toBe(false);
   });
 });
