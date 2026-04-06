@@ -5,6 +5,7 @@
 //! data into OPFS on sync while keeping IndexedDB restoration as the reload path
 //! until full OPFS restore/orchestration lands.
 
+use crate::storage::metadata::{BlockMetadataPersist, ChecksumAlgorithm, ChecksumManager};
 use crate::storage::vfs_sync;
 use crate::types::DatabaseError;
 use crate::utils::normalize_db_name;
@@ -24,13 +25,26 @@ function absurdGetRoot() {
   return globalThis.navigator.storage.getDirectory();
 }
 
-export async function absurd_opfs_open(fileName) {
+export async function absurd_opfs_open(fileName, create = true) {
   const root = await absurdGetRoot();
-  const fileHandle = await root.getFileHandle(fileName, { create: true });
+    const fileHandle = await root.getFileHandle(fileName, { create });
   const accessHandle = await fileHandle.createSyncAccessHandle();
   const id = absurdNextHandleId++;
   absurdHandles.set(id, accessHandle);
   return id;
+}
+
+export async function absurd_opfs_exists(fileName) {
+    try {
+        const root = await absurdGetRoot();
+        await root.getFileHandle(fileName, { create: false });
+        return true;
+    } catch (error) {
+        if (error && (error.name === 'NotFoundError' || String(error).includes('NotFound'))) {
+            return false;
+        }
+        throw error;
+    }
 }
 
 export function absurd_opfs_read(id, offset, len) {
@@ -101,7 +115,10 @@ export function absurd_opfs_available() {
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = absurd_opfs_open, catch)]
-    async fn js_opfs_open(file_name: &str) -> Result<JsValue, JsValue>;
+    async fn js_opfs_open(file_name: &str, create: bool) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = absurd_opfs_exists, catch)]
+    async fn js_opfs_exists(file_name: &str) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(js_name = absurd_opfs_read)]
     fn js_opfs_read(handle_id: u32, offset: u32, len: u32) -> js_sys::Uint8Array;
@@ -148,8 +165,8 @@ fn map_js_error(code: &str, error: JsValue) -> DatabaseError {
     DatabaseError::new(code, &format!("{:?}", error))
 }
 
-async fn open_handle_for_db(db_name: &str) -> Result<u32, DatabaseError> {
-    let handle_value = js_opfs_open(&opfs_file_name(db_name))
+async fn open_handle_for_db(db_name: &str, create: bool) -> Result<u32, DatabaseError> {
+    let handle_value = js_opfs_open(&opfs_file_name(db_name), create)
         .await
         .map_err(|error| map_js_error("OPFS_OPEN_ERROR", error))?;
 
@@ -161,6 +178,19 @@ async fn open_handle_for_db(db_name: &str) -> Result<u32, DatabaseError> {
     })? as u32;
 
     Ok(handle_id)
+}
+
+async fn opfs_file_exists(db_name: &str) -> Result<bool, DatabaseError> {
+    let exists = js_opfs_exists(&opfs_file_name(db_name))
+        .await
+        .map_err(|error| map_js_error("OPFS_EXISTS_ERROR", error))?;
+
+    exists.as_bool().ok_or_else(|| {
+        DatabaseError::new(
+            "OPFS_EXISTS_ERROR",
+            "OPFS exists bridge did not return a boolean",
+        )
+    })
 }
 
 async fn close_handle(handle_id: u32) {
@@ -186,7 +216,7 @@ pub async fn persist_to_opfs(
         ));
     }
 
-    let handle_id = open_handle_for_db(db_name).await?;
+    let handle_id = open_handle_for_db(db_name, true).await?;
 
     for (block_id, data) in blocks {
         let offset = block_id
@@ -210,16 +240,20 @@ pub async fn persist_to_opfs(
     Ok(())
 }
 
-pub async fn restore_from_opfs(db_name: &str) -> Result<(), DatabaseError> {
+pub async fn restore_from_opfs(db_name: &str) -> Result<usize, DatabaseError> {
     if !is_opfs_available() {
-        return Ok(());
+        return Ok(0);
     }
 
-    let handle_id = open_handle_for_db(db_name).await?;
+    if !opfs_file_exists(db_name).await? {
+        return Ok(0);
+    }
+
+    let handle_id = open_handle_for_db(db_name, false).await?;
     let size = js_opfs_size(handle_id) as u64;
     if size == 0 {
         close_handle(handle_id).await;
-        return Ok(());
+        return Ok(0);
     }
 
     let mut block_ids = vfs_sync::with_global_allocation_map(|allocation_map| {
@@ -267,8 +301,16 @@ pub async fn restore_from_opfs(db_name: &str) -> Result<(), DatabaseError> {
     close_handle(handle_id).await;
 
     if restored_blocks.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
+
+    let restored_count = restored_blocks.len();
+    let restored_commit =
+        vfs_sync::with_global_commit_marker(|commit_map| commit_map.borrow().get(db_name).copied())
+            .unwrap_or(0)
+            .max(1);
+    let restored_version = u32::try_from(restored_commit).unwrap_or(u32::MAX);
+    let restored_at_ms = js_sys::Date::now() as u64;
 
     vfs_sync::with_global_storage(|storage_map| {
         let mut storage_map = storage_map.borrow_mut();
@@ -290,7 +332,35 @@ pub async fn restore_from_opfs(db_name: &str) -> Result<(), DatabaseError> {
         }
     });
 
-    Ok(())
+    vfs_sync::with_global_metadata(|metadata_map| {
+        let mut metadata_map = metadata_map.borrow_mut();
+        let db_metadata = metadata_map
+            .entry(db_name.to_string())
+            .or_insert_with(std::collections::HashMap::new);
+
+        for (block_id, data) in &restored_blocks {
+            db_metadata.insert(
+                *block_id,
+                BlockMetadataPersist {
+                    checksum: ChecksumManager::compute_checksum_with(
+                        data,
+                        ChecksumAlgorithm::FastHash,
+                    ),
+                    last_modified_ms: restored_at_ms,
+                    version: restored_version,
+                    algo: ChecksumAlgorithm::FastHash,
+                },
+            );
+        }
+    });
+
+    vfs_sync::with_global_commit_marker(|commit_map| {
+        commit_map
+            .borrow_mut()
+            .insert(db_name.to_string(), restored_commit);
+    });
+
+    Ok(restored_count)
 }
 
 pub async fn delete_blocks_from_opfs(
@@ -301,7 +371,11 @@ pub async fn delete_blocks_from_opfs(
         return Ok(());
     }
 
-    let handle_id = open_handle_for_db(db_name).await?;
+    if !opfs_file_exists(db_name).await? {
+        return Ok(());
+    }
+
+    let handle_id = open_handle_for_db(db_name, false).await?;
     let zero_block = vec![0u8; crate::storage::BLOCK_SIZE];
 
     for &block_id in block_ids {

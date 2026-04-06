@@ -18,14 +18,16 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Subsequent branch work also stabilized the broader browser harness and supporting demos; those fixes are already committed on `ft/hybrid-obfs`.
 - Added `wasm_opfs.rs` with a single-file OPFS bridge and initial block write/read/delete helpers.
 - Wired backend-aware persistence into the current WASM sync paths so worker `Hybrid` / `OPFS` sync mirrors blocks into OPFS while continuing to mirror into IndexedDB.
-- Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, and reopen reads.
-- Current limitation: reload still restores through IndexedDB; full OPFS-first restore/orchestration is still pending.
+- Implemented OPFS-first restore in `constructors.rs` for `Hybrid` / `OPFS` backends, with fallback to IndexedDB when no OPFS data exists.
+- Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, and reopen reads both with and without the IndexedDB mirror present.
+- Current limitation: full hybrid orchestration and checksum cross-validation on reload are still pending.
 
 Validation completed for this slice:
 
 - `wasm-pack build --dev --target web --out-dir pkg` passed.
 - `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js --reporter=line` passed.
 - `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line` passed.
+- `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "restores from OPFS after IndexedDB mirror deletion"` passed.
 - Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
 - `cargo test` passed.
 - `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
@@ -268,7 +270,7 @@ match storage.backend {
 
 ### Phase 2: OPFS Backend (~4-5 days)
 - [x] Implement `persist_to_opfs()` using a wasm-bindgen JS bridge for `SyncAccessHandle`
-- [ ] Implement `restore_from_opfs()` as the active reload path — read all blocks back into GLOBAL_STORAGE
+- [x] Implement `restore_from_opfs()` as the active reload path — read all blocks back into GLOBAL_STORAGE
 - [x] Implement `delete_blocks_from_opfs()` and `delete_all_from_opfs()`
 - [x] Unit test with browser runner (Playwright)
 - [ ] Benchmark: OPFS vs IDB for 100/1000/10000 blocks
@@ -288,7 +290,7 @@ match storage.backend {
 - [ ] Expose `StorageBackend` choice in WASM API (`Database::newDatabaseWithBackend()`)
 
 ### Phase 5: Testing & Docs (~2 days)
-- [ ] E2E tests: hybrid persist → close → reload → hybrid restore → verify data
+- [x] E2E tests: hybrid persist → close → reload → hybrid restore → verify data
 - [x] E2E tests: OPFS unavailable → graceful IDB fallback
 - [ ] E2E tests: hybrid crash recovery (kill mid-persist)
 - [ ] Update README with OPFS/hybrid documentation
