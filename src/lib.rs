@@ -1641,10 +1641,15 @@ impl Database {
                     (blocks, metadata)
                 });
 
+            let backend = crate::vfs::indexeddb_vfs::get_storage_with_fallback(storage_name)
+                .map(|storage| storage.storage_backend())
+                .unwrap_or(crate::storage::StorageBackend::IndexedDb);
+
             web_sys::console::log_1(
                 &format!(
-                    "[SYNC] Preparing to persist {} blocks to IndexedDB",
-                    blocks_to_persist.len()
+                    "[SYNC] Preparing to persist {} blocks using backend {}",
+                    blocks_to_persist.len(),
+                    backend.as_str()
                 )
                 .into(),
             );
@@ -1654,27 +1659,60 @@ impl Database {
                 {
                     blocks_count = blocks_to_persist.len();
                 }
-                web_sys::console::log_1(
-                    &format!(
-                        "[SYNC] Persisting {} blocks to IndexedDB",
-                        blocks_to_persist.len()
-                    )
-                    .into(),
-                );
-                crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
-                    storage_name,
-                    blocks_to_persist,
-                    metadata_to_persist,
-                    next_commit,
-                    #[cfg(feature = "telemetry")]
-                    self.span_recorder.clone(),
-                    #[cfg(feature = "telemetry")]
-                    span.as_ref().map(|s| s.span_id.clone()),
-                )
-                .await?;
-                web_sys::console::log_1(
-                    &format!("[SYNC] Successfully persisted to IndexedDB").into(),
-                );
+                match backend {
+                    crate::storage::StorageBackend::IndexedDb => {
+                        web_sys::console::log_1(
+                            &format!(
+                                "[SYNC] Persisting {} blocks to IndexedDB",
+                                blocks_to_persist.len()
+                            )
+                            .into(),
+                        );
+                        crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
+                            storage_name,
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            self.span_recorder.clone(),
+                            #[cfg(feature = "telemetry")]
+                            span.as_ref().map(|s| s.span_id.clone()),
+                        )
+                        .await?;
+                        web_sys::console::log_1(
+                            &format!("[SYNC] Successfully persisted to IndexedDB").into(),
+                        );
+                    }
+                    crate::storage::StorageBackend::Opfs
+                    | crate::storage::StorageBackend::Hybrid => {
+                        web_sys::console::log_1(
+                            &format!(
+                                "[SYNC] Persisting {} blocks to OPFS and mirroring to IndexedDB",
+                                blocks_to_persist.len()
+                            )
+                            .into(),
+                        );
+                        crate::storage::wasm_opfs::persist_to_opfs(
+                            storage_name,
+                            blocks_to_persist.clone(),
+                        )
+                        .await?;
+                        crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
+                            storage_name,
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            self.span_recorder.clone(),
+                            #[cfg(feature = "telemetry")]
+                            span.as_ref().map(|s| s.span_id.clone()),
+                        )
+                        .await?;
+                        web_sys::console::log_1(
+                            &format!("[SYNC] Successfully persisted to OPFS and IndexedDB").into(),
+                        );
+                    }
+                }
             } else {
                 web_sys::console::log_1(
                     &format!("[SYNC] WARNING: No blocks to persist - GLOBAL_STORAGE is empty!")
@@ -1988,6 +2026,15 @@ impl Database {
         let idb_name = format!("absurder_{}", normalized_name);
         let _delete_promise = js_sys::eval(&format!("indexedDB.deleteDatabase('{}')", idb_name))
             .map_err(|e| JsValue::from_str(&format!("Failed to delete IndexedDB: {:?}", e)))?;
+
+        if let Err(error) = crate::storage::wasm_opfs::delete_all_from_opfs(&normalized_name).await
+        {
+            log::warn!(
+                "Failed to delete OPFS data for {} during deleteDatabase: {}",
+                normalized_name,
+                error.message
+            );
+        }
 
         log::info!("Database deleted: {}", normalized_name);
 

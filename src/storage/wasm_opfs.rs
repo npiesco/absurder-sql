@@ -1,0 +1,333 @@
+//! WASM OPFS block persistence helpers.
+//!
+//! This module provides a minimal write-through OPFS path for browser worker
+//! contexts using `FileSystemSyncAccessHandle`. The current slice mirrors block
+//! data into OPFS on sync while keeping IndexedDB restoration as the reload path
+//! until full OPFS restore/orchestration lands.
+
+use crate::storage::vfs_sync;
+use crate::types::DatabaseError;
+use crate::utils::normalize_db_name;
+use wasm_bindgen::prelude::*;
+
+const OPFS_FILE_SUFFIX: &str = ".absurder.blocks.bin";
+
+#[wasm_bindgen(inline_js = r#"
+const absurdHandles = new Map();
+let absurdNextHandleId = 1;
+
+function absurdGetRoot() {
+  if (!globalThis.navigator || !globalThis.navigator.storage || typeof globalThis.navigator.storage.getDirectory !== 'function') {
+    throw new Error('OPFS is not available in this context');
+  }
+
+  return globalThis.navigator.storage.getDirectory();
+}
+
+export async function absurd_opfs_open(fileName) {
+  const root = await absurdGetRoot();
+  const fileHandle = await root.getFileHandle(fileName, { create: true });
+  const accessHandle = await fileHandle.createSyncAccessHandle();
+  const id = absurdNextHandleId++;
+  absurdHandles.set(id, accessHandle);
+  return id;
+}
+
+export function absurd_opfs_read(id, offset, len) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    throw new Error('OPFS handle not found: ' + id);
+  }
+
+  const buffer = new Uint8Array(len);
+  handle.read(buffer, { at: offset });
+  return buffer;
+}
+
+export function absurd_opfs_write(id, offset, data) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    throw new Error('OPFS handle not found: ' + id);
+  }
+
+  handle.write(data, { at: offset });
+}
+
+export function absurd_opfs_flush(id) {
+  const handle = absurdHandles.get(id);
+  if (handle) {
+    handle.flush();
+  }
+}
+
+export function absurd_opfs_size(id) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    return 0;
+  }
+
+  return handle.getSize();
+}
+
+export async function absurd_opfs_close(id) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    return;
+  }
+
+  const result = handle.close();
+  absurdHandles.delete(id);
+  if (result && typeof result.then === 'function') {
+    await result;
+  }
+}
+
+export async function absurd_opfs_delete(fileName) {
+  try {
+    const root = await absurdGetRoot();
+    await root.removeEntry(fileName);
+  } catch (error) {
+    if (!String(error).includes('NotFound')) {
+      throw error;
+    }
+  }
+}
+
+export function absurd_opfs_available() {
+  return !!(globalThis.navigator &&
+    globalThis.navigator.storage &&
+    typeof globalThis.navigator.storage.getDirectory === 'function');
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = absurd_opfs_open, catch)]
+    async fn js_opfs_open(file_name: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = absurd_opfs_read)]
+    fn js_opfs_read(handle_id: u32, offset: u32, len: u32) -> js_sys::Uint8Array;
+
+    #[wasm_bindgen(js_name = absurd_opfs_write)]
+    fn js_opfs_write(handle_id: u32, offset: u32, data: &[u8]);
+
+    #[wasm_bindgen(js_name = absurd_opfs_flush)]
+    fn js_opfs_flush(handle_id: u32);
+
+    #[wasm_bindgen(js_name = absurd_opfs_size)]
+    fn js_opfs_size(handle_id: u32) -> u32;
+
+    #[wasm_bindgen(js_name = absurd_opfs_close, catch)]
+    async fn js_opfs_close(handle_id: u32) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(js_name = absurd_opfs_delete, catch)]
+    async fn js_opfs_delete(file_name: &str) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(js_name = absurd_opfs_available)]
+    fn js_opfs_available() -> bool;
+}
+
+fn sanitize_opfs_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' => '_',
+            _ => ch,
+        })
+        .collect()
+}
+
+fn opfs_file_name(db_name: &str) -> String {
+    let normalized = normalize_db_name(db_name);
+    format!(
+        "{}{}",
+        sanitize_opfs_component(&normalized),
+        OPFS_FILE_SUFFIX
+    )
+}
+
+fn map_js_error(code: &str, error: JsValue) -> DatabaseError {
+    DatabaseError::new(code, &format!("{:?}", error))
+}
+
+async fn open_handle_for_db(db_name: &str) -> Result<u32, DatabaseError> {
+    let handle_value = js_opfs_open(&opfs_file_name(db_name))
+        .await
+        .map_err(|error| map_js_error("OPFS_OPEN_ERROR", error))?;
+
+    let handle_id = handle_value.as_f64().ok_or_else(|| {
+        DatabaseError::new(
+            "OPFS_OPEN_ERROR",
+            "OPFS bridge did not return a numeric handle",
+        )
+    })? as u32;
+
+    Ok(handle_id)
+}
+
+async fn close_handle(handle_id: u32) {
+    let _ = js_opfs_close(handle_id).await;
+}
+
+pub fn is_opfs_available() -> bool {
+    js_opfs_available()
+}
+
+pub async fn persist_to_opfs(
+    db_name: &str,
+    blocks: Vec<(u64, Vec<u8>)>,
+) -> Result<(), DatabaseError> {
+    if blocks.is_empty() {
+        return Ok(());
+    }
+
+    if !is_opfs_available() {
+        return Err(DatabaseError::new(
+            "OPFS_UNAVAILABLE",
+            "Origin Private File System is not available in this context",
+        ));
+    }
+
+    let handle_id = open_handle_for_db(db_name).await?;
+
+    for (block_id, data) in blocks {
+        let offset = block_id
+            .checked_mul(crate::storage::BLOCK_SIZE as u64)
+            .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
+        let offset = u32::try_from(offset).map_err(|_| {
+            DatabaseError::new(
+                "OPFS_OFFSET_ERROR",
+                "Block offset exceeds OPFS bridge range",
+            )
+        })?;
+
+        let mut padded = vec![0u8; crate::storage::BLOCK_SIZE];
+        let copy_len = data.len().min(crate::storage::BLOCK_SIZE);
+        padded[..copy_len].copy_from_slice(&data[..copy_len]);
+        js_opfs_write(handle_id, offset, &padded);
+    }
+
+    js_opfs_flush(handle_id);
+    close_handle(handle_id).await;
+    Ok(())
+}
+
+pub async fn restore_from_opfs(db_name: &str) -> Result<(), DatabaseError> {
+    if !is_opfs_available() {
+        return Ok(());
+    }
+
+    let handle_id = open_handle_for_db(db_name).await?;
+    let size = js_opfs_size(handle_id) as u64;
+    if size == 0 {
+        close_handle(handle_id).await;
+        return Ok(());
+    }
+
+    let mut block_ids = vfs_sync::with_global_allocation_map(|allocation_map| {
+        allocation_map
+            .borrow()
+            .get(db_name)
+            .map(|entries| entries.iter().copied().collect::<Vec<_>>())
+            .unwrap_or_default()
+    });
+
+    if block_ids.is_empty() {
+        block_ids = vfs_sync::with_global_metadata(|metadata_map| {
+            metadata_map
+                .borrow()
+                .get(db_name)
+                .map(|entries| entries.keys().copied().collect::<Vec<_>>())
+                .unwrap_or_default()
+        });
+    }
+
+    if block_ids.is_empty() {
+        let total_blocks = size / crate::storage::BLOCK_SIZE as u64;
+        block_ids = (0..total_blocks).collect();
+    }
+
+    block_ids.sort_unstable();
+    block_ids.dedup();
+
+    let mut restored_blocks = Vec::new();
+    for block_id in block_ids {
+        let offset = block_id
+            .checked_mul(crate::storage::BLOCK_SIZE as u64)
+            .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
+
+        if offset >= size {
+            continue;
+        }
+
+        let buffer = js_opfs_read(handle_id, offset as u32, crate::storage::BLOCK_SIZE as u32);
+        let mut data = vec![0u8; crate::storage::BLOCK_SIZE];
+        buffer.copy_to(&mut data);
+        restored_blocks.push((block_id, data));
+    }
+
+    close_handle(handle_id).await;
+
+    if restored_blocks.is_empty() {
+        return Ok(());
+    }
+
+    vfs_sync::with_global_storage(|storage_map| {
+        let mut storage_map = storage_map.borrow_mut();
+        let db_storage = storage_map
+            .entry(db_name.to_string())
+            .or_insert_with(std::collections::HashMap::new);
+        for (block_id, data) in &restored_blocks {
+            db_storage.insert(*block_id, data.clone());
+        }
+    });
+
+    vfs_sync::with_global_allocation_map(|allocation_map| {
+        let mut allocation_map = allocation_map.borrow_mut();
+        let allocations = allocation_map
+            .entry(db_name.to_string())
+            .or_insert_with(std::collections::HashSet::new);
+        for (block_id, _) in &restored_blocks {
+            allocations.insert(*block_id);
+        }
+    });
+
+    Ok(())
+}
+
+pub async fn delete_blocks_from_opfs(
+    db_name: &str,
+    block_ids: &[u64],
+) -> Result<(), DatabaseError> {
+    if block_ids.is_empty() || !is_opfs_available() {
+        return Ok(());
+    }
+
+    let handle_id = open_handle_for_db(db_name).await?;
+    let zero_block = vec![0u8; crate::storage::BLOCK_SIZE];
+
+    for &block_id in block_ids {
+        let offset = block_id
+            .checked_mul(crate::storage::BLOCK_SIZE as u64)
+            .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
+        let offset = u32::try_from(offset).map_err(|_| {
+            DatabaseError::new(
+                "OPFS_OFFSET_ERROR",
+                "Block offset exceeds OPFS bridge range",
+            )
+        })?;
+        js_opfs_write(handle_id, offset, &zero_block);
+    }
+
+    js_opfs_flush(handle_id);
+    close_handle(handle_id).await;
+    Ok(())
+}
+
+pub async fn delete_all_from_opfs(db_name: &str) -> Result<(), DatabaseError> {
+    if !is_opfs_available() {
+        return Ok(());
+    }
+
+    js_opfs_delete(&opfs_file_name(db_name))
+        .await
+        .map_err(|error| map_js_error("OPFS_DELETE_ERROR", error))
+}

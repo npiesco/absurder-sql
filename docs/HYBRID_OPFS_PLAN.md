@@ -15,14 +15,21 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Added `new_wasm_with_backend()` / `new_wasm_auto()` in `constructors.rs`.
 - Exposed `Database.newDatabaseAuto()` and `db.getStorageBackend()` in the WASM API.
 - Added integration test `tests/e2e/backend-auto-fallback.spec.js` validating main-thread auto backend selection and reopen persistence.
+- Subsequent branch work also stabilized the broader browser harness and supporting demos; those fixes are already committed on `ft/hybrid-obfs`.
+- Added `wasm_opfs.rs` with a single-file OPFS bridge and initial block write/read/delete helpers.
+- Wired backend-aware persistence into the current WASM sync paths so worker `Hybrid` / `OPFS` sync mirrors blocks into OPFS while continuing to mirror into IndexedDB.
+- Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, and reopen reads.
+- Current limitation: reload still restores through IndexedDB; full OPFS-first restore/orchestration is still pending.
 
 Validation completed for this slice:
 
 - `wasm-pack build --dev --target web --out-dir pkg` passed.
 - `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js --reporter=line` passed.
+- `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line` passed.
+- Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
 - `cargo test` passed.
 - `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
-- The full root Playwright suite is not fully green yet; the remaining failures are in existing close-race, devtools, dual-mode, advanced multi-tab, and example-smoke specs outside this slice.
+- `cargo fmt --all` passed.
 
 ## Why
 
@@ -256,14 +263,14 @@ match storage.backend {
 - [x] Add `StorageBackend` enum to `block_storage.rs`
 - [x] Add `opfs` and `hybrid` feature flags to `Cargo.toml`
 - [x] Create `backend_detect.rs` with OPFS feature detection
-- [ ] Create `wasm_opfs.rs` scaffold with function signatures
-- [ ] Wire up `mod.rs` with new modules
+- [x] Create `wasm_opfs.rs` scaffold with function signatures
+- [x] Wire up `mod.rs` with new modules
 
 ### Phase 2: OPFS Backend (~4-5 days)
-- [ ] Implement `persist_to_opfs()` using `web-sys` OPFS bindings
-- [ ] Implement `restore_from_opfs()` — read all blocks back into GLOBAL_STORAGE
-- [ ] Implement `delete_blocks_from_opfs()` and `delete_all_from_opfs()`
-- [ ] Unit test with browser runner (Playwright)
+- [x] Implement `persist_to_opfs()` using a wasm-bindgen JS bridge for `SyncAccessHandle`
+- [ ] Implement `restore_from_opfs()` as the active reload path — read all blocks back into GLOBAL_STORAGE
+- [x] Implement `delete_blocks_from_opfs()` and `delete_all_from_opfs()`
+- [x] Unit test with browser runner (Playwright)
 - [ ] Benchmark: OPFS vs IDB for 100/1000/10000 blocks
 
 ### Phase 3: Hybrid Mode (~3-4 days)
@@ -274,7 +281,7 @@ match storage.backend {
 
 ### Phase 4: Integration (~2-3 days)
 - [x] Modify `constructors.rs` — `new_wasm_with_backend()`, `new_wasm_auto()`
-- [ ] Modify `wasm_vfs_sync.rs` — backend-aware sync dispatch
+- [x] Modify `wasm_vfs_sync.rs` — backend-aware sync dispatch
 - [ ] Modify `sync_operations.rs` — backend-aware flush
 - [ ] Modify `export.rs` / `import.rs` — read from OPFS when applicable
 - [ ] Modify `recovery.rs` — OPFS recovery path
@@ -282,7 +289,7 @@ match storage.backend {
 
 ### Phase 5: Testing & Docs (~2 days)
 - [ ] E2E tests: hybrid persist → close → reload → hybrid restore → verify data
-- [ ] E2E tests: OPFS unavailable → graceful IDB fallback
+- [x] E2E tests: OPFS unavailable → graceful IDB fallback
 - [ ] E2E tests: hybrid crash recovery (kill mid-persist)
 - [ ] Update README with OPFS/hybrid documentation
 - [ ] Benchmark report

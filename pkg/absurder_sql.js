@@ -1,3 +1,6 @@
+import { absurd_opfs_close, absurd_opfs_delete, absurd_opfs_flush, absurd_opfs_open, absurd_opfs_write } from './snippets/absurder-sql-2a7e856b32aa47f5/inline0.js';
+import * as __wbg_star0 from './snippets/absurder-sql-2a7e856b32aa47f5/inline0.js';
+
 let wasm;
 
 let cachedUint8ArrayMemory0 = null;
@@ -262,10 +265,28 @@ function takeFromExternrefTable0(idx) {
     wasm.__externref_table_dealloc(idx);
     return value;
 }
+function wasm_bindgen__convert__closures_____invoke__hab4aed93b1f74497(arg0, arg1, arg2) {
+    _assertNum(arg0);
+    _assertNum(arg1);
+    wasm.wasm_bindgen__convert__closures_____invoke__hab4aed93b1f74497(arg0, arg1, arg2);
+}
+
 function wasm_bindgen__convert__closures_____invoke__he55885f863556016(arg0, arg1) {
     _assertNum(arg0);
     _assertNum(arg1);
     wasm.wasm_bindgen__convert__closures_____invoke__he55885f863556016(arg0, arg1);
+}
+
+function wasm_bindgen__convert__closures_____invoke__h4df612afa388443d(arg0, arg1, arg2) {
+    _assertNum(arg0);
+    _assertNum(arg1);
+    wasm.wasm_bindgen__convert__closures_____invoke__h4df612afa388443d(arg0, arg1, arg2);
+}
+
+function wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3(arg0, arg1, arg2) {
+    _assertNum(arg0);
+    _assertNum(arg1);
+    wasm.wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3(arg0, arg1, arg2);
 }
 
 function wasm_bindgen__convert__closures_____invoke__ha5cf2746675dd101(arg0, arg1, arg2) {
@@ -279,24 +300,6 @@ function wasm_bindgen__convert__closures_____invoke__h5155f28c35f9cb8d(arg0, arg
     _assertNum(arg1);
     const ret = wasm.wasm_bindgen__convert__closures_____invoke__h5155f28c35f9cb8d(arg0, arg1, arg2);
     return ret;
-}
-
-function wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3(arg0, arg1, arg2) {
-    _assertNum(arg0);
-    _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3(arg0, arg1, arg2);
-}
-
-function wasm_bindgen__convert__closures_____invoke__hab4aed93b1f74497(arg0, arg1, arg2) {
-    _assertNum(arg0);
-    _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__hab4aed93b1f74497(arg0, arg1, arg2);
-}
-
-function wasm_bindgen__convert__closures_____invoke__h4df612afa388443d(arg0, arg1, arg2) {
-    _assertNum(arg0);
-    _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__h4df612afa388443d(arg0, arg1, arg2);
 }
 
 function wasm_bindgen__convert__closures_____invoke__h5dfe1a3f3d40810b(arg0, arg1) {
@@ -1131,6 +1134,24 @@ function __wbg_get_imports() {
     imports.wbg.__wbg__wbg_cb_unref_2454a539ea5790d9 = function() { return logError(function (arg0) {
         arg0._wbg_cb_unref();
     }, arguments) };
+    imports.wbg.__wbg_absurd_opfs_close_90cfc4302ab66488 = function() { return handleError(function (arg0) {
+        const ret = absurd_opfs_close(arg0 >>> 0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_absurd_opfs_delete_71a55ea9d508dd4f = function() { return handleError(function (arg0, arg1) {
+        const ret = absurd_opfs_delete(getStringFromWasm0(arg0, arg1));
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_absurd_opfs_flush_43be9638a340e3ab = function() { return logError(function (arg0) {
+        absurd_opfs_flush(arg0 >>> 0);
+    }, arguments) };
+    imports.wbg.__wbg_absurd_opfs_open_9bffa4cb93d8ea31 = function() { return handleError(function (arg0, arg1) {
+        const ret = absurd_opfs_open(getStringFromWasm0(arg0, arg1));
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_absurd_opfs_write_a31da070b3563920 = function() { return logError(function (arg0, arg1, arg2, arg3) {
+        absurd_opfs_write(arg0 >>> 0, arg1 >>> 0, getArrayU8FromWasm0(arg2, arg3));
+    }, arguments) };
     imports.wbg.__wbg_apply_04097a755e1e4a1e = function() { return handleError(function (arg0, arg1, arg2) {
         const ret = arg0.apply(arg1, arg2);
         return ret;
@@ -1757,6 +1778,7 @@ function __wbg_get_imports() {
         table.set(offset + 3, false);
         ;
     };
+    imports['./snippets/absurder-sql-2a7e856b32aa47f5/inline0.js'] = __wbg_star0;
 
     return imports;
 }
