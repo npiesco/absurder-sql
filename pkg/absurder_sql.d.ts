@@ -1,14 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export function init_logger(): void;
-export interface QueryResult {
-    columns: string[];
-    rows: Row[];
-    affectedRows: number;
-    lastInsertId: number | null;
-    executionTimeMs: number;
-}
-
 export interface DatabaseConfig {
     name: string;
     version: number | null;
@@ -19,24 +11,32 @@ export interface DatabaseConfig {
     max_export_size_bytes: number | null;
 }
 
+export interface TransactionOptions {
+    isolation_level: IsolationLevel;
+    timeout_ms: number | null;
+}
+
+export interface Row {
+    values: ColumnValue[];
+}
+
 export interface DatabaseError {
     code: string;
     message: string;
     sql: string | null;
 }
 
-export type IsolationLevel = "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable";
+export interface QueryResult {
+    columns: string[];
+    rows: Row[];
+    affectedRows: number;
+    lastInsertId: number | null;
+    executionTimeMs: number;
+}
 
 export type ColumnValue = { type: "Null" } | { type: "Integer"; value: number } | { type: "Real"; value: number } | { type: "Text"; value: string } | { type: "Blob"; value: number[] } | { type: "Date"; value: number } | { type: "BigInt"; value: string };
 
-export interface Row {
-    values: ColumnValue[];
-}
-
-export interface TransactionOptions {
-    isolation_level: IsolationLevel;
-    timeout_ms: number | null;
-}
+export type IsolationLevel = "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable";
 
 export class Database {
   private constructor();
@@ -55,6 +55,7 @@ export class Database {
    * Result indicating success or failure
    */
   queueWrite(sql: string): Promise<void>;
+  static newDatabaseAuto(name: string): Promise<Database>;
   /**
    * Export database to SQLite .db file format
    *
@@ -130,6 +131,7 @@ export class Database {
    */
   requestLeadership(): Promise<void>;
   executeWithParams(sql: string, params: any): Promise<any>;
+  getStorageBackend(): string;
   onDataChange(callback: Function): void;
   /**
    * Wait for this instance to become leader
@@ -263,6 +265,7 @@ export interface InitOutput {
   readonly database_getCoordinationMetrics: (a: number) => any;
   readonly database_getLeaderInfo: (a: number) => any;
   readonly database_getPendingWritesCount: (a: number) => any;
+  readonly database_getStorageBackend: (a: number) => [number, number, number, number];
   readonly database_importFromFile: (a: number, b: any) => any;
   readonly database_isCoordinationMetricsEnabled: (a: number) => any;
   readonly database_isLeader: (a: number) => any;
@@ -270,6 +273,7 @@ export interface InitOutput {
   readonly database_is_leader: (a: number) => any;
   readonly database_name: (a: number) => [number, number];
   readonly database_newDatabase: (a: number, b: number) => any;
+  readonly database_newDatabaseAuto: (a: number, b: number) => any;
   readonly database_onDataChange: (a: number, b: any) => [number, number];
   readonly database_queueWrite: (a: number, b: number, c: number) => any;
   readonly database_queueWriteWithTimeout: (a: number, b: number, c: number, d: number) => any;
@@ -318,20 +322,20 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_strspn: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_trunc: (a: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__h7b592b15a50909ae: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h09628abfb5d8ea0d: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h4d792b5b357f4d71: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h2a4e3088f62dd089: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__hd8aa79081192ccf8: (a: number, b: number) => void;
-  readonly wasm_bindgen__closure__destroy__hcd0057feffa895a0: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h5c162259a168426f: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h5ede5c9ccf3738bb: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__ha4deeb3e849cca78: (a: number, b: number, c: any) => any;
-  readonly wasm_bindgen__closure__destroy__h2da99f1837637896: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h123bc198cfbff2d8: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h9ca7795f6ea80ef9: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h0a7aa352d38cbf30: (a: number, b: number) => number;
-  readonly wasm_bindgen__convert__closures_____invoke__hb5c238f393a31867: (a: number, b: number, c: any, d: any) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__he55885f863556016: (a: number, b: number) => void;
+  readonly wasm_bindgen__closure__destroy__h9ccaa4119b2881df: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__ha5cf2746675dd101: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__hfb6f607898554a57: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h5155f28c35f9cb8d: (a: number, b: number, c: any) => any;
+  readonly wasm_bindgen__closure__destroy__h5f5787c19627102a: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__he2ba515c40e9fc0d: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__hab4aed93b1f74497: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__hf83bf284245ac6df: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h4df612afa388443d: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h12604b9a457257ea: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h5dfe1a3f3d40810b: (a: number, b: number) => number;
+  readonly wasm_bindgen__convert__closures_____invoke__h6737beeb2b3992d1: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;

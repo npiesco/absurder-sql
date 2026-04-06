@@ -6,6 +6,24 @@ Add an **OPFS (Origin Private File System)** storage backend to AbsurderSQL, alo
 
 This follows the same proven pattern as fewfs's `HybridBlockStore`.
 
+## Progress Update (2026-04-06)
+
+- Completed the first backend-selection foundation slice.
+- Added `StorageBackend` state to `BlockStorage`.
+- Added `opfs` and `hybrid` feature flags to `Cargo.toml`.
+- Added `backend_detect.rs` and real main-thread fallback detection to IndexedDB, with worker-side `SyncAccessHandle` probing.
+- Added `new_wasm_with_backend()` / `new_wasm_auto()` in `constructors.rs`.
+- Exposed `Database.newDatabaseAuto()` and `db.getStorageBackend()` in the WASM API.
+- Added integration test `tests/e2e/backend-auto-fallback.spec.js` validating main-thread auto backend selection and reopen persistence.
+
+Validation completed for this slice:
+
+- `wasm-pack build --dev --target web --out-dir pkg` passed.
+- `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js --reporter=line` passed.
+- `cargo test` passed.
+- `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
+- The full root Playwright suite is not fully green yet; the remaining failures are in existing close-race, devtools, dual-mode, advanced multi-tab, and example-smoke specs outside this slice.
+
 ## Why
 
 | Metric | IndexedDB (current) | OPFS SyncAccessHandle |
@@ -235,9 +253,9 @@ match storage.backend {
 ## Implementation Phases
 
 ### Phase 1: Foundation (~3-4 days)
-- [ ] Add `StorageBackend` enum to `block_storage.rs`
-- [ ] Add `opfs` and `hybrid` feature flags to `Cargo.toml`
-- [ ] Create `backend_detect.rs` with OPFS feature detection
+- [x] Add `StorageBackend` enum to `block_storage.rs`
+- [x] Add `opfs` and `hybrid` feature flags to `Cargo.toml`
+- [x] Create `backend_detect.rs` with OPFS feature detection
 - [ ] Create `wasm_opfs.rs` scaffold with function signatures
 - [ ] Wire up `mod.rs` with new modules
 
@@ -255,7 +273,7 @@ match storage.backend {
 - [ ] OPFS recovery: detect orphan files, reconcile with IDB metadata
 
 ### Phase 4: Integration (~2-3 days)
-- [ ] Modify `constructors.rs` — `new_wasm_with_backend()`, `new_wasm_auto()`
+- [x] Modify `constructors.rs` — `new_wasm_with_backend()`, `new_wasm_auto()`
 - [ ] Modify `wasm_vfs_sync.rs` — backend-aware sync dispatch
 - [ ] Modify `sync_operations.rs` — backend-aware flush
 - [ ] Modify `export.rs` / `import.rs` — read from OPFS when applicable

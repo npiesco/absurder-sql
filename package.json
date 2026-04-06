@@ -41,7 +41,7 @@
   "scripts": {
     "build": "wasm-pack build --target web --out-dir pkg && rm -f pkg/.gitignore",
     "prepublishOnly": "npm run build",
-    "serve": "python3 -m http.server 8080",
+    "serve": "node scripts/static_http_server.js 8080",
     "build:worker": "webpack --config webpack.worker.config.js",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",

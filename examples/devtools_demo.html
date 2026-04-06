@@ -177,7 +177,7 @@
         <div class="stats">
             <div class="stat-box">
                 <div class="stat-label">Total Spans</div>
-                <div class="stat-value" id="spanCount">0</div>
+                <div class="stat-value" id="totalSpans">0</div>
             </div>
             <div class="stat-box">
                 <div class="stat-label">Buffered</div>
@@ -220,6 +220,51 @@
         let exportCount = 0;
         let errorCount = 0;
         let bufferedCount = 0;
+
+        function createRuntimeBridge() {
+            const listeners = [];
+
+            return {
+                sendMessage(message, callback) {
+                    window.postMessage({
+                        source: 'absurdersql-telemetry',
+                        message
+                    }, '*');
+
+                    if (typeof callback === 'function') {
+                        callback({ success: true });
+                    }
+                },
+                onMessage: {
+                    addListener(listener) {
+                        if (typeof listener === 'function') {
+                            listeners.push(listener);
+                        }
+                    },
+                    removeListener(listener) {
+                        const index = listeners.indexOf(listener);
+                        if (index >= 0) {
+                            listeners.splice(index, 1);
+                        }
+                    }
+                },
+                __dispatch(message) {
+                    listeners.forEach(listener => listener(message, {}, () => {}));
+                }
+            };
+        }
+
+        const runtimeBridge = createRuntimeBridge();
+        window.chrome = window.chrome || {};
+        window.chrome.runtime = window.chrome.runtime || runtimeBridge;
+
+        if (typeof window.chrome.runtime.sendMessage !== 'function') {
+            window.chrome.runtime.sendMessage = runtimeBridge.sendMessage;
+        }
+
+        if (!window.chrome.runtime.onMessage) {
+            window.chrome.runtime.onMessage = runtimeBridge.onMessage;
+        }
         
         function log(message, type = 'info') {
             const logEl = document.getElementById('activityLog');
@@ -232,19 +277,19 @@
         }
         
         function updateStats() {
-            document.getElementById('spanCount').textContent = spanCount;
+            document.getElementById('totalSpans').textContent = spanCount;
             document.getElementById('bufferedCount').textContent = bufferedCount;
             document.getElementById('exportCount').textContent = exportCount;
             document.getElementById('errorCount').textContent = errorCount;
         }
         
         function sendToDevTools(type, data) {
-            // Use window.postMessage to send to content script, which forwards to extension
-            window.postMessage({
-                source: 'absurdersql-telemetry',
-                message: { type, data }
-            }, '*');
+            const message = { type, data };
+
+            window.chrome.runtime.sendMessage(message, () => {});
         }
+
+        window.sendToDevTools = sendToDevTools;
         
         function createSpan(name, durationMs, status = 'Ok') {
             const startTime = Date.now() - durationMs;

@@ -239,6 +239,24 @@ macro_rules! try_read_lock {
     };
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StorageBackend {
+    #[default]
+    IndexedDb,
+    Opfs,
+    Hybrid,
+}
+
+impl StorageBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StorageBackend::IndexedDb => "IndexedDB",
+            StorageBackend::Opfs => "OPFS",
+            StorageBackend::Hybrid => "Hybrid",
+        }
+    }
+}
+
 pub struct BlockStorage {
     // WASM: RefCell for zero-cost interior mutability (single-threaded)
     // Native: Mutex for thread safety
@@ -276,6 +294,7 @@ pub struct BlockStorage {
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     pub(super) base_dir: PathBuf,
     pub(super) db_name: String,
+    pub(super) backend: StorageBackend,
 
     // Background sync settings
     #[cfg(target_arch = "wasm32")]
@@ -391,6 +410,7 @@ impl BlockStorage {
             lru_order: RefCell::new(VecDeque::new()),
             checksum_manager,
             db_name: db_name.to_string(),
+            backend: StorageBackend::IndexedDb,
             auto_sync_interval: RefCell::new(None),
             policy: RefCell::new(None),
             #[cfg(not(target_arch = "wasm32"))]
@@ -438,6 +458,14 @@ impl BlockStorage {
     #[cfg(target_arch = "wasm32")]
     pub async fn new(db_name: &str) -> Result<Self, DatabaseError> {
         super::constructors::new_wasm(db_name).await
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn new_with_backend(
+        db_name: &str,
+        backend: StorageBackend,
+    ) -> Result<Self, DatabaseError> {
+        super::constructors::new_wasm_with_backend(db_name, backend).await
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -644,6 +672,7 @@ impl BlockStorage {
 
         Ok(BlockStorage {
             db_name: db_name.to_string(),
+            backend: StorageBackend::IndexedDb,
             cache: Mutex::new(HashMap::new()),
             lru_order: Mutex::new(VecDeque::new()),
             capacity: 1000,
@@ -704,6 +733,10 @@ impl BlockStorage {
         let mut s = Self::new(db_name).await?;
         s.capacity = capacity;
         Ok(s)
+    }
+
+    pub fn storage_backend(&self) -> StorageBackend {
+        self.backend
     }
 
     pub async fn new_with_recovery_options(
@@ -2307,6 +2340,7 @@ impl BlockStorage {
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
             base_dir: std::path::PathBuf::from("/tmp/test"),
             db_name: "test.db".to_string(),
+            backend: StorageBackend::IndexedDb,
             auto_sync_interval: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
             last_auto_sync: std::time::Instant::now(),

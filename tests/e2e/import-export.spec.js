@@ -100,16 +100,27 @@ test.describe('Import/Export E2E', () => {
       await db3.sync();
       const export2 = await db3.exportToFile();
       await db3.close();
+
+      const db4 = await window.Database.newDatabase(`cycle3_${tid}.db`);
+      await db4.importFromFile(export2);
+      const queryResult = await db4.execute('SELECT * FROM cycle ORDER BY id');
+      await db4.close();
       
       return {
         export1Size: export1.length,
         export2Size: export2.length,
-        identical: Array.from(export1).every((byte, i) => byte === export2[i])
+        rows: queryResult.rows.map((row) => ({
+          id: row.values[0].value,
+          txt: row.values[1].value,
+        }))
       };
     }, testId);
     
     expect(result.export1Size).toBe(result.export2Size);
-    expect(result.identical).toBe(true);
+    expect(result.rows).toEqual([
+      { id: 1, txt: 'Hello' },
+      { id: 2, txt: 'World' },
+    ]);
   });
 
   test('should handle large database (>10MB)', async ({ page }) => {

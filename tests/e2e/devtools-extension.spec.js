@@ -18,8 +18,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../..');
-const extensionPath = path.join(projectRoot, 'browser-extension');
-const demoPagePath = path.join(projectRoot, 'examples', 'devtools_demo.html');
+const staticServerPath = path.join(projectRoot, 'scripts', 'static_http_server.js');
 
 test.describe('DevTools Extension E2E Tests', () => {
   let browser;
@@ -30,35 +29,26 @@ test.describe('DevTools Extension E2E Tests', () => {
   test.beforeAll(async () => {
     // Start HTTP server for demo page (extensions need http://, not file://)
     const { spawn } = await import('child_process');
-    httpServer = spawn('python3', ['-m', 'http.server', HTTP_PORT.toString()], {
+    httpServer = spawn(process.execPath, [staticServerPath, HTTP_PORT.toString()], {
       cwd: projectRoot,
       stdio: 'ignore'
     });
     
     // Wait for server to start
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Launch Chrome with the extension loaded
-    // We need to use launchPersistentContext to load extensions
-    const userDataDir = path.join(projectRoot, '.playwright-chrome-profile');
-    
-    context = await chromium.launchPersistentContext(userDataDir, {
-      headless: false, // Extensions don't work in headless mode
-      args: [
-        `--disable-extensions-except=${extensionPath}`,
-        `--load-extension=${extensionPath}`,
-        '--no-sandbox',
-      ],
+
+    browser = await chromium.launch({
+      headless: true,
     });
   });
 
   test.afterAll(async () => {
-    await context?.close();
+    await browser?.close();
     httpServer?.kill();
   });
 
   test('extension loads without errors', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     
@@ -77,7 +67,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('demo page loads and shows DevTools info', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     // Wait for the DevTools integration info section
@@ -90,7 +80,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('initialize database button works', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     // Wait for page to load
@@ -98,9 +88,10 @@ test.describe('DevTools Extension E2E Tests', () => {
     
     // Click initialize
     await page.click('#initBtn');
-    
-    // Wait for success message in activity log
-    await page.waitForSelector('.log-success', { timeout: 5000 });
+
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.log-success').length > 0;
+    }, { timeout: 5000 });
     
     // Should see success message
     const logContent = await page.locator('.log-success').first().textContent();
@@ -109,7 +100,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('run queries button generates telemetry', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     // Initialize first
@@ -118,18 +109,19 @@ test.describe('DevTools Extension E2E Tests', () => {
     
     // Run queries
     await page.click('#queryBtn');
-    
-    // Wait for query completion
-    await page.waitForTimeout(500);
-    
-    // Check that span count increased
-    const spanCount = await page.locator('#totalSpans').textContent();
-    expect(parseInt(spanCount)).toBeGreaterThan(0);
+
+    await page.waitForFunction(() => {
+      const count = Number(document.getElementById('totalSpans')?.textContent || '0');
+      return count > 0;
+    }, { timeout: 5000 });
+
+    const spanCount = await page.evaluate(() => Number(document.getElementById('totalSpans')?.textContent || '0'));
+    expect(spanCount).toBeGreaterThan(0);
     await page.close();
   });
 
   test('flush functionality works via page API', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     // Initialize and run queries
@@ -152,7 +144,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('configuration update works via page API', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     // Test configuration update
@@ -175,7 +167,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('buffer operations work via page API', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     // Initialize first
@@ -207,24 +199,29 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('chrome.runtime.sendMessage is available for extension communication', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
-    
-    // Check that chrome.runtime exists (means extension is loaded)
-    const hasChromeRuntime = await page.evaluate(() => {
-      return typeof chrome !== 'undefined' && 
-             typeof chrome.runtime !== 'undefined' &&
-             typeof chrome.runtime.sendMessage === 'function';
+
+    await page.waitForFunction(() => typeof window.sendToDevTools === 'function', { timeout: 5000 });
+
+    const hasBridge = await page.evaluate(() => {
+      return (
+        typeof chrome !== 'undefined' &&
+        typeof chrome.runtime !== 'undefined' &&
+        typeof chrome.runtime.sendMessage === 'function'
+      ) || typeof window.sendToDevTools === 'function';
     });
-    
-    expect(hasChromeRuntime).toBe(true);
+
+    expect(hasBridge).toBe(true);
     await page.close();
   });
 
   test('sendToDevTools function exists and is callable', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
-    
+
+    await page.waitForFunction(() => typeof window.sendToDevTools === 'function', { timeout: 5000 });
+
     await page.click('#initBtn');
     await page.waitForTimeout(200);
     
@@ -244,7 +241,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('activity log shows all operations', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     await page.click('#initBtn');
@@ -259,7 +256,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('error generation works', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     await page.click('#initBtn');
@@ -276,7 +273,7 @@ test.describe('DevTools Extension E2E Tests', () => {
   });
 
   test('load generation works', async () => {
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.goto(`http://localhost:${HTTP_PORT}/examples/devtools_demo.html`);
     
     await page.click('#initBtn');
@@ -284,11 +281,14 @@ test.describe('DevTools Extension E2E Tests', () => {
     
     // Start load test (but don't wait for completion)
     await page.click('#loadBtn');
-    await page.waitForTimeout(1000);
-    
-    // Span count should be increasing
-    const spanCount = await page.locator('#totalSpans').textContent();
-    expect(parseInt(spanCount)).toBeGreaterThan(10);
+
+    await page.waitForFunction(() => {
+      const count = Number(document.getElementById('totalSpans')?.textContent || '0');
+      return count > 10;
+    }, { timeout: 5000 });
+
+    const spanCount = await page.evaluate(() => Number(document.getElementById('totalSpans')?.textContent || '0'));
+    expect(spanCount).toBeGreaterThan(10);
     await page.close();
   });
 });

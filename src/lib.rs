@@ -200,6 +200,31 @@ impl Database {
         }
     }
 
+    fn default_wasm_config(name: String) -> DatabaseConfig {
+        DatabaseConfig {
+            name,
+            version: Some(1),
+            cache_size: Some(10_000),
+            page_size: Some(4096),
+            auto_vacuum: Some(true),
+            journal_mode: Some("WAL".to_string()),
+            max_export_size_bytes: Some(2 * 1024 * 1024 * 1024),
+        }
+    }
+
+    async fn new_with_storage_backend(
+        config: DatabaseConfig,
+        backend: crate::storage::StorageBackend,
+    ) -> Result<Self, DatabaseError> {
+        let normalized_name = normalize_db_name(&config.name);
+        crate::vfs::indexeddb_vfs::ensure_storage_registered_with_backend(
+            &normalized_name,
+            backend,
+        )
+        .await?;
+        Self::new(config).await
+    }
+
     pub async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
         use std::ffi::{CStr, CString};
 
@@ -1792,15 +1817,7 @@ impl Database {
             format!("{}.db", name)
         };
 
-        let config = DatabaseConfig {
-            name: normalized_name.clone(),
-            version: Some(1),
-            cache_size: Some(10_000),
-            page_size: Some(4096),
-            auto_vacuum: Some(true),
-            journal_mode: Some("WAL".to_string()),
-            max_export_size_bytes: Some(2 * 1024 * 1024 * 1024), // 2GB default
-        };
+        let config = Self::default_wasm_config(normalized_name.clone());
 
         let db = Database::new(config)
             .await
@@ -1812,10 +1829,41 @@ impl Database {
         Ok(db)
     }
 
+    #[wasm_bindgen(js_name = "newDatabaseAuto")]
+    pub async fn new_wasm_auto(name: String) -> Result<Database, JsValue> {
+        let normalized_name = if name.ends_with(".db") {
+            name.clone()
+        } else {
+            format!("{}.db", name)
+        };
+
+        let config = Self::default_wasm_config(normalized_name.clone());
+        let backend = crate::storage::backend_detect::detect_best_backend().await;
+
+        let db = Database::new_with_storage_backend(config, backend)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
+
+        Self::start_write_queue_listener(&normalized_name)?;
+
+        Ok(db)
+    }
+
     /// Get the database name
     #[wasm_bindgen(getter)]
     pub fn name(&self) -> String {
         self.name.clone()
+    }
+
+    #[wasm_bindgen(js_name = "getStorageBackend")]
+    pub fn get_storage_backend(&self) -> Result<String, JsValue> {
+        use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
+
+        let storage = get_storage_with_fallback(&self.name).ok_or_else(|| {
+            JsValue::from_str(&format!("No storage found for database: {}", self.name))
+        })?;
+
+        Ok(storage.storage_backend().as_str().to_string())
     }
 
     /// Get all database names stored in IndexedDB

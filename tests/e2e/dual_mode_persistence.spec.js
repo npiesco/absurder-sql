@@ -138,18 +138,21 @@ test.describe('Dual-Mode Persistence (Browser + CLI)', () => {
 
     // Verify filesystem structure
     const dbPath = path.join(CLI_STORAGE_BASE, 'cli_demo');
+    const storagePath = path.join(CLI_STORAGE_BASE, 'cli_demo.db');
     const dbFilePath = path.join(dbPath, 'database.sqlite');
-    const blocksPath = path.join(dbPath, 'blocks');
-    const metadataPath = path.join(dbPath, 'metadata.json');
+    const blocksPath = path.join(storagePath, 'blocks');
+    const allocationsPath = path.join(storagePath, 'allocations.json');
+    const metadataPath = path.join(storagePath, 'metadata.json');
 
     expect(existsSync(dbPath)).toBe(true);
     expect(existsSync(dbFilePath)).toBe(true);
     expect(existsSync(blocksPath)).toBe(true);
+    expect(existsSync(allocationsPath)).toBe(true);
     expect(existsSync(metadataPath)).toBe(true);
 
     console.log('✅ CLI filesystem persistence verified');
     console.log(`   • Database file: ${dbFilePath}`);
-    console.log(`   • Blocks directory: ${blocksPath}`);
+    console.log(`   • Block storage: ${storagePath}`);
     console.log(`   • Metadata file: ${metadataPath}\n`);
 
     // ==================================================================

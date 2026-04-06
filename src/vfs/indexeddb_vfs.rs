@@ -2,6 +2,7 @@ use crate::DatabaseError;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::BLOCK_SIZE;
 use crate::storage::BlockStorage;
+use crate::storage::StorageBackend;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::SyncPolicy;
 // Use centralized normalize_db_name - SINGLE SOURCE OF TRUTH (see utils.rs)
@@ -105,6 +106,148 @@ pub(crate) fn registry_contains_key(db_name: &str) -> bool {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn ensure_storage_registered_with_backend(
+    db_name: &str,
+    backend: StorageBackend,
+) -> Result<Rc<BlockStorage>, DatabaseError> {
+    const MAX_WAIT_MS: u32 = 10000;
+    const POLL_INTERVAL_MS: u32 = 10;
+    let max_attempts = MAX_WAIT_MS / POLL_INTERVAL_MS;
+
+    for attempt in 0..max_attempts {
+        let (reserved, existing_after_reserve) = INIT_IN_PROGRESS.with(|init| {
+            let mut set = init.borrow_mut();
+            if set.contains(db_name) {
+                return (false, None);
+            }
+
+            set.insert(db_name.to_string());
+            drop(set);
+
+            let existing = STORAGE_REGISTRY.with(|reg| unsafe {
+                let registry = &*reg.get();
+                registry.get(db_name).cloned()
+            });
+
+            (true, existing)
+        });
+
+        if let Some(existing) = existing_after_reserve {
+            INIT_IN_PROGRESS.with(|init| {
+                let mut set = init.borrow_mut();
+                set.remove(db_name);
+            });
+            if existing.storage_backend() != backend {
+                log::info!(
+                    "Reusing existing BlockStorage for {} with backend {} instead of requested {}",
+                    db_name,
+                    existing.storage_backend().as_str(),
+                    backend.as_str()
+                );
+            }
+            existing.reload_cache_from_global_storage();
+            return Ok(existing);
+        }
+
+        if !reserved {
+            web_sys::console::log_1(
+                &format!(
+                    "[VFS] {} - INIT already in progress, waiting (attempt {})",
+                    db_name, attempt
+                )
+                .into(),
+            );
+            use wasm_bindgen_futures::JsFuture;
+            let promise = js_sys::Promise::new(&mut |resolve, _| {
+                web_sys::window()
+                    .unwrap()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                        &resolve,
+                        POLL_INTERVAL_MS as i32,
+                    )
+                    .unwrap();
+            });
+            JsFuture::from(promise).await.ok();
+            continue;
+        }
+
+        web_sys::console::log_1(
+            &format!(
+                "[VFS] {} - ACQUIRED init reservation (attempt {})",
+                db_name, attempt
+            )
+            .into(),
+        );
+
+        log::info!(
+            "Creating new BlockStorage for database: {} with backend {}",
+            db_name,
+            backend.as_str()
+        );
+        web_sys::console::log_1(
+            &format!("[VFS] {} - START BlockStorage::new_with_backend()", db_name).into(),
+        );
+        let storage_result = BlockStorage::new_with_backend(db_name, backend).await;
+        web_sys::console::log_1(
+            &format!("[VFS] {} - END BlockStorage::new_with_backend()", db_name).into(),
+        );
+
+        let storage = storage_result?;
+        let rc = Rc::new(storage);
+
+        let registration_result = STORAGE_REGISTRY.with(|reg| unsafe {
+            let registry = &mut *reg.get();
+
+            if let Some(winner) = registry.get(db_name).cloned() {
+                web_sys::console::log_1(
+                    &format!(
+                        "[VFS] {} - Someone else registered first, using theirs",
+                        db_name
+                    )
+                    .into(),
+                );
+                return Err(winner);
+            }
+
+            web_sys::console::log_1(
+                &format!("[VFS] {} - REGISTERED in STORAGE_REGISTRY", db_name).into(),
+            );
+            registry.insert(db_name.to_string(), rc.clone());
+            if !db_name.ends_with(".db") {
+                registry.insert(format!("{}.db", db_name), rc.clone());
+            }
+            Ok(())
+        });
+
+        INIT_IN_PROGRESS.with(|init| {
+            let mut set = init.borrow_mut();
+            set.remove(db_name);
+        });
+
+        return match registration_result {
+            Ok(()) => {
+                log::info!("Successfully registered new BlockStorage for {}", db_name);
+                Ok(rc)
+            }
+            Err(winner) => {
+                log::info!(
+                    "Lost registration race for {}, using winner's storage",
+                    db_name
+                );
+                drop(rc);
+                winner.reload_cache_from_global_storage();
+                Ok(winner)
+            }
+        };
+    }
+
+    Err(DatabaseError::new(
+        "INIT_TIMEOUT",
+        "Timed out waiting for database initialization",
+    ))
+}
+
 /// Custom SQLite VFS implementation that uses IndexedDB for storage
 pub struct IndexedDBVFS {
     #[cfg(target_arch = "wasm32")]
@@ -117,170 +260,27 @@ pub struct IndexedDBVFS {
 
 impl IndexedDBVFS {
     pub async fn new(db_name: &str) -> Result<Self, DatabaseError> {
+        Self::new_with_backend(db_name, StorageBackend::IndexedDb).await
+    }
+
+    pub async fn new_with_backend(
+        db_name: &str,
+        backend: StorageBackend,
+    ) -> Result<Self, DatabaseError> {
         log::info!("Creating IndexedDBVFS for database: {}", db_name);
 
         #[cfg(target_arch = "wasm32")]
         {
-            // Loop until we either get existing storage or successfully create new one
-            const MAX_WAIT_MS: u32 = 10000;
-            const POLL_INTERVAL_MS: u32 = 10;
-            let max_attempts = MAX_WAIT_MS / POLL_INTERVAL_MS;
-
-            for attempt in 0..max_attempts {
-                // CRITICAL: Try to atomically reserve init slot FIRST, then double-check registry
-                // This prevents the race where all tasks check registry (empty), then all try to reserve
-                let (reserved, existing_after_reserve) = INIT_IN_PROGRESS.with(|init| {
-                    let mut set = init.borrow_mut();
-                    if set.contains(db_name) {
-                        // Already being initialized by another task
-                        return (false, None);
-                    }
-
-                    // Not currently initializing - reserve the slot
-                    set.insert(db_name.to_string());
-                    drop(set); // Release mut borrow before checking registry
-
-                    // Double-check registry in case someone registered between our last check
-                    let existing = STORAGE_REGISTRY.with(|reg| {
-                        // SAFETY: WASM is single-threaded
-                        unsafe {
-                            let registry = &*reg.get();
-                            registry.get(db_name).cloned()
-                        }
-                    });
-
-                    (true, existing)
-                });
-
-                if let Some(existing) = existing_after_reserve {
-                    // Someone registered while we were reserving - clear our reservation and use theirs
-                    INIT_IN_PROGRESS.with(|init| {
-                        let mut set = init.borrow_mut();
-                        set.remove(db_name);
-                    });
-                    log::info!("Reusing existing BlockStorage for database: {}", db_name);
-                    existing.reload_cache_from_global_storage();
-                    return Ok(Self {
-                        storage: existing,
-                        name: db_name.to_string(),
-                    });
-                }
-
-                if !reserved {
-                    // Someone else is initializing - wait
-                    web_sys::console::log_1(
-                        &format!(
-                            "[VFS] {} - INIT already in progress, waiting (attempt {})",
-                            db_name, attempt
-                        )
-                        .into(),
-                    );
-                    use wasm_bindgen_futures::JsFuture;
-                    let promise = js_sys::Promise::new(&mut |resolve, _| {
-                        web_sys::window()
-                            .unwrap()
-                            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                                &resolve,
-                                POLL_INTERVAL_MS as i32,
-                            )
-                            .unwrap();
-                    });
-                    JsFuture::from(promise).await.ok();
-                    continue;
-                }
-
-                // We got the reservation - create BlockStorage
-                web_sys::console::log_1(
-                    &format!(
-                        "[VFS] {} - ACQUIRED init reservation (attempt {})",
-                        db_name, attempt
-                    )
-                    .into(),
-                );
-
-                // We have the reservation - create BlockStorage
-                log::info!("Creating new BlockStorage for database: {}", db_name);
-                web_sys::console::log_1(
-                    &format!("[VFS] {} - START BlockStorage::new()", db_name).into(),
-                );
-                let storage_result = BlockStorage::new(db_name).await;
-                web_sys::console::log_1(
-                    &format!("[VFS] {} - END BlockStorage::new()", db_name).into(),
-                );
-
-                let storage = storage_result?;
-                let rc = Rc::new(storage);
-
-                // Try to register - CRITICAL: Keep INIT_IN_PROGRESS set until AFTER registration
-                let registration_result = STORAGE_REGISTRY.with(|reg| {
-                    // SAFETY: WASM is single-threaded
-                    unsafe {
-                        let registry = &mut *reg.get();
-
-                        // Check if someone else registered while we were creating
-                        if let Some(winner) = registry.get(db_name).cloned() {
-                            web_sys::console::log_1(
-                                &format!(
-                                    "[VFS] {} - Someone else registered first, using theirs",
-                                    db_name
-                                )
-                                .into(),
-                            );
-                            return Err(winner); // Someone else won - use theirs
-                        }
-
-                        // We won - register ours
-                        web_sys::console::log_1(
-                            &format!("[VFS] {} - REGISTERED in STORAGE_REGISTRY", db_name).into(),
-                        );
-                        registry.insert(db_name.to_string(), rc.clone());
-                        if !db_name.ends_with(".db") {
-                            registry.insert(format!("{}.db", db_name), rc.clone());
-                        }
-                        Ok(())
-                    }
-                });
-
-                // NOW clear the reservation flag AFTER registration is complete
-                INIT_IN_PROGRESS.with(|init| {
-                    let mut set = init.borrow_mut();
-                    set.remove(db_name);
-                });
-
-                return match registration_result {
-                    Ok(()) => {
-                        // We successfully registered our storage
-                        log::info!("Successfully registered new BlockStorage for {}", db_name);
-                        Ok(Self {
-                            storage: rc,
-                            name: db_name.to_string(),
-                        })
-                    }
-                    Err(winner) => {
-                        // Someone else won - drop ours and use theirs
-                        log::info!(
-                            "Lost registration race for {}, using winner's storage",
-                            db_name
-                        );
-                        drop(rc);
-                        winner.reload_cache_from_global_storage();
-                        Ok(Self {
-                            storage: winner,
-                            name: db_name.to_string(),
-                        })
-                    }
-                };
-            }
-
-            // If we get here, we timed out waiting
-            Err(DatabaseError::new(
-                "INIT_TIMEOUT",
-                "Timed out waiting for database initialization",
-            ))
+            let storage = ensure_storage_registered_with_backend(db_name, backend).await?;
+            Ok(Self {
+                storage,
+                name: db_name.to_string(),
+            })
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let _ = backend;
             // Native: Use Arc<Mutex<>> for thread-safe Send implementation
             // Note: Storage not actually used in native mode (direct file I/O instead)
             log::info!("Creating new BlockStorage for database: {}", db_name);

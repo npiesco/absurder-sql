@@ -106,6 +106,8 @@ opentelemetry-prometheus = "0.14"
 [features]
 default = ["console_error_panic_hook", "console_log", "bundled-sqlite"]
 fs_persist = []
+opfs = []
+hybrid = ["opfs"]
 telemetry = ["prometheus", "opentelemetry", "opentelemetry_sdk", "opentelemetry-prometheus"]
 bundled-sqlite = ["rusqlite", "rusqlite/bundled"]
 encryption = ["rusqlite", "rusqlite/sqlcipher"]  # Android: links pre-built SQLCipher in jniLibs
