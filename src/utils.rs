@@ -306,13 +306,46 @@ fn check_memory_macos() -> Option<MemoryInfo> {
     })
 }
 
-/// Check memory on Windows
+/// Check memory on Windows using GlobalMemoryStatusEx
 #[cfg(target_os = "windows")]
 fn check_memory_windows() -> Option<MemoryInfo> {
-    // Windows memory checking would require winapi crate
-    // For now, return None (conservative approach)
-    // In production, implement using GlobalMemoryStatusEx from winapi
-    None
+    use std::mem;
+
+    #[repr(C)]
+    struct MemoryStatusEx {
+        dw_length: u32,
+        dw_memory_load: u32,
+        ull_total_phys: u64,
+        ull_avail_phys: u64,
+        ull_total_page_file: u64,
+        ull_avail_page_file: u64,
+        ull_total_virtual: u64,
+        ull_avail_virtual: u64,
+        ull_avail_extended_virtual: u64,
+    }
+
+    unsafe extern "system" {
+        unsafe fn GlobalMemoryStatusEx(lp_buffer: *mut MemoryStatusEx) -> i32;
+    }
+
+    unsafe {
+        let mut mem_status: MemoryStatusEx = mem::zeroed();
+        mem_status.dw_length = mem::size_of::<MemoryStatusEx>() as u32;
+
+        if GlobalMemoryStatusEx(&mut mem_status) == 0 {
+            return None;
+        }
+
+        let available_bytes = mem_status.ull_avail_phys;
+        let total_bytes = mem_status.ull_total_phys;
+        let used_bytes = total_bytes.saturating_sub(available_bytes);
+
+        Some(MemoryInfo {
+            available_bytes,
+            total_bytes: Some(total_bytes),
+            used_bytes: Some(used_bytes),
+        })
+    }
 }
 
 /// Estimate memory requirement for exporting a database
