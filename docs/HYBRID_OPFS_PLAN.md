@@ -26,6 +26,8 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Made `exportToFile()` / `importFromFile()` worker-safe by routing them through `export_import_lock.rs`, which now falls back to a local async lock when `Window` is unavailable.
 - Updated `import.rs` so browser imports clear stale OPFS mirrors and persist imported blocks through `hybrid_persist()` for `Hybrid` / `OPFS` backends instead of treating IndexedDB as the only durable target.
 - Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker import regression proving imported data survives after deleting the IndexedDB mirror.
+- Made worker cleanup tolerant of missing `Window` / `localStorage` so `Database.deleteDatabase()` no longer fails after successful worker-side OPFS cleanup.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker delete regression proving `deleteDatabase()` succeeds in workers and removes the OPFS file.
 - Current limitation: recovery and the remaining export/reload orchestration still need a fuller OPFS-aware cleanup pass.
 
 Validation completed for this slice:
@@ -37,6 +39,7 @@ Validation completed for this slice:
 - `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "falls back to IndexedDB when OPFS data is corrupted"` passed.
 - `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --reporter=line` passed.
 - `npx playwright test tests/e2e/import-export.spec.js --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker deleteDatabase succeeds without Window" --reporter=line` passed.
 - Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
 - `cargo test` passed.
 - `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.

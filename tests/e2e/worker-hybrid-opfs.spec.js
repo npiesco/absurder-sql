@@ -233,6 +233,75 @@ async function runWorkerScenario(page, dbNameOrOptions, maybeMode) {
             return;
           }
 
+          if (mode === 'reload-imported') {
+            const reopened = await Database.newDatabaseAuto(dbName);
+            reopened.allowNonLeaderWrites(true);
+            const reopenedBackend = reopened.getStorageBackend();
+            logs.push('reopened backend: ' + reopenedBackend);
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file before reload: ' + JSON.stringify(opfsFile));
+
+            await reopened.reloadFromIndexedDB();
+            logs.push('reload complete');
+
+            const importedQuery = await reopened.execute('SELECT id, label AS value FROM imported_data ORDER BY id');
+            const rows = serializeRows(importedQuery);
+            logs.push('imported row count after reload: ' + rows.length);
+
+            const staleTableQuery = await reopened.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stale_data'");
+            const staleTablePresent = staleTableQuery.rows.length > 0;
+            logs.push('stale table present after reload: ' + staleTablePresent);
+
+            await reopened.close();
+            try {
+              await Database.deleteDatabase(dbName);
+            } catch (cleanupError) {
+              logs.push('cleanup warning: ' + String(cleanupError));
+            }
+
+            self.postMessage({
+              success: true,
+              logs,
+              reopenedBackend,
+              opfsFile,
+              rows,
+              staleTablePresent,
+            });
+            return;
+          }
+
+          if (mode === 'seed-and-delete') {
+            const db = await Database.newDatabaseAuto(dbName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('CREATE TABLE IF NOT EXISTS worker_delete_data (id INTEGER PRIMARY KEY, value TEXT)');
+            await db.execute('DELETE FROM worker_delete_data');
+            await db.execute("INSERT INTO worker_delete_data (id, value) VALUES (1, 'delete-alpha')");
+            await db.sync();
+            await db.close();
+
+            const opfsFileBeforeDelete = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file before delete: ' + JSON.stringify(opfsFileBeforeDelete));
+
+            await Database.deleteDatabase(dbName);
+            logs.push('deleteDatabase completed');
+
+            const opfsFileAfterDelete = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file after delete: ' + JSON.stringify(opfsFileAfterDelete));
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              opfsFileBeforeDelete,
+              opfsFileAfterDelete,
+            });
+            return;
+          }
+
           throw new Error('Unknown worker mode: ' + mode);
         } catch (error) {
           const errorMessage = error?.message ?? String(error);
@@ -477,5 +546,56 @@ test.describe('Worker Hybrid OPFS Backend', () => {
       { id: 2, value: 'fresh-beta' },
     ]);
     expect(reopened.staleTablePresent).toBe(false);
+  });
+
+  test('worker Hybrid reload keeps OPFS-backed data after IndexedDB mirror deletion', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_reload_${Date.now()}`;
+    const sourceDbName = `${dbName}_source`;
+
+    const imported = await runWorkerScenario(page, {
+      dbName,
+      sourceDbName,
+      mode: 'import-seed',
+    });
+    console.log((imported.logs || []).join('\n'));
+
+    expect(imported.success, imported.error ?? 'worker hybrid import seed failed').toBe(true);
+    expect(imported.selectedBackend).toBe('Hybrid');
+
+    const deletedMirror = await deleteIndexedDbMirror(page, dbName);
+    expect(deletedMirror.deletedAny).toBe(true);
+
+    const reloaded = await runWorkerScenario(page, {
+      dbName,
+      mode: 'reload-imported',
+    });
+    console.log((reloaded.logs || []).join('\n'));
+
+    expect(reloaded.success, reloaded.error ?? 'worker hybrid reload after mirror delete failed').toBe(true);
+    expect(reloaded.reopenedBackend).toBe('Hybrid');
+    expect(reloaded.rows).toEqual([
+      { id: 1, value: 'fresh-alpha' },
+      { id: 2, value: 'fresh-beta' },
+    ]);
+    expect(reloaded.staleTablePresent).toBe(false);
+  });
+
+  test('worker deleteDatabase succeeds without Window and removes OPFS data', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_delete_${Date.now()}`;
+
+    const deleted = await runWorkerScenario(page, {
+      dbName,
+      mode: 'seed-and-delete',
+    });
+    console.log((deleted.logs || []).join('\n'));
+
+    expect(deleted.success, deleted.error ?? 'worker deleteDatabase failed').toBe(true);
+    expect(deleted.selectedBackend).toBe('Hybrid');
+    expect(deleted.opfsFileBeforeDelete).not.toBeNull();
+    expect(deleted.opfsFileAfterDelete).toBeNull();
   });
 });

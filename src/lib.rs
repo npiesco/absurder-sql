@@ -2041,24 +2041,32 @@ impl Database {
 
     /// Add database name to persistent list in localStorage
     #[allow(dead_code)]
+    fn persistent_list_storage() -> Result<Option<web_sys::Storage>, JsValue> {
+        let Some(window) = web_sys::window() else {
+            log::info!("Persistent database list unavailable without Window; skipping");
+            return Ok(None);
+        };
+
+        let Some(storage) = window.local_storage().map_err(|e| {
+            log::error!("Failed to get localStorage: {:?}", e);
+            JsValue::from_str("No localStorage")
+        })?
+        else {
+            log::info!("Persistent database list unavailable without localStorage; skipping");
+            return Ok(None);
+        };
+
+        Ok(Some(storage))
+    }
+
+    /// Add database name to persistent list in localStorage
+    #[allow(dead_code)]
     fn add_database_to_persistent_list(db_name: &str) -> Result<(), JsValue> {
         log::info!("add_database_to_persistent_list called for: {}", db_name);
 
-        let window = web_sys::window().ok_or_else(|| {
-            log::error!("No window object");
-            JsValue::from_str("No window")
-        })?;
-
-        let storage = window
-            .local_storage()
-            .map_err(|e| {
-                log::error!("Failed to get localStorage: {:?}", e);
-                JsValue::from_str("No localStorage")
-            })?
-            .ok_or_else(|| {
-                log::error!("localStorage not available");
-                JsValue::from_str("localStorage not available")
-            })?;
+        let Some(storage) = Self::persistent_list_storage()? else {
+            return Ok(());
+        };
 
         let key = "absurder_db_list";
         let existing = storage.get_item(key).map_err(|e| {
@@ -2111,11 +2119,9 @@ impl Database {
 
     /// Remove database name from persistent list in localStorage
     fn remove_database_from_persistent_list(db_name: &str) -> Result<(), JsValue> {
-        let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
-        let storage = window
-            .local_storage()
-            .map_err(|_| JsValue::from_str("No localStorage"))?
-            .ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        let Some(storage) = Self::persistent_list_storage()? else {
+            return Ok(());
+        };
 
         let key = "absurder_db_list";
         let existing = storage
@@ -2141,21 +2147,9 @@ impl Database {
     fn get_persistent_database_list() -> Result<Vec<String>, JsValue> {
         log::info!("get_persistent_database_list called");
 
-        let window = web_sys::window().ok_or_else(|| {
-            log::error!("No window object");
-            JsValue::from_str("No window")
-        })?;
-
-        let storage = window
-            .local_storage()
-            .map_err(|e| {
-                log::error!("Failed to get localStorage: {:?}", e);
-                JsValue::from_str("No localStorage")
-            })?
-            .ok_or_else(|| {
-                log::error!("localStorage not available");
-                JsValue::from_str("localStorage not available")
-            })?;
+        let Some(storage) = Self::persistent_list_storage()? else {
+            return Ok(Vec::new());
+        };
 
         let key = "absurder_db_list";
         let existing = storage.get_item(key).map_err(|e| {
