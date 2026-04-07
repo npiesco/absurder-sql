@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite IndexedDB Benchmark - Full Comparison</title>
+    <title>SQLite Storage Backend Benchmark - Full Comparison</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -50,7 +50,7 @@
         }
         .result-row {
             display: grid;
-            grid-template-columns: 250px 150px 150px 150px 150px;
+            grid-template-columns: 280px 150px 150px 150px 150px;
             gap: 10px;
             padding: 12px;
             border-bottom: 1px solid #eee;
@@ -125,12 +125,12 @@
     </style>
 </head>
 <body>
-    <h1>SQLite IndexedDB Performance Benchmark</h1>
+    <h1>SQLite Storage Backend Performance Benchmark</h1>
     
     <div class="note">
-        <strong>Comparing:</strong> AbsurderSQL (persistent SQLite + IndexedDB VFS), absurd-sql (persistent SQLite + IndexedDB), and raw IndexedDB
-        <br><small>All implementations use persistent IndexedDB storage. AbsurderSQL uses our optimized BlockStorage (20x faster reads!).</small>
-        <br><small>NOTE: Each benchmark run now cleans up IndexedDB completely to ensure consistent performance between runs.</small>
+        <strong>Comparing:</strong> AbsurderSQL IndexedDB, AbsurderSQL Hybrid (OPFS + IndexedDB metadata), absurd-sql, and raw IndexedDB
+        <br><small>AbsurderSQL write timings include an explicit <code>sync()</code> so the benchmark captures durable backend persistence instead of only in-memory SQLite work.</small>
+        <br><small>Hybrid runs in a Worker with an explicit <code>Hybrid</code> backend so OPFS is actually exercised.</small>
     </div>
 
     <div class="benchmark-controls">
@@ -151,7 +151,8 @@
         </div>
         
         <button id="runAll">Run All Benchmarks</button>
-        <button id="runDataSync">Run AbsurderSQL Only</button>
+        <button id="runDataSync">Run AbsurderSQL IndexedDB</button>
+        <button id="runDataSyncHybrid">Run AbsurderSQL Hybrid</button>
         <button id="runAbsurdSQL">Run absurd-sql Only</button>
         <button id="runIndexedDB">Run Raw IndexedDB Only</button>
         <button id="clearData">Clear All Data</button>
@@ -179,6 +180,34 @@
         import init, { Database } from '../pkg/absurder_sql.js';
 
         let results = {};
+        const ABSURDERSQL_INDEXEDDB_DB = 'benchmark_datasync_indexeddb';
+        const ABSURDERSQL_HYBRID_DB = 'benchmark_datasync_hybrid';
+        const LEGACY_ABSURDERSQL_DB = 'benchmark_datasync';
+
+        function buildInsertValues(numRows, testData) {
+            const values = [];
+            for (let i = 0; i < numRows; i += 1) {
+                values.push(`(${i + 1}, '${testData}')`);
+            }
+            return values.join(', ');
+        }
+
+        async function deleteIndexedDbDatabase(name) {
+            return new Promise(resolve => {
+                const request = indexedDB.deleteDatabase(name);
+                request.onsuccess = () => resolve();
+                request.onerror = () => resolve();
+                request.onblocked = () => resolve();
+            });
+        }
+
+        async function safeDeleteAbsurderSQLDatabase(dbName) {
+            try {
+                await Database.deleteDatabase(dbName);
+            } catch (error) {
+                console.debug(`Ignoring benchmark database cleanup error for ${dbName}:`, error);
+            }
+        }
 
         // Utility functions
         function showStatus(message, type = 'info') {
@@ -254,75 +283,110 @@
             });
         }
 
-        // Helper: Clear AbsurderSQL databases for clean benchmark runs
-        async function clearAbsurderSQLDatabases() {
-            return new Promise(resolve => {
-                const deleteReq1 = indexedDB.deleteDatabase('benchmark_datasync');
-                const deleteReq2 = indexedDB.deleteDatabase('block_storage');
-                let completed = 0;
-                const checkDone = () => { if (++completed === 2) resolve(); };
-                deleteReq1.onsuccess = checkDone;
-                deleteReq1.onerror = checkDone;
-                deleteReq2.onsuccess = checkDone;
-                deleteReq2.onerror = checkDone;
-            });
-        }
-
-        // Benchmark: AbsurderSQL (persistent SQLite with IndexedDB)
-        async function benchmarkAbsurderSQL(numRows, batchSize, rowSize) {
-            showStatus('Running AbsurderSQL benchmark...', 'running');
-            
-            const dbName = 'benchmark_datasync';
-            const db = await Database.newDatabase(dbName);
-            
-            // CRITICAL: Use same journal mode as absurd-sql for fair comparison
-            const journalResult = await db.execute('PRAGMA journal_mode=MEMORY');
-            console.log('Journal mode result:', journalResult);
-            const pageSizeResult = await db.execute('PRAGMA page_size=8192');
-            console.log('Page size result:', pageSizeResult);
-            
-            // Create table
-            await db.execute('CREATE TABLE IF NOT EXISTS benchmark (id INTEGER PRIMARY KEY, data TEXT)');
-            
-            // Generate test data
+        async function runAbsurderSQLOperations(db, numRows, rowSize) {
             const testData = 'x'.repeat(rowSize);
-            
-            // INSERT benchmark - build single batched INSERT statement
+
+            await db.execute('PRAGMA journal_mode=MEMORY');
+            await db.execute('PRAGMA page_size=8192');
+            await db.execute('CREATE TABLE IF NOT EXISTS benchmark (id INTEGER PRIMARY KEY, data TEXT)');
+
             const insertStart = performance.now();
-            const allValues = [];
-            for (let i = 0; i < numRows; i++) {
-                allValues.push(`(${i + 1}, '${testData}')`);
-            }
-            await db.execute(`INSERT INTO benchmark VALUES ${allValues.join(',')}`);
+            await db.execute(`INSERT INTO benchmark VALUES ${buildInsertValues(numRows, testData)}`);
+            await db.sync();
             const insertTime = performance.now() - insertStart;
 
-            // READ benchmark
             const readStart = performance.now();
             await db.execute('SELECT * FROM benchmark');
             const readTime = performance.now() - readStart;
 
-            // UPDATE benchmark
             const updateStart = performance.now();
             await db.execute(`UPDATE benchmark SET data = '${testData}updated' WHERE id <= ${Math.floor(numRows / 2)}`);
+            await db.sync();
             const updateTime = performance.now() - updateStart;
 
-            // DELETE benchmark
             const deleteStart = performance.now();
             await db.execute(`DELETE FROM benchmark WHERE id <= ${Math.floor(numRows / 4)}`);
+            await db.sync();
             const deleteTime = performance.now() - deleteStart;
 
-            // Cleanup - drop table and close
             await db.execute('DROP TABLE benchmark');
-            await db.close();
+            await db.sync();
 
-            results['AbsurderSQL'] = {
+            return {
                 insert: insertTime,
                 read: readTime,
                 update: updateTime,
-                delete: deleteTime
+                delete: deleteTime,
             };
+        }
+
+        // Helper: Clear AbsurderSQL benchmark databases for clean runs
+        async function clearAbsurderSQLDatabases() {
+            await safeDeleteAbsurderSQLDatabase(ABSURDERSQL_INDEXEDDB_DB);
+            await safeDeleteAbsurderSQLDatabase(ABSURDERSQL_HYBRID_DB);
+            await safeDeleteAbsurderSQLDatabase(LEGACY_ABSURDERSQL_DB);
+        }
+
+        // Benchmark: AbsurderSQL IndexedDB on the main thread
+        async function benchmarkAbsurderSQLIndexedDB(numRows, batchSize, rowSize) {
+            showStatus('Running AbsurderSQL IndexedDB benchmark...', 'running');
+            
+            const db = await Database.newDatabaseWithBackend(ABSURDERSQL_INDEXEDDB_DB, 'IndexedDB');
+            db.allowNonLeaderWrites(true);
+
+            const metrics = await runAbsurderSQLOperations(db, numRows, rowSize);
+            const selectedBackend = db.getStorageBackend();
+            await db.close();
+
+            results[`AbsurderSQL IndexedDB (${selectedBackend})`] = metrics;
 
             displayResults();
+        }
+
+        // Benchmark: AbsurderSQL Hybrid in a worker so OPFS is actually available
+        async function benchmarkAbsurderSQLHybrid(numRows, batchSize, rowSize) {
+            showStatus('Running AbsurderSQL Hybrid benchmark...', 'running');
+
+            const worker = new Worker('./absurder-benchmark-worker.js', { type: 'module' });
+
+            try {
+                const result = await new Promise((resolve, reject) => {
+                    const requestId = 0;
+
+                    worker.onmessage = (event) => {
+                        const { id, success, error, selectedBackend, metrics } = event.data;
+                        if (id !== requestId) {
+                            return;
+                        }
+
+                        if (!success) {
+                            reject(new Error(error));
+                            return;
+                        }
+
+                        resolve({ selectedBackend, metrics });
+                    };
+
+                    worker.onerror = (event) => {
+                        reject(new Error(event.message || 'Worker benchmark failed'));
+                    };
+
+                    worker.postMessage({
+                        type: 'runBenchmark',
+                        id: requestId,
+                        dbName: ABSURDERSQL_HYBRID_DB,
+                        backendName: 'Hybrid',
+                        numRows,
+                        rowSize,
+                        batchSize,
+                    });
+                });
+
+                results[`AbsurderSQL Hybrid (${result.selectedBackend})`] = result.metrics;
+                displayResults();
+            } finally {
+                worker.terminate();
+            }
         }
 
         // Benchmark: absurd-sql (runs in worker)
@@ -512,10 +576,9 @@
             showStatus('Clearing all benchmark data...', 'running');
             
             try {
-                indexedDB.deleteDatabase('benchmark_datasync');
-                indexedDB.deleteDatabase('block_storage');
-                indexedDB.deleteDatabase('benchmark_indexeddb');
-                indexedDB.deleteDatabase('/sql/benchmark.sqlite');
+                await clearAbsurderSQLDatabases();
+                await deleteIndexedDbDatabase('benchmark_indexeddb');
+                await deleteIndexedDbDatabase('/sql/benchmark.sqlite');
             } catch (e) {
                 console.error('Error clearing data:', e);
             }
@@ -539,7 +602,8 @@
                 showStatus('Preparing clean environment...', 'running');
                 await clearAbsurderSQLDatabases();
                 
-                await benchmarkAbsurderSQL(numRows, batchSize, rowSize);
+                await benchmarkAbsurderSQLIndexedDB(numRows, batchSize, rowSize);
+                await benchmarkAbsurderSQLHybrid(numRows, batchSize, rowSize);
                 await benchmarkAbsurdSQL(numRows, batchSize, rowSize);
                 await benchmarkIndexedDB(numRows, batchSize, rowSize);
                 showStatus('All benchmarks complete!', 'complete');
@@ -558,8 +622,24 @@
             try {
                 // Clear databases before individual run for consistent results
                 await clearAbsurderSQLDatabases();
-                await benchmarkAbsurderSQL(numRows, batchSize, rowSize);
-                showStatus('AbsurderSQL benchmark complete!', 'complete');
+                await benchmarkAbsurderSQLIndexedDB(numRows, batchSize, rowSize);
+                showStatus('AbsurderSQL IndexedDB benchmark complete!', 'complete');
+                setTimeout(hideStatus, 2000);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        });
+
+        document.getElementById('runDataSyncHybrid').addEventListener('click', async () => {
+            const numRows = parseInt(document.getElementById('numRows').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+            const rowSize = parseInt(document.getElementById('rowSize').value);
+
+            try {
+                await clearAbsurderSQLDatabases();
+                await benchmarkAbsurderSQLHybrid(numRows, batchSize, rowSize);
+                showStatus('AbsurderSQL Hybrid benchmark complete!', 'complete');
                 setTimeout(hideStatus, 2000);
             } catch (error) {
                 showStatus(`Error: ${error.message}`, 'error');

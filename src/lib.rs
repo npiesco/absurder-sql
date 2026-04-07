@@ -1882,6 +1882,42 @@ impl Database {
         Ok(db)
     }
 
+    #[wasm_bindgen(js_name = "newDatabaseWithBackend")]
+    pub async fn new_wasm_with_backend(
+        name: String,
+        backend_name: String,
+    ) -> Result<Database, JsValue> {
+        let normalized_name = if name.ends_with(".db") {
+            name.clone()
+        } else {
+            format!("{}.db", name)
+        };
+
+        let backend = match backend_name.to_ascii_lowercase().as_str() {
+            "indexeddb" | "indexed-db" | "indexed_db" | "idb" => {
+                crate::storage::StorageBackend::IndexedDb
+            }
+            "opfs" => crate::storage::StorageBackend::Opfs,
+            "hybrid" => crate::storage::StorageBackend::Hybrid,
+            _ => {
+                return Err(JsValue::from_str(&format!(
+                    "Unsupported storage backend '{}'. Expected IndexedDB, OPFS, or Hybrid.",
+                    backend_name
+                )));
+            }
+        };
+
+        let config = Self::default_wasm_config(normalized_name.clone());
+
+        let db = Database::new_with_storage_backend(config, backend)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
+
+        Self::start_write_queue_listener(&normalized_name)?;
+
+        Ok(db)
+    }
+
     /// Get the database name
     #[wasm_bindgen(getter)]
     pub fn name(&self) -> String {
@@ -2404,13 +2440,7 @@ impl Database {
             let storage_rc = get_storage_with_fallback(&db_name).ok_or_else(|| {
                 JsValue::from_str(&format!("Storage not found for database: {}", db_name))
             })?;
-            log::info!("[EXPORT] ===== Step 3: Got storage, reloading cache");
-
-            // Reload cache from GLOBAL_STORAGE
-            #[cfg(target_arch = "wasm32")]
-            {
-                storage_rc.reload_cache_from_global_storage();
-            }
+            log::info!("[EXPORT] ===== Step 3: Got storage");
 
             // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
             // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
@@ -2436,6 +2466,14 @@ impl Database {
                         log::warn!("[EXPORT] WAL checkpoint failed with rc: {}", rc);
                     }
                 }
+            }
+
+            // Reload after checkpoint so the awaited sync/export path sees the canonical
+            // post-checkpoint block state instead of any stale pre-checkpoint cache.
+            #[cfg(target_arch = "wasm32")]
+            {
+                log::info!("[EXPORT] ===== Step 4b: Reloading cache after checkpoint");
+                storage_rc.reload_cache_from_global_storage();
             }
 
             log::info!("[EXPORT] ===== Step 5: Starting sync");

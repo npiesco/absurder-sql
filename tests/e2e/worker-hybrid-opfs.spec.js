@@ -3,6 +3,10 @@ import { test, expect } from '@playwright/test';
 const STATIC_URL = 'http://localhost:8080/examples/worker-example.html';
 const PKG_URL = 'http://localhost:8080/pkg/absurder_sql.js';
 
+function makeCrashFinalizeValue(prefix, id) {
+  return `${prefix}-${String(id).padStart(3, '0')}-${'x'.repeat(160)}`;
+}
+
 async function runWorkerScenario(page, dbNameOrOptions, maybeMode) {
   const options = typeof dbNameOrOptions === 'string'
     ? { dbName: dbNameOrOptions, mode: maybeMode }
@@ -32,13 +36,64 @@ async function runWorkerScenario(page, dbNameOrOptions, maybeMode) {
         }));
       }
 
+      function buildCrashFinalizeValues(prefix) {
+        return Array.from({ length: 128 }, (_, index) => {
+          const id = index + 1;
+          const paddedId = String(id).padStart(3, '0');
+          const value = prefix + '-' + paddedId + '-' + 'x'.repeat(160);
+          return '(' + id + ", '" + value + "')";
+        }).join(', ');
+      }
+
       self.onmessage = async (event) => {
         const logs = [];
-        const { dbName, mode, sourceDbName } = event.data;
+        const { dbName, mode, sourceDbName, backendName, cleanupOnClose } = event.data;
 
         try {
           await init();
           logs.push('initialized wasm');
+
+          if (mode === 'explicit-backend-roundtrip') {
+            const db = await Database.newDatabaseWithBackend(dbName, backendName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('CREATE TABLE IF NOT EXISTS explicit_backend_data (id INTEGER PRIMARY KEY, value TEXT)');
+            await db.execute('DELETE FROM explicit_backend_data');
+            await db.execute("INSERT INTO explicit_backend_data (id, value) VALUES (1, 'explicit-alpha'), (2, 'explicit-beta')");
+            await db.sync();
+            await db.close();
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file: ' + JSON.stringify(opfsFile));
+
+            const reopened = await Database.newDatabaseWithBackend(dbName, backendName);
+            reopened.allowNonLeaderWrites(true);
+            const reopenedBackend = reopened.getStorageBackend();
+            logs.push('reopened backend: ' + reopenedBackend);
+
+            const query = await reopened.execute('SELECT id, value FROM explicit_backend_data ORDER BY id');
+            logs.push('row count: ' + query.rows.length);
+            const rows = serializeRows(query);
+
+            await reopened.close();
+            try {
+              await Database.deleteDatabase(dbName);
+            } catch (cleanupError) {
+              logs.push('cleanup warning: ' + String(cleanupError));
+            }
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              reopenedBackend,
+              opfsFile,
+              rows,
+            });
+            return;
+          }
 
           if (mode === 'roundtrip') {
             const db = await Database.newDatabaseAuto(dbName);
@@ -104,6 +159,168 @@ async function runWorkerScenario(page, dbNameOrOptions, maybeMode) {
               selectedBackend,
               opfsFile,
               expectedMinimumBytes: blockSize,
+            });
+            return;
+          }
+
+          if (mode === 'crash-recovery-baseline') {
+            const db = await Database.newDatabaseAuto(dbName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('CREATE TABLE IF NOT EXISTS crash_recovery_data (id INTEGER PRIMARY KEY, value TEXT)');
+            await db.execute('DELETE FROM crash_recovery_data');
+            await db.execute("INSERT INTO crash_recovery_data (id, value) VALUES (1, 'baseline-alpha'), (2, 'baseline-beta')");
+            await db.sync();
+            await db.close();
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file after baseline sync: ' + JSON.stringify(opfsFile));
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              opfsFile,
+            });
+            return;
+          }
+
+          if (mode === 'crash-recovery-update') {
+            const db = await Database.newDatabaseAuto(dbName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('DELETE FROM crash_recovery_data');
+            await db.execute("INSERT INTO crash_recovery_data (id, value) VALUES (1, 'latest-alpha'), (2, 'latest-beta')");
+            await db.sync();
+            await db.close();
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file after latest sync: ' + JSON.stringify(opfsFile));
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              opfsFile,
+            });
+            return;
+          }
+
+          if (mode === 'crash-recovery-check') {
+            const reopened = await Database.newDatabaseAuto(dbName);
+            reopened.allowNonLeaderWrites(true);
+            const reopenedBackend = reopened.getStorageBackend();
+            logs.push('reopened backend: ' + reopenedBackend);
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file: ' + JSON.stringify(opfsFile));
+
+            const query = await reopened.execute('SELECT id, value FROM crash_recovery_data ORDER BY id');
+            logs.push('row count: ' + query.rows.length);
+            const rows = serializeRows(query);
+
+            await reopened.close();
+            if (cleanupOnClose) {
+              try {
+                await Database.deleteDatabase(dbName);
+              } catch (cleanupError) {
+                logs.push('cleanup warning: ' + String(cleanupError));
+              }
+            }
+
+            self.postMessage({
+              success: true,
+              logs,
+              reopenedBackend,
+              opfsFile,
+              rows,
+            });
+            return;
+          }
+
+          if (mode === 'crash-finalize-baseline') {
+            const db = await Database.newDatabaseAuto(dbName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('CREATE TABLE IF NOT EXISTS crash_finalize_data (id INTEGER PRIMARY KEY, value TEXT)');
+            await db.execute('DELETE FROM crash_finalize_data');
+            await db.execute('INSERT INTO crash_finalize_data (id, value) VALUES ' + buildCrashFinalizeValues('baseline'));
+            await db.sync();
+            await db.close();
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file after baseline sync: ' + JSON.stringify(opfsFile));
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              opfsFile,
+            });
+            return;
+          }
+
+          if (mode === 'crash-finalize-update') {
+            const db = await Database.newDatabaseAuto(dbName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('DELETE FROM crash_finalize_data');
+            await db.execute('INSERT INTO crash_finalize_data (id, value) VALUES ' + buildCrashFinalizeValues('latest'));
+            await db.sync();
+            await db.close();
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file after latest sync: ' + JSON.stringify(opfsFile));
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              opfsFile,
+            });
+            return;
+          }
+
+          if (mode === 'crash-finalize-check') {
+            const reopened = await Database.newDatabaseAuto(dbName);
+            reopened.allowNonLeaderWrites(true);
+            const reopenedBackend = reopened.getStorageBackend();
+            logs.push('reopened backend: ' + reopenedBackend);
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file: ' + JSON.stringify(opfsFile));
+
+            const countQuery = await reopened.execute('SELECT COUNT(*) FROM crash_finalize_data');
+            const rowCount = countQuery.rows[0].values[0].value;
+            logs.push('row count: ' + rowCount);
+
+            const query = await reopened.execute('SELECT id, value FROM crash_finalize_data WHERE id IN (1, 64, 128) ORDER BY id');
+            const rows = serializeRows(query);
+
+            await reopened.close();
+            if (cleanupOnClose) {
+              try {
+                await Database.deleteDatabase(dbName);
+              } catch (cleanupError) {
+                logs.push('cleanup warning: ' + String(cleanupError));
+              }
+            }
+
+            self.postMessage({
+              success: true,
+              logs,
+              reopenedBackend,
+              opfsFile,
+              rowCount,
+              rows,
             });
             return;
           }
@@ -302,6 +519,64 @@ async function runWorkerScenario(page, dbNameOrOptions, maybeMode) {
             return;
           }
 
+          if (mode === 'export-flush-seed') {
+            const db = await Database.newDatabaseAuto(dbName);
+            db.allowNonLeaderWrites(true);
+            const selectedBackend = db.getStorageBackend();
+            logs.push('selected backend: ' + selectedBackend);
+
+            await db.execute('CREATE TABLE IF NOT EXISTS export_flush_data (id INTEGER PRIMARY KEY, value TEXT)');
+            await db.execute('DELETE FROM export_flush_data');
+            await db.execute("INSERT INTO export_flush_data (id, value) VALUES (1, 'flush-alpha'), (2, 'flush-beta')");
+
+            const exported = await db.exportToFile();
+            logs.push('export size: ' + exported.length);
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file after export: ' + JSON.stringify(opfsFile));
+
+            await db.close();
+
+            self.postMessage({
+              success: true,
+              logs,
+              selectedBackend,
+              exportedSize: exported.length,
+              opfsFile,
+            });
+            return;
+          }
+
+          if (mode === 'reopen-export-flush') {
+            const reopened = await Database.newDatabaseAuto(dbName);
+            reopened.allowNonLeaderWrites(true);
+            const reopenedBackend = reopened.getStorageBackend();
+            logs.push('reopened backend: ' + reopenedBackend);
+
+            const opfsFile = await findMatchingOpfsFile(dbName);
+            logs.push('opfs file: ' + JSON.stringify(opfsFile));
+
+            const query = await reopened.execute('SELECT id, value FROM export_flush_data ORDER BY id');
+            logs.push('row count: ' + query.rows.length);
+            const rows = serializeRows(query);
+
+            await reopened.close();
+            try {
+              await Database.deleteDatabase(dbName);
+            } catch (cleanupError) {
+              logs.push('cleanup warning: ' + String(cleanupError));
+            }
+
+            self.postMessage({
+              success: true,
+              logs,
+              reopenedBackend,
+              opfsFile,
+              rows,
+            });
+            return;
+          }
+
           throw new Error('Unknown worker mode: ' + mode);
         } catch (error) {
           const errorMessage = error?.message ?? String(error);
@@ -406,6 +681,211 @@ async function deleteIndexedDbMirror(page, dbName) {
   }, { dbName });
 }
 
+async function snapshotIndexedDbMirror(page, dbName) {
+  return await page.evaluate(async ({ dbName }) => {
+    const normalizedName = dbName.endsWith('.db') ? dbName : `${dbName}.db`;
+
+    function waitForRequest(request) {
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
+      });
+    }
+
+    function waitForTransaction(transaction) {
+      return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+        transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+      });
+    }
+
+    function collectEntries(store, prefix, mapper) {
+      return new Promise((resolve, reject) => {
+        const entries = [];
+        const range = IDBKeyRange.bound(`${prefix}:`, `${prefix}:\uffff`);
+        const request = store.openCursor(range);
+
+        request.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (!cursor) {
+            resolve(entries);
+            return;
+          }
+
+          entries.push(mapper(cursor));
+          cursor.continue();
+        };
+
+        request.onerror = () => reject(request.error ?? new Error('Failed to iterate IndexedDB cursor'));
+      });
+    }
+
+    const openRequest = indexedDB.open('block_storage', 2);
+    openRequest.onupgradeneeded = () => {
+      const db = openRequest.result;
+      if (!db.objectStoreNames.contains('blocks')) {
+        db.createObjectStore('blocks');
+      }
+      if (!db.objectStoreNames.contains('metadata')) {
+        db.createObjectStore('metadata');
+      }
+    };
+
+    const db = await waitForRequest(openRequest);
+    const transaction = db.transaction(['blocks', 'metadata'], 'readonly');
+    const blocksStore = transaction.objectStore('blocks');
+    const metadataStore = transaction.objectStore('metadata');
+
+    const blocks = await collectEntries(blocksStore, normalizedName, (cursor) => {
+      const value = cursor.value;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      return {
+        key: String(cursor.key),
+        data: Array.from(bytes),
+      };
+    });
+    const metadata = await collectEntries(metadataStore, normalizedName, (cursor) => ({
+      key: String(cursor.key),
+      value: cursor.value,
+    }));
+
+    await waitForTransaction(transaction);
+    db.close();
+
+    return {
+      normalizedName,
+      blocks,
+      metadata,
+    };
+  }, { dbName });
+}
+
+async function restoreIndexedDbMirror(page, snapshot) {
+  return await page.evaluate(async ({ snapshot }) => {
+    function waitForRequest(request) {
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
+      });
+    }
+
+    function waitForTransaction(transaction) {
+      return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+        transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+      });
+    }
+
+    function deleteKeysByPrefix(store, prefix) {
+      return new Promise((resolve, reject) => {
+        const range = IDBKeyRange.bound(`${prefix}:`, `${prefix}:\uffff`);
+        const request = store.openCursor(range);
+        let deleted = 0;
+
+        request.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (!cursor) {
+            resolve(deleted);
+            return;
+          }
+
+          cursor.delete();
+          deleted += 1;
+          cursor.continue();
+        };
+
+        request.onerror = () => reject(request.error ?? new Error('Failed to iterate IndexedDB keys'));
+      });
+    }
+
+    const openRequest = indexedDB.open('block_storage', 2);
+    openRequest.onupgradeneeded = () => {
+      const db = openRequest.result;
+      if (!db.objectStoreNames.contains('blocks')) {
+        db.createObjectStore('blocks');
+      }
+      if (!db.objectStoreNames.contains('metadata')) {
+        db.createObjectStore('metadata');
+      }
+    };
+
+    const db = await waitForRequest(openRequest);
+    const transaction = db.transaction(['blocks', 'metadata'], 'readwrite');
+    const blocksStore = transaction.objectStore('blocks');
+    const metadataStore = transaction.objectStore('metadata');
+
+    const deletedBlocks = await deleteKeysByPrefix(blocksStore, snapshot.normalizedName);
+    const deletedMetadata = await deleteKeysByPrefix(metadataStore, snapshot.normalizedName);
+
+    for (const entry of snapshot.blocks) {
+      blocksStore.put(Uint8Array.from(entry.data), entry.key);
+    }
+
+    for (const entry of snapshot.metadata) {
+      metadataStore.put(entry.value, entry.key);
+    }
+
+    await waitForTransaction(transaction);
+    db.close();
+
+    return {
+      normalizedName: snapshot.normalizedName,
+      deletedBlocks,
+      deletedMetadata,
+      restoredBlocks: snapshot.blocks.length,
+      restoredMetadata: snapshot.metadata.length,
+    };
+  }, { snapshot });
+}
+
+async function replaceIndexedDbCommitMarker(page, dbName, commitMarker) {
+  return await page.evaluate(async ({ dbName, commitMarker }) => {
+    const normalizedName = dbName.endsWith('.db') ? dbName : `${dbName}.db`;
+
+    function waitForRequest(request) {
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
+      });
+    }
+
+    function waitForTransaction(transaction) {
+      return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+        transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+      });
+    }
+
+    const openRequest = indexedDB.open('block_storage', 2);
+    openRequest.onupgradeneeded = () => {
+      const db = openRequest.result;
+      if (!db.objectStoreNames.contains('blocks')) {
+        db.createObjectStore('blocks');
+      }
+      if (!db.objectStoreNames.contains('metadata')) {
+        db.createObjectStore('metadata');
+      }
+    };
+
+    const db = await waitForRequest(openRequest);
+    const transaction = db.transaction(['metadata'], 'readwrite');
+    const metadataStore = transaction.objectStore('metadata');
+
+    metadataStore.put(Number(commitMarker), `${normalizedName}:commit_marker`);
+
+    await waitForTransaction(transaction);
+    db.close();
+
+    return {
+      normalizedName,
+      commitMarker,
+    };
+  }, { dbName, commitMarker });
+}
+
 async function corruptOpfsMirror(page, dbName) {
   return await page.evaluate(async ({ dbName }) => {
     const root = await navigator.storage.getDirectory();
@@ -433,7 +913,58 @@ async function corruptOpfsMirror(page, dbName) {
   }, { dbName });
 }
 
+async function appendOrphanOpfsTail(page, dbName) {
+  return await page.evaluate(async ({ dbName }) => {
+    const root = await navigator.storage.getDirectory();
+    const orphanBytes = new Uint8Array(4096);
+    orphanBytes.fill(0xa5);
+
+    for await (const [entryName, handle] of root.entries()) {
+      if (!entryName.includes(dbName) || handle.kind !== 'file') {
+        continue;
+      }
+
+      const beforeFile = await handle.getFile();
+      const writable = await handle.createWritable({ keepExistingData: true });
+      await writable.write({ type: 'write', position: beforeFile.size, data: orphanBytes });
+      await writable.close();
+
+      const afterFile = await handle.getFile();
+      return {
+        entryName,
+        sizeBeforeAppend: beforeFile.size,
+        sizeAfterAppend: afterFile.size,
+        appendedBytes: orphanBytes.length,
+      };
+    }
+
+    return null;
+  }, { dbName });
+}
+
 test.describe('Worker Hybrid OPFS Backend', () => {
+  test('worker explicit backend constructor can request Hybrid', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_explicit_${Date.now()}`;
+    const result = await runWorkerScenario(page, {
+      dbName,
+      mode: 'explicit-backend-roundtrip',
+      backendName: 'Hybrid',
+    });
+
+    console.log((result.logs || []).join('\n'));
+
+    expect(result.success, result.error ?? 'worker explicit backend flow failed').toBe(true);
+    expect(result.selectedBackend).toBe('Hybrid');
+    expect(result.reopenedBackend).toBe('Hybrid');
+    expect(result.opfsFile).not.toBeNull();
+    expect(result.rows).toEqual([
+      { id: 1, value: 'explicit-alpha' },
+      { id: 2, value: 'explicit-beta' },
+    ]);
+  });
+
   test('worker auto backend selects Hybrid and writes OPFS data on sync', async ({ page }) => {
     await page.goto(STATIC_URL);
 
@@ -505,6 +1036,156 @@ test.describe('Worker Hybrid OPFS Backend', () => {
     expect(reopened.rows).toEqual([
       { id: 1, value: 'opfs-alpha' },
       { id: 2, value: 'opfs-beta' },
+    ]);
+  });
+
+  test('worker reopen reconciles orphan OPFS tail against IndexedDB metadata', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_orphan_tail_${Date.now()}`;
+
+    const seeded = await runWorkerScenario(page, dbName, 'seed');
+    console.log((seeded.logs || []).join('\n'));
+
+    expect(seeded.success, seeded.error ?? 'worker hybrid seed failed').toBe(true);
+    expect(seeded.selectedBackend).toBe('Hybrid');
+    expect(seeded.opfsFile).not.toBeNull();
+
+    const inflated = await appendOrphanOpfsTail(page, dbName);
+    expect(inflated).not.toBeNull();
+    expect(inflated.sizeBeforeAppend).toBe(seeded.opfsFile.size);
+    expect(inflated.sizeAfterAppend).toBe(seeded.opfsFile.size + inflated.appendedBytes);
+
+    const reopened = await runWorkerScenario(page, dbName, 'reopen');
+    console.log((reopened.logs || []).join('\n'));
+
+    expect(reopened.success, reopened.error ?? 'worker orphan reconciliation failed').toBe(true);
+    expect(reopened.reopenedBackend).toBe('Hybrid');
+    expect(reopened.rows).toEqual([
+      { id: 1, value: 'opfs-alpha' },
+      { id: 2, value: 'opfs-beta' },
+    ]);
+    expect(reopened.opfsFile).not.toBeNull();
+    expect(reopened.opfsFile.size).toBe(seeded.opfsFile.size);
+  });
+
+  test('worker crash recovery heals torn Hybrid OPFS state after IndexedDB fallback', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_crash_recovery_${Date.now()}`;
+
+    const baseline = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-recovery-baseline',
+    });
+    console.log((baseline.logs || []).join('\n'));
+
+    expect(baseline.success, baseline.error ?? 'worker crash recovery baseline failed').toBe(true);
+    expect(baseline.selectedBackend).toBe('Hybrid');
+
+    const baselineMirror = await snapshotIndexedDbMirror(page, dbName);
+    expect(baselineMirror.blocks.length).toBeGreaterThan(0);
+    expect(baselineMirror.metadata.some((entry) => entry.key.endsWith(':commit_marker'))).toBe(true);
+
+    const latest = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-recovery-update',
+    });
+    console.log((latest.logs || []).join('\n'));
+
+    expect(latest.success, latest.error ?? 'worker crash recovery latest sync failed').toBe(true);
+    expect(latest.selectedBackend).toBe('Hybrid');
+
+    const restoredMirror = await restoreIndexedDbMirror(page, baselineMirror);
+    expect(restoredMirror.restoredBlocks).toBe(baselineMirror.blocks.length);
+    expect(restoredMirror.restoredMetadata).toBe(baselineMirror.metadata.length);
+
+    const recovered = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-recovery-check',
+    });
+    console.log((recovered.logs || []).join('\n'));
+
+    expect(recovered.success, recovered.error ?? 'worker crash recovery reopen failed').toBe(true);
+    expect(recovered.reopenedBackend).toBe('Hybrid');
+    expect(recovered.rows).toEqual([
+      { id: 1, value: 'baseline-alpha' },
+      { id: 2, value: 'baseline-beta' },
+    ]);
+
+    const deletedMirror = await deleteIndexedDbMirror(page, dbName);
+    expect(deletedMirror.deletedAny).toBe(true);
+
+    const healed = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-recovery-check',
+      cleanupOnClose: true,
+    });
+    console.log((healed.logs || []).join('\n'));
+
+    expect(healed.success, healed.error ?? 'worker crash recovery healed reopen failed').toBe(true);
+    expect(healed.reopenedBackend).toBe('Hybrid');
+    expect(healed.rows).toEqual([
+      { id: 1, value: 'baseline-alpha' },
+      { id: 2, value: 'baseline-beta' },
+    ]);
+  });
+
+  test('worker crash recovery finalizes Hybrid data when commit marker lags persisted blocks', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_crash_finalize_${Date.now()}`;
+
+    const baseline = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-finalize-baseline',
+    });
+    console.log((baseline.logs || []).join('\n'));
+
+    expect(baseline.success, baseline.error ?? 'worker crash recovery baseline failed').toBe(true);
+    expect(baseline.selectedBackend).toBe('Hybrid');
+
+    const baselineMirror = await snapshotIndexedDbMirror(page, dbName);
+    const baselineCommitMarkerEntry = baselineMirror.metadata.find((entry) => entry.key.endsWith(':commit_marker'));
+    expect(baselineCommitMarkerEntry).toBeDefined();
+    expect(typeof baselineCommitMarkerEntry.value).toBe('number');
+
+    const latest = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-finalize-update',
+    });
+    console.log((latest.logs || []).join('\n'));
+
+    expect(latest.success, latest.error ?? 'worker crash recovery latest sync failed').toBe(true);
+    expect(latest.selectedBackend).toBe('Hybrid');
+
+  const latestMirror = await snapshotIndexedDbMirror(page, dbName);
+  const latestCommitMarkerEntry = latestMirror.metadata.find((entry) => entry.key.endsWith(':commit_marker'));
+  expect(latestCommitMarkerEntry).toBeDefined();
+  expect(typeof latestCommitMarkerEntry.value).toBe('number');
+  expect(latestCommitMarkerEntry.value).toBeGreaterThan(baselineCommitMarkerEntry.value);
+
+    const staleCommit = await replaceIndexedDbCommitMarker(page, dbName, baselineCommitMarkerEntry.value);
+    expect(staleCommit.commitMarker).toBe(baselineCommitMarkerEntry.value);
+
+  const rolledBackMirror = await snapshotIndexedDbMirror(page, dbName);
+  const rolledBackCommitMarkerEntry = rolledBackMirror.metadata.find((entry) => entry.key.endsWith(':commit_marker'));
+  expect(rolledBackCommitMarkerEntry.value).toBe(baselineCommitMarkerEntry.value);
+
+    const recovered = await runWorkerScenario(page, {
+      dbName,
+      mode: 'crash-finalize-check',
+      cleanupOnClose: true,
+    });
+    console.log((recovered.logs || []).join('\n'));
+
+    expect(recovered.success, recovered.error ?? 'worker crash recovery finalize reopen failed').toBe(true);
+    expect(recovered.reopenedBackend).toBe('Hybrid');
+    expect(recovered.rowCount).toBe(128);
+    expect(recovered.rows).toEqual([
+      { id: 1, value: makeCrashFinalizeValue('latest', 1) },
+      { id: 64, value: makeCrashFinalizeValue('latest', 64) },
+      { id: 128, value: makeCrashFinalizeValue('latest', 128) },
     ]);
   });
 
@@ -597,5 +1278,38 @@ test.describe('Worker Hybrid OPFS Backend', () => {
     expect(deleted.selectedBackend).toBe('Hybrid');
     expect(deleted.opfsFileBeforeDelete).not.toBeNull();
     expect(deleted.opfsFileAfterDelete).toBeNull();
+  });
+
+  test('worker exportToFile flush persists Hybrid data to OPFS before IndexedDB mirror deletion', async ({ page }) => {
+    await page.goto(STATIC_URL);
+
+    const dbName = `worker_hybrid_export_flush_${Date.now()}`;
+
+    const seeded = await runWorkerScenario(page, {
+      dbName,
+      mode: 'export-flush-seed',
+    });
+    console.log((seeded.logs || []).join('\n'));
+
+    expect(seeded.success, seeded.error ?? 'worker hybrid export flush seed failed').toBe(true);
+    expect(seeded.selectedBackend).toBe('Hybrid');
+    expect(seeded.exportedSize).toBeGreaterThanOrEqual(4096);
+    expect(seeded.opfsFile).not.toBeNull();
+
+    const deletedMirror = await deleteIndexedDbMirror(page, dbName);
+    expect(deletedMirror.deletedAny).toBe(true);
+
+    const reopened = await runWorkerScenario(page, {
+      dbName,
+      mode: 'reopen-export-flush',
+    });
+    console.log((reopened.logs || []).join('\n'));
+
+    expect(reopened.success, reopened.error ?? 'worker hybrid export flush reopen failed').toBe(true);
+    expect(reopened.reopenedBackend).toBe('Hybrid');
+    expect(reopened.rows).toEqual([
+      { id: 1, value: 'flush-alpha' },
+      { id: 2, value: 'flush-beta' },
+    ]);
   });
 });

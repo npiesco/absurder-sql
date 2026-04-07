@@ -192,6 +192,25 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             let current = cm.borrow().get(&storage.db_name).copied().unwrap_or(0);
             current + 1
         });
+        let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = ids
+            .iter()
+            .filter_map(|block_id| {
+                storage
+                    .checksum_manager
+                    .get_checksum(*block_id)
+                    .map(|checksum| {
+                        (
+                            *block_id,
+                            BlockMetadataPersist {
+                                checksum,
+                                last_modified_ms: BlockStorage::now_millis(),
+                                version: next_commit as u32,
+                                algo: storage.checksum_manager.get_algorithm(*block_id),
+                            },
+                        )
+                    })
+            })
+            .collect();
         vfs_sync::with_global_storage(|gs| {
             let mut storage_map = gs.borrow_mut();
             let db_storage = storage_map
@@ -238,20 +257,8 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
             let db_meta = meta_guard
                 .entry(storage.db_name.clone())
                 .or_insert_with(HashMap::new);
-            for block_id in ids {
-                if let Some(checksum) = storage.checksum_manager.get_checksum(block_id) {
-                    // Use the per-commit version so entries remain invisible until the commit marker advances
-                    let version = next_commit as u32;
-                    db_meta.insert(
-                        block_id,
-                        BlockMetadataPersist {
-                            checksum,
-                            last_modified_ms: BlockStorage::now_millis(),
-                            version,
-                            algo: storage.checksum_manager.get_algorithm(block_id),
-                        },
-                    );
-                }
+            for (block_id, metadata) in &metadata_to_persist {
+                db_meta.insert(*block_id, metadata.clone());
             }
         });
         // Atomically advance the commit marker after all data and metadata are persisted
@@ -262,170 +269,50 @@ pub fn sync_implementation_impl(storage: &mut BlockStorage) -> Result<(), Databa
                 .insert(storage.db_name.clone(), next_commit);
         });
 
-        // Spawn async IndexedDB persistence (fire and forget for sync compatibility)
-        let db_name = storage.db_name.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            use wasm_bindgen::JsCast;
-
-            // Get IndexedDB factory (works in both Window and Worker contexts)
-            let global = js_sys::global();
-            let indexed_db_value = match js_sys::Reflect::get(
-                &global,
-                &wasm_bindgen::JsValue::from_str("indexedDB"),
-            ) {
-                Ok(val) => val,
-                Err(_) => {
-                    log::error!("IndexedDB property access failed - cannot persist");
-                    return;
-                }
-            };
-
-            if indexed_db_value.is_null() || indexed_db_value.is_undefined() {
-                log::warn!(
-                    "IndexedDB unavailable for sync (private browsing?) - data not persisted to IndexedDB"
-                );
-                return;
-            }
-
-            let idb_factory = match indexed_db_value.dyn_into::<web_sys::IdbFactory>() {
-                Ok(factory) => factory,
-                Err(_) => {
-                    log::error!("IndexedDB property is not an IdbFactory - cannot persist");
-                    return;
-                }
-            };
-
-            let open_req = match idb_factory.open_with_u32("block_storage", 2) {
-                Ok(req) => req,
-                Err(e) => {
-                    log::error!("Failed to open IndexedDB for sync: {:?}", e);
-                    return;
-                }
-            };
-
-            // Set up upgrade handler to create object stores if needed
-            let upgrade_handler = js_sys::Function::new_no_args(&format!(
-                "
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains('blocks')) {{
-                        db.createObjectStore('blocks');
-                    }}
-                    if (!db.objectStoreNames.contains('metadata')) {{
-                        db.createObjectStore('metadata');
-                    }}
-                    "
-            ));
-            open_req.set_onupgradeneeded(Some(&upgrade_handler));
-
-            // Use event-based approach for opening database
-            let (tx, rx) = futures::channel::oneshot::channel();
-            let tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx)));
-
-            let success_tx = tx.clone();
-            let success_callback =
-                wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
-                    if let Some(tx) = success_tx.borrow_mut().take() {
-                        let target = event.target().unwrap();
-                        let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
-                        let result = request.result().unwrap();
-                        let _ = tx.send(Ok(result));
-                    }
-                }) as Box<dyn FnMut(_)>);
-
-            let error_tx = tx.clone();
-            let error_callback =
-                wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
-                    if let Some(tx) = error_tx.borrow_mut().take() {
-                        let _ = tx.send(Err(format!("IndexedDB open failed: {:?}", event)));
-                    }
-                }) as Box<dyn FnMut(_)>);
-
-            open_req.set_onsuccess(Some(success_callback.as_ref().unchecked_ref()));
-            open_req.set_onerror(Some(error_callback.as_ref().unchecked_ref()));
-
-            let db_result = rx.await;
-
-            // Keep closures alive
-            success_callback.forget();
-            error_callback.forget();
-
-            match db_result {
-                Ok(Ok(db_value)) => {
-                    if let Ok(db) = db_value.dyn_into::<web_sys::IdbDatabase>() {
-                        // Start transaction for both blocks and metadata
-                        let store_names = js_sys::Array::new();
-                        store_names.push(&wasm_bindgen::JsValue::from_str("blocks"));
-                        store_names.push(&wasm_bindgen::JsValue::from_str("metadata"));
-
-                        let transaction = db
-                            .transaction_with_str_sequence_and_mode(
-                                &store_names,
-                                web_sys::IdbTransactionMode::Readwrite,
-                            )
-                            .unwrap();
-
-                        let blocks_store = transaction.object_store("blocks").unwrap();
-                        let metadata_store = transaction.object_store("metadata").unwrap();
-
-                        // Persist all blocks
-                        // IMPORTANT: Use COLON format to match wasm_indexeddb.rs and restore logic
-                        for (block_id, data) in &to_persist {
-                            let key = wasm_bindgen::JsValue::from_str(&format!(
-                                "{}:{}",
-                                db_name, block_id
-                            ));
-                            let value = js_sys::Uint8Array::from(&data[..]);
-                            blocks_store.put_with_key(&value, &key).unwrap();
-                        }
-
-                        // Persist commit marker
-                        // IMPORTANT: Use COLON format to match wasm_indexeddb.rs and restore logic
-                        let commit_key =
-                            wasm_bindgen::JsValue::from_str(&format!("{}:commit_marker", db_name));
-                        let commit_value = wasm_bindgen::JsValue::from_f64(next_commit as f64);
-                        metadata_store
-                            .put_with_key(&commit_value, &commit_key)
-                            .unwrap();
-
-                        // Use event-based approach for transaction completion
-                        let (tx_tx, tx_rx) = futures::channel::oneshot::channel();
-                        let tx_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx_tx)));
-
-                        let tx_complete_tx = tx_tx.clone();
-                        let tx_complete_callback = wasm_bindgen::closure::Closure::wrap(Box::new(
-                            move |_event: web_sys::Event| {
-                                if let Some(tx) = tx_complete_tx.borrow_mut().take() {
-                                    let _ = tx.send(Ok(()));
-                                }
-                            },
+        if !to_persist.is_empty() {
+            let db_name = storage.db_name.clone();
+            let backend = storage.storage_backend();
+            wasm_bindgen_futures::spawn_local(async move {
+                let persist_result = match backend {
+                    super::block_storage::StorageBackend::IndexedDb => {
+                        super::wasm_indexeddb::persist_to_indexeddb_event_based(
+                            &db_name,
+                            to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                            #[cfg(feature = "telemetry")]
+                            None,
                         )
-                            as Box<dyn FnMut(_)>);
-
-                        let tx_error_tx = tx_tx.clone();
-                        let tx_error_callback = wasm_bindgen::closure::Closure::wrap(Box::new(
-                            move |event: web_sys::Event| {
-                                if let Some(tx) = tx_error_tx.borrow_mut().take() {
-                                    let _ =
-                                        tx.send(Err(format!("Transaction failed: {:?}", event)));
-                                }
-                            },
-                        )
-                            as Box<dyn FnMut(_)>);
-
-                        transaction
-                            .set_oncomplete(Some(tx_complete_callback.as_ref().unchecked_ref()));
-                        transaction.set_onerror(Some(tx_error_callback.as_ref().unchecked_ref()));
-
-                        let _ = tx_rx.await;
-
-                        // Keep closures alive
-                        tx_complete_callback.forget();
-                        tx_error_callback.forget();
+                        .await
                     }
+                    super::block_storage::StorageBackend::Opfs
+                    | super::block_storage::StorageBackend::Hybrid => {
+                        super::hybrid_store::hybrid_persist(
+                            &db_name,
+                            to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                        )
+                        .await
+                    }
+                };
+
+                if let Err(error) = persist_result {
+                    log::error!(
+                        "Failed to persist {} using backend {}: {}",
+                        db_name,
+                        backend.as_str(),
+                        error
+                    );
                 }
-                _ => {} // Silently ignore errors in background persistence
-            }
-        });
+            });
+        }
         // Clear dirty blocks after successful persistence
         {
             let mut dirty = lock_mutex!(storage.dirty_blocks);

@@ -2,6 +2,39 @@ use super::metadata::{BlockMetadataPersist, ChecksumManager};
 use super::vfs_sync;
 use crate::types::DatabaseError;
 
+fn reconcile_restored_state_to_metadata(
+    db_name: &str,
+    metadata_snapshot: &std::collections::HashMap<
+        u64,
+        super::wasm_indexeddb::PersistedMetadataEntry,
+    >,
+) {
+    let valid_block_ids = metadata_snapshot
+        .keys()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+
+    vfs_sync::with_global_storage(|storage_map| {
+        let mut storage_map = storage_map.borrow_mut();
+        if let Some(db_storage) = storage_map.get_mut(db_name) {
+            db_storage.retain(|block_id, _| valid_block_ids.contains(block_id));
+        }
+    });
+
+    vfs_sync::with_global_allocation_map(|allocation_map| {
+        allocation_map
+            .borrow_mut()
+            .insert(db_name.to_string(), valid_block_ids.clone());
+    });
+
+    vfs_sync::with_global_metadata(|metadata_map| {
+        let mut metadata_map = metadata_map.borrow_mut();
+        if let Some(db_metadata) = metadata_map.get_mut(db_name) {
+            db_metadata.retain(|block_id, _| valid_block_ids.contains(block_id));
+        }
+    });
+}
+
 pub async fn hybrid_persist(
     db_name: &str,
     blocks: Vec<(u64, Vec<u8>)>,
@@ -130,7 +163,12 @@ pub async fn hybrid_restore(db_name: &str) -> Result<(), DatabaseError> {
         );
         clear_db_state(db_name);
         super::wasm_indexeddb::restore_from_indexeddb_force(db_name).await?;
+        return Ok(());
     }
+
+    reconcile_restored_state_to_metadata(db_name, &metadata_snapshot);
+    let valid_block_ids = metadata_snapshot.keys().copied().collect::<Vec<_>>();
+    super::wasm_opfs::reconcile_opfs_with_metadata(db_name, &valid_block_ids).await?;
 
     Ok(())
 }

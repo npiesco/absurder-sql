@@ -1447,79 +1447,36 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         next_commit
     );
 
-    // Collect blocks to persist with commit marker gating and richer cache data logic
-    let mut to_persist = Vec::new();
-    let mut metadata_to_persist = Vec::new();
-
-    // Collect cache data to iterate over (can't iterate over Mutex directly)
-    let cache_snapshot: Vec<(u64, Vec<u8>)> = lock_mutex!(storage.cache)
+    // Persist the actual dirty set. Global storage is only the in-memory mirror,
+    // so equality with cache must not suppress durable backend writes.
+    let to_persist: Vec<(u64, Vec<u8>)> = lock_mutex!(storage.dirty_blocks)
         .iter()
         .map(|(k, v)| (*k, v.clone()))
         .collect();
 
-    for (block_id, block_data) in cache_snapshot {
-        let should_update = vfs_sync::with_global_storage(|storage_global| {
-            let storage_global = storage_global;
-            if let Some(db_storage) = storage_global.borrow().get(&storage.db_name) {
-                if let Some(existing_data) = db_storage.get(&block_id) {
-                    // Check if cache has richer data (more non-zero bytes)
-                    let existing_non_zero = existing_data.iter().filter(|&&b| b != 0).count();
-                    let cache_non_zero = block_data.iter().filter(|&&b| b != 0).count();
-
-                    if cache_non_zero > existing_non_zero {
-                        #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!(
-                            "DEBUG: SYNC updating committed block {} with richer cache data - existing: {}, cache: {}",
-                            block_id,
-                            existing_data.iter().take(8).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" "),
-                            block_data.iter().take(8).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
-                        ).into());
-                        true
-                    } else {
-                        #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!(
-                            "DEBUG: SYNC preserving committed block {} - existing: {}, cache: {} - SKIPPING",
-                            block_id,
-                            existing_data.iter().take(8).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" "),
-                            block_data.iter().take(8).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
-                        ).into());
-                        false
-                    }
-                } else {
-                    true // New block
-                }
-            } else {
-                true // New database
-            }
-        });
-
-        if should_update {
-            to_persist.push((block_id, block_data.clone()));
-        }
-
-        // ALWAYS update metadata when commit marker advances, regardless of data changes
-        let checksum = storage
-            .checksum_manager
-            .get_checksum(block_id)
-            .unwrap_or_else(|| {
-                ChecksumManager::compute_checksum_with(&block_data, ChecksumAlgorithm::FastHash)
-            });
-        metadata_to_persist.push((
-            block_id,
-            BlockMetadataPersist {
-                version: next_commit as u32,
-                checksum,
-                algo: storage.checksum_manager.get_algorithm(block_id),
-                last_modified_ms: js_sys::Date::now() as u64,
-            },
-        ));
-        #[cfg(target_arch = "wasm32")]
-        log::debug!(
-            "SYNC updating metadata for block {} to version {}",
-            block_id,
-            next_commit
-        );
-    }
+    let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = to_persist
+        .iter()
+        .map(|(block_id, block_data)| {
+            let checksum = storage
+                .checksum_manager
+                .get_checksum(*block_id)
+                .unwrap_or_else(|| {
+                    ChecksumManager::compute_checksum_with(
+                        block_data,
+                        storage.checksum_manager.get_algorithm(*block_id),
+                    )
+                });
+            (
+                *block_id,
+                BlockMetadataPersist {
+                    version: next_commit as u32,
+                    checksum,
+                    algo: storage.checksum_manager.get_algorithm(*block_id),
+                    last_modified_ms: js_sys::Date::now() as u64,
+                },
+            )
+        })
+        .collect();
 
     // Update global storage
     vfs_sync::with_global_storage(|storage_global| {
@@ -1551,24 +1508,43 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
             .insert(storage.db_name.clone(), next_commit);
     });
 
-    // Perform IndexedDB persistence with proper event-based waiting
+    // Persist to the active browser backend and await completion.
     if !to_persist.is_empty() {
+        let backend = storage.storage_backend();
         #[cfg(target_arch = "wasm32")]
         log::debug!(
-            "Awaiting IndexedDB persistence for {} blocks",
+            "Awaiting {} persistence for {} blocks",
+            backend.as_str(),
             to_persist.len()
         );
-        persist_to_indexeddb_event_based(
-            &storage.db_name,
-            to_persist,
-            metadata_to_persist,
-            next_commit,
-            #[cfg(feature = "telemetry")]
-            None,
-            #[cfg(feature = "telemetry")]
-            None,
-        )
-        .await?;
+        match backend {
+            crate::storage::StorageBackend::IndexedDb => {
+                persist_to_indexeddb_event_based(
+                    &storage.db_name,
+                    to_persist,
+                    metadata_to_persist,
+                    next_commit,
+                    #[cfg(feature = "telemetry")]
+                    None,
+                    #[cfg(feature = "telemetry")]
+                    None,
+                )
+                .await?;
+            }
+            crate::storage::StorageBackend::Opfs | crate::storage::StorageBackend::Hybrid => {
+                super::hybrid_store::hybrid_persist(
+                    &storage.db_name,
+                    to_persist,
+                    metadata_to_persist,
+                    next_commit,
+                    #[cfg(feature = "telemetry")]
+                    None,
+                    #[cfg(feature = "telemetry")]
+                    None,
+                )
+                .await?;
+            }
+        }
     }
 
     // Clear dirty blocks

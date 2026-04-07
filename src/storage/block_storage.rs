@@ -1200,18 +1200,8 @@ impl BlockStorage {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[allow(invalid_reference_casting)]
     pub async fn sync(&self) -> Result<(), DatabaseError> {
-        // WASM: Use unsafe cast to get mutable access
-        let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
-        let result = self_mut.sync_implementation();
-        // Give time for the spawned IndexedDB operations to complete
-        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
-            &wasm_bindgen::JsValue::UNDEFINED,
-        ))
-        .await
-        .ok();
-        result
+        self.sync_async().await
     }
 
     #[cfg(not(target_arch = "wasm32"))]

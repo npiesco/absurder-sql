@@ -6,7 +6,7 @@ Add an **OPFS (Origin Private File System)** storage backend to AbsurderSQL, alo
 
 This follows the same proven pattern as fewfs's `HybridBlockStore`.
 
-## Progress Update (2026-04-06)
+## Progress Update (2026-04-07)
 
 - Completed the first backend-selection foundation slice.
 - Added `StorageBackend` state to `BlockStorage`.
@@ -28,7 +28,18 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker import regression proving imported data survives after deleting the IndexedDB mirror.
 - Made worker cleanup tolerant of missing `Window` / `localStorage` so `Database.deleteDatabase()` no longer fails after successful worker-side OPFS cleanup.
 - Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker delete regression proving `deleteDatabase()` succeeds in workers and removes the OPFS file.
-- Current limitation: recovery and the remaining export/reload orchestration still need a fuller OPFS-aware cleanup pass.
+- Made `sync_operations.rs` backend-aware so lower-level `BlockStorage::sync()` now persists through `hybrid_persist()` for `Hybrid` / `OPFS` instead of leaving `exportToFile()`'s internal flush on an IndexedDB-only path.
+- Serialized per-database OPFS helper access so sync, close, export, and cleanup no longer race on overlapping `createSyncAccessHandle()` calls.
+- Fixed the awaited WASM sync path to persist the dirty block set instead of treating `GLOBAL_STORAGE` equality as durable persistence, which restores the worker `exportToFile()` flush guarantee for `Hybrid` / `OPFS`.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker export-flush regression proving `exportToFile()` creates the OPFS mirror strongly enough to survive IndexedDB mirror deletion.
+- Reconciled Hybrid OPFS restore against IndexedDB block metadata so orphan OPFS tail blocks are pruned from both in-memory state and the persisted OPFS file on reopen.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker orphan-tail regression proving reopen trims stale OPFS bytes back to the metadata-backed size.
+- Exposed `Database.newDatabaseWithBackend()` in the WASM API and added a worker regression proving explicit `Hybrid` selection works end-to-end.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with worker crash-recovery regressions covering both rollback-heal and finalize-style reopen flows by simulating torn Hybrid persistence in IndexedDB while preserving the OPFS mirror.
+- Wired `examples/benchmark.html` to compare explicit AbsurderSQL IndexedDB and explicit worker Hybrid backends side-by-side, with write timings now including `sync()` so the benchmark path exercises durable persistence.
+- Added `tests/e2e/benchmark-page.spec.js` so the benchmark page now has browser smoke coverage proving the explicit IndexedDB and Hybrid variants both complete successfully.
+- Refreshed `docs/BENCHMARK.md` with a fresh 2026-04-07 local result set covering explicit AbsurderSQL IndexedDB, explicit AbsurderSQL Hybrid, absurd-sql, and raw IndexedDB.
+- Current limitation: the remaining follow-up is README work; the main browser-side backend selection, persistence, restore, orphan-reconciliation, crash-recovery reopen paths, benchmark harness, and benchmark report are now covered.
 
 Validation completed for this slice:
 
@@ -40,10 +51,18 @@ Validation completed for this slice:
 - `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --reporter=line` passed.
 - `npx playwright test tests/e2e/import-export.spec.js --reporter=line` passed.
 - `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker deleteDatabase succeeds without Window" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker exportToFile flush persists Hybrid data" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker reopen reconciles orphan OPFS tail" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker explicit backend constructor can request Hybrid" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker crash recovery heals torn Hybrid OPFS state after IndexedDB fallback" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker crash recovery finalizes Hybrid data when commit marker lags persisted blocks" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js tests/e2e/benchmark-page.spec.js --reporter=line` passed.
+- `npx playwright test tests/e2e/benchmark-page.spec.js --reporter=line` passed.
 - Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
 - `cargo test` passed.
+- `cargo test -q` passed.
 - `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
-- `cargo fmt --all` passed.
+- `cargo fmt --all --check` passed.
 
 ## Why
 
@@ -291,22 +310,22 @@ match storage.backend {
 - [x] Create `hybrid_store.rs` orchestrator
 - [x] Implement `hybrid_persist()` — OPFS blocks + IDB metadata in parallel
 - [x] Implement `hybrid_restore()` — cross-validate checksums on load
-- [ ] OPFS recovery: detect orphan files, reconcile with IDB metadata
+- [x] OPFS recovery: detect orphan files, reconcile with IDB metadata
 
 ### Phase 4: Integration (~2-3 days)
 - [x] Modify `constructors.rs` — `new_wasm_with_backend()`, `new_wasm_auto()`
 - [x] Modify `wasm_vfs_sync.rs` — backend-aware sync dispatch
-- [ ] Modify `sync_operations.rs` — backend-aware flush
-- [ ] Modify `export.rs` / `import.rs` — finish the remaining OPFS-aware export/reload cleanup
-- [ ] Modify `recovery.rs` — OPFS recovery path
-- [ ] Expose `StorageBackend` choice in WASM API (`Database::newDatabaseWithBackend()`)
+- [x] Modify `sync_operations.rs` — backend-aware flush
+- [x] Modify export / import / awaited sync paths — finish the remaining OPFS-aware export/reload cleanup
+- [x] Modify recovery path — OPFS orphan reconciliation
+- [x] Expose `StorageBackend` choice in WASM API (`Database::newDatabaseWithBackend()`)
 
 ### Phase 5: Testing & Docs (~2 days)
 - [x] E2E tests: hybrid persist → close → reload → hybrid restore → verify data
 - [x] E2E tests: OPFS unavailable → graceful IDB fallback
-- [ ] E2E tests: hybrid crash recovery (kill mid-persist)
+- [x] E2E tests: hybrid crash recovery (kill mid-persist)
 - [ ] Update README with OPFS/hybrid documentation
-- [ ] Benchmark report
+- [x] Benchmark report
 
 ---
 

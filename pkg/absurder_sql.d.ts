@@ -137,6 +137,7 @@ export class Database {
    * Wait for this instance to become leader
    */
   waitForLeadership(): Promise<void>;
+  static newDatabaseWithBackend(name: string, backend_name: string): Promise<Database>;
   /**
    * Record a write conflict (non-leader write attempt)
    */
@@ -274,6 +275,7 @@ export interface InitOutput {
   readonly database_name: (a: number) => [number, number];
   readonly database_newDatabase: (a: number, b: number) => any;
   readonly database_newDatabaseAuto: (a: number, b: number) => any;
+  readonly database_newDatabaseWithBackend: (a: number, b: number, c: number, d: number) => any;
   readonly database_onDataChange: (a: number, b: any) => [number, number];
   readonly database_queueWrite: (a: number, b: number, c: number) => any;
   readonly database_queueWriteWithTimeout: (a: number, b: number, c: number, d: number) => any;
@@ -322,16 +324,16 @@ export interface InitOutput {
   readonly rust_sqlite_wasm_shim_strspn: (a: number, b: number) => number;
   readonly rust_sqlite_wasm_shim_trunc: (a: number) => number;
   readonly sqlite3_os_init: () => number;
-  readonly wasm_bindgen__convert__closures_____invoke__ha5cf2746675dd101: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__hfb6f607898554a57: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__he2ba515c40e9fc0d: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h5155f28c35f9cb8d: (a: number, b: number, c: any) => any;
-  readonly wasm_bindgen__closure__destroy__h5f5787c19627102a: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h4df612afa388443d: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__h12604b9a457257ea: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__ha5cf2746675dd101: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__hfb6f607898554a57: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__he55885f863556016: (a: number, b: number) => void;
   readonly wasm_bindgen__closure__destroy__h9ccaa4119b2881df: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h5155f28c35f9cb8d: (a: number, b: number, c: any) => any;
+  readonly wasm_bindgen__closure__destroy__h5f5787c19627102a: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h319b7ab2f2a93ab3: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__he2ba515c40e9fc0d: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__hab4aed93b1f74497: (a: number, b: number, c: any) => void;
   readonly wasm_bindgen__closure__destroy__hf83bf284245ac6df: (a: number, b: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h5dfe1a3f3d40810b: (a: number, b: number) => number;
