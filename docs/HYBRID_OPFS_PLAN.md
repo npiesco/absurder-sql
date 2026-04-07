@@ -39,7 +39,8 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Wired `examples/benchmark.html` to compare explicit AbsurderSQL IndexedDB and explicit worker Hybrid backends side-by-side, with write timings now including `sync()` so the benchmark path exercises durable persistence.
 - Added `tests/e2e/benchmark-page.spec.js` so the benchmark page now has browser smoke coverage proving the explicit IndexedDB and Hybrid variants both complete successfully.
 - Refreshed `docs/BENCHMARK.md` with a fresh 2026-04-07 local result set covering explicit AbsurderSQL IndexedDB, explicit AbsurderSQL Hybrid, absurd-sql, and raw IndexedDB.
-- Current limitation: the remaining follow-up is README work plus the formal Phase 2 OPFS-vs-IDB benchmark sweep at 100/1000/10000 blocks; the main browser-side backend selection, persistence, restore, orphan-reconciliation, crash-recovery reopen paths, benchmark harness, and benchmark report are now covered.
+- Refreshed `README.md` and `pkg/README.md` with browser backend selection guidance, explicit Hybrid/OPFS API coverage, and worker fallback behavior.
+- Current limitation: the remaining follow-up is the formal Phase 2 OPFS-vs-IDB benchmark sweep at 100/1000/10000 blocks; the main browser-side backend selection, persistence, restore, orphan-reconciliation, crash-recovery reopen paths, benchmark harness, benchmark report, and public README coverage are now covered.
 
 Validation completed for this slice:
 
@@ -324,7 +325,7 @@ match storage.backend {
 - [x] E2E tests: hybrid persist → close → reload → hybrid restore → verify data
 - [x] E2E tests: OPFS unavailable → graceful IDB fallback
 - [x] E2E tests: hybrid crash recovery (kill mid-persist)
-- [ ] Update README with OPFS/hybrid documentation
+- [x] Update README with OPFS/hybrid documentation
 - [x] Benchmark report
 
 ---
@@ -380,9 +381,10 @@ features = [
 
 ---
 
-## Open Questions
+## Resolved Decisions
 
-1. **Single-file vs per-file OPFS layout?** Single-file (`blocks.dat` + manifest) is faster but needs a manifest. Per-file (`block_{id}.bin`) is simpler. Recommend single-file.
-2. **Sync writes in VFS hot path?** With `SyncAccessHandle` we *could* persist on every `x_write` instead of deferring. Probably too slow for SQLite's write patterns (many small writes per transaction). Keep the GLOBAL_STORAGE buffer, persist on x_sync or auto-sync.
-3. **`web-sys` OPFS coverage?** Need to verify which `FileSystem*` interfaces are in `web-sys` as of 2026. May need manual `wasm-bindgen` extern blocks.
-4. **Worker requirement?** `SyncAccessHandle` requires a Worker/SharedWorker/ServiceWorker context (not available on main thread). AbsurderSQL can run on main thread today. Options: (a) require Worker for OPFS mode, (b) fall back to async `FileSystemWritableFileStream` on main thread, (c) auto-detect and use IDB on main thread.
+1. **OPFS layout:** the shipped browser implementation uses a single-file OPFS block store in `src/storage/wasm_opfs.rs`.
+2. **Sync persistence model:** writes stay buffered in `GLOBAL_STORAGE` and persist on `x_sync`, awaited sync paths, export, and auto-sync rather than every `x_write`.
+3. **Bindings approach:** OPFS support is bridged through the current wasm-bindgen/JS bridge in `src/storage/wasm_opfs.rs`, so separate `web-sys` coverage is no longer a release blocker.
+4. **Worker behavior:** `Hybrid` / `OPFS` are worker-oriented browser backends; main-thread browser usage should use IndexedDB directly or rely on `newDatabaseAuto()` to fall back automatically.
+5. **Remaining planned follow-up:** the formal OPFS-vs-IDB benchmark sweep at 100/1000/10000 blocks.

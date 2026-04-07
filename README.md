@@ -1,7 +1,7 @@
 <div align="center">
   <img src="absurder-sql.png" alt="AbsurderSQL Logo" width="200"/>
   <h1>AbsurderSQL</h1>
-  <p><strong>Rust + WASM + SQLite + IndexedDB</strong></p>
+  <p><strong>Rust + WASM + SQLite + IndexedDB/OPFS</strong></p>
   
   [![npm](https://img.shields.io/npm/v/@npiesco/absurder-sql)](https://www.npmjs.com/package/@npiesco/absurder-sql)
   [![npm downloads](https://img.shields.io/npm/dm/@npiesco/absurder-sql)](https://www.npmjs.com/package/@npiesco/absurder-sql)
@@ -14,6 +14,7 @@
 [![WASM](https://img.shields.io/badge/wasm-supported-blue)](https://webassembly.org/)
 [![SQLite](https://img.shields.io/badge/sqlite-embedded-blue)](https://www.sqlite.org/)
 [![IndexedDB](https://img.shields.io/badge/indexeddb-browser-green)](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+[![OPFS](https://img.shields.io/badge/opfs-worker%20hybrid-teal)](docs/HYBRID_OPFS_PLAN.md)
 
 **Capabilities:**
 [![Dual Mode](https://img.shields.io/badge/mode-Browser%20%2B%20Native-purple)](docs/DUAL_MODE.md)
@@ -24,15 +25,15 @@
 [![Grafana](https://img.shields.io/badge/grafana-dashboards-orange)](monitoring/grafana/)
 [![DevTools](https://img.shields.io/badge/devtools-chrome%2Ffirefox-blue)](browser-extension/)
 
-> *SQLite + IndexedDB + Custom VFS that's absurdly absurder than absurd-sql*
+> *SQLite + IndexedDB/OPFS + Custom VFS that's absurdly absurder than absurd-sql*
 
 ## This is an absurd*er* project.
 
-It implements a custom SQLite Virtual File System (VFS) backend that treats **IndexedDB like a disk** and stores data in blocks there. Your database lives permanently in browser storage with **intelligent block-level I/O**—reading and writing 4KB chunks with LRU caching—avoiding the performance nightmare of serializing entire database files on every operation.
+It implements a custom SQLite Virtual File System (VFS) backend that treats **browser storage like a disk**. In browsers, AbsurderSQL can use **IndexedDB directly** or a **Hybrid OPFS + IndexedDB backend** that keeps blocks in OPFS and metadata in IndexedDB. Your database lives permanently in browser storage with **intelligent block-level I/O**—reading and writing 4KB chunks with LRU caching—avoiding the performance nightmare of serializing entire database files on every operation.
 
 **It basically stores a whole database into another database using a custom VFS. Which is absurd*er*.**
 
-But AbsurderSQL takes it further: it's **absurdly better**. Unlike absurd-sql, your data isn't locked in IndexedDB forever—you can **[export and import](docs/EXPORT_IMPORT.md)** standard SQLite files. Need to query from both browser and CLI? Use **[dual-mode persistence](docs/DUAL_MODE.md)**—same database structure, IndexedDB in the browser and real files on the server. Multiple tabs? **[Multi-tab coordination](docs/MULTI_TAB_GUIDE.md)** with automatic leader election prevents conflicts. Want production observability? Optional **[Prometheus + Grafana monitoring](monitoring/)** with **[DevTools extension](browser-extension/)** for debugging WASM telemetry.
+But AbsurderSQL takes it further: it's **absurdly better**. Unlike absurd-sql, your data isn't locked in browser storage forever—you can **[export and import](docs/EXPORT_IMPORT.md)** standard SQLite files. Need to query from both browser and CLI? Use **[dual-mode persistence](docs/DUAL_MODE.md)**—same database structure, browser persistence on IndexedDB or Hybrid OPFS+IndexedDB, and real files on the server. Multiple tabs? **[Multi-tab coordination](docs/MULTI_TAB_GUIDE.md)** with automatic leader election prevents conflicts. Need faster worker-backed browser persistence? Use the Hybrid backend with OPFS block I/O and IndexedDB metadata fallback. Want production observability? Optional **[Prometheus + Grafana monitoring](monitoring/)** with **[DevTools extension](browser-extension/)** for debugging WASM telemetry.
 
 **Read the [blog post](https://iscopesolutions.net/) that explains the absurdity in detail.**
 
@@ -42,17 +43,40 @@ But AbsurderSQL takes it further: it's **absurdly better**. Unlike absurd-sql, y
 
 A high-performance **tri-mode** Rust library that brings full SQLite functionality to **browsers, native applications, and mobile devices**:
 
-- **Browser (WASM)**: SQLite → IndexedDB with multi-tab coordination, Web Worker support, and full export/import
+- **Browser (WASM)**: SQLite → IndexedDB or Hybrid OPFS+IndexedDB, with multi-tab coordination, Web Worker support, and full export/import
 - **Native/CLI**: SQLite → Real filesystem with traditional `.db` files
 - **Mobile (React Native)**: SQLite → Device filesystem via UniFFI with SQLCipher encryption for iOS and Android
 
 **Unique Advantages:** 
 
-Export/import databases as standard SQLite files (absurd-sql has no export/import—data is permanently locked in IndexedDB). Build web apps that store data in IndexedDB, then query the same database structure from CLI/server using standard SQLite tools. Multi-tab coordination with automatic leader election prevents conflicts. Perfect for offline-first applications with backup/restore, data migration, and optional server synchronization.
+Export/import databases as standard SQLite files (absurd-sql has no export/import—data is permanently locked in browser storage). Build web apps that store data with IndexedDB by default or Hybrid OPFS+IndexedDB in worker contexts, then query the same database structure from CLI/server using standard SQLite tools. Multi-tab coordination with automatic leader election prevents conflicts. Perfect for offline-first applications with backup/restore, data migration, and optional server synchronization.
 
 **Production Observability (Optional):** When enabled with `--features telemetry`, includes complete monitoring stack: Prometheus metrics, OpenTelemetry tracing, pre-built Grafana dashboards, production-ready alert rules with runbooks, and a Chrome/Firefox DevTools extension for debugging WASM telemetry. All telemetry features are opt-in—default builds include zero monitoring overhead.
 
 Enabling production-ready SQL operations with crash consistency, multi-tab coordination, complete data portability, optional observability, and the flexibility to run anywhere from web apps to server applications.
+
+## Browser Storage Backends
+
+AbsurderSQL now exposes three browser constructors so you can choose persistence behavior explicitly:
+
+- `Database.newDatabase(name)` uses the default IndexedDB-backed browser path and works on the main thread.
+- `Database.newDatabaseAuto(name)` probes for OPFS `SyncAccessHandle` support and selects `Hybrid` in supported worker contexts, otherwise falls back to IndexedDB.
+- `Database.newDatabaseWithBackend(name, 'IndexedDB' | 'OPFS' | 'Hybrid')` forces a specific backend.
+- `db.getStorageBackend()` returns the backend actually in use.
+
+`Hybrid` is the recommended worker backend: blocks live in OPFS for fast block I/O, while IndexedDB stores metadata and provides fallback durability. Main-thread browser code should continue using IndexedDB or rely on `newDatabaseAuto()` to fall back automatically.
+
+```javascript
+import init, { Database } from '@npiesco/absurder-sql';
+
+await init();
+
+const mainThreadDb = await Database.newDatabase('app-main');
+const autoDb = await Database.newDatabaseAuto('app-auto');
+const workerHybridDb = await Database.newDatabaseWithBackend('app-worker', 'Hybrid');
+
+console.log(await autoDb.getStorageBackend());
+```
 
 ## Tri-Mode Architecture
 
@@ -102,8 +126,9 @@ graph TB
     end
     
     subgraph "Browser Persistence"
-        INDEXEDDB["IndexedDB<br/>(Browser Storage)"]
-        LOCALSTORAGE["localStorage<br/>(Coordination)"]
+      INDEXEDDB["IndexedDB<br/>(Browser Storage)"]
+      OPFS["OPFS<br/>(Worker SyncAccessHandle)"]
+      LOCALSTORAGE["localStorage<br/>(Coordination)"]
     end
     
     subgraph "Native Persistence"
@@ -141,7 +166,8 @@ graph TB
     SYNC -->|metadata| META
     EXPORT -->|read blocks| BS
     IMPORT -->|write blocks| BS
-    BS -->|"WASM mode"| INDEXEDDB
+    BS -->|"WASM IndexedDB"| INDEXEDDB
+    BS -->|"WASM Hybrid/OPFS"| OPFS
     BS -->|"Native mode"| FILESYSTEM
     NATIVE_DB -->|"fs_persist"| BLOCKS
     UNIFFI -->|"Mobile mode"| DEVICE_FS
@@ -162,6 +188,7 @@ graph TB
     style EXPORT fill:#ec4899,stroke:#333,color:#fff
     style IMPORT fill:#8b5cf6,stroke:#333,color:#fff
     style INDEXEDDB fill:#22c55e,stroke:#333,color:#000
+    style OPFS fill:#14b8a6,stroke:#333,color:#fff
     style QUEUE fill:#ef4444,stroke:#333,color:#fff
     style OBS fill:#92400e,stroke:#333,color:#fff
     style PROM fill:#1c1c1c,stroke:#333,color:#fff
@@ -220,7 +247,10 @@ absurder-sql/
 │   │   ├── import.rs                 # Database import from SQLite files
 │   │   ├── retry_logic.rs            # Retry logic for transient failures
 │   │   ├── fs_persist.rs             # Native filesystem persistence
+│   │   ├── backend_detect.rs         # Browser backend auto-detection
 │   │   ├── wasm_indexeddb.rs         # WASM IndexedDB integration
+│   │   ├── wasm_opfs.rs              # WASM OPFS block storage bridge
+│   │   ├── hybrid_store.rs           # Hybrid OPFS + IndexedDB orchestration
 │   │   ├── wasm_vfs_sync.rs          # WASM VFS sync coordination
 │   │   ├── recovery.rs               # Crash recovery logic
 │   │   ├── auto_sync.rs              # Native auto-sync
@@ -247,6 +277,8 @@ absurder-sql/
 │   ├── lru_cache_tests.rs            # Cache tests
 │   ├── e2e/                          # Playwright E2E tests
 │   │   ├── dual_mode_persistence.spec.js  # Browser + CLI validation
+│   │   ├── worker-hybrid-opfs.spec.js     # Worker Hybrid/OPFS durability coverage
+│   │   ├── benchmark-page.spec.js         # Benchmark page smoke coverage
 │   │   ├── advanced-features.spec.js
 │   │   └── multi-tab-vite.spec.js
 │   └── ...                           # 65+ test files total
@@ -259,6 +291,7 @@ absurder-sql/
 │   ├── sql_demo.html       # Interactive SQL demo page
 │   ├── web_demo.html       # Full-featured web interface
 │   ├── benchmark.html      # Performance comparison tool
+│   ├── absurder-benchmark-worker.js # Worker benchmark runner for Hybrid backend
 │   ├── multi-tab-demo.html # Multi-tab coordination demo
 │   ├── worker-example.html # Web Worker demo
 │   ├── worker-db.js        # Web Worker implementation
@@ -269,6 +302,7 @@ absurder-sql/
 │   ├── EXPORT_IMPORT.md    # Export/import guide (DATABASE PORTABILITY)
 │   ├── DUAL_MODE.md        # Tri-mode persistence guide
 │   ├── MULTI_TAB_GUIDE.md  # Multi-tab coordination
+│   ├── HYBRID_OPFS_PLAN.md # Hybrid OPFS implementation status and validation
 │   ├── TRANSACTION_SUPPORT.md # Transaction handling
 │   ├── BENCHMARK.md        # Performance benchmarks
 │   ├── ENCRYPTION.md       # SQLCipher encryption guide
