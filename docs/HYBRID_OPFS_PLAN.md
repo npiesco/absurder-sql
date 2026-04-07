@@ -39,7 +39,7 @@ This follows the same proven pattern as fewfs's `HybridBlockStore`.
 - Wired `examples/benchmark.html` to compare explicit AbsurderSQL IndexedDB and explicit worker Hybrid backends side-by-side, with write timings now including `sync()` so the benchmark path exercises durable persistence.
 - Added `tests/e2e/benchmark-page.spec.js` so the benchmark page now has browser smoke coverage proving the explicit IndexedDB and Hybrid variants both complete successfully.
 - Refreshed `docs/BENCHMARK.md` with a fresh 2026-04-07 local result set covering explicit AbsurderSQL IndexedDB, explicit AbsurderSQL Hybrid, absurd-sql, and raw IndexedDB.
-- Current limitation: the remaining follow-up is README work; the main browser-side backend selection, persistence, restore, orphan-reconciliation, crash-recovery reopen paths, benchmark harness, and benchmark report are now covered.
+- Current limitation: the remaining follow-up is README work plus the formal Phase 2 OPFS-vs-IDB benchmark sweep at 100/1000/10000 blocks; the main browser-side backend selection, persistence, restore, orphan-reconciliation, crash-recovery reopen paths, benchmark harness, and benchmark report are now covered.
 
 Validation completed for this slice:
 
