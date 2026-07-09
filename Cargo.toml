@@ -1,6 +1,6 @@
 [package]
 name = "absurder-sql"
-version = "0.1.25"
+version = "0.1.26"
 authors = ["Nicholas G. Piesco"]
 description = "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql"
 license = "AGPL-3.0"
@@ -28,10 +28,13 @@ web-sys = { version = "0.3", features = [
     "IdbFactory",
     "IdbDatabase",
     "IdbObjectStore",
+    "IdbOpenDbRequest",
+    "IdbVersionChangeEvent",
     "IdbTransaction",
     "IdbRequest",
     "IdbCursorWithValue",
     "IdbKeyRange",
+    "DomStringList",
     "DomException",
     "Event",
     "EventTarget",

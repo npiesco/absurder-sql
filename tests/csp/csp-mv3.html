@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <!-- MV3 extension-equivalent CSP: wasm allowed, but NO unsafe-eval (blocks eval / new Function) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' data: blob:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:;" />
+  <title>absurder-sql MV3 CSP test</title>
+</head>
+<body>
+  <pre id="out">loading…</pre>
+  <script type="module" src="./csp-mv3.js"></script>
+</body>
+</html>

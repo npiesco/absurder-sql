@@ -475,19 +475,28 @@ impl super::BlockStorage {
                     }
                 };
 
-                // Set up upgrade handler to create object stores if needed
-                let upgrade_handler = js_sys::Function::new_no_args(&format!(
-                    "
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains('blocks')) {{
-                        db.createObjectStore('blocks');
-                    }}
-                    if (!db.objectStoreNames.contains('metadata')) {{
-                        db.createObjectStore('metadata');
-                    }}
-                    "
-                ));
-                open_req.set_onupgradeneeded(Some(&upgrade_handler));
+                // Set up upgrade handler to create object stores if needed.
+                // Typed web-sys Closure instead of js_sys::Function::new_no_args so it
+                // does not require 'unsafe-eval' (blocked by MV3 extension CSP).
+                let upgrade_callback =
+                    wasm_bindgen::closure::Closure::wrap(Box::new(move |event: web_sys::Event| {
+                        if let Some(target) = event.target() {
+                            let request: web_sys::IdbOpenDbRequest = target.unchecked_into();
+                            if let Ok(result) = request.result() {
+                                let db: web_sys::IdbDatabase = result.unchecked_into();
+                                let names = db.object_store_names();
+                                if !names.contains("blocks") {
+                                    let _ = db.create_object_store("blocks");
+                                }
+                                if !names.contains("metadata") {
+                                    let _ = db.create_object_store("metadata");
+                                }
+                            }
+                        }
+                    })
+                        as Box<dyn FnMut(_)>);
+                open_req.set_onupgradeneeded(Some(upgrade_callback.as_ref().unchecked_ref()));
+                upgrade_callback.forget();
 
                 // Use event-based approach for opening database
                 let (tx, rx) = futures::channel::oneshot::channel();
