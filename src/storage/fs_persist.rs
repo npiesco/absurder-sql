@@ -717,7 +717,7 @@ impl super::BlockStorage {
                 }
             }
             // Normalize any remaining entries with missing/invalid algo
-            for (_id, obj) in map.iter_mut() {
+            for obj in map.values_mut() {
                 let ok = obj
                     .get("algo")
                     .and_then(|v| v.as_str())

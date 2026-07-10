@@ -46,8 +46,6 @@ web-sys = { version = "0.3", features = [
     "Response",
     "Headers",
     "Navigator",
-    "LockManager",
-    "LockOptions",
     "AbortSignal",
 ] }
 
@@ -87,7 +85,7 @@ prometheus = { version = "0.13", optional = true }
 opentelemetry = { version = "0.21", optional = true }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
 opentelemetry-prometheus = { version = "0.14", optional = true }
-weblocks = "0.1.0"
+weblocks = "0.2.0"
 futures-channel = "0.3.31"
 
 [dependencies.getrandom]

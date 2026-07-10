@@ -390,7 +390,7 @@ async fn export_database_to_bytes_impl(
     log::debug!(
         "Block 0 size: {} bytes, first 16 bytes: {:?}",
         header_block.len(),
-        &header_block.get(0..16).unwrap_or(&[])
+        header_block.get(0..16).unwrap_or(&[])
     );
 
     // Parse header to determine database size

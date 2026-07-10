@@ -98,30 +98,21 @@ macro_rules! with_storage_async {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub struct Database {
-    #[wasm_bindgen(skip)]
     connection_state: Rc<crate::connection_pool::ConnectionState>,
     #[allow(dead_code)]
     name: String,
-    #[wasm_bindgen(skip)]
     on_data_change_callback: Option<js_sys::Function>,
-    #[wasm_bindgen(skip)]
     allow_non_leader_writes: bool,
-    #[wasm_bindgen(skip)]
     optimistic_updates_manager:
         std::cell::RefCell<crate::storage::optimistic_updates::OptimisticUpdatesManager>,
-    #[wasm_bindgen(skip)]
     coordination_metrics_manager:
         std::cell::RefCell<crate::storage::coordination_metrics::CoordinationMetricsManager>,
-    #[wasm_bindgen(skip)]
     #[cfg(feature = "telemetry")]
     metrics: Option<crate::telemetry::Metrics>,
-    #[wasm_bindgen(skip)]
     #[cfg(feature = "telemetry")]
     span_recorder: Option<crate::telemetry::SpanRecorder>,
-    #[wasm_bindgen(skip)]
     #[cfg(feature = "telemetry")]
     span_context: Option<crate::telemetry::SpanContext>,
-    #[wasm_bindgen(skip)]
     max_export_size_bytes: Option<u64>,
 }
 
