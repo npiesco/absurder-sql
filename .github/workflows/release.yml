@@ -87,7 +87,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Run WASM tests
@@ -106,10 +106,14 @@ jobs:
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
         run: |
+          set -o pipefail
           cargo publish --verbose --allow-dirty 2>&1 | tee /tmp/cargo-publish.log || {
-            if grep -q "already exists" /tmp/cargo-publish.log; then
-              echo "Version already published to crates.io, skipping"
+            if curl --fail --silent --show-error \
+              "https://crates.io/api/v1/crates/absurder-sql/$RELEASE_VERSION" \
+              > /dev/null; then
+              echo "Version $RELEASE_VERSION already published to crates.io, skipping"
               exit 0
             else
               exit 1
@@ -138,7 +142,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Use latest npm (OIDC-ready)
         run: |
