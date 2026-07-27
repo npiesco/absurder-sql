@@ -1588,15 +1588,16 @@ pub async fn persist_to_indexeddb(
     let db_name = db_name.to_string();
     let blocks_clone = blocks_vec.clone();
     let metadata_clone = metadata.clone();
-    let result = super::retry_logic::with_retry("persist_to_indexeddb_without_commit_marker", || {
-        let db_name = db_name.clone();
-        let blocks = blocks_clone.clone();
-        let metadata = metadata_clone.clone();
-        async move {
-            persist_to_indexeddb_event_based_internal(&db_name, blocks, metadata, None).await
-        }
-    })
-    .await;
+    let result =
+        super::retry_logic::with_retry("persist_to_indexeddb_without_commit_marker", || {
+            let db_name = db_name.clone();
+            let blocks = blocks_clone.clone();
+            let metadata = metadata_clone.clone();
+            async move {
+                persist_to_indexeddb_event_based_internal(&db_name, blocks, metadata, None).await
+            }
+        })
+        .await;
 
     log::debug!(
         "Crash simulation persistence completed with result: {:?}",
