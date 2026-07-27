@@ -1439,6 +1439,7 @@ async fn persist_to_indexeddb_event_based_internal(
 #[cfg(target_arch = "wasm32")]
 pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
     log::debug!("Using ASYNC sync_async method");
+    let sync_started_ms = js_sys::Date::now();
     // Get current commit marker
     let current_commit = vfs_sync::with_global_commit_marker(|cm| {
         let cm = cm;
@@ -1463,6 +1464,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         .iter()
         .map(|(k, v)| (*k, v.clone()))
         .collect();
+    let blocks_synced = to_persist.len();
+    storage.observability.record_sync_start(
+        blocks_synced,
+        blocks_synced * super::block_storage::BLOCK_SIZE,
+    );
 
     let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = to_persist
         .iter()
@@ -1539,7 +1545,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
                     #[cfg(feature = "telemetry")]
                     None,
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    storage.observability.record_sync_failure(&error);
+                    error
+                })?;
             }
             crate::storage::StorageBackend::Opfs | crate::storage::StorageBackend::Hybrid => {
                 super::hybrid_store::hybrid_persist(
@@ -1552,7 +1562,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
                     #[cfg(feature = "telemetry")]
                     None,
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    storage.observability.record_sync_failure(&error);
+                    error
+                })?;
             }
         }
     }
@@ -1562,6 +1576,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         let mut dirty = lock_mutex!(storage.dirty_blocks);
         dirty.clear();
     }
+
+    let duration_ms = ((js_sys::Date::now() - sync_started_ms).ceil() as u64).max(1);
+    storage
+        .observability
+        .record_sync_success(duration_ms, blocks_synced);
 
     Ok(())
 }
