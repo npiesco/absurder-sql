@@ -1,7 +1,7 @@
 {
   "name": "@npiesco/absurder-sql",
-  "version": "0.1.26",
-  "description": "High-performance SQLite for browsers with IndexedDB persistence. Export/import databases, multi-tab coordination, dual-mode (browser + native).",
+  "version": "0.1.27",
+  "description": "High-performance SQLite for browsers with IndexedDB or Hybrid OPFS persistence, export/import, multi-tab coordination, and a production offline PWA.",
   "type": "module",
   "main": "./pkg/absurder_sql.js",
   "module": "./pkg/absurder_sql.js",
