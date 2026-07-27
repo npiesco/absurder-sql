@@ -5,7 +5,7 @@
     "Nicholas G. Piesco"
   ],
   "description": "High-performance SQLite for browsers (IndexedDB or Hybrid OPFS), native apps, and mobile, with export/import and multi-tab coordination",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",

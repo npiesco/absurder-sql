@@ -8,9 +8,20 @@
 use absurder_sql::storage::wasm_indexeddb::{
     persist_to_indexeddb_event_based, restore_from_indexeddb,
 };
+use absurder_sql::storage::{BlockMetadataPersist, ChecksumAlgorithm, ChecksumManager};
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
+
+fn metadata_for(data: &[u8], version: u32) -> BlockMetadataPersist {
+    let algo = ChecksumAlgorithm::FastHash;
+    BlockMetadataPersist {
+        checksum: ChecksumManager::compute_checksum_with(data, algo),
+        last_modified_ms: 0,
+        version,
+        algo,
+    }
+}
 
 /// Test that restore_from_indexeddb returns a Result instead of bool
 #[wasm_bindgen_test]
@@ -32,8 +43,9 @@ async fn test_restore_returns_result_type() {
 #[wasm_bindgen_test]
 async fn test_persist_handles_transaction_errors() {
     let db_name = "test_persist_error_db";
-    let blocks = vec![(1u64, vec![1u8, 2, 3, 4])];
-    let metadata = vec![(1u64, 100u64)];
+    let block_data = vec![1u8, 2, 3, 4];
+    let metadata = vec![(1u64, metadata_for(&block_data, 100))];
+    let blocks = vec![(1u64, block_data)];
 
     // This should not panic even if there are issues
     let result = persist_to_indexeddb_event_based(
@@ -100,8 +112,8 @@ async fn test_persist_large_blocks() {
     let db_name = "test_persist_large_db";
     // Create a large block (1MB)
     let large_data = vec![0u8; 1024 * 1024];
+    let metadata = vec![(1u64, metadata_for(&large_data, 1000))];
     let blocks = vec![(1u64, large_data)];
-    let metadata = vec![(1u64, 1000u64)];
 
     // Should handle large data without panicking
     let result = persist_to_indexeddb_event_based(
@@ -195,10 +207,11 @@ async fn test_concurrent_access_errors() {
 
     // Try to perform operations that might have concurrent access issues
     // This should not panic but return meaningful errors
+    let block_data = vec![1, 2, 3];
     let result = persist_to_indexeddb_event_based(
         db_name,
-        vec![(1, vec![1, 2, 3])],
-        vec![(1, 1)],
+        vec![(1, block_data.clone())],
+        vec![(1, metadata_for(&block_data, 1))],
         1,
         #[cfg(feature = "telemetry")]
         None,
