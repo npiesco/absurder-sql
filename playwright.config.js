@@ -21,10 +21,18 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'cd examples/vite-app && npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
+  webServer: [
+    {
+      command: 'cd examples/vite-app && npm run dev',
+      url: 'http://localhost:3000',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+    },
+    {
+      command: 'node scripts/static_http_server.js 8080',
+      url: 'http://localhost:8080/examples/sql_demo.html',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+    },
+  ],
 });

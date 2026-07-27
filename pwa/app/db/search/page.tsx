@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { DatabaseProvider, useDatabase } from '@/lib/db/provider';
 import { useDatabaseStore } from '@/lib/db/store';
 import { useSearchStore } from '@/lib/db/search-store';
-import { Database } from '@npiesco/absurder-sql';
+import { Database } from '@/lib/db/database-proxy';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -94,11 +94,11 @@ function SearchPageContent() {
     async function initializeWasm() {
       try {
         // ALWAYS initialize WASM first, even if db exists
-        const init = (await import('@npiesco/absurder-sql')).default;
+        const init = (await import('@/lib/db/database-proxy')).default;
         await init();
 
         // Then expose Database class
-        const { Database } = await import('@npiesco/absurder-sql');
+        const { Database } = await import('@/lib/db/database-proxy');
         (window as any).Database = Database;
 
         // If db exists from Zustand, expose it as testDb

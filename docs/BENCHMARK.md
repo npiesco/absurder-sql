@@ -1,18 +1,60 @@
-# SQLite IndexedDB Performance Benchmark
+# SQLite Storage Backend Benchmark
 
 Compare the performance of different SQLite-in-browser implementations.
 
 ## Implementations Compared
 
-1. **AbsurderSQL** (This library) - Rust/WASM SQLite with custom IndexedDB VFS backend
-2. **absurd-sql** - James Long's JavaScript SQLite implementation
-3. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
+1. **AbsurderSQL IndexedDB** - Rust/WASM SQLite with an explicit IndexedDB backend on the main thread
+2. **AbsurderSQL Hybrid** - Rust/WASM SQLite with an explicit Hybrid backend in a Worker, using OPFS for blocks and IndexedDB for metadata
+3. **absurd-sql** - James Long's JavaScript SQLite implementation
+4. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
 
-## Latest Results
+## Latest Local Run
+
+### Durable Backend Sweep (2026-07-25)
+
+Captured with system Chrome `150.0.7871.184` on Windows ARM64 using `BENCHMARK_SWEEP=1`, a 100-byte row payload, batches of up to 100 rows, and explicit `sync()` after each write phase:
+
+| Rows | Backend | Insert | Read | Update | Delete |
+|------|---------|--------|------|--------|--------|
+| 100 | IndexedDB | 30.5ms | 4.3ms | 12.2ms | 12.6ms |
+| 100 | Hybrid | 37.1ms | 3.4ms | 32.7ms | 23.8ms |
+| 1,000 | IndexedDB | 89.6ms | 12.2ms | 30.6ms | 21.9ms |
+| 1,000 | Hybrid | 152.7ms | 8.3ms | 67.2ms | 55.9ms |
+| 10,000 | IndexedDB | 711.1ms | 47.0ms | 225.9ms | 122.3ms |
+| 10,000 | Hybrid | 1.07s | 47.9ms | 432.4ms | 378.7ms |
+
+This run validates both durable paths at the planned workload sizes; it is not a universal performance claim. Hybrid used OPFS for blocks and IndexedDB for metadata in a dedicated worker.
+
+### Four-Way Comparison (2026-04-07)
+
+Captured on 2026-04-07 from the benchmark page using Playwright on this machine with:
+- `1000` rows
+- `100` batch size
+- `100` byte row payload
+- `PRAGMA journal_mode=MEMORY`
+- explicit `sync()` included in the AbsurderSQL IndexedDB and Hybrid write timings
 
 | Implementation | Insert | Read | Update | Delete |
 |---------------|--------|------|--------|--------|
-| **AbsurderSQL** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
+| AbsurderSQL IndexedDB | 160.0ms | 39.4ms | 68.4ms | 48.1ms |
+| AbsurderSQL Hybrid | 178.7ms | 26.0ms | 100.2ms | 54.5ms |
+| absurd-sql | 70.4ms | 23.3ms | 19.8ms | 9.0ms |
+| Raw IndexedDB | 42.8ms | 7.1ms | 28.8ms | 22.5ms |
+
+### Notes
+
+- This run is machine- and browser-specific; treat it as a fresh local reference point, not a universal claim.
+- Hybrid improved AbsurderSQL read latency versus explicit IndexedDB in this run, but it did not win the write-heavy operations.
+- Because AbsurderSQL write timings now include `sync()`, these numbers reflect durable backend persistence rather than only SQLite's in-memory execution time.
+
+## Legacy Results
+
+The table below reflects the earlier IndexedDB-only benchmark run before explicit IndexedDB and Hybrid variants were added to the page.
+
+| Implementation | Insert | Read | Update | Delete |
+|---------------|--------|------|--------|--------|
+| **AbsurderSQL IndexedDB** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
 | absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
 | Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
 
@@ -42,6 +84,24 @@ python3 -m http.server 8080
 ```
 http://localhost:8080/examples/benchmark.html
 ```
+
+The page now compares:
+- AbsurderSQL IndexedDB via `Database.newDatabaseWithBackend(..., 'IndexedDB')`
+- AbsurderSQL Hybrid via a dedicated Worker using `Database.newDatabaseWithBackend(..., 'Hybrid')`
+- absurd-sql in its existing Worker harness
+- Raw IndexedDB
+
+AbsurderSQL write timings now include an explicit `sync()` so the benchmark captures durable backend persistence rather than only SQLite's in-memory work.
+
+There is also a browser smoke test for the page in `tests/e2e/benchmark-page.spec.js` which runs the real benchmark page with smaller inputs and verifies that the explicit IndexedDB and Hybrid variants both complete.
+
+The same spec contains the formal durable workload sweep at 100, 1,000, and 10,000 rows. It is opt-in locally because the 10,000-row case is intentionally slower:
+
+```bash
+BENCHMARK_SWEEP=1 npx playwright test tests/e2e/benchmark-page.spec.js --reporter=line
+```
+
+The benchmark honors the configured batch size for both AbsurderSQL backends and calls `sync()` after each write phase. CI enables the sweep and prints a `BENCHMARK_SWEEP_RESULTS` JSON record; do not treat those machine-specific timings as a universal performance claim.
 
 ## Benchmark Tests
 

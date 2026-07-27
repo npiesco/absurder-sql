@@ -1,0 +1,439 @@
+# AbsurderSQL Hybrid OPFS+IDB Storage Backend — Implementation Plan
+
+## Overview
+
+Add an **OPFS (Origin Private File System)** storage backend to AbsurderSQL, alongside the existing IndexedDB backend. The preferred mode is **Hybrid**: OPFS for fast block I/O, IndexedDB for metadata persistence and cross-browser fallback.
+
+This follows the same proven pattern as fewfs's `HybridBlockStore`.
+
+## Progress Update (2026-04-07)
+
+- Completed the first backend-selection foundation slice.
+- Added `StorageBackend` state to `BlockStorage`.
+- Added `opfs` and `hybrid` feature flags to `Cargo.toml`.
+- Added `backend_detect.rs` and real main-thread fallback detection to IndexedDB, with worker-side `SyncAccessHandle` probing.
+- Added `new_wasm_with_backend()` / `new_wasm_auto()` in `constructors.rs`.
+- Exposed `Database.newDatabaseAuto()` and `db.getStorageBackend()` in the WASM API.
+- Added integration test `tests/e2e/backend-auto-fallback.spec.js` validating main-thread auto backend selection and reopen persistence.
+- Subsequent branch work also stabilized the broader browser harness and supporting demos; those fixes are already committed on `ft/hybrid-obfs`.
+- Added `wasm_opfs.rs` with a single-file OPFS bridge and initial block write/read/delete helpers.
+- Wired backend-aware persistence into the current WASM sync paths so worker `Hybrid` / `OPFS` sync mirrors blocks into OPFS while continuing to mirror into IndexedDB.
+- Implemented OPFS-first restore in `constructors.rs` for `Hybrid` / `OPFS` backends, with fallback to IndexedDB when no OPFS data exists.
+- Added `hybrid_store.rs` so `Hybrid` reopen now restores OPFS blocks, loads IndexedDB metadata, cross-validates checksums, and falls back to IndexedDB when OPFS data is corrupted.
+- Added `hybrid_persist()` in `hybrid_store.rs` and routed the existing WASM sync paths through it instead of keeping OPFS+IDB mirroring duplicated inline.
+- Upgraded the IndexedDB metadata mirror to persist real block metadata instead of version-only placeholders, with checksum values encoded in a JS-safe format.
+- Added integration test `tests/e2e/worker-hybrid-opfs.spec.js` validating worker auto backend selection, real OPFS file creation on sync, OPFS-only reopen when the IndexedDB mirror is deleted, and Hybrid fallback when OPFS bytes are corrupted.
+- Made `exportToFile()` / `importFromFile()` worker-safe by routing them through `export_import_lock.rs`, which now falls back to a local async lock when `Window` is unavailable.
+- Updated `import.rs` so browser imports clear stale OPFS mirrors and persist imported blocks through `hybrid_persist()` for `Hybrid` / `OPFS` backends instead of treating IndexedDB as the only durable target.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker import regression proving imported data survives after deleting the IndexedDB mirror.
+- Made worker cleanup tolerant of missing `Window` / `localStorage` so `Database.deleteDatabase()` no longer fails after successful worker-side OPFS cleanup.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker delete regression proving `deleteDatabase()` succeeds in workers and removes the OPFS file.
+- Made `sync_operations.rs` backend-aware so lower-level `BlockStorage::sync()` now persists through `hybrid_persist()` for `Hybrid` / `OPFS` instead of leaving `exportToFile()`'s internal flush on an IndexedDB-only path.
+- Serialized per-database OPFS helper access so sync, close, export, and cleanup no longer race on overlapping `createSyncAccessHandle()` calls.
+- Fixed the awaited WASM sync path to persist the dirty block set instead of treating `GLOBAL_STORAGE` equality as durable persistence, which restores the worker `exportToFile()` flush guarantee for `Hybrid` / `OPFS`.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker export-flush regression proving `exportToFile()` creates the OPFS mirror strongly enough to survive IndexedDB mirror deletion.
+- Reconciled Hybrid OPFS restore against IndexedDB block metadata so orphan OPFS tail blocks are pruned from both in-memory state and the persisted OPFS file on reopen.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with a worker orphan-tail regression proving reopen trims stale OPFS bytes back to the metadata-backed size.
+- Exposed `Database.newDatabaseWithBackend()` in the WASM API and added a worker regression proving explicit `Hybrid` selection works end-to-end.
+- Extended `tests/e2e/worker-hybrid-opfs.spec.js` with worker crash-recovery regressions covering both rollback-heal and finalize-style reopen flows by simulating torn Hybrid persistence in IndexedDB while preserving the OPFS mirror.
+- Wired `examples/benchmark.html` to compare explicit AbsurderSQL IndexedDB and explicit worker Hybrid backends side-by-side, with write timings now including `sync()` so the benchmark path exercises durable persistence.
+- Added `tests/e2e/benchmark-page.spec.js` so the benchmark page now has browser smoke coverage proving the explicit IndexedDB and Hybrid variants both complete successfully.
+- Refreshed `docs/BENCHMARK.md` with a fresh 2026-04-07 local result set covering explicit AbsurderSQL IndexedDB, explicit AbsurderSQL Hybrid, absurd-sql, and raw IndexedDB.
+- Refreshed `README.md` and `pkg/README.md` with browser backend selection guidance, explicit Hybrid/OPFS API coverage, and worker fallback behavior.
+- The formal 100/1000/10000 durable IndexedDB-vs-Hybrid workload sweep is now implemented behind `BENCHMARK_SWEEP=1`; measured results remain machine/browser-specific and should be recorded only after an actual run.
+
+Validation completed for this slice:
+
+- `wasm-pack build --dev --target web --out-dir pkg` passed.
+- `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js --reporter=line` passed.
+- `npm exec -- playwright test tests/e2e/backend-auto-fallback.spec.js tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line` passed.
+- `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "restores from OPFS after IndexedDB mirror deletion"` passed.
+- `npm exec -- playwright test tests/e2e/worker-hybrid-opfs.spec.js --project=chromium --reporter=line --grep "falls back to IndexedDB when OPFS data is corrupted"` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --reporter=line` passed.
+- `npx playwright test tests/e2e/import-export.spec.js --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker deleteDatabase succeeds without Window" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker exportToFile flush persists Hybrid data" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker reopen reconciles orphan OPFS tail" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker explicit backend constructor can request Hybrid" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker crash recovery heals torn Hybrid OPFS state after IndexedDB fallback" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js --grep "worker crash recovery finalizes Hybrid data when commit marker lags persisted blocks" --reporter=line` passed.
+- `npx playwright test tests/e2e/worker-hybrid-opfs.spec.js tests/e2e/benchmark-page.spec.js --reporter=line` passed.
+- `npx playwright test tests/e2e/benchmark-page.spec.js --reporter=line` passed.
+- Full root Playwright validation for the branch was later brought green during the follow-on harness repair work.
+- `cargo test` passed.
+- `cargo test -q` passed.
+- `cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings` passed.
+- `cargo fmt --all --check` passed.
+
+## PWA Integration Update (2026-07-25)
+
+The PWA integration uses Onyx as a behavioral and test-design reference only. It imports no Onyx source or package at runtime; AbsurderSQL's checked-in WASM package, storage APIs, and multi-tab behavior remain the implementation.
+
+### 1. Integrate the Hybrid backend without replacing AbsurderSQL coordination
+
+- The Hybrid backend and recovery work came from AbsurderSQL commit `0c4b3aa` (`npiesco`, “Finish Hybrid OPFS recovery and benchmark coverage”) and its preceding `4b12d91`–`b57f772` series. The integrated code lives in `src/storage/wasm_opfs.rs`, `src/storage/hybrid_store.rs`, and `tests/e2e/worker-hybrid-opfs.spec.js`.
+- AbsurderSQL's own multi-tab implementation remains the authority: `src/storage/leader_election.rs`, `examples/multi-tab-wrapper.js`, and commits `5c40914` / `2d0e991` by Nicholas Piesco. The PWA adds one coordinated physical database/OPFS owner; it does not import or replace those library modules.
+
+### 2. Give the PWA one worker-owned database runtime
+
+- Onyx reference: commit `d039d03` by `npiesco` (“Share one browser vault across tabs and restarts”), especially `src/lib/backend/index.ts`, `src/lib/backend/sharedWorker.ts`, and `src/lib/backend/worker.ts` on `npiesco-selected-directory-persistence`. Its SharedWorker coordinates tabs while an elected dedicated Worker owns APIs unavailable in SharedWorker contexts.
+- AbsurderSQL implementation: `pwa/lib/db/database.shared-worker.ts` coordinates clients and runtime election, `pwa/lib/db/database.worker.ts` owns and serializes the real WASM `Database` instances in an OPFS-capable dedicated Worker, and `pwa/lib/db/database-proxy.ts` provides the typed main-thread facade. Logical handles reopen from persisted storage after runtime handoff.
+
+### 3. Make Hybrid/OPFS storage authoritative
+
+- Onyx reference: commits `a4ecdea` and `417e23d` by `npiesco`, covering durable browser persistence and hardened restart behavior.
+- AbsurderSQL reference: commits `671343d` and `8030549` by `npiesco`, covering OPFS-first restore and checksum-validated IndexedDB fallback.
+- PWA implementation: `pwa/app/db/page.tsx` no longer restores a side backup before opening the real VFS. Writes persist through the elected dedicated Worker's Hybrid backend; visibility changes only issue a best-effort `sync()`.
+
+### 4. Build locally and cache the complete production runtime
+
+- Onyx reference: commits `8a18a7c` and `1d90c3c` by `npiesco`, covering production startup artifacts and precaching the emitted PWA runtime.
+- AbsurderSQL implementation: `scripts/sync_pwa_package.js` copies the locally generated glue, WASM, declarations, and hashed wasm-bindgen snippets into `pwa/lib`. `pwa/scripts/generate-precache.mjs` records emitted Next assets, while `pwa/public/sw.js` caches navigation, coordinator/runtime workers, WASM, JS, and CSS assets for offline reuse.
+
+### 5. Validate persistence with production Playwright tests
+
+- Onyx test-method reference: `pw.pwa.config.ts`, `tests/pwa-browser.spec.ts`, `tests/pwa-journal-recovery.spec.ts`, and `tests/pwa-first-install-offline.spec.ts` on the persistence branch; the relevant commits are `a4ecdea`, `417e23d`, and `1d90c3c`, all by `npiesco`.
+- AbsurderSQL implementation: `pwa/playwright.pwa.config.ts` runs serially against `next build`/`next start`; `pwa/e2e/pwa-hybrid-storage.spec.ts` verifies Hybrid selection and reopen, two-tab shared ownership with continued writes after one tab closes, and offline reload from persisted OPFS data.
+- Local production validation on 2026-07-26: all three PWA tests passed in Chrome after verifying dedicated-worker Hybrid selection, cross-tab runtime handoff, and offline reload.
+- Root browser coverage remains in AbsurderSQL's `tests/e2e/worker-hybrid-opfs.spec.js` and now includes the formal durable IndexedDB/Hybrid sweep in `tests/e2e/benchmark-page.spec.js`.
+
+### 6. CI and benchmark gates
+
+- AbsurderSQL reference: commit `0c4b3aa` by `npiesco` introduced the explicit backend benchmark harness.
+- The benchmark now honors its batch-size control, and the opt-in `BENCHMARK_SWEEP=1` Playwright case exercises 100, 1,000, and 10,000-row block-producing workloads for explicit IndexedDB and Hybrid backends.
+- `.github/workflows/ci.yml` builds the WASM package, runs the Hybrid recovery plus benchmark suite in Chromium, and runs the production PWA storage suite separately.
+- Local validation on 2026-07-25: the focused static suite passed 13 tests with one opt-in sweep skipped; the explicit sweep then passed separately and produced the measured table in `docs/BENCHMARK.md`.
+
+### 7. Keep the production PWA dependency graph audit-clean
+
+- This is an AbsurderSQL-specific remediation by `npiesco`; Onyx supplied no runtime dependency and is not relevant to this dependency graph.
+- The configured Microsoft CFS feed exposes Next.js 16.3.0-preview.6 as the available direct fix beyond affected 16.2.10, so `next` and `eslint-config-next` are pinned together at that exact version.
+- Scoped overrides select PostCSS 8.5.20 and Sharp 0.35.3 under Next. The local `pwa/vendor/brace-expansion-compat` adapter retains the callable API required by ESLint's older minimatch consumers while delegating expansion to `@isaacs/brace-expansion` 5.0.1.
+- Local validation on 2026-07-26 through the configured CFS registry: a full install completed, `npm audit --json` reported 0 total vulnerabilities, `npm ls --depth=0` exited successfully, the production build completed, and all three PWA Playwright scenarios passed in Chrome.
+- The repository-wide PWA lint command now starts successfully with the remediated graph, but remains non-green on the existing application lint backlog; dependency compatibility is therefore validated by resolution, audit, production build, and Playwright rather than represented as a clean lint baseline.
+
+## Why
+
+| Metric | IndexedDB (current) | OPFS SyncAccessHandle |
+|--------|---------------------|-----------------------|
+| Read 1000 blocks | ~500-2000ms (async, tx overhead) | ~5-50ms (sync, sequential) |
+| Write 100 dirty blocks | ~100-500ms (async, tx overhead) | ~1-10ms (sync, sequential) |
+| Restore on reload | Slow (deserialize from IDB) | Fast (direct byte reads) |
+| API style | Async-only (Promises) | **Synchronous** from Worker context |
+
+OPFS `SyncAccessHandle` is synchronous — a perfect match for SQLite's synchronous VFS callbacks. Currently the VFS writes synchronously to `GLOBAL_STORAGE` (in-memory) and IndexedDB persistence is deferred async. With OPFS, we can optionally persist synchronously in the VFS hot path too.
+
+## Architecture
+
+### Current Flow (IDB-only)
+```
+VFS x_write → GLOBAL_STORAGE (sync, in-memory) → IndexedDB (async, deferred)
+VFS x_read  → GLOBAL_STORAGE (sync, in-memory) ← IndexedDB (async, restore only)
+```
+
+### New Flow (Hybrid)
+```
+VFS x_write → GLOBAL_STORAGE (sync) → OPFS SyncAccessHandle (sync, from Worker)
+                                     → IDB metadata (async, deferred)
+
+VFS x_read  → GLOBAL_STORAGE cache  → OPFS SyncAccessHandle (sync, cache miss)
+                                     ← OPFS restore (on reload)
+                                     ← IDB metadata restore (on reload)
+```
+
+### Fallback Flow (IDB-only, no OPFS available)
+```
+(unchanged — identical to current behavior)
+```
+
+---
+
+## Scope: What Changes, What Doesn't
+
+### Unchanged
+- `vfs_sync.rs` — `GLOBAL_STORAGE`, `GLOBAL_METADATA`, `GLOBAL_COMMIT_MARKER` thread-locals
+- `indexeddb_vfs.rs` — VFS registration, `x_read`/`x_write`/`x_sync` callbacks
+- `io_operations.rs` — `read_block_sync`/`write_block_sync` (these write to GLOBAL_STORAGE)
+- `metadata.rs` — `ChecksumManager`, `BlockMetadataPersist`
+- `leader_election.rs` — localStorage + BroadcastChannel (unchanged)
+- All native/mobile code — gated behind `#[cfg(not(target_arch = "wasm32"))]`
+
+### New Files
+| File | Purpose | ~LOC |
+|------|---------|------|
+| `src/storage/wasm_opfs.rs` | OPFS block read/write/delete via `FileSystemSyncAccessHandle` | ~600-800 |
+| `src/storage/hybrid_store.rs` | Hybrid orchestrator: OPFS blocks + IDB metadata | ~300-400 |
+| `src/storage/backend_detect.rs` | Runtime feature detection (OPFS available?) | ~50-80 |
+
+### Modified Files
+| File | Change |
+|------|--------|
+| `src/storage/mod.rs` | Add `pub mod wasm_opfs;`, `pub mod hybrid_store;`, `pub mod backend_detect;` |
+| `src/storage/block_storage.rs` | Add `StorageBackend` enum field, expose backend choice |
+| `src/storage/constructors.rs` | New `new_wasm_hybrid()` / `new_wasm_with_backend()` constructors |
+| `src/storage/wasm_vfs_sync.rs` | Dispatch sync to OPFS or IDB based on backend |
+| `src/storage/sync_operations.rs` | Backend-aware sync dispatch |
+| `src/storage/recovery.rs` | OPFS recovery path (directory scan for orphan blocks) |
+| `src/storage/export.rs` / `import.rs` | Read blocks from OPFS when exporting |
+| `Cargo.toml` | New feature flag `opfs`, `hybrid` |
+
+---
+
+## Detailed Design
+
+### 1. Feature Flags
+
+```toml
+# Cargo.toml
+[features]
+opfs = []           # OPFS-only backend (Worker required)
+hybrid = ["opfs"]   # OPFS blocks + IDB metadata (recommended)
+```
+
+Both are `#[cfg(target_arch = "wasm32")]` only — mobile/native compilation ignores them entirely.
+
+### 2. `StorageBackend` Enum
+
+```rust
+// block_storage.rs
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StorageBackend {
+    IndexedDB,      // Current behavior (default)
+    Opfs,           // OPFS-only (requires Worker with SyncAccessHandle)
+    Hybrid,         // OPFS for blocks, IDB for metadata (recommended)
+}
+
+impl Default for StorageBackend {
+    fn default() -> Self {
+        StorageBackend::IndexedDB
+    }
+}
+```
+
+Add to `BlockStorage`:
+```rust
+pub struct BlockStorage {
+    // ... existing fields ...
+    backend: StorageBackend,
+}
+```
+
+### 3. `wasm_opfs.rs` — OPFS Block Operations
+
+Mirror the `wasm_indexeddb.rs` API surface:
+
+```rust
+/// Persist blocks to OPFS
+/// Directory layout: /{db_name}/block_{id}.bin (one file per block)
+pub async fn persist_to_opfs(
+    db_name: &str,
+    blocks: Vec<(u64, Vec<u8>)>,
+) -> Result<(), DatabaseError>
+
+/// Restore all blocks from OPFS into GLOBAL_STORAGE
+pub async fn restore_from_opfs(db_name: &str) -> Result<(), DatabaseError>
+
+/// Delete specific blocks from OPFS
+pub async fn delete_blocks_from_opfs(
+    db_name: &str,
+    block_ids: &[u64],
+) -> Result<(), DatabaseError>
+
+/// Delete entire database directory from OPFS
+pub async fn delete_all_from_opfs(db_name: &str) -> Result<(), DatabaseError>
+
+/// Check if OPFS is available (SyncAccessHandle support)
+pub fn is_opfs_available() -> bool
+```
+
+**OPFS directory structure:**
+```
+/{db_name}/
+  block_0000000000.bin    (4096 bytes each)
+  block_0000000001.bin
+  ...
+  block_NNNNNNNNNN.bin
+```
+
+**Alternative (single-file, fewfs-style):**
+```
+/{db_name}/
+  blocks.dat              (contiguous block file, offset = block_id * 4096)
+  manifest.json           (block allocation map, commit marker)
+```
+
+The single-file approach is faster (one `SyncAccessHandle`, seek to offset) but requires a manifest. The per-file approach is simpler and survives partial writes better. **Recommend: single-file** for performance, since AbsurderSQL already has checksumming for integrity.
+
+### 4. `hybrid_store.rs` — Orchestrator
+
+```rust
+/// Persist using hybrid strategy:
+/// - Blocks → OPFS (fast, synchronous from Worker)
+/// - Metadata (checksums, commit marker, allocation map) → IndexedDB (async)
+pub async fn hybrid_persist(
+    db_name: &str,
+    blocks: Vec<(u64, Vec<u8>)>,
+    metadata: Vec<(u64, u64)>,  // (block_id, checksum)
+    commit_marker: u64,
+) -> Result<(), DatabaseError>
+
+/// Restore using hybrid strategy:
+/// - Blocks ← OPFS
+/// - Metadata ← IndexedDB
+/// - Cross-validate checksums
+pub async fn hybrid_restore(db_name: &str) -> Result<(), DatabaseError>
+```
+
+### 5. `backend_detect.rs` — Runtime Detection
+
+```rust
+/// Probe for OPFS SyncAccessHandle support
+/// Returns StorageBackend::Hybrid if available, else StorageBackend::IndexedDB
+pub async fn detect_best_backend() -> StorageBackend
+```
+
+Implementation: attempt `navigator.storage.getDirectory()`, create a temp file, try `createSyncAccessHandle()`. Clean up and return result. This is the same pattern as fewfs's `shim.js` but in Rust via `web-sys`.
+
+### 6. Constructor Changes
+
+```rust
+// constructors.rs
+#[cfg(target_arch = "wasm32")]
+pub async fn new_wasm_with_backend(
+    db_name: &str,
+    backend: StorageBackend,
+) -> Result<BlockStorage, DatabaseError> {
+    match backend {
+        StorageBackend::IndexedDB => new_wasm(db_name).await,
+        StorageBackend::Opfs => new_wasm_opfs(db_name).await,
+        StorageBackend::Hybrid => new_wasm_hybrid(db_name).await,
+    }
+}
+
+/// Auto-detect best backend and construct
+#[cfg(target_arch = "wasm32")]
+pub async fn new_wasm_auto(db_name: &str) -> Result<BlockStorage, DatabaseError> {
+    let backend = backend_detect::detect_best_backend().await;
+    new_wasm_with_backend(db_name, backend).await
+}
+```
+
+### 7. Sync Dispatch Changes
+
+```rust
+// wasm_vfs_sync.rs — modify vfs_sync_database()
+match storage.backend {
+    StorageBackend::IndexedDB => {
+        // existing persist_to_indexeddb_event_based() call
+    }
+    StorageBackend::Opfs => {
+        wasm_opfs::persist_to_opfs(&db_name, blocks).await?;
+    }
+    StorageBackend::Hybrid => {
+        // Blocks → OPFS, metadata → IDB (parallel)
+        hybrid_store::hybrid_persist(&db_name, blocks, metadata, commit_marker).await?;
+    }
+}
+```
+
+---
+
+## Implementation Phases
+
+### Phase 1: Foundation (~3-4 days)
+- [x] Add `StorageBackend` enum to `block_storage.rs`
+- [x] Add `opfs` and `hybrid` feature flags to `Cargo.toml`
+- [x] Create `backend_detect.rs` with OPFS feature detection
+- [x] Create `wasm_opfs.rs` scaffold with function signatures
+- [x] Wire up `mod.rs` with new modules
+
+### Phase 2: OPFS Backend (~4-5 days)
+- [x] Implement `persist_to_opfs()` using a wasm-bindgen JS bridge for `SyncAccessHandle`
+- [x] Implement `restore_from_opfs()` as the active reload path — read all blocks back into GLOBAL_STORAGE
+- [x] Implement `delete_blocks_from_opfs()` and `delete_all_from_opfs()`
+- [x] Unit test with browser runner (Playwright)
+- [x] Benchmark harness: explicit Hybrid vs IndexedDB at 100/1000/10000 durable workloads (`BENCHMARK_SWEEP=1`)
+
+### Phase 3: Hybrid Mode (~3-4 days)
+- [x] Create `hybrid_store.rs` orchestrator
+- [x] Implement `hybrid_persist()` — OPFS blocks + IDB metadata in parallel
+- [x] Implement `hybrid_restore()` — cross-validate checksums on load
+- [x] OPFS recovery: detect orphan files, reconcile with IDB metadata
+
+### Phase 4: Integration (~2-3 days)
+- [x] Modify `constructors.rs` — `new_wasm_with_backend()`, `new_wasm_auto()`
+- [x] Modify `wasm_vfs_sync.rs` — backend-aware sync dispatch
+- [x] Modify `sync_operations.rs` — backend-aware flush
+- [x] Modify export / import / awaited sync paths — finish the remaining OPFS-aware export/reload cleanup
+- [x] Modify recovery path — OPFS orphan reconciliation
+- [x] Expose `StorageBackend` choice in WASM API (`Database::newDatabaseWithBackend()`)
+
+### Phase 5: Testing & Docs (~2 days)
+- [x] E2E tests: hybrid persist → close → reload → hybrid restore → verify data
+- [x] E2E tests: OPFS unavailable → graceful IDB fallback
+- [x] E2E tests: hybrid crash recovery (kill mid-persist)
+- [x] Update README with OPFS/hybrid documentation
+- [x] Benchmark report
+
+---
+
+## Mobile Impact
+
+**None.** All OPFS code is gated behind `#[cfg(target_arch = "wasm32")]`. Mobile continues to use `rusqlite` + `fs_persist` on real filesystems. No changes to `absurder-sql-mobile/`.
+
+| Platform | Storage Backend | Changed? |
+|----------|----------------|----------|
+| Browser (WASM) | IDB → **Hybrid (OPFS+IDB)** | Yes |
+| Android | rusqlite → `/data/data/{pkg}/files/` | No |
+| iOS | rusqlite → `~/Documents/` | No |
+| Native CLI | rusqlite → local filesystem | No |
+
+---
+
+## `web-sys` Bindings Needed
+
+The OPFS API requires these `web-sys` features in `Cargo.toml`:
+
+```toml
+[dependencies.web-sys]
+features = [
+    # Existing features...
+    # New for OPFS:
+    "StorageManager",
+    "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemSyncAccessHandle",
+    "FileSystemGetFileOptions",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemRemoveOptions",
+]
+```
+
+**Note:** `FileSystemSyncAccessHandle` may not be in `web-sys` yet (it was added to the spec relatively recently). If missing, use `js_sys::Reflect` + `JsValue` to call the methods manually, or use `wasm-bindgen`'s `#[wasm_bindgen]` extern blocks to declare the bindings inline. fewfs's `src/opfs/bridge.rs` has reference code for this approach.
+
+---
+
+## Reference Code Provenance
+
+These sources informed the original design, but are not vendored or imported by AbsurderSQL.
+
+| Source | File | Relevance |
+|--------|------|-----------|
+| **fewfs** | `opfs/opfs_store.rs` | OPFS `SyncAccessHandle` block read/write in Rust/WASM |
+| **fewfs** | `opfs/hybrid.rs` | Hybrid OPFS+IDB orchestration pattern |
+| **fewfs** | `opfs/bridge.rs` | `web-sys` / `js_sys` OPFS API bindings |
+| **fewfs** | `storage/types.rs` | `BlockReader`/`BlockWriter`/`Manifest` traits |
+| **fewfs** | `idb/idb_store.rs` | IDB block store (for comparison with our `wasm_indexeddb.rs`) |
+| **fewfs** | `idb/leader.rs` | Leader election (we already have our own) |
+| **fewfs** | `bindings/shim.js` | Runtime OPFS detection (JS reference for `backend_detect.rs`) |
+| **duckcells** | `app/opfs-cache.ts` | OPFS as a cache layer (TypeScript reference) |
+
+---
+
+## Resolved Decisions
+
+1. **OPFS layout:** the shipped browser implementation uses a single-file OPFS block store in `src/storage/wasm_opfs.rs`.
+2. **Sync persistence model:** writes stay buffered in `GLOBAL_STORAGE` and persist on `x_sync`, awaited sync paths, export, and auto-sync rather than every `x_write`.
+3. **Bindings approach:** OPFS support is bridged through the current wasm-bindgen/JS bridge in `src/storage/wasm_opfs.rs`, so separate `web-sys` coverage is no longer a release blocker.
+4. **Worker behavior:** `Hybrid` / `OPFS` are worker-oriented browser backends; main-thread browser usage should use IndexedDB directly or rely on `newDatabaseAuto()` to fall back automatically.
+5. **Benchmark follow-up:** the formal 100/1000/10000 durable workload sweep is implemented behind `BENCHMARK_SWEEP=1`; measured results should only be recorded after running it on a named machine/browser.

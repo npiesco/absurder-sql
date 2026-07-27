@@ -39,11 +39,13 @@
   },
   "homepage": "https://github.com/npiesco/absurder-sql#readme",
   "scripts": {
-    "build": "wasm-pack build --target web --out-dir pkg && rm -f pkg/.gitignore",
+    "build": "wasm-pack build --target web --out-dir pkg && node scripts/sync_pwa_package.js",
+    "sync:pwa-package": "node scripts/sync_pwa_package.js",
     "prepublishOnly": "npm run build",
-    "serve": "python3 -m http.server 8080",
+    "serve": "node scripts/static_http_server.js 8080",
     "build:worker": "webpack --config webpack.worker.config.js",
     "test:e2e": "playwright test",
+    "test:storage": "playwright test --config playwright.storage.config.js",
     "test:e2e:headed": "playwright test --headed",
     "test:vite:start": "cd examples/vite-app && npm run dev",
     "test:pack": "npm pack && tar -tzf npiesco-absurder-sql-*.tgz"

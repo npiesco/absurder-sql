@@ -1,5 +1,7 @@
 pub mod allocation;
 pub mod auto_sync;
+#[cfg(target_arch = "wasm32")]
+pub mod backend_detect;
 pub mod block_info;
 pub mod block_storage;
 #[cfg(target_arch = "wasm32")]
@@ -9,6 +11,8 @@ pub mod coordination_metrics;
 pub mod export;
 pub mod export_import_lock;
 pub mod fs_persist;
+#[cfg(target_arch = "wasm32")]
+pub mod hybrid_store;
 pub mod import;
 #[cfg(target_arch = "wasm32")]
 pub mod indexeddb_queue;
@@ -29,12 +33,16 @@ pub mod vfs_sync;
 pub mod wasm_auto_sync;
 pub mod wasm_indexeddb;
 #[cfg(target_arch = "wasm32")]
+pub mod wasm_opfs;
+#[cfg(target_arch = "wasm32")]
 pub mod wasm_vfs_sync;
 #[cfg(target_arch = "wasm32")]
 pub mod write_queue;
 
 pub use block_info::{BlockInfo, BlockStorageInfo};
-pub use block_storage::{BLOCK_SIZE, BlockStorage, CrashRecoveryAction, SyncPolicy};
+pub use block_storage::{
+    BLOCK_SIZE, BlockStorage, CrashRecoveryAction, StorageBackend, SyncPolicy,
+};
 #[cfg(any(
     target_arch = "wasm32",
     all(not(target_arch = "wasm32"), any(test, debug_assertions)),

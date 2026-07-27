@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "sync:wasm": "node ../scripts/sync_pwa_package.js",
+    "predev": "npm run sync:wasm",
+    "dev": "next dev --webpack",
+    "prebuild": "npm run sync:wasm",
+    "build": "next build --webpack",
+    "postbuild": "node scripts/generate-precache.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "playwright test",
+    "test:pwa": "playwright test --config playwright.pwa.config.ts",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:unit": "vitest run",
@@ -23,7 +28,7 @@
     "@codemirror/search": "^6.5.11",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.6",
-    "@npiesco/absurder-sql": "^0.1.25",
+    "brace-expansion": "file:vendor/brace-expansion-compat",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.7",
@@ -35,7 +40,7 @@
     "codemirror": "^6.0.2",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.548.0",
-    "next": "16.0.1",
+    "next": "16.3.0-preview.6",
     "papaparse": "^5.5.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -56,13 +61,20 @@
     "@vitest/coverage-v8": "^4.0.5",
     "@vitest/ui": "^4.0.5",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.1",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.0-preview.6",
     "happy-dom": "^20.0.10",
     "jsdom": "^27.0.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5",
     "vitest": "^4.0.5"
+  },
+  "overrides": {
+    "brace-expansion": "$brace-expansion",
+    "next": {
+      "postcss": "8.5.20",
+      "sharp": "0.35.3"
+    }
   }
 }

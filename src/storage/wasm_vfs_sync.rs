@@ -1,6 +1,8 @@
 #[cfg(target_arch = "wasm32")]
 use super::BlockStorage;
 #[cfg(target_arch = "wasm32")]
+use super::StorageBackend;
+#[cfg(target_arch = "wasm32")]
 use super::vfs_sync;
 #[cfg(target_arch = "wasm32")]
 use crate::types::DatabaseError;
@@ -66,7 +68,7 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
             if let Some(db_meta) = meta.borrow().get(&db_name_clone) {
                 db_meta
                     .iter()
-                    .map(|(&id, metadata)| (id, metadata.checksum))
+                    .map(|(&id, metadata)| (id, metadata.clone()))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -77,6 +79,10 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
     });
 
     if !blocks_to_persist.is_empty() {
+        let backend = crate::vfs::indexeddb_vfs::get_storage_with_fallback(&db_name_clone)
+            .map(|storage| storage.storage_backend())
+            .unwrap_or(StorageBackend::IndexedDb);
+
         wasm_bindgen_futures::spawn_local(async move {
             let next_commit = vfs_sync::with_global_commit_marker(|cm| {
                 cm.borrow().get(&db_name_clone).copied().unwrap_or(0)
@@ -84,30 +90,62 @@ pub fn vfs_sync_database(db_name: &str) -> Result<(), DatabaseError> {
 
             web_sys::console::log_1(
                 &format!(
-                    "VFS sync: Persisting {} blocks to IndexedDB with commit marker {}",
+                    "VFS sync: Persisting {} blocks using backend {} with commit marker {}",
                     blocks_to_persist.len(),
+                    backend.as_str(),
                     next_commit
                 )
                 .into(),
             );
 
-            match super::wasm_indexeddb::persist_to_indexeddb_event_based(
-                &db_name_clone,
-                blocks_to_persist,
-                metadata_to_persist,
-                next_commit,
-                #[cfg(feature = "telemetry")]
-                None,
-                #[cfg(feature = "telemetry")]
-                None,
-            )
-            .await
-            {
+            let persist_result = match backend {
+                StorageBackend::IndexedDb => {
+                    super::wasm_indexeddb::persist_to_indexeddb_event_based(
+                        &db_name_clone,
+                        blocks_to_persist,
+                        metadata_to_persist,
+                        next_commit,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                    )
+                    .await
+                }
+                StorageBackend::Opfs | StorageBackend::Hybrid => {
+                    if let Err(error) = super::hybrid_store::hybrid_persist(
+                        &db_name_clone,
+                        blocks_to_persist,
+                        metadata_to_persist,
+                        next_commit,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                        #[cfg(feature = "telemetry")]
+                        None,
+                    )
+                    .await
+                    {
+                        web_sys::console::log_1(
+                            &format!(
+                                "VFS sync: Failed to persist {} to OPFS: {:?}",
+                                db_name_clone, error
+                            )
+                            .into(),
+                        );
+                        Err(error)
+                    } else {
+                        Ok(())
+                    }
+                }
+            };
+
+            match persist_result {
                 Ok(_) => {
                     web_sys::console::log_1(
                         &format!(
-                            "VFS sync: Successfully persisted {} to IndexedDB",
-                            db_name_clone
+                            "VFS sync: Successfully persisted {} using backend {}",
+                            db_name_clone,
+                            backend.as_str()
                         )
                         .into(),
                     );
@@ -167,7 +205,7 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
             if let Some(db_meta) = meta.borrow().get(db_name) {
                 db_meta
                     .iter()
-                    .map(|(&id, metadata)| (id, metadata.checksum))
+                    .map(|(&id, metadata)| (id, metadata.clone()))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -184,27 +222,54 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
 
     // Use wasm-bindgen-futures to block on the async operation
     let db_name_string = db_name.to_string();
+    let backend = crate::vfs::indexeddb_vfs::get_storage_with_fallback(db_name)
+        .map(|storage| storage.storage_backend())
+        .unwrap_or(StorageBackend::IndexedDb);
     let fut = async move {
         // Create a temporary storage instance just for persistence
         match BlockStorage::new(&db_name_string).await {
             Ok(_storage) => {
-                match super::wasm_indexeddb::persist_to_indexeddb_event_based(
-                    &db_name_string,
-                    blocks_to_persist,
-                    metadata_to_persist,
-                    next_commit,
-                    #[cfg(feature = "telemetry")]
-                    None,
-                    #[cfg(feature = "telemetry")]
-                    None,
-                )
-                .await
-                {
+                let persist_result = match backend {
+                    StorageBackend::IndexedDb => {
+                        super::wasm_indexeddb::persist_to_indexeddb_event_based(
+                            &db_name_string,
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                        )
+                        .await
+                    }
+                    StorageBackend::Opfs | StorageBackend::Hybrid => {
+                        if let Err(error) = super::hybrid_store::hybrid_persist(
+                            &db_name_string,
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                            #[cfg(feature = "telemetry")]
+                            None,
+                        )
+                        .await
+                        {
+                            Err(error)
+                        } else {
+                            Ok(())
+                        }
+                    }
+                };
+
+                match persist_result {
                     Ok(_) => {
                         web_sys::console::log_1(
                             &format!(
-                                "VFS sync: Successfully persisted {} to IndexedDB",
-                                db_name_string
+                                "VFS sync: Successfully persisted {} using backend {}",
+                                db_name_string,
+                                backend.as_str()
                             )
                             .into(),
                         );
@@ -233,8 +298,10 @@ pub fn vfs_sync_database_blocking(db_name: &str) -> Result<(), DatabaseError> {
                     Err(e) => {
                         web_sys::console::log_1(
                             &format!(
-                                "VFS sync: Failed to persist {} to IndexedDB: {:?}",
-                                db_name_string, e
+                                "VFS sync: Failed to persist {} using backend {}: {:?}",
+                                db_name_string,
+                                backend.as_str(),
+                                e
                             )
                             .into(),
                         );

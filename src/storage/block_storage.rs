@@ -239,6 +239,24 @@ macro_rules! try_read_lock {
     };
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StorageBackend {
+    #[default]
+    IndexedDb,
+    Opfs,
+    Hybrid,
+}
+
+impl StorageBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StorageBackend::IndexedDb => "IndexedDB",
+            StorageBackend::Opfs => "OPFS",
+            StorageBackend::Hybrid => "Hybrid",
+        }
+    }
+}
+
 pub struct BlockStorage {
     // WASM: RefCell for zero-cost interior mutability (single-threaded)
     // Native: Mutex for thread safety
@@ -276,6 +294,7 @@ pub struct BlockStorage {
     #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
     pub(super) base_dir: PathBuf,
     pub(super) db_name: String,
+    pub(super) backend: StorageBackend,
 
     // Background sync settings
     #[cfg(target_arch = "wasm32")]
@@ -391,6 +410,7 @@ impl BlockStorage {
             lru_order: RefCell::new(VecDeque::new()),
             checksum_manager,
             db_name: db_name.to_string(),
+            backend: StorageBackend::IndexedDb,
             auto_sync_interval: RefCell::new(None),
             policy: RefCell::new(None),
             #[cfg(not(target_arch = "wasm32"))]
@@ -438,6 +458,14 @@ impl BlockStorage {
     #[cfg(target_arch = "wasm32")]
     pub async fn new(db_name: &str) -> Result<Self, DatabaseError> {
         super::constructors::new_wasm(db_name).await
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn new_with_backend(
+        db_name: &str,
+        backend: StorageBackend,
+    ) -> Result<Self, DatabaseError> {
+        super::constructors::new_wasm_with_backend(db_name, backend).await
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -644,6 +672,7 @@ impl BlockStorage {
 
         Ok(BlockStorage {
             db_name: db_name.to_string(),
+            backend: StorageBackend::IndexedDb,
             cache: Mutex::new(HashMap::new()),
             lru_order: Mutex::new(VecDeque::new()),
             capacity: 1000,
@@ -704,6 +733,10 @@ impl BlockStorage {
         let mut s = Self::new(db_name).await?;
         s.capacity = capacity;
         Ok(s)
+    }
+
+    pub fn storage_backend(&self) -> StorageBackend {
+        self.backend
     }
 
     pub async fn new_with_recovery_options(
@@ -1167,18 +1200,8 @@ impl BlockStorage {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[allow(invalid_reference_casting)]
     pub async fn sync(&self) -> Result<(), DatabaseError> {
-        // WASM: Use unsafe cast to get mutable access
-        let self_mut = unsafe { &mut *(self as *const Self as *mut Self) };
-        let result = self_mut.sync_implementation();
-        // Give time for the spawned IndexedDB operations to complete
-        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
-            &wasm_bindgen::JsValue::UNDEFINED,
-        ))
-        .await
-        .ok();
-        result
+        self.sync_async().await
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1651,11 +1674,28 @@ impl BlockStorage {
                 );
 
                 // Use the existing IndexedDB persistence logic but don't advance commit marker
-                let metadata_to_persist: Vec<(u64, u64)> = dirty_blocks
-                    .keys()
-                    .map(|&block_id| {
-                        let next_commit = self.get_commit_marker() + 1;
-                        (block_id, next_commit)
+                let next_commit = self.get_commit_marker() + 1;
+                let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = dirty_blocks
+                    .iter()
+                    .map(|(&block_id, block_data)| {
+                        let checksum =
+                            self.checksum_manager
+                                .get_checksum(block_id)
+                                .unwrap_or_else(|| {
+                                    ChecksumManager::compute_checksum_with(
+                                        block_data,
+                                        self.checksum_manager.get_algorithm(block_id),
+                                    )
+                                });
+                        (
+                            block_id,
+                            BlockMetadataPersist {
+                                checksum,
+                                last_modified_ms: BlockStorage::now_millis(),
+                                version: next_commit as u32,
+                                algo: self.checksum_manager.get_algorithm(block_id),
+                            },
+                        )
                     })
                     .collect();
 
@@ -1727,11 +1767,28 @@ impl BlockStorage {
                 blocks_to_write.len()
             );
 
-            let metadata_to_persist: Vec<(u64, u64)> = partial_blocks
-                .keys()
-                .map(|&block_id| {
-                    let next_commit = self.get_commit_marker() + 1;
-                    (block_id, next_commit)
+            let next_commit = self.get_commit_marker() + 1;
+            let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = partial_blocks
+                .iter()
+                .map(|(&block_id, block_data)| {
+                    let checksum =
+                        self.checksum_manager
+                            .get_checksum(block_id)
+                            .unwrap_or_else(|| {
+                                ChecksumManager::compute_checksum_with(
+                                    block_data,
+                                    self.checksum_manager.get_algorithm(block_id),
+                                )
+                            });
+                    (
+                        block_id,
+                        BlockMetadataPersist {
+                            checksum,
+                            last_modified_ms: BlockStorage::now_millis(),
+                            version: next_commit as u32,
+                            algo: self.checksum_manager.get_algorithm(block_id),
+                        },
+                    )
                 })
                 .collect();
 
@@ -2307,6 +2364,7 @@ impl BlockStorage {
             #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
             base_dir: std::path::PathBuf::from("/tmp/test"),
             db_name: "test.db".to_string(),
+            backend: StorageBackend::IndexedDb,
             auto_sync_interval: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
             last_auto_sync: std::time::Instant::now(),

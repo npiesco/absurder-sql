@@ -2,7 +2,7 @@
 //! This module contains platform-specific constructor implementations
 
 #[cfg(target_arch = "wasm32")]
-use super::block_storage::{BlockStorage, DEFAULT_CACHE_CAPACITY, RecoveryReport};
+use super::block_storage::{BlockStorage, DEFAULT_CACHE_CAPACITY, RecoveryReport, StorageBackend};
 #[cfg(target_arch = "wasm32")]
 use super::metadata::{ChecksumAlgorithm, ChecksumManager};
 #[cfg(target_arch = "wasm32")]
@@ -36,10 +36,28 @@ struct FsDealloc {
 /// Create a new BlockStorage instance for WASM platform
 #[cfg(target_arch = "wasm32")]
 pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
+    new_wasm_with_backend(db_name, StorageBackend::IndexedDb).await
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn new_wasm_auto(db_name: &str) -> Result<BlockStorage, DatabaseError> {
+    let backend = super::backend_detect::detect_best_backend().await;
+    new_wasm_with_backend(db_name, backend).await
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn new_wasm_with_backend(
+    db_name: &str,
+    backend: StorageBackend,
+) -> Result<BlockStorage, DatabaseError> {
     // CRITICAL: Use centralized normalize_db_name to match VFS and Database.name
     let db_name = normalize_db_name(db_name);
     let db_name = db_name.as_str();
-    log::info!("Creating BlockStorage for database: {}", db_name);
+    log::info!(
+        "Creating BlockStorage for database: {} with backend {}",
+        db_name,
+        backend.as_str()
+    );
 
     // Perform IndexedDB recovery scan first
     let recovery_performed = super::wasm_indexeddb::perform_indexeddb_recovery_scan(db_name)
@@ -49,17 +67,59 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
         log::info!("IndexedDB recovery scan completed for: {}", db_name);
     }
 
-    // Try to restore from IndexedDB
-    match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
-        Ok(_) => log::info!(
-            "Successfully restored BlockStorage from IndexedDB for: {}",
-            db_name
-        ),
-        Err(e) => log::warn!(
-            "IndexedDB restoration failed for {}: {}",
-            db_name,
-            e.message
-        ),
+    match backend {
+        StorageBackend::IndexedDb => {
+            match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
+                Ok(_) => log::info!(
+                    "Successfully restored BlockStorage from IndexedDB for: {}",
+                    db_name
+                ),
+                Err(e) => log::warn!(
+                    "IndexedDB restoration failed for {}: {}",
+                    db_name,
+                    e.message
+                ),
+            }
+        }
+        StorageBackend::Opfs => {
+            let restored_from_opfs = match super::wasm_opfs::restore_from_opfs(db_name).await {
+                Ok(restored_blocks) if restored_blocks > 0 => {
+                    log::info!(
+                        "Successfully restored {} blocks from OPFS for: {}",
+                        restored_blocks,
+                        db_name
+                    );
+                    true
+                }
+                Ok(_) => {
+                    log::info!("No OPFS blocks found for: {}", db_name);
+                    false
+                }
+                Err(e) => {
+                    log::warn!("OPFS restoration failed for {}: {}", db_name, e.message);
+                    false
+                }
+            };
+
+            if !restored_from_opfs {
+                match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
+                    Ok(_) => log::info!(
+                        "Successfully restored BlockStorage from IndexedDB for: {}",
+                        db_name
+                    ),
+                    Err(e) => log::warn!(
+                        "IndexedDB restoration failed for {}: {}",
+                        db_name,
+                        e.message
+                    ),
+                }
+            }
+        }
+        StorageBackend::Hybrid => {
+            if let Err(e) = super::hybrid_store::hybrid_restore(db_name).await {
+                log::warn!("Hybrid restoration failed for {}: {}", db_name, e.message);
+            }
+        }
     }
 
     // Debug: Log what's in global storage after restoration
@@ -480,6 +540,7 @@ pub async fn new_wasm(db_name: &str) -> Result<BlockStorage, DatabaseError> {
             checksum_algo_default,
         ),
         db_name: db_name.to_string(),
+        backend,
         #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
         base_dir: fs_base_dir,
 

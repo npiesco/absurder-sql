@@ -70,7 +70,7 @@ function SchemaDiffContent() {
 
     async function initializeWasm() {
       try {
-        const { default: init, Database } = await import('@npiesco/absurder-sql');
+        const { default: init, Database } = await import('@/lib/db/database-proxy');
         await init();
         (window as any).Database = Database;
         setWasmReady(true);

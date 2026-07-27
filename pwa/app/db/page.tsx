@@ -14,7 +14,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useDatabaseStore } from '@/lib/db/store';
-import { saveBackup, loadBackup, clearBackup } from '@/lib/db/backup';
 
 export default function DatabaseManagementPage() {
   const { db, currentDbName, loading, status, tableCount, showSystemTables, _hasHydrated, setDb, setCurrentDbName, setLoading, setStatus, setTableCount, setShowSystemTables } = useDatabaseStore();
@@ -34,8 +33,8 @@ export default function DatabaseManagementPage() {
 
     async function initializeWasm() {
       try {
-        const init = (await import('@npiesco/absurder-sql')).default;
-        const { Database } = await import('@npiesco/absurder-sql');
+        const init = (await import('@/lib/db/database-proxy')).default;
+        const { Database } = await import('@/lib/db/database-proxy');
         
         // Init WASM first
         await init();
@@ -66,47 +65,18 @@ export default function DatabaseManagementPage() {
 
     async function loadDatabase() {
       try {
-        // CRITICAL: Check for backup FIRST before trying VFS-based restore
-        // This avoids sync() corruption issues
-        console.log('[PWA] Step 1: Checking for backup...');
-        const backup = await loadBackup();
-
-        if (backup) {
-          console.log(`[PWA] Step 2: Found backup for ${backup.dbName}, restoring...`);
-
-          // Create temp database for import
-          const tempDb = await Database.newDatabase(backup.dbName);
-
-          // Import backup data
-          await tempDb.importFromFile(backup.data);
-          console.log('[PWA] Step 3: Backup imported, closing temp connection...');
-
-          // Close temp database (importFromFile can corrupt WASM state)
-          await tempDb.close();
-
-          // Reopen fresh connection
-          console.log('[PWA] Step 4: Reopening with fresh connection...');
-          const dbInstance = await Database.newDatabase(backup.dbName);
-
-          setDb(dbInstance);
-          setCurrentDbName(backup.dbName);
-          (window as any).testDb = dbInstance;
-
-          console.log(`[PWA] Database restored from backup: ${backup.dbName}`);
-          setStatus(`Restored: ${backup.dbName}`);
-        } else if (currentDbName) {
-          // No backup, try VFS-based restore (fallback)
-          console.log(`[PWA] No backup found, trying VFS restore: ${currentDbName}`);
+        if (currentDbName) {
+          console.log(`[PWA] Opening persistent database: ${currentDbName}`);
           const dbInstance = await Database.newDatabase(currentDbName);
           console.log('[PWA] Database.newDatabase() returned successfully');
 
           setDb(dbInstance);
           (window as any).testDb = dbInstance;
 
-          console.log(`[PWA] Database restored from VFS: ${currentDbName}`);
+          console.log(`[PWA] Database restored from persistent storage: ${currentDbName}`);
           setStatus(`Loaded: ${currentDbName}`);
         } else {
-          console.log('[PWA] No backup and no currentDbName - fresh start');
+          console.log('[PWA] No currentDbName - fresh start');
           setStatus('Create or import a database to get started');
         }
       } catch (err: any) {
@@ -118,39 +88,22 @@ export default function DatabaseManagementPage() {
     loadDatabase();
   }, [wasmReady, _hasHydrated, currentDbName]);
 
-  // CRITICAL: Persist database to IndexedDB before page unload/refresh
+  // Writes are persisted by the SharedWorker owner. A visibility transition is
+  // only a best-effort durability hint; recovery never depends on a side backup.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const handleBeforeUnload = async () => {
-      console.log('[PWA] Page unloading, saving backup and closing database');
-      if (db && currentDbName) {
-        try {
-          // Save backup before closing (sync pattern)
-          await saveBackup(db, currentDbName);
-        } catch (err) {
-          console.error('[PWA] Error saving backup on unload:', err);
-        }
-        // Then close as fallback
-        db.close().catch((err: Error) => {
-          console.error('[PWA] Error closing database on unload:', err);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && db) {
+        void db.sync().catch((err: Error) => {
+          console.error('[PWA] Background sync failed:', err);
         });
       }
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      // Also close on component unmount
-      if (db) {
-        console.log('[PWA] Component unmounting, closing database');
-        db.close().catch((err: Error) => {
-          console.error('[PWA] Error closing database on unmount:', err);
-        });
-      }
-    };
-  }, [db, currentDbName]);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [db]);
 
   const handleCreateDatabase = async () => {
     const Database = (window as any).Database;
@@ -170,9 +123,6 @@ export default function DatabaseManagementPage() {
       setDb(newDb);
       setCurrentDbName(normalizedName);
       (window as any).testDb = newDb;
-
-      // Save backup immediately
-      await saveBackup(newDb, normalizedName);
 
       setStatus(`Database created: ${normalizedName}`);
       setCreateDialogOpen(false);
@@ -242,9 +192,6 @@ export default function DatabaseManagementPage() {
       setCurrentDbName(dbName);
       (window as any).testDb = reopenedDb;
 
-      // Save backup immediately after import
-      await saveBackup(reopenedDb, dbName);
-
       setStatus('Import complete');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -303,9 +250,6 @@ export default function DatabaseManagementPage() {
 
       // Delete using WASM API which cleans up all storage
       await Database.deleteDatabase(currentDbName);
-
-      // Clear backup as well
-      await clearBackup();
 
       // Clear state - don't auto-create a new database
       setDb(null);
@@ -371,9 +315,6 @@ export default function DatabaseManagementPage() {
       setDb(reopenedDb);
       setCurrentDbName(dbName);
       (window as any).testDb = reopenedDb;
-
-      // Save backup immediately after drop import
-      await saveBackup(reopenedDb, dbName);
 
       setStatus('Import complete');
       setSelectedFile(null);

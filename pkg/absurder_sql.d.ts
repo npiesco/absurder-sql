@@ -107,6 +107,7 @@ export class Database {
      * Get count of pending writes
      */
     getPendingWritesCount(): Promise<number>;
+    getStorageBackend(): string;
     /**
      * Import SQLite database from .db file bytes
      *
@@ -152,6 +153,8 @@ export class Database {
      */
     is_leader(): Promise<boolean>;
     static newDatabase(name: string): Promise<Database>;
+    static newDatabaseAuto(name: string): Promise<Database>;
+    static newDatabaseWithBackend(name: string, backend_name: string): Promise<Database>;
     onDataChange(callback: Function): void;
     /**
      * Queue a write operation to be executed by the leader
@@ -266,6 +269,7 @@ export interface InitOutput {
     readonly database_getCoordinationMetrics: (a: number) => any;
     readonly database_getLeaderInfo: (a: number) => any;
     readonly database_getPendingWritesCount: (a: number) => any;
+    readonly database_getStorageBackend: (a: number) => [number, number, number, number];
     readonly database_importFromFile: (a: number, b: any) => any;
     readonly database_isCoordinationMetricsEnabled: (a: number) => any;
     readonly database_isLeader: (a: number) => any;
@@ -273,6 +277,8 @@ export interface InitOutput {
     readonly database_is_leader: (a: number) => any;
     readonly database_name: (a: number) => [number, number];
     readonly database_newDatabase: (a: number, b: number) => any;
+    readonly database_newDatabaseAuto: (a: number, b: number) => any;
+    readonly database_newDatabaseWithBackend: (a: number, b: number, c: number, d: number) => any;
     readonly database_onDataChange: (a: number, b: any) => [number, number];
     readonly database_queueWrite: (a: number, b: number, c: number) => any;
     readonly database_queueWriteWithTimeout: (a: number, b: number, c: number, d: number) => any;
@@ -287,6 +293,7 @@ export interface InitOutput {
     readonly database_testLock: (a: number, b: number) => any;
     readonly database_trackOptimisticWrite: (a: number, b: number, c: number) => any;
     readonly database_waitForLeadership: (a: number) => any;
+    readonly init_logger: () => void;
     readonly wasmcolumnvalue_big_int: (a: number, b: number) => number;
     readonly wasmcolumnvalue_blob: (a: number, b: number) => number;
     readonly wasmcolumnvalue_createBigInt: (a: number, b: number) => number;
@@ -296,20 +303,20 @@ export interface InitOutput {
     readonly wasmcolumnvalue_createNull: () => number;
     readonly wasmcolumnvalue_createReal: (a: number) => number;
     readonly wasmcolumnvalue_createText: (a: number, b: number) => number;
+    readonly wasmcolumnvalue_date: (a: number) => number;
     readonly wasmcolumnvalue_fromJsValue: (a: any) => number;
     readonly wasmcolumnvalue_integer: (a: number) => number;
-    readonly wasmcolumnvalue_real: (a: number) => number;
-    readonly init_logger: () => void;
     readonly wasmcolumnvalue_null: () => number;
-    readonly wasmcolumnvalue_date: (a: number) => number;
+    readonly wasmcolumnvalue_real: (a: number) => number;
     readonly wasmcolumnvalue_text: (a: number, b: number) => number;
+    readonly sqlite3_os_init: () => number;
     readonly rust_sqlite_wasm_shim_acosh: (a: number) => number;
     readonly rust_sqlite_wasm_shim_asinh: (a: number) => number;
     readonly rust_sqlite_wasm_shim_atanh: (a: number) => number;
     readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
+    readonly rust_sqlite_wasm_shim_malloc: (a: number) => number;
     readonly rust_sqlite_wasm_shim_free: (a: number) => void;
     readonly rust_sqlite_wasm_shim_localtime: (a: number) => number;
-    readonly rust_sqlite_wasm_shim_malloc: (a: number) => number;
     readonly rust_sqlite_wasm_shim_memchr: (a: number, b: number, c: number) => number;
     readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
     readonly rust_sqlite_wasm_shim_sqrt: (a: number) => number;
@@ -320,22 +327,23 @@ export interface InitOutput {
     readonly rust_sqlite_wasm_shim_strrchr: (a: number, b: number) => number;
     readonly rust_sqlite_wasm_shim_strspn: (a: number, b: number) => number;
     readonly rust_sqlite_wasm_shim_trunc: (a: number) => number;
-    readonly sqlite3_os_init: () => number;
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke___wasm_bindgen_4a6891ba067a060a___JsValue__core_7d5f0a2ba6a62c33___result__Result_____wasm_bindgen_4a6891ba067a060a___JsError___true_: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke___js_sys_a35f79cb92043d9c___Function_fn_wasm_bindgen_4a6891ba067a060a___JsValue_____wasm_bindgen_4a6891ba067a060a___sys__Undefined___js_sys_a35f79cb92043d9c___Function_fn_wasm_bindgen_4a6891ba067a060a___JsValue_____wasm_bindgen_4a6891ba067a060a___sys__Undefined_______true_: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke___wasm_bindgen_4a6891ba067a060a___JsValue__js_sys_a35f79cb92043d9c___Promise__true_: (a: number, b: number, c: any) => any;
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke___wasm_bindgen_4a6891ba067a060a___JsValue______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke___web_sys_912ccd4ee1bace81___features__gen_MessageEvent__MessageEvent______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke___web_sys_912ccd4ee1bace81___features__gen_MessageEvent__MessageEvent______true__4: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_4a6891ba067a060a___convert__closures_____invoke_______true_: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h17ea27cd5134be1c: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h5efa24f41c0c9d91: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h2c7aa495c9f8eede: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__he70e5f49ece50f72: (a: number, b: number, c: any) => any;
+    readonly wasm_bindgen__convert__closures_____invoke__h2abfc0e2db05e025: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h06fca0c86a1716b6: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hde7659040fca5453: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h962235009211f16e: (a: number, b: number) => number;
+    readonly wasm_bindgen__convert__closures_____invoke__h1f1fc65728759451: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_destroy_closure: (a: number, b: number) => void;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

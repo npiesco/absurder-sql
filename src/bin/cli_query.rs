@@ -30,11 +30,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open or create database with filesystem persistence
     let db_name = env::var("DATASYNC_DB").unwrap_or_else(|_| "cli_demo.db".to_string());
+    let base_dir =
+        env::var("ABSURDERSQL_FS_BASE").unwrap_or_else(|_| "./absurdersql_storage".to_string());
+    let logical_name = db_name.replace(".db", "");
+
     println!("Database: {}", db_name);
-    println!(
-        "Storage: ./absurdersql_storage/{}/",
-        db_name.replace(".db", "")
-    );
+    println!("SQLite File: {}/{}/database.sqlite", base_dir, logical_name);
+    println!("Block Storage: {}/{}.db/", base_dir, logical_name);
 
     let config = absurder_sql::types::DatabaseConfig {
         name: db_name.clone(),
