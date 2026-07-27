@@ -1,0 +1,10 @@
+{
+  "name": "brace-expansion",
+  "version": "6.0.0",
+  "private": true,
+  "description": "Legacy callable API adapter backed by @isaacs/brace-expansion",
+  "main": "index.cjs",
+  "dependencies": {
+    "@isaacs/brace-expansion": "5.0.1"
+  }
+}

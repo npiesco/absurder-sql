@@ -59,8 +59,7 @@ mod uniffi_databaseconfig_tests {
             .expect("Failed to create database with page_size");
 
         // Verify database works and page_size is applied
-        let result = execute(handle, "PRAGMA page_size".to_string())
-            .expect("PRAGMA should work");
+        let result = execute(handle, "PRAGMA page_size".to_string()).expect("PRAGMA should work");
 
         assert!(!result.rows.is_empty(), "Should have page_size result");
 
@@ -131,10 +130,10 @@ mod uniffi_databaseconfig_tests {
         let config = DatabaseConfig {
             name: format!("uniffi_config_mobile_opt_{:?}.db", thread_id),
             encryption_key: None,
-            cache_size: Some(2000_i64),     // Good for mobile
-            page_size: Some(4096_i64),      // 4KB typical for mobile
+            cache_size: Some(2000_i64),               // Good for mobile
+            page_size: Some(4096_i64),                // 4KB typical for mobile
             journal_mode: Some("MEMORY".to_string()), // Fast for mobile
-            auto_vacuum: Some(true),    // Keep db compact
+            auto_vacuum: Some(true),                  // Keep db compact
         };
 
         let handle = RUNTIME
@@ -147,11 +146,9 @@ mod uniffi_databaseconfig_tests {
             .expect("Table creation should work");
 
         // Insert and query to verify full functionality
-        execute(handle, "INSERT INTO test VALUES (1)".to_string())
-            .expect("Insert should work");
+        execute(handle, "INSERT INTO test VALUES (1)".to_string()).expect("Insert should work");
 
-        let result = execute(handle, "SELECT * FROM test".to_string())
-            .expect("Select should work");
+        let result = execute(handle, "SELECT * FROM test".to_string()).expect("Select should work");
 
         assert_eq!(result.rows.len(), 1);
 

@@ -1,4 +1,4 @@
-import init, { Database, type QueryResult } from '@npiesco/absurder-sql';
+import init, { Database, type QueryResult } from './database-proxy';
 
 export type { QueryResult };
 
@@ -94,7 +94,6 @@ export class DatabaseClient {
 
   /**
    * Import a database from a File
-   * Note: This closes the current database connection and reopens it with the imported data
    * @param file - File object containing SQLite database
    */
   async import(file: File): Promise<void> {
@@ -105,11 +104,7 @@ export class DatabaseClient {
     try {
       const buffer = await file.arrayBuffer();
       await this.db.importFromFile(new Uint8Array(buffer));
-      
-      // importFromFile closes the connection, must reopen with same name
-      console.log(`Import complete, reopening database "${this.dbName}"...`);
-      this.db = await Database.newDatabase(this.dbName);
-      console.log('Database reopened after import');
+      console.log(`Import complete for database "${this.dbName}"`);
     } catch (error) {
       console.error('Database import failed:', error);
       throw new Error(`Import failed: ${error}`);
@@ -190,11 +185,7 @@ export class DatabaseClient {
       // Import data
       const buffer = await blob.arrayBuffer();
       await this.db.importFromFile(new Uint8Array(buffer));
-      
-      // importFromFile closes the connection, must reopen
-      console.log(`Import complete, reopening database "${dbName}"...`);
-      this.db = await Database.newDatabase(dbName);
-      console.log('Database reopened after import');
+      console.log(`Import complete for database "${dbName}"`);
     } catch (error) {
       console.error('Database import failed:', error);
       this.db = null;
@@ -205,7 +196,7 @@ export class DatabaseClient {
 
   /**
    * Delete a database by name
-   * Warning: This permanently removes the database from IndexedDB
+   * Warning: This permanently removes the database from persistent storage
    */
   async deleteDatabase(dbName: string): Promise<void> {
     await this.initialize();
@@ -216,21 +207,8 @@ export class DatabaseClient {
     }
 
     try {
-      // Delete from IndexedDB directly
-      const deleteRequest = indexedDB.deleteDatabase(dbName);
-      
-      await new Promise<void>((resolve, reject) => {
-        deleteRequest.onsuccess = () => {
-          console.log(`Deleted database "${dbName}"`);
-          resolve();
-        };
-        deleteRequest.onerror = () => {
-          reject(new Error(`Failed to delete database: ${deleteRequest.error}`));
-        };
-        deleteRequest.onblocked = () => {
-          console.warn(`Delete blocked for database "${dbName}". Close all connections first.`);
-        };
-      });
+      await Database.deleteDatabase(dbName);
+      console.log(`Deleted database "${dbName}"`);
     } catch (error) {
       console.error(`Failed to delete database "${dbName}":`, error);
       throw new Error(`Delete failed: ${error}`);

@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useDatabaseStore } from '@/lib/db/store';
-import type { Row } from '@npiesco/absurder-sql';
+import type { Row } from '@/lib/db/database-proxy';
 import Papa from 'papaparse';
-import init, { Database } from '@npiesco/absurder-sql';
+import init, { Database } from '@/lib/db/database-proxy';
 import {
   Select,
   SelectContent,
@@ -77,11 +77,11 @@ export default function CSVImportPage() {
     async function initializeWasm() {
       try {
         // ALWAYS initialize WASM first, even if db exists
-        const init = (await import('@npiesco/absurder-sql')).default;
+        const init = (await import('@/lib/db/database-proxy')).default;
         await init();
 
         // Then expose Database class
-        const { Database } = await import('@npiesco/absurder-sql');
+        const { Database } = await import('@/lib/db/database-proxy');
         (window as any).Database = Database;
 
         // If db exists from Zustand, expose it as testDb

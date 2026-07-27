@@ -578,8 +578,14 @@ All functions are exported with `#[uniffi::export]`:
 ## Testing
 
 ```bash
-# Rust tests
-cargo test
+# Complete UniFFI host integration suite
+cargo test --locked --features uniffi-bindings
+
+# Formatting and warning-free lint gate
+cargo fmt -- --check
+cargo clippy --locked --features uniffi-bindings --all-targets -- -D warnings
+
+# Platform encryption matrices
 cargo test --features encryption
 cargo test --features encryption-ios
 
@@ -588,6 +594,8 @@ cd react-native
 npx react-native run-ios --simulator="iPhone 16"
 npx react-native run-android
 ```
+
+**Latest locked host validation (2026-07-26):** 67/67 UniFFI tests passed. The export/import module passed 9/9 real database cases, including encrypted round-trip, same-vault restore, restore into a new database, and BLOB preservation.
 
 ---
 

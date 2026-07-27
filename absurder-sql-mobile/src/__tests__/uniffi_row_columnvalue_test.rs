@@ -1,12 +1,11 @@
-/// Tests for UniFFI Row and ColumnValue type exports
-///
-/// TDD Phase 1: Verify Row and ColumnValue types are properly exported via UniFFI
-/// and that execute() returns typed rows instead of JSON strings.
-
+//! Tests for UniFFI Row and ColumnValue type exports
+//!
+//! TDD Phase 1: Verify Row and ColumnValue types are properly exported via UniFFI
+//! and that execute() returns typed rows instead of JSON strings.
 #[cfg(test)]
 mod uniffi_row_columnvalue_tests {
-    use crate::uniffi_api::*;
     use crate::registry::RUNTIME;
+    use crate::uniffi_api::*;
     use serial_test::serial;
 
     /// Test that Row type exists and can be used
@@ -18,7 +17,9 @@ mod uniffi_row_columnvalue_tests {
         let row = Row {
             values: vec![
                 ColumnValue::Integer { value: 42 },
-                ColumnValue::Text { value: "hello".to_string() },
+                ColumnValue::Text {
+                    value: "hello".to_string(),
+                },
             ],
         };
 
@@ -32,15 +33,16 @@ mod uniffi_row_columnvalue_tests {
         // Test all variants exist and can be created (UniFFI uses struct variants)
         let null_val = ColumnValue::Null;
         let int_val = ColumnValue::Integer { value: 42 };
-        let real_val = ColumnValue::Real { value: 3.14 };
-        let text_val = ColumnValue::Text { value: "hello".to_string() };
-        let blob_val = ColumnValue::Blob { value: vec![0x01, 0x02, 0x03] };
+        let real_val = ColumnValue::Real { value: 3.5 };
+        let text_val = ColumnValue::Text {
+            value: "hello".to_string(),
+        };
+        let blob_val = ColumnValue::Blob {
+            value: vec![0x01, 0x02, 0x03],
+        };
 
         // Verify we can match on variants
-        match null_val {
-            ColumnValue::Null => assert!(true),
-            _ => panic!("Expected Null variant"),
-        }
+        assert!(matches!(null_val, ColumnValue::Null));
 
         match int_val {
             ColumnValue::Integer { value } => assert_eq!(value, 42),
@@ -48,7 +50,7 @@ mod uniffi_row_columnvalue_tests {
         }
 
         match real_val {
-            ColumnValue::Real { value } => assert!((value - 3.14).abs() < 0.001),
+            ColumnValue::Real { value } => assert!((value - 3.5).abs() < 0.001),
             _ => panic!("Expected Real variant"),
         }
 
@@ -79,7 +81,8 @@ mod uniffi_row_columnvalue_tests {
             auto_vacuum: None,
         };
 
-        let handle = RUNTIME.block_on(async { create_database(config.clone()).await })
+        let handle = RUNTIME
+            .block_on(async { create_database(config.clone()).await })
             .unwrap_or_else(|e| panic!("Failed to create database {}: {:?}", config.name, e));
 
         // Create table and insert data
@@ -91,8 +94,8 @@ mod uniffi_row_columnvalue_tests {
             .expect("INSERT failed");
 
         // Query and verify typed rows
-        let result = execute(handle, "SELECT * FROM typed_rows_test".to_string())
-            .expect("SELECT failed");
+        let result =
+            execute(handle, "SELECT * FROM typed_rows_test".to_string()).expect("SELECT failed");
 
         assert_eq!(result.columns.len(), 4, "Should have 4 columns");
         assert_eq!(result.rows.len(), 1, "Should have 1 row");
@@ -142,26 +145,33 @@ mod uniffi_row_columnvalue_tests {
             auto_vacuum: None,
         };
 
-        let handle = RUNTIME.block_on(async { create_database(config.clone()).await })
+        let handle = RUNTIME
+            .block_on(async { create_database(config.clone()).await })
             .expect("Failed to create database");
 
         execute(handle, "DROP TABLE IF EXISTS null_test".to_string()).ok();
-        execute(handle, "CREATE TABLE null_test (id INTEGER, value TEXT)".to_string())
-            .expect("CREATE TABLE failed");
+        execute(
+            handle,
+            "CREATE TABLE null_test (id INTEGER, value TEXT)".to_string(),
+        )
+        .expect("CREATE TABLE failed");
 
         // Insert NULL value
-        execute(handle, "INSERT INTO null_test (id, value) VALUES (1, NULL)".to_string())
-            .expect("INSERT failed");
+        execute(
+            handle,
+            "INSERT INTO null_test (id, value) VALUES (1, NULL)".to_string(),
+        )
+        .expect("INSERT failed");
 
-        let result = execute(handle, "SELECT * FROM null_test".to_string())
-            .expect("SELECT failed");
+        let result = execute(handle, "SELECT * FROM null_test".to_string()).expect("SELECT failed");
 
         let row = &result.rows[0];
 
-        match &row.values[1] {
-            ColumnValue::Null => assert!(true, "NULL correctly typed"),
-            other => panic!("Expected Null variant, got {:?}", other),
-        }
+        assert!(
+            matches!(&row.values[1], ColumnValue::Null),
+            "Expected Null variant, got {:?}",
+            row.values[1]
+        );
 
         close_database(handle).expect("Failed to close database");
     }

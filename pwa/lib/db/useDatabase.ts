@@ -25,10 +25,10 @@ export function useDatabase() {
 
     async function initWasm() {
       try {
-        const init = (await import('@npiesco/absurder-sql')).default;
+        const init = (await import('./database-proxy')).default;
         await init();
 
-        const { Database } = await import('@npiesco/absurder-sql');
+        const { Database } = await import('./database-proxy');
         (window as any).Database = Database;
 
         setWasmReady(true);

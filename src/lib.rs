@@ -191,6 +191,31 @@ impl Database {
         }
     }
 
+    fn default_wasm_config(name: String) -> DatabaseConfig {
+        DatabaseConfig {
+            name,
+            version: Some(1),
+            cache_size: Some(10_000),
+            page_size: Some(4096),
+            auto_vacuum: Some(true),
+            journal_mode: Some("WAL".to_string()),
+            max_export_size_bytes: Some(2 * 1024 * 1024 * 1024),
+        }
+    }
+
+    async fn new_with_storage_backend(
+        config: DatabaseConfig,
+        backend: crate::storage::StorageBackend,
+    ) -> Result<Self, DatabaseError> {
+        let normalized_name = normalize_db_name(&config.name);
+        crate::vfs::indexeddb_vfs::ensure_storage_registered_with_backend(
+            &normalized_name,
+            backend,
+        )
+        .await?;
+        Self::new(config).await
+    }
+
     pub async fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
         use std::ffi::{CStr, CString};
 
@@ -1596,7 +1621,7 @@ impl Database {
                             );
                             db_meta
                                 .iter()
-                                .map(|(&id, metadata)| (id, metadata.checksum))
+                                .map(|(&id, metadata)| (id, metadata.clone()))
                                 .collect::<Vec<_>>()
                         } else {
                             web_sys::console::log_1(&format!("[SYNC] No metadata found").into());
@@ -1607,10 +1632,15 @@ impl Database {
                     (blocks, metadata)
                 });
 
+            let backend = crate::vfs::indexeddb_vfs::get_storage_with_fallback(storage_name)
+                .map(|storage| storage.storage_backend())
+                .unwrap_or(crate::storage::StorageBackend::IndexedDb);
+
             web_sys::console::log_1(
                 &format!(
-                    "[SYNC] Preparing to persist {} blocks to IndexedDB",
-                    blocks_to_persist.len()
+                    "[SYNC] Preparing to persist {} blocks using backend {}",
+                    blocks_to_persist.len(),
+                    backend.as_str()
                 )
                 .into(),
             );
@@ -1620,27 +1650,55 @@ impl Database {
                 {
                     blocks_count = blocks_to_persist.len();
                 }
-                web_sys::console::log_1(
-                    &format!(
-                        "[SYNC] Persisting {} blocks to IndexedDB",
-                        blocks_to_persist.len()
-                    )
-                    .into(),
-                );
-                crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
-                    storage_name,
-                    blocks_to_persist,
-                    metadata_to_persist,
-                    next_commit,
-                    #[cfg(feature = "telemetry")]
-                    self.span_recorder.clone(),
-                    #[cfg(feature = "telemetry")]
-                    span.as_ref().map(|s| s.span_id.clone()),
-                )
-                .await?;
-                web_sys::console::log_1(
-                    &format!("[SYNC] Successfully persisted to IndexedDB").into(),
-                );
+                match backend {
+                    crate::storage::StorageBackend::IndexedDb => {
+                        web_sys::console::log_1(
+                            &format!(
+                                "[SYNC] Persisting {} blocks to IndexedDB",
+                                blocks_to_persist.len()
+                            )
+                            .into(),
+                        );
+                        crate::storage::wasm_indexeddb::persist_to_indexeddb_event_based(
+                            storage_name,
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            self.span_recorder.clone(),
+                            #[cfg(feature = "telemetry")]
+                            span.as_ref().map(|s| s.span_id.clone()),
+                        )
+                        .await?;
+                        web_sys::console::log_1(
+                            &format!("[SYNC] Successfully persisted to IndexedDB").into(),
+                        );
+                    }
+                    crate::storage::StorageBackend::Opfs
+                    | crate::storage::StorageBackend::Hybrid => {
+                        web_sys::console::log_1(
+                            &format!(
+                                "[SYNC] Persisting {} blocks to OPFS and mirroring to IndexedDB",
+                                blocks_to_persist.len()
+                            )
+                            .into(),
+                        );
+                        crate::storage::hybrid_store::hybrid_persist(
+                            storage_name,
+                            blocks_to_persist,
+                            metadata_to_persist,
+                            next_commit,
+                            #[cfg(feature = "telemetry")]
+                            self.span_recorder.clone(),
+                            #[cfg(feature = "telemetry")]
+                            span.as_ref().map(|s| s.span_id.clone()),
+                        )
+                        .await?;
+                        web_sys::console::log_1(
+                            &format!("[SYNC] Successfully persisted to OPFS and IndexedDB").into(),
+                        );
+                    }
+                }
             } else {
                 web_sys::console::log_1(
                     &format!("[SYNC] WARNING: No blocks to persist - GLOBAL_STORAGE is empty!")
@@ -1783,15 +1841,7 @@ impl Database {
             format!("{}.db", name)
         };
 
-        let config = DatabaseConfig {
-            name: normalized_name.clone(),
-            version: Some(1),
-            cache_size: Some(10_000),
-            page_size: Some(4096),
-            auto_vacuum: Some(true),
-            journal_mode: Some("WAL".to_string()),
-            max_export_size_bytes: Some(2 * 1024 * 1024 * 1024), // 2GB default
-        };
+        let config = Self::default_wasm_config(normalized_name.clone());
 
         let db = Database::new(config)
             .await
@@ -1803,10 +1853,77 @@ impl Database {
         Ok(db)
     }
 
+    #[wasm_bindgen(js_name = "newDatabaseAuto")]
+    pub async fn new_wasm_auto(name: String) -> Result<Database, JsValue> {
+        let normalized_name = if name.ends_with(".db") {
+            name.clone()
+        } else {
+            format!("{}.db", name)
+        };
+
+        let config = Self::default_wasm_config(normalized_name.clone());
+        let backend = crate::storage::backend_detect::detect_best_backend().await;
+
+        let db = Database::new_with_storage_backend(config, backend)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
+
+        Self::start_write_queue_listener(&normalized_name)?;
+
+        Ok(db)
+    }
+
+    #[wasm_bindgen(js_name = "newDatabaseWithBackend")]
+    pub async fn new_wasm_with_backend(
+        name: String,
+        backend_name: String,
+    ) -> Result<Database, JsValue> {
+        let normalized_name = if name.ends_with(".db") {
+            name.clone()
+        } else {
+            format!("{}.db", name)
+        };
+
+        let backend = match backend_name.to_ascii_lowercase().as_str() {
+            "indexeddb" | "indexed-db" | "indexed_db" | "idb" => {
+                crate::storage::StorageBackend::IndexedDb
+            }
+            "opfs" => crate::storage::StorageBackend::Opfs,
+            "hybrid" => crate::storage::StorageBackend::Hybrid,
+            _ => {
+                return Err(JsValue::from_str(&format!(
+                    "Unsupported storage backend '{}'. Expected IndexedDB, OPFS, or Hybrid.",
+                    backend_name
+                )));
+            }
+        };
+
+        let config = Self::default_wasm_config(normalized_name.clone());
+
+        let db = Database::new_with_storage_backend(config, backend)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to create database: {}", e)))?;
+
+        Self::start_write_queue_listener(&normalized_name)?;
+
+        Ok(db)
+    }
+
     /// Get the database name
     #[wasm_bindgen(getter)]
     pub fn name(&self) -> String {
         self.name.clone()
+    }
+
+    #[wasm_bindgen(js_name = "getStorageBackend")]
+    pub fn get_storage_backend(&self) -> Result<String, JsValue> {
+        use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
+
+        let storage = get_storage_with_fallback(&self.name).ok_or_else(|| {
+            JsValue::from_str(&format!("No storage found for database: {}", self.name))
+        })?;
+
+        Ok(storage.storage_backend().as_str().to_string())
     }
 
     /// Get all database names stored in IndexedDB
@@ -1946,6 +2063,15 @@ impl Database {
             }
         }
 
+        if let Err(error) = crate::storage::wasm_opfs::delete_all_from_opfs(&normalized_name).await
+        {
+            log::warn!(
+                "Failed to delete OPFS data for {} during deleteDatabase: {}",
+                normalized_name,
+                error.message
+            );
+        }
+
         log::info!("Database deleted: {}", normalized_name);
 
         // Remove from persistent list
@@ -1956,24 +2082,32 @@ impl Database {
 
     /// Add database name to persistent list in localStorage
     #[allow(dead_code)]
+    fn persistent_list_storage() -> Result<Option<web_sys::Storage>, JsValue> {
+        let Some(window) = web_sys::window() else {
+            log::info!("Persistent database list unavailable without Window; skipping");
+            return Ok(None);
+        };
+
+        let Some(storage) = window.local_storage().map_err(|e| {
+            log::error!("Failed to get localStorage: {:?}", e);
+            JsValue::from_str("No localStorage")
+        })?
+        else {
+            log::info!("Persistent database list unavailable without localStorage; skipping");
+            return Ok(None);
+        };
+
+        Ok(Some(storage))
+    }
+
+    /// Add database name to persistent list in localStorage
+    #[allow(dead_code)]
     fn add_database_to_persistent_list(db_name: &str) -> Result<(), JsValue> {
         log::info!("add_database_to_persistent_list called for: {}", db_name);
 
-        let window = web_sys::window().ok_or_else(|| {
-            log::error!("No window object");
-            JsValue::from_str("No window")
-        })?;
-
-        let storage = window
-            .local_storage()
-            .map_err(|e| {
-                log::error!("Failed to get localStorage: {:?}", e);
-                JsValue::from_str("No localStorage")
-            })?
-            .ok_or_else(|| {
-                log::error!("localStorage not available");
-                JsValue::from_str("localStorage not available")
-            })?;
+        let Some(storage) = Self::persistent_list_storage()? else {
+            return Ok(());
+        };
 
         let key = "absurder_db_list";
         let existing = storage.get_item(key).map_err(|e| {
@@ -2026,11 +2160,9 @@ impl Database {
 
     /// Remove database name from persistent list in localStorage
     fn remove_database_from_persistent_list(db_name: &str) -> Result<(), JsValue> {
-        let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
-        let storage = window
-            .local_storage()
-            .map_err(|_| JsValue::from_str("No localStorage"))?
-            .ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        let Some(storage) = Self::persistent_list_storage()? else {
+            return Ok(());
+        };
 
         let key = "absurder_db_list";
         let existing = storage
@@ -2056,21 +2188,9 @@ impl Database {
     fn get_persistent_database_list() -> Result<Vec<String>, JsValue> {
         log::info!("get_persistent_database_list called");
 
-        let window = web_sys::window().ok_or_else(|| {
-            log::error!("No window object");
-            JsValue::from_str("No window")
-        })?;
-
-        let storage = window
-            .local_storage()
-            .map_err(|e| {
-                log::error!("Failed to get localStorage: {:?}", e);
-                JsValue::from_str("No localStorage")
-            })?
-            .ok_or_else(|| {
-                log::error!("localStorage not available");
-                JsValue::from_str("localStorage not available")
-            })?;
+        let Some(storage) = Self::persistent_list_storage()? else {
+            return Ok(Vec::new());
+        };
 
         let key = "absurder_db_list";
         let existing = storage.get_item(key).map_err(|e| {
@@ -2316,78 +2436,77 @@ impl Database {
         let db_name = self.name.clone();
         let max_export_size = self.max_export_size_bytes;
 
-        log::info!("[EXPORT] ===== Step 1: Acquiring lock");
+        crate::storage::export_import_lock::with_lock(&db_name, || async {
+            log::info!("[EXPORT] ===== Step 1: Lock acquired");
 
-        // Acquire lock FIRST to serialize operations
-        let _guard = weblocks::acquire(&db_name, weblocks::AcquireOptions::exclusive()).await?;
-        log::info!("[EXPORT] ===== Step 2: Lock acquired");
+            // Get storage and sync AFTER lock - this ensures only one export syncs at a time
+            use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
+            log::info!("[EXPORT] ===== Step 2: Getting storage");
+            let storage_rc = get_storage_with_fallback(&db_name).ok_or_else(|| {
+                JsValue::from_str(&format!("Storage not found for database: {}", db_name))
+            })?;
+            log::info!("[EXPORT] ===== Step 3: Got storage");
 
-        // Get storage and sync AFTER lock - this ensures only one export syncs at a time
-        use crate::vfs::indexeddb_vfs::get_storage_with_fallback;
-        log::info!("[EXPORT] ===== Step 3: Getting storage");
-        let storage_rc = get_storage_with_fallback(&db_name).ok_or_else(|| {
-            JsValue::from_str(&format!("Storage not found for database: {}", db_name))
-        })?;
-        log::info!("[EXPORT] ===== Step 4: Got storage, reloading cache");
-
-        // Reload cache from GLOBAL_STORAGE
-        #[cfg(target_arch = "wasm32")]
-        {
-            storage_rc.reload_cache_from_global_storage();
-        }
-
-        // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
-        // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
-        log::info!("[EXPORT] ===== Step 5: Checkpointing WAL");
-        if !self.connection_state.db.get().is_null() {
-            // Use raw SQLite call since export_to_file takes &self, not &mut self
-            use std::ffi::CString;
-            let pragma = CString::new("PRAGMA wal_checkpoint(PASSIVE)").unwrap();
-            unsafe {
-                let mut stmt = std::ptr::null_mut();
-                let rc = sqlite_wasm_rs::sqlite3_prepare_v2(
-                    self.connection_state.db.get(),
-                    pragma.as_ptr(),
-                    -1,
-                    &mut stmt,
-                    std::ptr::null_mut(),
-                );
-                if rc == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
-                    sqlite_wasm_rs::sqlite3_step(stmt);
-                    sqlite_wasm_rs::sqlite3_finalize(stmt);
-                    log::info!("[EXPORT] WAL checkpoint completed");
-                } else {
-                    log::warn!("[EXPORT] WAL checkpoint failed with rc: {}", rc);
+            // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
+            // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
+            log::info!("[EXPORT] ===== Step 4: Checkpointing WAL");
+            if !self.connection_state.db.get().is_null() {
+                // Use raw SQLite call since export_to_file takes &self, not &mut self
+                use std::ffi::CString;
+                let pragma = CString::new("PRAGMA wal_checkpoint(PASSIVE)").unwrap();
+                unsafe {
+                    let mut stmt = std::ptr::null_mut();
+                    let rc = sqlite_wasm_rs::sqlite3_prepare_v2(
+                        self.connection_state.db.get(),
+                        pragma.as_ptr(),
+                        -1,
+                        &mut stmt,
+                        std::ptr::null_mut(),
+                    );
+                    if rc == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
+                        sqlite_wasm_rs::sqlite3_step(stmt);
+                        sqlite_wasm_rs::sqlite3_finalize(stmt);
+                        log::info!("[EXPORT] WAL checkpoint completed");
+                    } else {
+                        log::warn!("[EXPORT] WAL checkpoint failed with rc: {}", rc);
+                    }
                 }
             }
-        }
 
-        log::info!("[EXPORT] ===== Step 6: Starting sync");
-        // Sync to ensure all data is persisted before export
-        storage_rc
-            .sync()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Sync failed: {}", e)))?;
-        log::info!("[EXPORT] ===== Step 7: Sync complete");
+            // Reload after checkpoint so the awaited sync/export path sees the canonical
+            // post-checkpoint block state instead of any stale pre-checkpoint cache.
+            #[cfg(target_arch = "wasm32")]
+            {
+                log::info!("[EXPORT] ===== Step 4b: Reloading cache after checkpoint");
+                storage_rc.reload_cache_from_global_storage();
+            }
 
-        // Export with configured size limit
-        log::info!("[EXPORT] Calling export_database_to_bytes");
-        let db_bytes = {
-            let storage = &*storage_rc;
-            crate::storage::export::export_database_to_bytes(storage, max_export_size)
+            log::info!("[EXPORT] ===== Step 5: Starting sync");
+            storage_rc
+                .sync()
                 .await
-                .map_err(|e| {
-                    log::error!("[EXPORT] Export failed: {}", e);
-                    JsValue::from_str(&format!("Export failed: {}", e))
-                })?
-        };
+                .map_err(|e| JsValue::from_str(&format!("Sync failed: {}", e)))?;
+            log::info!("[EXPORT] ===== Step 6: Sync complete");
 
-        log::info!("[EXPORT] Export complete: {} bytes", db_bytes.len());
+            log::info!("[EXPORT] Calling export_database_to_bytes");
+            let db_bytes = {
+                let storage = &*storage_rc;
+                crate::storage::export::export_database_to_bytes(storage, max_export_size)
+                    .await
+                    .map_err(|e| {
+                        log::error!("[EXPORT] Export failed: {}", e);
+                        JsValue::from_str(&format!("Export failed: {}", e))
+                    })?
+            };
 
-        let uint8_array = js_sys::Uint8Array::new_with_length(db_bytes.len() as u32);
-        uint8_array.copy_from(&db_bytes);
+            log::info!("[EXPORT] Export complete: {} bytes", db_bytes.len());
 
-        Ok(uint8_array)
+            let uint8_array = js_sys::Uint8Array::new_with_length(db_bytes.len() as u32);
+            uint8_array.copy_from(&db_bytes);
+
+            Ok(uint8_array)
+        })
+        .await
     }
 
     /// Test method for concurrent locking - simple increment counter
@@ -2456,102 +2575,98 @@ impl Database {
         let db_name = self.name.clone();
         let data = file_data.to_vec();
 
-        // Acquire lock FIRST to serialize operations
-        let _guard = weblocks::acquire(&db_name, weblocks::AcquireOptions::exclusive()).await?;
-        log::info!("[IMPORT] Lock acquired for: {}", db_name);
+        crate::storage::export_import_lock::with_lock(&db_name, || async {
+            log::info!("[IMPORT] Lock acquired for: {}", db_name);
+            log::debug!("Import data size: {} bytes", data.len());
 
-        log::debug!("Import data size: {} bytes", data.len());
+            let storage_backend = crate::vfs::indexeddb_vfs::get_storage_with_fallback(&db_name)
+                .map(|storage| storage.storage_backend())
+                .unwrap_or(crate::storage::StorageBackend::IndexedDb);
 
-        // CRITICAL: Force-close database connection BEFORE import
-        // Must use force_close to remove from connection pool, not just decrement ref_count
-        // Otherwise new Database instances will reuse stale SQLite connection
-        log::debug!("Force-closing database connection before import");
+            log::debug!("Force-closing database connection before import");
 
-        // First do normal close to cleanup leader election etc
-        self.close_internal()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to close before import: {}", e)))?;
+            self.close_internal()
+                .await
+                .map_err(|e| JsValue::from_str(&format!("Failed to close before import: {}", e)))?;
 
-        // Then force-remove from connection pool
-        let pool_key = self.name.trim_end_matches(".db");
-        crate::connection_pool::force_close_connection(pool_key);
+            let pool_key = self.name.trim_end_matches(".db");
+            crate::connection_pool::force_close_connection(pool_key);
+            self.connection_state.db.set(std::ptr::null_mut());
+            log::debug!("Removed connection from pool for import");
 
-        // Mark our connection as null since we force-closed it
-        self.connection_state.db.set(std::ptr::null_mut());
-        log::debug!("Removed connection from pool for import");
-
-        // Call the import function with full name (WITH .db)
-        crate::storage::import::import_database_from_bytes(&db_name, data)
+            crate::storage::import::import_database_from_bytes_with_backend(
+                &db_name,
+                data,
+                storage_backend,
+            )
             .await
             .map_err(|e| {
                 log::error!("Import failed for {}: {}", db_name, e);
                 JsValue::from_str(&format!("Import failed: {}", e))
             })?;
 
-        log::info!("[IMPORT] Import complete for: {}", db_name);
+            log::info!("[IMPORT] Import complete for: {}", db_name);
+            log::info!("[IMPORT] Reopening connection for: {}", db_name);
 
-        // Reopen the SQLite connection so this Database instance is usable after import
-        // The VFS should already exist from when the Database was first created
-        log::info!("[IMPORT] Reopening connection for: {}", db_name);
+            use std::ffi::CString;
 
-        use std::ffi::CString;
+            let vfs_name = format!("vfs_{}", db_name.trim_end_matches(".db"));
+            let pool_key = db_name.trim_end_matches(".db").to_string();
+            let db_name_for_closure = db_name.clone();
+            let vfs_name_for_closure = vfs_name.clone();
 
-        let vfs_name = format!("vfs_{}", db_name.trim_end_matches(".db"));
-        let pool_key = db_name.trim_end_matches(".db").to_string();
-        let db_name_for_closure = db_name.clone();
-        let vfs_name_for_closure = vfs_name.clone();
+            let new_state = crate::connection_pool::get_or_create_connection(&pool_key, || {
+                let mut db = std::ptr::null_mut();
+                let db_name_cstr = CString::new(db_name_for_closure.clone())
+                    .map_err(|_| "Invalid database name".to_string())?;
+                let vfs_cstr = CString::new(vfs_name_for_closure.as_str())
+                    .map_err(|_| "Invalid VFS name".to_string())?;
 
-        let new_state = crate::connection_pool::get_or_create_connection(&pool_key, || {
-            let mut db = std::ptr::null_mut();
-            let db_name_cstr = CString::new(db_name_for_closure.clone())
-                .map_err(|_| "Invalid database name".to_string())?;
-            let vfs_cstr = CString::new(vfs_name_for_closure.as_str())
-                .map_err(|_| "Invalid VFS name".to_string())?;
+                log::info!(
+                    "[IMPORT] Reopening database: {} with VFS: {}",
+                    db_name_for_closure,
+                    vfs_name_for_closure
+                );
 
-            log::info!(
-                "[IMPORT] Reopening database: {} with VFS: {}",
-                db_name_for_closure,
-                vfs_name_for_closure
-            );
-
-            let ret = unsafe {
-                sqlite_wasm_rs::sqlite3_open_v2(
-                    db_name_cstr.as_ptr(),
-                    &mut db as *mut _,
-                    sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
-                    vfs_cstr.as_ptr(),
-                )
-            };
-
-            if ret != sqlite_wasm_rs::SQLITE_OK {
-                let err_msg = unsafe {
-                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
-                    if !msg_ptr.is_null() {
-                        std::ffi::CStr::from_ptr(msg_ptr)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "Unknown error".to_string()
-                    }
+                let ret = unsafe {
+                    sqlite_wasm_rs::sqlite3_open_v2(
+                        db_name_cstr.as_ptr(),
+                        &mut db as *mut _,
+                        sqlite_wasm_rs::SQLITE_OPEN_READWRITE | sqlite_wasm_rs::SQLITE_OPEN_CREATE,
+                        vfs_cstr.as_ptr(),
+                    )
                 };
-                return Err(format!(
-                    "Failed to reopen database after import: {}",
-                    err_msg
-                ));
-            }
 
-            log::info!("[IMPORT] Database reopened successfully");
-            Ok(db)
+                if ret != sqlite_wasm_rs::SQLITE_OK {
+                    let err_msg = unsafe {
+                        let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(db);
+                        if !msg_ptr.is_null() {
+                            std::ffi::CStr::from_ptr(msg_ptr)
+                                .to_string_lossy()
+                                .into_owned()
+                        } else {
+                            "Unknown error".to_string()
+                        }
+                    };
+                    return Err(format!(
+                        "Failed to reopen database after import: {}",
+                        err_msg
+                    ));
+                }
+
+                log::info!("[IMPORT] Database reopened successfully");
+                Ok(db)
+            })
+            .map_err(|e| {
+                JsValue::from_str(&format!("Failed to reopen connection after import: {}", e))
+            })?;
+
+            self.connection_state = new_state;
+            log::info!("[IMPORT] Connection state updated for: {}", db_name);
+
+            Ok(())
         })
-        .map_err(|e| {
-            JsValue::from_str(&format!("Failed to reopen connection after import: {}", e))
-        })?;
-
-        // Update our connection state to use the new connection
-        self.connection_state = new_state;
-        log::info!("[IMPORT] Connection state updated for: {}", db_name);
-
-        Ok(())
+        .await
     }
 
     /// Wait for this instance to become leader

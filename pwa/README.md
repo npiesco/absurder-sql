@@ -5,7 +5,7 @@
 </p>
 
 **Tech Stack:**  
-[![Next.js](https://img.shields.io/badge/nextjs-16.0.1-black)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/nextjs-16.3.0--preview.6-black)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/react-19.2.0-blue)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-blue)](https://www.typescriptlang.org/)
 [![WASM](https://img.shields.io/badge/wasm-@npiesco/absurder--sql-orange)](https://www.npmjs.com/package/@npiesco/absurder-sql)
@@ -20,15 +20,17 @@
 
 ## Overview
 
-AbsurderSQL PWA is a comprehensive database administration interface built on the [@npiesco/absurder-sql](https://www.npmjs.com/package/@npiesco/absurder-sql) WASM library. It provides a modern alternative to traditional server-based database admin tools like Adminer, running entirely in the browser with SQLite and IndexedDB.
+AbsurderSQL PWA is a comprehensive database administration interface built on this repository's locally generated AbsurderSQL WASM package. It provides a modern alternative to traditional server-based database admin tools like Adminer, running entirely in the browser with SQLite, OPFS, and IndexedDB.
 
-**Architecture:** Browser → WASM SQLite → IndexedDB VFS (4KB block-level I/O)
+**Architecture:** Browser tabs → typed `Database` proxy → SharedWorker coordinator → elected dedicated WASM worker → Hybrid OPFS blocks + IndexedDB metadata (with IndexedDB fallback)
+
+**Dependency security:** The PWA pins Next.js / `eslint-config-next` 16.3.0-preview.6 because the configured CFS feed's newest stable release, 16.2.10, remains in the affected audit ranges. Scoped overrides select patched PostCSS and Sharp releases, and `vendor/brace-expansion-compat` preserves the legacy callable API while delegating to the audited `@isaacs/brace-expansion` implementation.
 
 **Key Capabilities:**
 - **100% Browser-Based**: No server infrastructure, all data stays local
 - **Offline-First PWA**: Install as desktop/mobile app, works without internet connectivity
 - **Native Performance**: Rust-compiled WASM delivers high-performance query execution
-- **Multi-Tab Coordination**: Leader election via BroadcastChannel prevents database conflicts
+- **Multi-Tab Coordination**: One SharedWorker elects a dedicated OPFS-capable runtime, queues tab requests, and hands ownership to a standby runtime when its owning tab closes
 - **Full Portability**: Import/export standard SQLite files for backup and migration
 
 ## Features
@@ -81,8 +83,10 @@ AbsurderSQL PWA is a comprehensive database administration interface built on th
 - **Zustand** for global state management
 
 ### Database Layer
-- **@npiesco/absurder-sql** (Rust-compiled WASM SQLite)
-- Custom IndexedDB Virtual File System (VFS)
+- Locally generated AbsurderSQL package (`../pkg` synced into `pwa/lib`)
+- Typed main-thread proxy with a SharedWorker coordinator and elected dedicated WASM runtime
+- Hybrid OPFS block persistence with IndexedDB metadata and fallback
+- Custom SQLite Virtual File System (VFS)
 - Block-level I/O with 4KB chunks
 - LRU cache (128 blocks) for read optimization
 - Multi-tab coordination via BroadcastChannel API
@@ -249,9 +253,9 @@ interface DatabaseStore {
 
 **Code Splitting:**
 ```javascript
-// Dynamic import for optimal bundle size
-const init = (await import('@npiesco/absurder-sql')).default;
-const { Database } = await import('@npiesco/absurder-sql');
+// Dynamic import of the local coordinated-worker facade
+const init = (await import('@/lib/db/database-proxy')).default;
+const { Database } = await import('@/lib/db/database-proxy');
 await init();
 ```
 
@@ -356,7 +360,7 @@ Tab 1 (Leader)    Tab 2 (Non-Leader)
 ```javascript
 // Main bundle: ~500KB (Next.js + React + UI components)
 // WASM module: ~1.3MB (~595KB gzipped) - loaded on demand
-const init = (await import('@npiesco/absurder-sql')).default;
+const init = (await import('@/lib/db/database-proxy')).default;
 ```
 
 **Benefits:**

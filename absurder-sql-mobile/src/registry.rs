@@ -8,12 +8,13 @@
 //! - Tokio runtime for async operations
 //! - Thread-local error handling
 
+use absurder_sql::SqliteIndexedDB;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
-use once_cell::sync::Lazy;
-use absurder_sql::SqliteIndexedDB;
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex as AsyncMutex;
 
 /// Wrapper for PreparedStatement that stores SQL for on-demand preparation
 /// We store the SQL and database handle, then prepare fresh on each execute
@@ -35,58 +36,51 @@ pub struct StreamingStatement {
 
 /// Global database registry
 /// Maps handles (u64) to Arc<Mutex<SqliteIndexedDB>> instances
-/// We need Mutex because SqliteIndexedDB::execute() requires &mut self
-pub static DB_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, Arc<Mutex<SqliteIndexedDB>>>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+/// We need an async mutex because database operations await while holding exclusive access.
+pub type DatabaseHandle = Arc<AsyncMutex<SqliteIndexedDB>>;
+pub type DatabaseRegistry = HashMap<u64, DatabaseHandle>;
+
+pub static DB_REGISTRY: Lazy<Arc<Mutex<DatabaseRegistry>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Global prepared statement registry
 /// Maps statement handles (u64) to PreparedStatementWrapper instances
-pub static STMT_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, PreparedStatementWrapper>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+pub static STMT_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, PreparedStatementWrapper>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Global streaming statement registry
 /// Maps stream handles (u64) to StreamingStatement instances
-pub static STREAM_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, StreamingStatement>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+pub static STREAM_REGISTRY: Lazy<Arc<Mutex<HashMap<u64, StreamingStatement>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Counter for generating unique stream handles
-pub static STREAM_HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(1))
-});
+pub static STREAM_HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| Arc::new(Mutex::new(1)));
 
 /// Counter for generating unique database handles
-pub static HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(1))
-});
+pub static HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| Arc::new(Mutex::new(1)));
 
 /// Counter for generating unique statement handles
-pub static STMT_HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(1))
-});
+pub static STMT_HANDLE_COUNTER: Lazy<Arc<Mutex<u64>>> = Lazy::new(|| Arc::new(Mutex::new(1)));
 
 /// Global Tokio runtime for executing async database operations
-pub static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
-    Runtime::new().expect("Failed to create Tokio runtime")
-});
+pub static RUNTIME: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new().expect("Failed to create Tokio runtime"));
 
 /// Android data directory path (set during initialization)
 /// On Android, this is typically "/data/data/{package}/files"
-pub static ANDROID_DATA_DIR: Lazy<Mutex<Option<String>>> = Lazy::new(|| {
-    Mutex::new(None)
-});
+pub static ANDROID_DATA_DIR: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 /// Set the Android data directory path
 /// This function is called from JNI during app initialization
 #[unsafe(no_mangle)]
-pub extern "C" fn absurdersql_set_android_data_directory(path: *const std::os::raw::c_char) -> bool {
+pub extern "C" fn absurdersql_set_android_data_directory(
+    path: *const std::os::raw::c_char,
+) -> bool {
     if path.is_null() {
         log::error!("absurdersql_set_android_data_directory: received null path");
         return false;
     }
-    
+
     let c_str = unsafe { std::ffi::CStr::from_ptr(path) };
     match c_str.to_str() {
         Ok(path_str) => {
@@ -96,9 +90,11 @@ pub extern "C" fn absurdersql_set_android_data_directory(path: *const std::os::r
             true
         }
         Err(e) => {
-            log::error!("Failed to convert Android data directory path to string: {}", e);
+            log::error!(
+                "Failed to convert Android data directory path to string: {}",
+                e
+            );
             false
         }
     }
 }
-

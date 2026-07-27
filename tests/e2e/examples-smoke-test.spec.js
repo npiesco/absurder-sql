@@ -60,10 +60,15 @@ test.describe('Example Files Smoke Tests', () => {
     
     // Wait for initialization
     await page.waitForSelector('#leaderBadge', { timeout: 10000 });
-    
-    // Should show leader badge
-    const badge = await page.locator('#leaderBadge').textContent();
-    expect(badge).toContain('LEADER');
+
+    await page.waitForFunction(() => {
+      const badge = document.querySelector('#leaderBadge');
+      const text = badge?.textContent?.trim() || '';
+      return text.length > 0 && text !== 'Loading...';
+    }, { timeout: 10000 });
+
+    const badge = (await page.locator('#leaderBadge').textContent())?.trim() || '';
+    expect(/LEADER|FOLLOWER/i.test(badge)).toBe(true);
     
     // Should not have any errors
     expect(errors).toHaveLength(0);

@@ -1,31 +1,9 @@
-/**
- * Type declarations for E2E tests
- */
-
-interface Database {
-  newDatabase(name: string): Promise<DatabaseInstance>;
-}
-
-interface DatabaseInstance {
-  execute(sql: string, params?: any[]): Promise<QueryResult>;
-  exportToFile(): Promise<Uint8Array>;
-  importFromFile(data: Uint8Array): Promise<void>;
-  sync(): Promise<void>;
-  close(): Promise<void>;
-}
-
-interface QueryResult {
-  rows: Array<{
-    values: Array<{
-      value: any;
-    }>;
-  }>;
-}
+import type { Database as DatabaseProxy } from '../lib/db/database-proxy';
 
 declare global {
   interface Window {
-    Database: Database;
-    testDb: DatabaseInstance;
+    Database: typeof DatabaseProxy;
+    testDb: DatabaseProxy;
   }
 }
 

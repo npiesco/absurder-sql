@@ -49,6 +49,11 @@ export class MultiTabDatabase {
     this.waitForLeadership = options.waitForLeadership || false;
     this.syncIntervalMs = options.syncIntervalMs || 0;
     this.syncIntervalId = null;
+    this.activeOperations = 0;
+    this.closePromise = null;
+    this.isClosing = false;
+    this.isClosed = false;
+    this.ignoreNotificationsUntil = 0;
   }
 
   /**
@@ -58,19 +63,50 @@ export class MultiTabDatabase {
   async init() {
     // Create database instance
     this.db = await this.Database.newDatabase(this.dbName);
+    this.closePromise = null;
+    this.isClosing = false;
+    this.isClosed = false;
+
+    const activeDb = this.db;
 
     this.db.onDataChange(async (changeType) => {
+      if (!this._isActiveDb(activeDb)) {
+        return;
+      }
+
+      if (Date.now() < this.ignoreNotificationsUntil) {
+        return;
+      }
+
       console.log(`[MultiTabDatabase] Data change received: ${changeType}`);
       // Always reload from IndexedDB when receiving a data change notification
       // This ensures we see data written by other tabs, regardless of our leader status
       // (Leadership can change between when data was written and when we receive the notification)
       try {
         console.log(`[MultiTabDatabase] Reloading from IndexedDB...`);
-        await this.db.reloadFromIndexedDB();
+        await this._withTrackedDb(async (db) => {
+          if (db !== activeDb || !this._isActiveDb(activeDb)) {
+            return;
+          }
+
+          await db.reloadFromIndexedDB();
+        });
+
+        if (!this._isActiveDb(activeDb)) {
+          return;
+        }
+
         console.log(`[MultiTabDatabase] Reloaded from IndexedDB`);
       } catch (error) {
-        console.error(`[MultiTabDatabase] Failed to reload from IndexedDB:`, error);
+        if (this._isActiveDb(activeDb)) {
+          console.error(`[MultiTabDatabase] Failed to reload from IndexedDB:`, error);
+        }
       }
+
+      if (!this._isActiveDb(activeDb)) {
+        return;
+      }
+
       this._triggerRefreshCallbacks();
     });
 
@@ -78,7 +114,7 @@ export class MultiTabDatabase {
     this.beforeUnloadHandler = async () => {
       console.log('[MultiTabDatabase] Page unloading, cleaning up leader election');
       try {
-        await this.db.close();
+        await this.close();
       } catch (error) {
         console.error('[MultiTabDatabase] Error during cleanup:', error);
       }
@@ -89,7 +125,7 @@ export class MultiTabDatabase {
     if (this.syncIntervalMs > 0) {
       this.syncIntervalId = setInterval(async () => {
         try {
-          await this.db.sync();
+          await this.sync();
         } catch (error) {
           console.error('[MultiTabDatabase] Auto-sync error:', error);
         }
@@ -100,7 +136,7 @@ export class MultiTabDatabase {
   }
 
   async isLeader() {
-    return await this.db.isLeader();
+    return await this._withTrackedDb((db) => db.isLeader(), false);
   }
 
   /**
@@ -109,7 +145,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async waitForLeadership(timeoutMs = 5000) {
-    return await this.db.waitForLeadership();
+    return await this._withTrackedDb((db) => db.waitForLeadership(timeoutMs));
   }
 
   /**
@@ -117,7 +153,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async requestLeadership() {
-    return await this.db.requestLeadership();
+    return await this._withTrackedDb((db) => db.requestLeadership());
   }
 
   /**
@@ -125,7 +161,10 @@ export class MultiTabDatabase {
    * @returns {Promise<{isLeader: boolean, leaderId: string, leaseExpiry: number}>}
    */
   async getLeaderInfo() {
-    return await this.db.getLeaderInfo();
+    return await this._withTrackedDb(
+      (db) => db.getLeaderInfo(),
+      () => ({ isLeader: false, leaderId: null, leaseExpiry: 0 })
+    );
   }
 
   /**
@@ -138,38 +177,35 @@ export class MultiTabDatabase {
    * @throws {Error} If not leader or write fails
    */
   async write(sql, params = []) {
-    // Check if we're the leader
-    const isLeader = await this.isLeader();
-    
-    if (!isLeader) {
-      if (this.waitForLeadership) {
-        console.log('[MultiTabDatabase] Not leader, waiting for leadership...');
-        await this.waitForLeadership();
-      } else {
-        throw new Error(
-          'Cannot write: This tab is not the leader. ' +
-          'Use db.waitForLeadership() or db.requestLeadership() to become leader, ' +
-          'or set waitForLeadership: true in options.'
-        );
+    return await this._withTrackedDb(async (db) => {
+      const isLeader = await db.isLeader();
+
+      if (!isLeader) {
+        if (this.waitForLeadership) {
+          console.log('[MultiTabDatabase] Not leader, waiting for leadership...');
+          await db.waitForLeadership();
+        } else {
+          throw new Error(
+            'Cannot write: This tab is not the leader. ' +
+            'Use db.waitForLeadership() or db.requestLeadership() to become leader, ' +
+            'or set waitForLeadership: true in options.'
+          );
+        }
       }
-    }
 
-    // Execute the write
-    let result;
-    if (params.length > 0) {
-      result = await this.db.executeWithParams(sql, params);
-    } else {
-      result = await this.db.execute(sql);
-    }
+      const result = params.length > 0
+        ? await db.executeWithParams(sql, params)
+        : await db.execute(sql);
 
-    // Auto-sync after write
-    if (this.autoSync) {
-      await this.db.sync();
-    }
+      if (this.autoSync) {
+        this.ignoreNotificationsUntil = Date.now() + 500;
+        await db.sync();
+      }
 
-    console.log('[MultiTabDatabase] Write completed and synced');
+      console.log('[MultiTabDatabase] Write completed and synced');
 
-    return result;
+      return result;
+    }, () => ({ rows: [], affected_rows: 0 }));
   }
 
   /**
@@ -181,11 +217,13 @@ export class MultiTabDatabase {
    * @returns {Promise<Object>} Query result with rows
    */
   async query(sql, params = []) {
-    if (params.length > 0) {
-      return await this.db.executeWithParams(sql, params);
-    } else {
-      return await this.db.execute(sql);
-    }
+    return await this._withTrackedDb((db) => {
+      if (params.length > 0) {
+        return db.executeWithParams(sql, params);
+      }
+
+      return db.execute(sql);
+    }, () => ({ rows: [], affected_rows: 0 }));
   }
 
   /**
@@ -211,7 +249,10 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async sync() {
-    return await this.db.sync();
+    return await this._withTrackedDb((db) => {
+      this.ignoreNotificationsUntil = Date.now() + 500;
+      return db.sync();
+    });
   }
 
   /**
@@ -241,22 +282,40 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async close() {
+    if (this.closePromise) {
+      return await this.closePromise;
+    }
+
+    this.isClosing = true;
+
     // Stop auto-sync interval
     if (this.syncIntervalId) {
       clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
     }
 
-    // Close database
-    if (this.db) {
-      await this.db.close();
-      this.db = null;
+    if (this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      this.beforeUnloadHandler = null;
     }
 
-    // Clear callbacks
-    this.refreshCallbacks = [];
+    const activeDb = this.db;
 
-    console.log(`[MultiTabDatabase] Closed database: ${this.dbName}`);
+    this.closePromise = (async () => {
+      await this._waitForIdle();
+
+      if (activeDb && this.db === activeDb) {
+        await activeDb.close();
+        this.db = null;
+      }
+
+      this.refreshCallbacks = [];
+      this.isClosed = true;
+
+      console.log(`[MultiTabDatabase] Closed database: ${this.dbName}`);
+    })();
+
+    return await this.closePromise;
   }
 
   // ========== Optimistic Updates ==========
@@ -267,7 +326,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async enableOptimisticUpdates(enabled) {
-    return await this.db.enableOptimisticUpdates(enabled);
+    return await this._withTrackedDb((db) => db.enableOptimisticUpdates(enabled));
   }
 
   /**
@@ -275,7 +334,7 @@ export class MultiTabDatabase {
    * @returns {Promise<boolean>}
    */
   async isOptimisticMode() {
-    return await this.db.isOptimisticMode();
+    return await this._withTrackedDb((db) => db.isOptimisticMode(), false);
   }
 
   /**
@@ -284,7 +343,7 @@ export class MultiTabDatabase {
    * @returns {Promise<string>} Write ID
    */
   async trackOptimisticWrite(sql) {
-    return await this.db.trackOptimisticWrite(sql);
+    return await this._withTrackedDb((db) => db.trackOptimisticWrite(sql), '');
   }
 
   /**
@@ -292,7 +351,7 @@ export class MultiTabDatabase {
    * @returns {Promise<number>}
    */
   async getPendingWritesCount() {
-    return await this.db.getPendingWritesCount();
+    return await this._withTrackedDb((db) => db.getPendingWritesCount(), 0);
   }
 
   /**
@@ -300,7 +359,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async clearOptimisticWrites() {
-    return await this.db.clearOptimisticWrites();
+    return await this._withTrackedDb((db) => db.clearOptimisticWrites());
   }
 
   // ========== Coordination Metrics ==========
@@ -311,7 +370,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async enableCoordinationMetrics(enabled) {
-    return await this.db.enableCoordinationMetrics(enabled);
+    return await this._withTrackedDb((db) => db.enableCoordinationMetrics(enabled));
   }
 
   /**
@@ -319,7 +378,7 @@ export class MultiTabDatabase {
    * @returns {Promise<boolean>}
    */
   async isCoordinationMetricsEnabled() {
-    return await this.db.isCoordinationMetricsEnabled();
+    return await this._withTrackedDb((db) => db.isCoordinationMetricsEnabled(), false);
   }
 
   /**
@@ -328,7 +387,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async recordLeadershipChange(becameLeader) {
-    return await this.db.recordLeadershipChange(becameLeader);
+    return await this._withTrackedDb((db) => db.recordLeadershipChange(becameLeader));
   }
 
   /**
@@ -337,7 +396,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async recordNotificationLatency(latencyMs) {
-    return await this.db.recordNotificationLatency(latencyMs);
+    return await this._withTrackedDb((db) => db.recordNotificationLatency(latencyMs));
   }
 
   /**
@@ -345,7 +404,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async recordWriteConflict() {
-    return await this.db.recordWriteConflict();
+    return await this._withTrackedDb((db) => db.recordWriteConflict());
   }
 
   /**
@@ -353,7 +412,7 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async recordFollowerRefresh() {
-    return await this.db.recordFollowerRefresh();
+    return await this._withTrackedDb((db) => db.recordFollowerRefresh());
   }
 
   /**
@@ -361,7 +420,7 @@ export class MultiTabDatabase {
    * @returns {Promise<string>} JSON string of metrics
    */
   async getCoordinationMetrics() {
-    return await this.db.getCoordinationMetrics();
+    return await this._withTrackedDb((db) => db.getCoordinationMetrics(), '{}');
   }
 
   /**
@@ -369,7 +428,49 @@ export class MultiTabDatabase {
    * @returns {Promise<void>}
    */
   async resetCoordinationMetrics() {
-    return await this.db.resetCoordinationMetrics();
+    return await this._withTrackedDb((db) => db.resetCoordinationMetrics());
+  }
+
+  async _withTrackedDb(operation, fallbackValue) {
+    const activeDb = this.db;
+
+    if (!activeDb) {
+      return this._resolveFallback(fallbackValue);
+    }
+
+    this.activeOperations += 1;
+
+    try {
+      return await operation(activeDb);
+    } finally {
+      this.activeOperations = Math.max(0, this.activeOperations - 1);
+    }
+  }
+
+  async _waitForIdle() {
+    while (true) {
+      if (this.activeOperations !== 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        continue;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (this.activeOperations === 0) {
+        return;
+      }
+    }
+  }
+
+  _isActiveDb(activeDb = this.db) {
+    return Boolean(activeDb) && this.db === activeDb && !this.isClosing && !this.isClosed;
+  }
+
+  _resolveFallback(fallbackValue) {
+    if (typeof fallbackValue === 'function') {
+      return fallbackValue();
+    }
+
+    return fallbackValue;
   }
 
   /**
