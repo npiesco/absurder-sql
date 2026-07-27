@@ -86,11 +86,19 @@ mod uniffi_prepared_statements_test;
 #[path = "__tests__/uniffi_streaming_test.rs"]
 mod uniffi_streaming_test;
 
-#[cfg(all(test, feature = "uniffi-bindings", any(feature = "encryption", feature = "encryption-ios")))]
+#[cfg(all(
+    test,
+    feature = "uniffi-bindings",
+    any(feature = "encryption", feature = "encryption-ios")
+))]
 #[path = "__tests__/uniffi_encryption_test.rs"]
 mod uniffi_encryption_test;
 
-#[cfg(all(test, feature = "uniffi-bindings", any(feature = "encryption", feature = "encryption-ios")))]
+#[cfg(all(
+    test,
+    feature = "uniffi-bindings",
+    any(feature = "encryption", feature = "encryption-ios")
+))]
 #[path = "__tests__/uniffi_encryption_blocking_test.rs"]
 mod uniffi_encryption_blocking_test;
 

@@ -1,5 +1,5 @@
 //! Tests for Streaming Results API
-//! 
+//!
 //! Tests cursor-based pagination for large result sets
 
 use crate::*;
@@ -20,14 +20,19 @@ fn test_streaming_statement_basic() {
     }
 
     // Create table and insert test data
-    let create_sql = CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
+    let create_sql =
+        CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
     let create_result = unsafe { absurder_db_execute(handle, create_sql.as_ptr()) };
     assert!(!create_result.is_null(), "Failed to create table");
     unsafe { absurder_free_string(create_result) };
 
     // Insert 1000 rows (starting from 1 to match SQLite default rowid behavior)
     for i in 1..=1000 {
-        let insert_sql = CString::new(format!("INSERT INTO test_stream VALUES ({}, 'value{}')", i, i)).unwrap();
+        let insert_sql = CString::new(format!(
+            "INSERT INTO test_stream VALUES ({}, 'value{}')",
+            i, i
+        ))
+        .unwrap();
         let result = unsafe { absurder_db_execute(handle, insert_sql.as_ptr()) };
         assert!(!result.is_null(), "Failed to insert row {}", i);
         unsafe { absurder_free_string(result) };
@@ -46,7 +51,7 @@ fn test_streaming_statement_basic() {
 
         let batch_str = unsafe { CStr::from_ptr(batch_json) }.to_str().unwrap();
         let batch: Vec<serde_json::Value> = serde_json::from_str(batch_str).unwrap();
-        
+
         unsafe { absurder_free_string(batch_json) };
 
         if batch.is_empty() {
@@ -81,14 +86,19 @@ fn test_streaming_statement_early_break() {
     }
 
     // Create table and insert test data
-    let create_sql = CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
+    let create_sql =
+        CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
     let create_result = unsafe { absurder_db_execute(handle, create_sql.as_ptr()) };
     assert!(!create_result.is_null());
     unsafe { absurder_free_string(create_result) };
 
     // Insert 1000 rows (starting from 1 to match SQLite default rowid behavior)
     for i in 1..=1000 {
-        let insert_sql = CString::new(format!("INSERT INTO test_stream VALUES ({}, 'value{}')", i, i)).unwrap();
+        let insert_sql = CString::new(format!(
+            "INSERT INTO test_stream VALUES ({}, 'value{}')",
+            i, i
+        ))
+        .unwrap();
         let result = unsafe { absurder_db_execute(handle, insert_sql.as_ptr()) };
         assert!(!result.is_null());
         unsafe { absurder_free_string(result) };
@@ -107,7 +117,7 @@ fn test_streaming_statement_early_break() {
 
         let batch_str = unsafe { CStr::from_ptr(batch_json) }.to_str().unwrap();
         let batch: Vec<serde_json::Value> = serde_json::from_str(batch_str).unwrap();
-        
+
         unsafe { absurder_free_string(batch_json) };
         total_rows += batch.len();
     }
@@ -137,7 +147,8 @@ fn test_streaming_statement_empty_result() {
     }
 
     // Create table (no data)
-    let create_sql = CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
+    let create_sql =
+        CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
     let create_result = unsafe { absurder_db_execute(handle, create_sql.as_ptr()) };
     assert!(!create_result.is_null());
     unsafe { absurder_free_string(create_result) };
@@ -153,7 +164,7 @@ fn test_streaming_statement_empty_result() {
 
     let batch_str = unsafe { CStr::from_ptr(batch_json) }.to_str().unwrap();
     let batch: Vec<serde_json::Value> = serde_json::from_str(batch_str).unwrap();
-    
+
     unsafe { absurder_free_string(batch_json) };
     assert_eq!(batch.len(), 0, "Expected empty result");
 
@@ -191,14 +202,19 @@ fn test_streaming_statement_configurable_batch_size() {
     }
 
     // Create table and insert test data
-    let create_sql = CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
+    let create_sql =
+        CString::new("CREATE TABLE test_stream (id INTEGER PRIMARY KEY, value TEXT)").unwrap();
     let create_result = unsafe { absurder_db_execute(handle, create_sql.as_ptr()) };
     assert!(!create_result.is_null());
     unsafe { absurder_free_string(create_result) };
 
     // Insert 500 rows (starting from 1 to match SQLite default rowid behavior)
     for i in 1..=500 {
-        let insert_sql = CString::new(format!("INSERT INTO test_stream VALUES ({}, 'value{}')", i, i)).unwrap();
+        let insert_sql = CString::new(format!(
+            "INSERT INTO test_stream VALUES ({}, 'value{}')",
+            i, i
+        ))
+        .unwrap();
         let result = unsafe { absurder_db_execute(handle, insert_sql.as_ptr()) };
         assert!(!result.is_null());
         unsafe { absurder_free_string(result) };
@@ -215,7 +231,7 @@ fn test_streaming_statement_configurable_batch_size() {
 
     let batch_str = unsafe { CStr::from_ptr(batch_json) }.to_str().unwrap();
     let batch: Vec<serde_json::Value> = serde_json::from_str(batch_str).unwrap();
-    
+
     unsafe { absurder_free_string(batch_json) };
     assert_eq!(batch.len(), 50, "Expected batch size of 50");
 

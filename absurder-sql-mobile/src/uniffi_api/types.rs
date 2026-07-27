@@ -2,7 +2,6 @@
 ///
 /// These types are automatically bridged to TypeScript, Swift, and Kotlin
 /// by UniFFI's code generation.
-
 use serde::{Deserialize, Serialize};
 
 /// Column value types matching SQLite's type system
@@ -58,16 +57,16 @@ pub struct DatabaseConfig {
 pub enum DatabaseError {
     #[error("Database not found: {message}")]
     NotFound { message: String },
-    
+
     #[error("SQL error: {message}")]
     SqlError { message: String },
-    
+
     #[error("IO error: {message}")]
     IoError { message: String },
-    
+
     #[error("Invalid parameter: {message}")]
     InvalidParameter { message: String },
-    
+
     #[error("Database is closed")]
     DatabaseClosed,
 }

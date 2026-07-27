@@ -26,14 +26,14 @@ fn test_handle_counter_accessible() {
         let counter = crate::registry::HANDLE_COUNTER.lock();
         *counter
     };
-    
+
     let next = {
         let mut counter = crate::registry::HANDLE_COUNTER.lock();
         let val = *counter;
         *counter += 1;
         val
     };
-    
+
     assert!(next >= initial, "Counter should increment");
 }
 
@@ -42,7 +42,7 @@ fn test_error_handling_accessible() {
     // Verify error handling functions work
     crate::registry::clear_last_error();
     crate::registry::set_last_error("test error".to_string());
-    
+
     // Error should be set (we can't easily test thread-local retrieval here)
     assert!(true, "Error handling functions should be accessible");
 }
@@ -50,9 +50,7 @@ fn test_error_handling_accessible() {
 #[test]
 fn test_runtime_accessible() {
     // Verify RUNTIME is accessible
-    let result = crate::registry::RUNTIME.block_on(async {
-        42
-    });
-    
+    let result = crate::registry::RUNTIME.block_on(async { 42 });
+
     assert_eq!(result, 42, "Runtime should execute async code");
 }

@@ -32,11 +32,7 @@ mod uniffi_prepared_statement_result_tests {
             .block_on(async { create_database(config).await })
             .expect("Failed to create database");
 
-        execute(
-            handle,
-            "DROP TABLE IF EXISTS products".to_string(),
-        )
-        .ok();
+        execute(handle, "DROP TABLE IF EXISTS products".to_string()).ok();
         execute(
             handle,
             "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)".to_string(),
@@ -190,8 +186,7 @@ mod uniffi_prepared_statement_result_tests {
         let stmt_handle = prepare_statement(handle, "SELECT * FROM timing".to_string())
             .expect("Failed to prepare statement");
 
-        let result =
-            execute_statement(stmt_handle, vec![]).expect("Failed to execute statement");
+        let result = execute_statement(stmt_handle, vec![]).expect("Failed to execute statement");
 
         // execution_time_ms should be populated (>= 0)
         assert!(

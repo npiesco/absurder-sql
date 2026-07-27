@@ -1,18 +1,19 @@
 /// UniFFI core database operations
-/// 
+///
 /// These functions are automatically exported to TypeScript, Swift, and Kotlin
 /// using the #[uniffi::export] macro.
-
-use super::types::{DatabaseConfig, DatabaseError, QueryResult, Row, ColumnValue};
-use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
+use super::types::{ColumnValue, DatabaseConfig, DatabaseError, QueryResult, Row};
 #[cfg(target_os = "android")]
 use crate::registry::ANDROID_DATA_DIR;
-use absurder_sql::{SqliteIndexedDB, DatabaseConfig as CoreDatabaseConfig, ColumnValue as CoreColumnValue};
-use std::sync::Arc;
+use crate::registry::{DB_REGISTRY, HANDLE_COUNTER, RUNTIME};
+use absurder_sql::{
+    ColumnValue as CoreColumnValue, DatabaseConfig as CoreDatabaseConfig, SqliteIndexedDB,
+};
 use std::path::Path;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::path::PathBuf;
-use parking_lot::Mutex;
+use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
 
 /// Convert a core ColumnValue to UniFFI ColumnValue
 fn convert_column_value(cv: &CoreColumnValue) -> ColumnValue {
@@ -34,8 +35,12 @@ fn convert_row(core_row: &absurder_sql::Row) -> Row {
     }
 }
 
+fn quote_sqlite_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
 /// Resolve database path to an absolute path appropriate for the platform
-/// 
+///
 /// - Android: Resolves relative paths to /data/data/{package}/files/databases/
 /// - iOS: Resolves relative paths to ~/Documents/
 /// - Other: Returns path as-is (may be relative)
@@ -44,7 +49,7 @@ pub fn resolve_db_path(path: &str) -> String {
     if path.starts_with('/') {
         return path.to_string();
     }
-    
+
     // Platform-specific resolution for relative paths
     #[cfg(target_os = "android")]
     {
@@ -54,19 +59,22 @@ pub fn resolve_db_path(path: &str) -> String {
             let full_path = databases_dir.join(path);
             return full_path.to_string_lossy().to_string();
         } else {
-            log::warn!("Android data directory not set! Relative path will not be resolved: {}", path);
+            log::warn!(
+                "Android data directory not set! Relative path will not be resolved: {}",
+                path
+            );
             log::warn!("Call AbsurderSqlInitializer.initialize() before creating databases");
             return path.to_string();
         }
     }
-    
+
     #[cfg(target_os = "ios")]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let docs = PathBuf::from(home).join("Documents").join(path);
         return docs.to_string_lossy().to_string();
     }
-    
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         // Desktop platforms: keep relative paths as-is
@@ -75,24 +83,24 @@ pub fn resolve_db_path(path: &str) -> String {
 }
 
 /// Create a new database and return a handle
-/// 
+///
 /// This function creates a database with the given configuration.
 /// Returns a unique handle that can be used for subsequent operations.
-/// 
+///
 /// # Arguments
 /// * `config` - Database configuration including name and optional encryption
-/// 
+///
 /// # Returns
 /// * `u64` - Database handle (0 indicates error)
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
     log::info!("UniFFI: Creating database: {}", config.name);
-    
+
     // Resolve path using platform-specific logic
     let resolved_path = resolve_db_path(&config.name);
-    
+
     log::info!("UniFFI: Resolved database path: {}", resolved_path);
-    
+
     // Ensure parent directory exists (especially for Android databases directory)
     if let Some(parent) = Path::new(&resolved_path).parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
@@ -102,7 +110,7 @@ pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseErro
             });
         }
     }
-    
+
     // Create core database config with mobile settings
     let core_config = CoreDatabaseConfig {
         name: resolved_path,
@@ -115,7 +123,7 @@ pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseErro
 
     // Create database asynchronously - no blocking!
     let db_result = SqliteIndexedDB::new(core_config).await;
-    
+
     match db_result {
         Ok(db) => {
             // Generate handle - HANDLE_COUNTER is now Arc<Mutex<u64>>
@@ -123,10 +131,12 @@ pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseErro
             *counter += 1;
             let handle = *counter;
             drop(counter);
-            
+
             // Store in registry
-            DB_REGISTRY.lock().insert(handle, Arc::new(Mutex::new(db)));
-            
+            DB_REGISTRY
+                .lock()
+                .insert(handle, Arc::new(AsyncMutex::new(db)));
+
             log::info!("UniFFI: Database created with handle: {}", handle);
             Ok(handle)
         }
@@ -138,37 +148,36 @@ pub async fn create_database(config: DatabaseConfig) -> Result<u64, DatabaseErro
 }
 
 /// Execute SQL query on a database
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `sql` - SQL query to execute
-/// 
+///
 /// # Returns
 /// * `QueryResult` - Query results with columns and rows
 #[uniffi::export]
 pub fn execute(handle: u64, sql: String) -> Result<QueryResult, DatabaseError> {
     log::info!("UniFFI: Executing SQL on handle {}: {}", handle, sql);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Execute query using async runtime
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute(&sql).await
     });
-    
+
     match result {
         Ok(query_result) => {
             // Convert rows to typed Row structs
-            let rows: Vec<Row> = query_result.rows.iter()
-                .map(convert_row)
-                .collect();
+            let rows: Vec<Row> = query_result.rows.iter().map(convert_row).collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
@@ -188,13 +197,13 @@ pub fn execute(handle: u64, sql: String) -> Result<QueryResult, DatabaseError> {
 }
 
 /// Close a database
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle to close
 #[uniffi::export]
 pub fn close_database(handle: u64) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Closing database handle: {}", handle);
-    
+
     let mut registry = DB_REGISTRY.lock();
     if registry.remove(&handle).is_some() {
         Ok(())
@@ -204,46 +213,53 @@ pub fn close_database(handle: u64) -> Result<(), DatabaseError> {
 }
 
 /// Execute SQL query with parameters on a database
-/// 
+///
 /// This function provides parameterized query execution to prevent SQL injection.
 /// Parameters are passed as a vector of strings and bound to ? placeholders in the SQL.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `sql` - SQL query with ? placeholders for parameters
 /// * `params` - Vector of parameter values as strings
-/// 
+///
 /// # Returns
 /// * `QueryResult` - Query results with columns and rows
 #[uniffi::export]
-pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Result<QueryResult, DatabaseError> {
-    log::info!("UniFFI: Executing SQL with {} params on handle {}: {}", params.len(), handle, sql);
-    
+pub fn execute_with_params(
+    handle: u64,
+    sql: String,
+    params: Vec<String>,
+) -> Result<QueryResult, DatabaseError> {
+    log::info!(
+        "UniFFI: Executing SQL with {} params on handle {}: {}",
+        params.len(),
+        handle,
+        sql
+    );
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Convert string params to core ColumnValue
-    let column_params: Vec<CoreColumnValue> = params.into_iter()
-        .map(|s| CoreColumnValue::Text(s))
-        .collect();
-    
+    let column_params: Vec<CoreColumnValue> =
+        params.into_iter().map(CoreColumnValue::Text).collect();
+
     // Execute parameterized query using async runtime
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute_with_params(&sql, &column_params).await
     });
-    
+
     match result {
         Ok(query_result) => {
             // Convert rows to typed Row structs
-            let rows: Vec<Row> = query_result.rows.iter()
-                .map(convert_row)
-                .collect();
+            let rows: Vec<Row> = query_result.rows.iter().map(convert_row).collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
@@ -263,33 +279,34 @@ pub fn execute_with_params(handle: u64, sql: String, params: Vec<String>) -> Res
 }
 
 /// Begin a database transaction
-/// 
+///
 /// Starts a new transaction. All subsequent operations will be part of this transaction
 /// until commit() or rollback() is called.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if transaction started successfully
 #[uniffi::export]
 pub fn begin_transaction(handle: u64) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Beginning transaction on handle {}", handle);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Begin transaction using async runtime
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute("BEGIN TRANSACTION").await
     });
-    
+
     match result {
         Ok(_) => {
             log::info!("UniFFI: Transaction begun on handle {}", handle);
@@ -305,32 +322,33 @@ pub fn begin_transaction(handle: u64) -> Result<(), DatabaseError> {
 }
 
 /// Commit the current database transaction
-/// 
+///
 /// Commits all changes made within the current transaction to the database.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if transaction committed successfully
 #[uniffi::export]
 pub fn commit(handle: u64) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Committing transaction on handle {}", handle);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Commit transaction using async runtime
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute("COMMIT").await
     });
-    
+
     match result {
         Ok(_) => {
             log::info!("UniFFI: Transaction committed on handle {}", handle);
@@ -346,32 +364,33 @@ pub fn commit(handle: u64) -> Result<(), DatabaseError> {
 }
 
 /// Rollback the current database transaction
-/// 
+///
 /// Discards all changes made within the current transaction.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if transaction rolled back successfully
 #[uniffi::export]
 pub fn rollback(handle: u64) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Rolling back transaction on handle {}", handle);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Rollback transaction using async runtime
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute("ROLLBACK").await
     });
-    
+
     match result {
         Ok(_) => {
             log::info!("UniFFI: Transaction rolled back on handle {}", handle);
@@ -387,33 +406,38 @@ pub fn rollback(handle: u64) -> Result<(), DatabaseError> {
 }
 
 /// Export database to file using VACUUM INTO (async, non-blocking)
-/// 
+///
 /// Creates a backup of the database at the specified path.
 /// This is an async function that won't block the calling thread.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `path` - File path where the backup will be created
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if export succeeded
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn export_database_async(handle: u64, path: String) -> Result<(), DatabaseError> {
-    log::info!("UniFFI: Async exporting database handle {} to {}", handle, path);
-    
+    log::info!(
+        "UniFFI: Async exporting database handle {} to {}",
+        handle,
+        path
+    );
+
     // Resolve path using platform-specific logic
     let resolved_path = resolve_db_path(&path);
-    
+
     log::info!("UniFFI: Resolved export path to: {}", resolved_path);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Delete export file if it exists (VACUUM INTO fails if file exists)
     if let Ok(canonical_path) = std::path::Path::new(&resolved_path).canonicalize() {
         let _ = std::fs::remove_file(canonical_path);
@@ -421,52 +445,56 @@ pub async fn export_database_async(handle: u64, path: String) -> Result<(), Data
         // If canonicalize fails, try to delete anyway
         let _ = std::fs::remove_file(&resolved_path);
     }
-    
+
     // Escape single quotes in path for SQL
     let escaped_path = resolved_path.replace("'", "''");
     let export_sql = format!("VACUUM INTO '{}'", escaped_path);
-    
+
     // Execute export asynchronously
-    let mut db = db_arc.lock();
+    let mut db = db_arc.lock().await;
     db.execute(&export_sql).await.map_err(|e| {
         log::error!("UniFFI: Failed to export database: {}", e);
         DatabaseError::SqlError {
             message: e.to_string(),
         }
     })?;
-    
-    log::info!("UniFFI: Database exported successfully to {}", resolved_path);
+
+    log::info!(
+        "UniFFI: Database exported successfully to {}",
+        resolved_path
+    );
     Ok(())
 }
 
 /// Export database to file using VACUUM INTO (sync, blocking)
-/// 
+///
 /// Creates a backup of the database at the specified path.
 /// This is a synchronous function - use export_database_async for non-blocking operation.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `path` - File path where the backup will be created
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if export succeeded
 #[uniffi::export]
 pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Exporting database handle {} to {}", handle, path);
-    
+
     // Resolve path using platform-specific logic
     let resolved_path = resolve_db_path(&path);
-    
+
     log::info!("UniFFI: Resolved export path to: {}", resolved_path);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Delete export file if it exists (VACUUM INTO fails if file exists)
     if let Ok(canonical_path) = std::path::Path::new(&resolved_path).canonicalize() {
         let _ = std::fs::remove_file(canonical_path);
@@ -474,20 +502,23 @@ pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
         // If canonicalize fails, try to delete anyway
         let _ = std::fs::remove_file(&resolved_path);
     }
-    
+
     // Escape single quotes in path for SQL
     let escaped_path = resolved_path.replace("'", "''");
     let export_sql = format!("VACUUM INTO '{}'", escaped_path);
-    
+
     // Execute export using async runtime
     let result = RUNTIME.block_on(async move {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute(&export_sql).await
     });
-    
+
     match result {
         Ok(_) => {
-            log::info!("UniFFI: Database exported successfully to {}", resolved_path);
+            log::info!(
+                "UniFFI: Database exported successfully to {}",
+                resolved_path
+            );
             Ok(())
         }
         Err(e) => {
@@ -500,68 +531,79 @@ pub fn export_database(handle: u64, path: String) -> Result<(), DatabaseError> {
 }
 
 /// Import database from file
-/// 
+///
 /// Restores a database from a backup file created by export_database.
 /// This will copy all tables and data from the backup into the current database.
-/// 
+///
 /// For encrypted databases, uses ATTACH DATABASE which inherits the encryption key
 /// from the main connection, allowing import of encrypted backup files.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `path` - File path of the backup to import
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if import succeeded
 #[uniffi::export]
 pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
-    log::info!("UniFFI: Importing database from {} to handle {}", path, handle);
-    
+    log::info!(
+        "UniFFI: Importing database from {} to handle {}",
+        path,
+        handle
+    );
+
     // Resolve path using platform-specific logic
     let resolved_path = resolve_db_path(&path);
     log::info!("UniFFI: Resolved import path to: {}", resolved_path);
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Verify the import file exists
     if !std::path::Path::new(&resolved_path).exists() {
         let error_msg = format!("Import file does not exist: {}", resolved_path);
         log::error!("UniFFI: {}", error_msg);
-        return Err(DatabaseError::SqlError {
-            message: error_msg,
-        });
+        return Err(DatabaseError::SqlError { message: error_msg });
     }
-    
+
     // Execute import using async runtime
     // Use ATTACH DATABASE to open the backup file with the same encryption key
     let result = RUNTIME.block_on(async {
-        let mut dest_guard = db_arc.lock();
-        
+        let mut dest_guard = db_arc.lock().await;
+
         // Escape path for SQL
         let escaped_path = resolved_path.replace('\'', "''");
-        
+
         // Attach the backup database - this uses the same encryption key as main db
         let attach_sql = format!("ATTACH DATABASE '{}' AS import_db", escaped_path);
         dest_guard.execute(&attach_sql).await?;
         log::info!("UniFFI: Attached import database");
-        
+
         // Get list of tables from the attached database
-        let tables_result = dest_guard.execute(
-            "SELECT name FROM import_db.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ).await?;
-        
-        log::info!("UniFFI: Tables query returned {} rows, columns: {:?}", tables_result.rows.len(), tables_result.columns);
+        let tables_result = dest_guard
+            .execute(
+                "SELECT name FROM import_db.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+            )
+            .await?;
+
+        log::info!(
+            "UniFFI: Tables query returned {} rows, columns: {:?}",
+            tables_result.rows.len(),
+            tables_result.columns
+        );
         for (i, row) in tables_result.rows.iter().enumerate() {
             log::info!("UniFFI: Row {}: {:?}", i, row.values);
         }
-        
-        let table_names: Vec<String> = tables_result.rows.iter()
+
+        let table_names: Vec<String> = tables_result
+            .rows
+            .iter()
             .filter_map(|row| {
                 if let Some(absurder_sql::ColumnValue::Text(value)) = row.values.first() {
                     Some(value.clone())
@@ -570,17 +612,26 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
                 }
             })
             .collect();
-        
-        log::info!("UniFFI: Found {} tables to import: {:?}", table_names.len(), table_names);
-        
+
+        log::info!(
+            "UniFFI: Found {} tables to import: {:?}",
+            table_names.len(),
+            table_names
+        );
+
         for table_name in &table_names {
             log::info!("UniFFI: Importing table: {}", table_name);
-            
+            let table_name_literal = table_name.replace('\'', "''");
+            let quoted_table_name = quote_sqlite_identifier(table_name);
+
             // Get CREATE TABLE statement from import_db
-            let schema_result = dest_guard.execute(
-                &format!("SELECT sql FROM import_db.sqlite_master WHERE type='table' AND name='{}'", table_name)
-            ).await?;
-            
+            let schema_result = dest_guard
+                .execute(&format!(
+                    "SELECT sql FROM import_db.sqlite_master WHERE type='table' AND name='{}'",
+                    table_name_literal
+                ))
+                .await?;
+
             let create_sql = if let Some(row) = schema_result.rows.first() {
                 if let Some(absurder_sql::ColumnValue::Text(value)) = row.values.first() {
                     value.clone()
@@ -590,30 +641,39 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
             } else {
                 continue;
             };
-            
+
             // Drop existing table and recreate
-            let _ = dest_guard.execute(&format!("DROP TABLE IF EXISTS {}", table_name)).await;
+            dest_guard
+                .execute(&format!("DROP TABLE IF EXISTS main.{}", quoted_table_name))
+                .await?;
             dest_guard.execute(&create_sql).await?;
-            
+
             // Copy data from import_db to main db
             let insert_sql = format!(
                 "INSERT INTO main.{} SELECT * FROM import_db.{}",
-                table_name, table_name
+                quoted_table_name, quoted_table_name
             );
             let insert_result = dest_guard.execute(&insert_sql).await?;
-            log::info!("UniFFI: Imported {} rows into table {}", insert_result.affected_rows, table_name);
+            log::info!(
+                "UniFFI: Imported {} rows into table {}",
+                insert_result.affected_rows,
+                table_name
+            );
         }
-        
+
         // Detach the import database
         dest_guard.execute("DETACH DATABASE import_db").await?;
         log::info!("UniFFI: Detached import database");
-        
+
         Ok::<(), absurder_sql::DatabaseError>(())
     });
-    
+
     match result {
         Ok(_) => {
-            log::info!("UniFFI: Database imported successfully from {}", resolved_path);
+            log::info!(
+                "UniFFI: Database imported successfully from {}",
+                resolved_path
+            );
             Ok(())
         }
         Err(e) => {
@@ -626,34 +686,39 @@ pub fn import_database(handle: u64, path: String) -> Result<(), DatabaseError> {
 }
 
 /// Execute a batch of SQL statements in a transaction
-/// 
+///
 /// Executes multiple SQL statements atomically. If any statement fails,
 /// the entire batch is rolled back.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `statements` - Vector of SQL statements to execute
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if all statements executed successfully
 #[uniffi::export]
 pub fn execute_batch(handle: u64, statements: Vec<String>) -> Result<(), DatabaseError> {
-    log::info!("UniFFI: Executing batch of {} statements on handle {}", statements.len(), handle);
-    
+    log::info!(
+        "UniFFI: Executing batch of {} statements on handle {}",
+        statements.len(),
+        handle
+    );
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Execute batch using async runtime
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute_batch(&statements).await
     });
-    
+
     match result {
         Ok(_) => {
             log::info!("UniFFI: Batch executed successfully on handle {}", handle);
@@ -669,33 +734,38 @@ pub fn execute_batch(handle: u64, statements: Vec<String>) -> Result<(), Databas
 }
 
 /// Prepare a SQL statement for repeated execution
-/// 
+///
 /// Creates a prepared statement that can be executed multiple times with different parameters.
 /// This is more efficient than calling execute_with_params() repeatedly for the same SQL.
-/// 
+///
 /// # Arguments
 /// * `db_handle` - Database handle
 /// * `sql` - SQL statement with ? placeholders for parameters
-/// 
+///
 /// # Returns
 /// * `Result<u64, DatabaseError>` - Statement handle on success
 #[uniffi::export]
 pub fn prepare_statement(db_handle: u64, sql: String) -> Result<u64, DatabaseError> {
-    use crate::registry::{STMT_REGISTRY, STMT_HANDLE_COUNTER, PreparedStatementWrapper};
-    
-    log::info!("UniFFI: Preparing statement for db handle {}: {}", db_handle, sql);
-    
+    use crate::registry::{PreparedStatementWrapper, STMT_HANDLE_COUNTER, STMT_REGISTRY};
+
+    log::info!(
+        "UniFFI: Preparing statement for db handle {}: {}",
+        db_handle,
+        sql
+    );
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&db_handle)
+        registry
+            .get(&db_handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Validate SQL by attempting to prepare it
     {
-        let mut db = db_arc.lock();
+        let mut db = RUNTIME.block_on(db_arc.lock());
         match db.prepare(&sql) {
             Ok(stmt) => {
                 // SQL is valid, finalize the test statement
@@ -709,7 +779,7 @@ pub fn prepare_statement(db_handle: u64, sql: String) -> Result<u64, DatabaseErr
             }
         }
     }
-    
+
     // Generate unique statement handle
     let stmt_handle = {
         let mut counter = STMT_HANDLE_COUNTER.lock();
@@ -717,17 +787,21 @@ pub fn prepare_statement(db_handle: u64, sql: String) -> Result<u64, DatabaseErr
         *counter += 1;
         handle
     };
-    
+
     // Store SQL and database handle for on-demand preparation
     let wrapper = PreparedStatementWrapper {
         db_handle,
         sql: sql.clone(),
     };
-    
+
     let mut stmt_registry = STMT_REGISTRY.lock();
     stmt_registry.insert(stmt_handle, wrapper);
-    
-    log::info!("UniFFI: Created statement handle {} for SQL: {}", stmt_handle, sql);
+
+    log::info!(
+        "UniFFI: Created statement handle {} for SQL: {}",
+        stmt_handle,
+        sql
+    );
     Ok(stmt_handle)
 }
 
@@ -744,11 +818,18 @@ pub fn prepare_statement(db_handle: u64, sql: String) -> Result<u64, DatabaseErr
 /// * `Result<QueryResult, DatabaseError>` - Query results including columns, rows,
 ///   rows_affected, last_insert_id, and execution_time_ms
 #[uniffi::export]
-pub fn execute_statement(stmt_handle: u64, params: Vec<String>) -> Result<QueryResult, DatabaseError> {
+pub fn execute_statement(
+    stmt_handle: u64,
+    params: Vec<String>,
+) -> Result<QueryResult, DatabaseError> {
     use crate::registry::STMT_REGISTRY;
-    
-    log::info!("UniFFI: Executing statement {} with {} params", stmt_handle, params.len());
-    
+
+    log::info!(
+        "UniFFI: Executing statement {} with {} params",
+        stmt_handle,
+        params.len()
+    );
+
     // Get statement info from registry
     let (db_handle, sql) = {
         let stmt_registry = STMT_REGISTRY.lock();
@@ -762,34 +843,34 @@ pub fn execute_statement(stmt_handle: u64, params: Vec<String>) -> Result<QueryR
             }
         }
     };
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&db_handle)
+        registry
+            .get(&db_handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Convert string params to ColumnValue
-    let column_params: Vec<absurder_sql::ColumnValue> = params.into_iter()
-        .map(|s| absurder_sql::ColumnValue::Text(s))
+    let column_params: Vec<absurder_sql::ColumnValue> = params
+        .into_iter()
+        .map(absurder_sql::ColumnValue::Text)
         .collect();
-    
+
     // Execute with params
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute_with_params(&sql, &column_params).await
     });
-    
+
     match result {
         Ok(query_result) => {
             log::info!("UniFFI: Statement {} executed successfully", stmt_handle);
 
             // Convert rows to typed Row structs
-            let rows: Vec<Row> = query_result.rows.iter()
-                .map(convert_row)
-                .collect();
+            let rows: Vec<Row> = query_result.rows.iter().map(convert_row).collect();
 
             Ok(QueryResult {
                 columns: query_result.columns,
@@ -809,21 +890,21 @@ pub fn execute_statement(stmt_handle: u64, params: Vec<String>) -> Result<QueryR
 }
 
 /// Finalize a prepared statement and free its resources
-/// 
+///
 /// Removes the statement from the registry and frees associated resources.
 /// The statement handle becomes invalid after this call.
-/// 
+///
 /// # Arguments
 /// * `stmt_handle` - Statement handle to finalize
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if finalization succeeded
 #[uniffi::export]
 pub fn finalize_statement(stmt_handle: u64) -> Result<(), DatabaseError> {
     use crate::registry::STMT_REGISTRY;
-    
+
     log::info!("UniFFI: Finalizing statement {}", stmt_handle);
-    
+
     let mut stmt_registry = STMT_REGISTRY.lock();
     match stmt_registry.remove(&stmt_handle) {
         Some(_) => {
@@ -840,39 +921,44 @@ pub fn finalize_statement(stmt_handle: u64) -> Result<(), DatabaseError> {
 }
 
 /// Prepare a streaming statement for cursor-based iteration
-/// 
+///
 /// Creates a streaming statement that can fetch results in batches,
 /// avoiding memory issues with large result sets.
-/// 
+///
 /// # Arguments
 /// * `db_handle` - Database handle
 /// * `sql` - SQL SELECT statement
-/// 
+///
 /// # Returns
 /// * `Result<u64, DatabaseError>` - Stream handle on success
 #[uniffi::export]
 pub fn prepare_stream(db_handle: u64, sql: String) -> Result<u64, DatabaseError> {
-    use crate::registry::{STREAM_REGISTRY, STREAM_HANDLE_COUNTER, StreamingStatement};
-    
-    log::info!("UniFFI: Preparing stream for db handle {}: {}", db_handle, sql);
-    
+    use crate::registry::{STREAM_HANDLE_COUNTER, STREAM_REGISTRY, StreamingStatement};
+
+    log::info!(
+        "UniFFI: Preparing stream for db handle {}: {}",
+        db_handle,
+        sql
+    );
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&db_handle)
+        registry
+            .get(&db_handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Validate SQL by attempting to execute with LIMIT 0
     // This ensures the SQL is valid before we store it
     {
         let validation_sql = format!("{} LIMIT 0", sql);
         let result = RUNTIME.block_on(async {
-            let mut db = db_arc.lock();
+            let mut db = db_arc.lock().await;
             db.execute(&validation_sql).await
         });
-        
+
         if let Err(e) = result {
             log::error!("UniFFI: Invalid SQL for stream: {}", e);
             return Err(DatabaseError::SqlError {
@@ -880,7 +966,7 @@ pub fn prepare_stream(db_handle: u64, sql: String) -> Result<u64, DatabaseError>
             });
         }
     }
-    
+
     // Generate unique stream handle
     let stream_handle = {
         let mut counter = STREAM_HANDLE_COUNTER.lock();
@@ -888,47 +974,55 @@ pub fn prepare_stream(db_handle: u64, sql: String) -> Result<u64, DatabaseError>
         *counter += 1;
         handle
     };
-    
+
     // Create streaming statement
     let stream = StreamingStatement {
         db_handle,
         sql: sql.clone(),
         last_rowid: 0, // Assumes rowids start >= 1 (SQLite default)
     };
-    
+
     // Register stream
     let mut stream_registry = STREAM_REGISTRY.lock();
     stream_registry.insert(stream_handle, stream);
-    
-    log::info!("UniFFI: Created stream handle {} for SQL: {}", stream_handle, sql);
+
+    log::info!(
+        "UniFFI: Created stream handle {} for SQL: {}",
+        stream_handle,
+        sql
+    );
     Ok(stream_handle)
 }
 
 /// Fetch next batch of rows from streaming statement
-/// 
+///
 /// Fetches the next batch of rows from the stream using cursor-based pagination (WHERE rowid > last_rowid).
 /// This provides O(n) complexity instead of O(n²) OFFSET pagination.
 /// Returns an empty result when no more rows are available.
-/// 
+///
 /// # Arguments
 /// * `stream_handle` - Stream handle from prepare_stream()
 /// * `batch_size` - Number of rows to fetch (must be > 0)
-/// 
+///
 /// # Returns
 /// * `Result<QueryResult, DatabaseError>` - Batch of rows
 #[uniffi::export]
 pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, DatabaseError> {
     use crate::registry::STREAM_REGISTRY;
-    
-    log::info!("UniFFI: Fetching next {} rows from stream {}", batch_size, stream_handle);
-    
+
+    log::info!(
+        "UniFFI: Fetching next {} rows from stream {}",
+        batch_size,
+        stream_handle
+    );
+
     if batch_size <= 0 {
         log::error!("UniFFI: Invalid batch size: {}", batch_size);
         return Err(DatabaseError::SqlError {
             message: format!("Batch size must be > 0, got {}", batch_size),
         });
     }
-    
+
     // Get stream from registry
     let (db_handle, sql, last_rowid) = {
         let stream_registry = STREAM_REGISTRY.lock();
@@ -937,7 +1031,7 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
                 let db_handle = stream.db_handle;
                 let sql = stream.sql.clone();
                 let last_rowid = stream.last_rowid;
-                
+
                 (db_handle, sql, last_rowid)
             }
             None => {
@@ -948,15 +1042,16 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
             }
         }
     };
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&db_handle)
+        registry
+            .get(&db_handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Build cursor-based paginated query
     // Inject rowid selection into original query, then apply cursor filtering
     let paginated_sql = if last_rowid == 0 {
@@ -990,25 +1085,38 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
         };
         // Add WHERE clause for cursor
         if with_rowid.to_uppercase().contains(" WHERE ") {
-            format!("{} AND rowid > {} LIMIT {}", with_rowid, last_rowid, batch_size)
+            format!(
+                "{} AND rowid > {} LIMIT {}",
+                with_rowid, last_rowid, batch_size
+            )
         } else if with_rowid.to_uppercase().contains(" ORDER BY") {
             let parts: Vec<&str> = with_rowid.splitn(2, " ORDER BY ").collect();
-            format!("{} WHERE rowid > {} ORDER BY {} LIMIT {}", parts[0], last_rowid, parts[1], batch_size)
+            format!(
+                "{} WHERE rowid > {} ORDER BY {} LIMIT {}",
+                parts[0], last_rowid, parts[1], batch_size
+            )
         } else {
-            format!("{} WHERE rowid > {} LIMIT {}", with_rowid, last_rowid, batch_size)
+            format!(
+                "{} WHERE rowid > {} LIMIT {}",
+                with_rowid, last_rowid, batch_size
+            )
         }
     };
-    
+
     // Execute query
     let result = RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute(&paginated_sql).await
     });
-    
+
     match result {
         Ok(query_result) => {
-            log::info!("UniFFI: Fetched {} rows from stream {}", query_result.rows.len(), stream_handle);
-            
+            log::info!(
+                "UniFFI: Fetched {} rows from stream {}",
+                query_result.rows.len(),
+                stream_handle
+            );
+
             // Update last_rowid by extracting max _rowid from results
             if !query_result.rows.is_empty() {
                 // Find _rowid column index
@@ -1026,11 +1134,9 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
                     }
                 }
             }
-            
+
             // Convert rows to typed Row structs
-            let rows: Vec<Row> = query_result.rows.iter()
-                .map(convert_row)
-                .collect();
+            let rows: Vec<Row> = query_result.rows.iter().map(convert_row).collect();
 
             // Convert to UniFFI QueryResult
             let uniffi_result = QueryResult {
@@ -1044,7 +1150,11 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
             Ok(uniffi_result)
         }
         Err(e) => {
-            log::error!("UniFFI: Failed to fetch from stream {}: {}", stream_handle, e);
+            log::error!(
+                "UniFFI: Failed to fetch from stream {}: {}",
+                stream_handle,
+                e
+            );
             Err(DatabaseError::SqlError {
                 message: e.to_string(),
             })
@@ -1053,21 +1163,21 @@ pub fn fetch_next(stream_handle: u64, batch_size: i32) -> Result<QueryResult, Da
 }
 
 /// Close a streaming statement and free its resources
-/// 
+///
 /// Removes the stream from the registry and frees associated resources.
 /// The stream handle becomes invalid after this call.
-/// 
+///
 /// # Arguments
 /// * `stream_handle` - Stream handle to close
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if close succeeded
 #[uniffi::export]
 pub fn close_stream(stream_handle: u64) -> Result<(), DatabaseError> {
     use crate::registry::STREAM_REGISTRY;
-    
+
     log::info!("UniFFI: Closing stream {}", stream_handle);
-    
+
     let mut stream_registry = STREAM_REGISTRY.lock();
     match stream_registry.remove(&stream_handle) {
         Some(_) => {
@@ -1084,26 +1194,28 @@ pub fn close_stream(stream_handle: u64) -> Result<(), DatabaseError> {
 }
 
 /// Create an encrypted database with SQLCipher
-/// 
+///
 /// Creates a new encrypted database using AES-256 encryption.
 /// The encryption key must be at least 8 characters long.
-/// 
+///
 /// # Arguments
 /// * `config` - Database configuration with name and encryption_key
-/// 
+///
 /// # Returns
 /// * `Result<u64, DatabaseError>` - Database handle on success
 #[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, DatabaseError> {
     log::info!("UniFFI: Creating encrypted database: {}", config.name);
-    
+
     // Validate encryption key is provided
-    let key = config.encryption_key.as_ref()
+    let key = config
+        .encryption_key
+        .as_ref()
         .ok_or_else(|| DatabaseError::InvalidParameter {
             message: "Encryption key is required for encrypted database".to_string(),
         })?;
-    
+
     // Validate key length (minimum 8 characters)
     if key.len() < 8 {
         log::error!("UniFFI: Encryption key too short: {} characters", key.len());
@@ -1111,12 +1223,15 @@ pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Da
             message: "Encryption key must be at least 8 characters long".to_string(),
         });
     }
-    
+
     // Resolve path using platform-specific logic
     let resolved_path = resolve_db_path(&config.name);
-    
-    log::info!("UniFFI: Resolved encrypted database path: {}", resolved_path);
-    
+
+    log::info!(
+        "UniFFI: Resolved encrypted database path: {}",
+        resolved_path
+    );
+
     // Ensure parent directory exists (especially for Android databases directory)
     if let Some(parent) = Path::new(&resolved_path).parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
@@ -1126,16 +1241,16 @@ pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Da
             });
         }
     }
-    
+
     // Create core database config
     let core_config = CoreDatabaseConfig {
         name: resolved_path,
         ..Default::default()
     };
-    
+
     // Create encrypted database asynchronously - no blocking!
     let db_result = SqliteIndexedDB::new_encrypted(core_config, key).await;
-    
+
     match db_result {
         Ok(db) => {
             // Generate handle
@@ -1143,10 +1258,12 @@ pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Da
             *counter += 1;
             let handle = *counter;
             drop(counter);
-            
+
             // Store in registry
-            DB_REGISTRY.lock().insert(handle, Arc::new(Mutex::new(db)));
-            
+            DB_REGISTRY
+                .lock()
+                .insert(handle, Arc::new(AsyncMutex::new(db)));
+
             log::info!("UniFFI: Encrypted database created with handle: {}", handle);
             Ok(handle)
         }
@@ -1158,43 +1275,47 @@ pub async fn create_encrypted_database(config: DatabaseConfig) -> Result<u64, Da
 }
 
 /// Change the encryption key of an open encrypted database
-/// 
+///
 /// Updates the encryption key for an encrypted database.
 /// The new key must be at least 8 characters long.
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle
 /// * `new_key` - New encryption key
-/// 
+///
 /// # Returns
 /// * `Result<(), DatabaseError>` - Ok if rekey succeeded
 #[cfg(any(feature = "encryption", feature = "encryption-ios"))]
 #[uniffi::export]
 pub fn rekey_database(handle: u64, new_key: String) -> Result<(), DatabaseError> {
     log::info!("UniFFI: Rekeying database handle {}", handle);
-    
+
     // Validate key length (minimum 8 characters)
     if new_key.len() < 8 {
-        log::error!("UniFFI: New encryption key too short: {} characters", new_key.len());
+        log::error!(
+            "UniFFI: New encryption key too short: {} characters",
+            new_key.len()
+        );
         return Err(DatabaseError::InvalidParameter {
             message: "New encryption key must be at least 8 characters long".to_string(),
         });
     }
-    
+
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::DatabaseClosed)?
             .clone()
     };
-    
+
     // Rekey the database
     let result = RUNTIME.block_on(async {
-        let db = db_arc.lock();
+        let db = db_arc.lock().await;
         db.rekey(&new_key).await
     });
-    
+
     match result {
         Ok(()) => {
             log::info!("UniFFI: Successfully rekeyed database handle {}", handle);
@@ -1208,7 +1329,7 @@ pub fn rekey_database(handle: u64, new_key: String) -> Result<(), DatabaseError>
 }
 
 /// Get the UniFFI version being used
-/// 
+///
 /// This is a simple test function to verify UniFFI is working
 #[uniffi::export]
 pub fn get_uniffi_version() -> String {
@@ -1216,28 +1337,24 @@ pub fn get_uniffi_version() -> String {
 }
 
 /// Create an index on a table for improved query performance
-/// 
+///
 /// # Arguments
 /// * `handle` - Database handle from create_database()
 /// * `table` - Table name
 /// * `columns` - Comma-separated column names (e.g., "email" or "user_id,product_id")
-/// 
+///
 /// # Returns
 /// * Ok(()) on success
 /// * Err(DatabaseError) on failure
-/// 
+///
 /// # Index Naming
 /// Automatically generates index name as `idx_{table}_{columns}` where columns are joined with underscores
-/// 
+///
 /// # Examples
 /// - Single column: `create_index(handle, "users", "email")` creates `idx_users_email`
 /// - Multiple columns: `create_index(handle, "orders", "user_id,product_id")` creates `idx_orders_user_id_product_id`
 #[uniffi::export]
-pub fn create_index(
-    handle: u64,
-    table: String,
-    columns: String,
-) -> Result<(), DatabaseError> {
+pub fn create_index(handle: u64, table: String, columns: String) -> Result<(), DatabaseError> {
     // Validate inputs
     if table.is_empty() {
         return Err(DatabaseError::InvalidParameter {
@@ -1254,7 +1371,8 @@ pub fn create_index(
     // Get database from registry
     let db_arc = {
         let registry = DB_REGISTRY.lock();
-        registry.get(&handle)
+        registry
+            .get(&handle)
             .ok_or(DatabaseError::NotFound {
                 message: format!("Database handle {} not found", handle),
             })?
@@ -1275,7 +1393,7 @@ pub fn create_index(
 
     // Execute CREATE INDEX
     RUNTIME.block_on(async {
-        let mut db = db_arc.lock();
+        let mut db = db_arc.lock().await;
         db.execute(&sql).await
     })?;
 

@@ -882,6 +882,8 @@ await db.close();
 - Full export/import for backup/restore
 - Type-safe from Rust to TypeScript via UniFFI
 
+**Verified 2026-07-26:** the locked `uniffi-bindings` host matrix passes all 67 Rust integration tests. That includes all 9 real export/import cases: new-database restore, same-vault restore, encrypted round-trip, BLOB preservation, invalid handles, and missing files. The same matrix passes `cargo fmt` and `cargo clippy --all-targets -- -D warnings`.
+
 **Setup:** See [**absurder-sql-mobile/README.md**](absurder-sql-mobile/README.md) for build instructions.
 
 #### Mobile Development Environment Setup
