@@ -9,11 +9,22 @@
 #![cfg(target_arch = "wasm32")]
 
 use absurder_sql::storage::wasm_indexeddb::persist_to_indexeddb_event_based;
+use absurder_sql::storage::{BlockMetadataPersist, ChecksumAlgorithm, ChecksumManager};
 use absurder_sql::types::DatabaseError;
 use absurder_sql::{Database, DatabaseConfig};
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
+
+fn metadata_for(data: &[u8], version: u32) -> BlockMetadataPersist {
+    let algo = ChecksumAlgorithm::FastHash;
+    BlockMetadataPersist {
+        checksum: ChecksumManager::compute_checksum_with(data, algo),
+        last_modified_ms: 0,
+        version,
+        algo,
+    }
+}
 
 /// Test that quota exceeded errors are detected
 #[wasm_bindgen_test]
@@ -235,8 +246,9 @@ async fn test_persist_with_retry_on_failure() {
     use js_sys::Date;
 
     let db_name = "test_persist_with_retry";
-    let blocks = vec![(1u64, vec![1u8, 2, 3, 4])];
-    let metadata = vec![(1u64, 100u64)];
+    let block_data = vec![1u8, 2, 3, 4];
+    let metadata = vec![(1u64, metadata_for(&block_data, 100))];
+    let blocks = vec![(1u64, block_data)];
 
     let start = Date::now();
 

@@ -72,6 +72,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Run release-mode WASM tests
+        run: wasm-pack test --headless --chrome --release
+
       - name: Verify WASM build
         run: |
           ls -la pkg/

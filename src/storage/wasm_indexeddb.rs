@@ -1104,8 +1104,13 @@ pub async fn persist_to_indexeddb_event_based(
         let blocks = blocks_clone.clone();
         let metadata = metadata_clone.clone();
         async move {
-            persist_to_indexeddb_event_based_internal(&db_name, blocks, metadata, commit_marker)
-                .await
+            persist_to_indexeddb_event_based_internal(
+                &db_name,
+                blocks,
+                metadata,
+                Some(commit_marker),
+            )
+            .await
         }
     })
     .await;
@@ -1139,7 +1144,7 @@ async fn persist_to_indexeddb_event_based_internal(
     db_name: &str,
     blocks: Vec<(u64, Vec<u8>)>,
     metadata: Vec<(u64, BlockMetadataPersist)>,
-    commit_marker: u64,
+    commit_marker: Option<u64>,
 ) -> Result<(), DatabaseError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen::closure::Closure;
@@ -1343,7 +1348,9 @@ async fn persist_to_indexeddb_event_based_internal(
     // Store metadata with truly idempotent keys: (db_name, block_id)
     for (block_id, mut metadata) in metadata {
         let key = format!("{}:{}", db_name, block_id);
-        metadata.version = u32::try_from(commit_marker).unwrap_or(u32::MAX);
+        if let Some(commit_marker) = commit_marker {
+            metadata.version = u32::try_from(commit_marker).unwrap_or(u32::MAX);
+        }
         if metadata.last_modified_ms == 0 {
             metadata.last_modified_ms = js_sys::Date::now() as u64;
         }
@@ -1367,10 +1374,13 @@ async fn persist_to_indexeddb_event_based_internal(
         let _ = metadata_store.put_with_key(&value, &key.into());
     }
 
-    // Store commit marker
-    let commit_key = format!("{}:commit_marker", db_name);
-    let commit_value = js_sys::Number::from(commit_marker as f64);
-    let _ = metadata_store.put_with_key(&commit_value, &commit_key.into());
+    // Store commit marker only for complete commits. Crash simulation persists the
+    // caller-supplied metadata version while intentionally leaving the marker behind.
+    if let Some(commit_marker) = commit_marker {
+        let commit_key = format!("{}:commit_marker", db_name);
+        let commit_value = js_sys::Number::from(commit_marker as f64);
+        let _ = metadata_store.put_with_key(&commit_value, &commit_key.into());
+    }
 
     // Wait for transaction to complete
     let (tx_tx, tx_rx) = oneshot::channel();
@@ -1429,6 +1439,7 @@ async fn persist_to_indexeddb_event_based_internal(
 #[cfg(target_arch = "wasm32")]
 pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
     log::debug!("Using ASYNC sync_async method");
+    let sync_started_ms = js_sys::Date::now();
     // Get current commit marker
     let current_commit = vfs_sync::with_global_commit_marker(|cm| {
         let cm = cm;
@@ -1453,6 +1464,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         .iter()
         .map(|(k, v)| (*k, v.clone()))
         .collect();
+    let blocks_synced = to_persist.len();
+    storage.observability.record_sync_start(
+        blocks_synced,
+        blocks_synced * super::block_storage::BLOCK_SIZE,
+    );
 
     let metadata_to_persist: Vec<(u64, BlockMetadataPersist)> = to_persist
         .iter()
@@ -1529,7 +1545,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
                     #[cfg(feature = "telemetry")]
                     None,
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    storage.observability.record_sync_failure(&error);
+                    error
+                })?;
             }
             crate::storage::StorageBackend::Opfs | crate::storage::StorageBackend::Hybrid => {
                 super::hybrid_store::hybrid_persist(
@@ -1542,7 +1562,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
                     #[cfg(feature = "telemetry")]
                     None,
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    storage.observability.record_sync_failure(&error);
+                    error
+                })?;
             }
         }
     }
@@ -1552,6 +1576,11 @@ pub async fn sync_async(storage: &BlockStorage) -> Result<(), DatabaseError> {
         let mut dirty = lock_mutex!(storage.dirty_blocks);
         dirty.clear();
     }
+
+    let duration_ms = ((js_sys::Date::now() - sync_started_ms).ceil() as u64).max(1);
+    storage
+        .observability
+        .record_sync_success(duration_ms, blocks_synced);
 
     Ok(())
 }
@@ -1573,24 +1602,24 @@ pub async fn persist_to_indexeddb(
         blocks_vec.len()
     );
 
-    log::debug!("About to call persist_to_indexeddb_event_based");
+    log::debug!("About to persist crash simulation data without a commit marker");
 
-    // For crash simulation, we'll use the existing event-based persistence
-    // but without advancing the commit marker (that's handled by the caller)
-    let result = persist_to_indexeddb_event_based(
-        db_name,
-        blocks_vec,
-        metadata,
-        0,
-        #[cfg(feature = "telemetry")]
-        None,
-        #[cfg(feature = "telemetry")]
-        None,
-    )
-    .await;
+    let db_name = db_name.to_string();
+    let blocks_clone = blocks_vec.clone();
+    let metadata_clone = metadata.clone();
+    let result =
+        super::retry_logic::with_retry("persist_to_indexeddb_without_commit_marker", || {
+            let db_name = db_name.clone();
+            let blocks = blocks_clone.clone();
+            let metadata = metadata_clone.clone();
+            async move {
+                persist_to_indexeddb_event_based_internal(&db_name, blocks, metadata, None).await
+            }
+        })
+        .await;
 
     log::debug!(
-        "persist_to_indexeddb_event_based completed with result: {:?}",
+        "Crash simulation persistence completed with result: {:?}",
         result.is_ok()
     );
 
