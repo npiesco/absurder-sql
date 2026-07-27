@@ -4,8 +4,8 @@
   "collaborators": [
     "Nicholas G. Piesco"
   ],
-  "description": "AbsurderSQL - SQLite + IndexedDB that's absurdly better than absurd-sql",
-  "version": "0.1.26",
+  "description": "High-performance SQLite for browsers (IndexedDB or Hybrid OPFS), native apps, and mobile, with export/import and multi-tab coordination",
+  "version": "0.1.27",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",

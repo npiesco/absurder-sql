@@ -381,7 +381,7 @@ match storage.backend {
 
 **No storage-backend change.** All OPFS code remains gated behind `#[cfg(target_arch = "wasm32")]`, so mobile continues to use `rusqlite` + `fs_persist` on real filesystems.
 
-Follow-up validation by `npiesco` exercised the complete locked UniFFI host suite. It corrected mobile import schema qualification so an empty destination cannot resolve `DROP TABLE` against the attached backup, replaced blocking per-database locks with async-aware Tokio mutexes, refreshed the mobile lockfile to AbsurderSQL 0.1.26, and finished with 67/67 tests plus warning-free clippy.
+Follow-up validation by `npiesco` exercised the complete locked UniFFI host suite. It corrected mobile import schema qualification so an empty destination cannot resolve `DROP TABLE` against the attached backup, replaced blocking per-database locks with async-aware Tokio mutexes, kept the mobile lockfile aligned with the root AbsurderSQL package version, and finished with 67/67 tests plus warning-free clippy.
 
 | Platform | Storage Backend | Changed? |
 |----------|----------------|----------|
