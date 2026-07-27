@@ -104,11 +104,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
 
       - name: Install browser test dependencies
         run: |
-          npm ci
+          npm install
           npx playwright install --with-deps chromium
 
       - name: Run Hybrid storage and benchmark coverage
