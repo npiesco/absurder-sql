@@ -78,6 +78,37 @@ await db.close();
 
 ## API Reference
 
+### `Database.deleteDatabase(name: string)`
+
+Physically removes one database. Close its connections in **all tabs and workers**
+before calling this static method, and prevent new opens or writes until it finishes.
+Names with and without the `.db` suffix identify the same database.
+
+```javascript
+await db.close();
+await Database.deleteDatabase('myapp.db');
+```
+
+The returned `Promise<void>` resolves only after the OPFS mirror is removed and
+the shared IndexedDB `block_storage` transaction commits deletion of that
+database's blocks, metadata, and commit markers. The library then clears its
+local storage registry, connection pool, allocation map, caches, WAL/shared-memory
+state, and database-list entry. Prefix-sharing neighbors are not deleted, and
+late disposal of an old wrapper cannot close a replacement connection. Reopening the name creates an
+empty database, including after browser restart. Repeated deletion is safe.
+
+OPFS locks, IndexedDB open/transaction failures, and database-list failures reject
+the promise; they are not successful deletion. There is no atomic transaction
+across OPFS, IndexedDB, and localStorage: a rejection can follow partial cleanup.
+Do not interpret a rejection as proof that the original database is intact, or
+silently replace it with an empty database. An OPFS removal failure occurs before
+the IndexedDB recovery copy or in-memory state is cleared.
+
+The real browser restart and failure tests run with
+`npx playwright test --config playwright.deletion.config.js`. Set
+`PLAYWRIGHT_EXECUTABLE_PATH` to use an installed Chromium-compatible browser.
+The tests use short, isolated temporary profiles and never an authenticated profile.
+
 ### `Database.exportToFile()`
 
 Exports the entire database to a standard SQLite file format.

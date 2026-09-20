@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-09-20",
+  "status": "Verified deletion candidate checkpoint; not an all-gates-green release",
+  "base_commit": "1113358cc4c69fc980ceb1334fb3e9330c330dd1",
+  "branch": "npiesco-microsoft-absurdersql-deletion",
+  "publication": "No npm publication, release upload, tag, or CI dispatch",
+  "dependency_policy": "0.1.28 identifies these unpublished candidates; the consuming application's manifest remains latest",
+  "artifacts": {
+    "current": {
+      "label": "candidate-vfs-clippy",
+      "tarball": "npiesco-absurder-sql-0.1.28.tgz",
+      "tarball_sha256": "35c1b56b0b660329ba5f85286d10f22c2d6a933df6fb68cbc1df9289cd716337",
+      "wasm_path": "pkg/absurder_sql_bg.wasm",
+      "wasm_sha256": "f106bb1bd9a38b460a4cc7ed94626bc748515d0df3a205a20b6a376ab58a3baa",
+      "wasm_bytes": 1455534,
+      "private_provenance_sha256": "5a30db232c84e08463502e96ff1cf33fb4ebee06197b3cc6604e877aab152a2e"
+    },
+    "original": {
+      "label": "candidate",
+      "tarball": "npiesco-absurder-sql-0.1.28.tgz",
+      "tarball_sha256": "fd10ba9ba9f557dd14059bc153f0285f4d7f91b6a6eb9ffa465a554cb11eedb2",
+      "wasm_sha256": "85cca72fcfac298e3da08cf0c215bdb63664ae12b4a7b84ef49bca9750bd36fc",
+      "private_provenance_sha256": "94977745da4af57fa360d04f0e7b4d850a720905d0ef7a422e4c6773fd25b64d"
+    },
+    "retention": "Both tarballs and full local evidence remain immutable and ignored; no caches, profiles, credentials, or machine-local paths are included in this record",
+    "package_consistency": "All 13 repository-managed package files match the extracted current candidate; referenced snippets are included",
+    "followup_delta": "Only two expression simplifications in x_shm_map/x_shm_lock; exactly one WASM data-section byte changed (offset 1361093, 245 to 243). WASM code, JS, declarations, and snippets are unchanged from the original candidate"
+  },
+  "build": {
+    "host": "aarch64-pc-windows-msvc",
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+    "wasm_pack": "0.14.0",
+    "wasm_bindgen": "0.2.126",
+    "binaryen": "132",
+    "command": "wasm-pack build --target web --out-dir pkg --release",
+    "wasm_opt_arguments": ["-Oz"],
+    "rebuild": "Post-regression optimized rebuild reproduced the current WASM hash",
+    "toolchain_note": "Binaryen 116 could not parse the Rust output; verified task-local Binaryen 132 was used without changing production storage features"
+  },
+  "repair": [
+    "Await committed target-namespace deletion from shared block_storage; reject cursor, request, open, and transaction failures",
+    "Propagate OPFS removal failures before clearing the IndexedDB recovery copy or local state",
+    "Reuse complete registry, connection, allocation, metadata, and commit cleanup; clear exact WAL/shared-memory ownership",
+    "Use exact database identities for shared-memory regions and locks so prefix-sharing neighbors survive",
+    "Check connection generation before old JS wrapper disposal can release a replacement connection"
+  ],
+  "reused_machinery": [
+    "src/storage/wasm_indexeddb.rs:1932 delete_all_database_blocks_from_indexeddb (base line 1843): repair the existing namespace helper and retain queue-slot cleanup",
+    "src/storage/import.rs:39 clear_database_storage: reuse registry/pool/global storage cleanup and extend exact auxiliary cleanup",
+    "src/storage/wasm_opfs.rs:513 delete_all_from_opfs: retain lock/removal machinery and propagate errors",
+    "src/storage/indexeddb_queue.rs:98 acquire_indexeddb_slot: retain operation scheduling",
+    "src/connection_pool.rs:117 release_connection_state: guard existing release_connection by Rc identity",
+    "src/vfs/indexeddb_vfs.rs:1924 clear_shared_memory and :1935 clear_database_auxiliary_state: exact database ownership"
+  ],
+  "real_red": [
+    "Unmodified base: three separate browser processes restored exact original rows after acknowledged deletion for IndexedDB, Hybrid, and OPFS; prefix neighbors remained intact",
+    "A real locked OPFS SyncAccessHandle produced false deletion success",
+    "Optimized prefix-neighbor lifecycle failed 5 of 6 runs before exact shared-memory cleanup; symbolized failure reached SQLite page-cache destruction through allocator free",
+    "Explicit disposal of a retained deleted wrapper closed its replacement and caused a real WASM execution panic"
+  ],
+  "current_candidate_results": [
+    {
+      "command": "npx playwright test --config playwright.deletion.config.js",
+      "environment": "DELETION_PACKAGE_URL points to the extracted current candidate",
+      "result": "13 passed, no retries or skips; real main-thread IndexedDB and worker Hybrid/OPFS, persistent profiles across actual browser termination, exact neighbors, retained wrappers, and real storage refusals"
+    },
+    {
+      "command": "npx playwright test tests/e2e/import-export.spec.js tests/e2e/worker-hybrid-opfs.spec.js tests/e2e/backend-auto-fallback.spec.js --retries=0",
+      "result": "20 passed, no skips; optimized import/export and Hybrid recovery"
+    },
+    {
+      "command": "wasm-pack test --headless --chrome --release --test indexeddb_delete_all_blocks_test --test import_close_persist_test --test import_cache_invalidation_test",
+      "result": "7 passed, no skips; real Chrome using an owned loopback ChromeDriver after an initial driver bind failure before test execution"
+    },
+    {
+      "command": "cargo test --quiet",
+      "environment": "__COMPAT_LAYER=RunAsInvoker, process-local only",
+      "result": "214 passed; 1 ignored documentation example"
+    },
+    {"command": "cargo fmt --all -- --check", "result": "passed"},
+    {"command": "cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings", "result": "passed"},
+    {"command": "git diff --check", "result": "passed"}
+  ],
+  "original_candidate_additional_results": {
+    "comparable_release_no_opt": "13 passed after the repair using the same flags as the original deletion RED",
+    "optimized_repeated_lifecycle": "39 passed across 3 repetitions, no retries or skips",
+    "existing_browser_suite": "78 passed plus 1 opt-in benchmark skipped; subsequent benchmark run passed 2 including the skipped 100/1000/10000-row sweep, exercising all 79 cases successfully across runs",
+    "native_sqlite_readback": "54 actual exported SQLite disk files passed read-only queries and integrity_check, including 9 erased targets and 18 exact surviving neighbors after browser restart",
+    "native_release": "cargo build --release passed before the expression-only Clippy follow-up"
+  },
+  "remaining_gate": {
+    "command": "cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings",
+    "status": "FAILED",
+    "diagnostics": 40,
+    "qualification": "Not waived, suppressed, or qualified; unrelated storage refactoring is outside this checkpoint",
+    "diagnostics_by_file": {
+      "src/storage/block_storage.rs": 13,
+      "src/storage/constructors.rs": 1,
+      "src/storage/io_operations.rs": 3,
+      "src/storage/reentrancy_handler.rs": 2,
+      "src/storage/wasm_auto_sync.rs": 1,
+      "src/storage/wasm_indexeddb.rs": 10,
+      "src/storage/wasm_opfs.rs": 1,
+      "src/storage/wasm_vfs_sync.rs": 1,
+      "src/vfs/indexeddb_vfs.rs": 1,
+      "src/lib.rs": 7
+    }
+  },
+  "downstream_report": {
+    "source": "absurdER parent coordinator, reported 2026-09-20; not independently rerun by this checkpoint",
+    "candidate": "candidate-vfs-clippy",
+    "results": [
+      "Unchanged production physical-deletion, offline-reopen, and no-external-host asset tests: 3/3",
+      "Two full real production/vendor suites: 189/189 each",
+      "Retained-realm lifecycle on Linux and native Windows; native lifecycle: 4/4",
+      "Final Windows/Linux release builds passed; native dev/start: 2/2"
+    ],
+    "policy": "Complete matching unpublished package used only in the owned replay runner; application manifest remains latest"
+  },
+  "checkpoint_validation": "Existing verification was reused. All 24 delivered source/artifact files were hash-checked against immutable provenance before adding this metadata; both tarball hashes and package payload consistency were rechecked. No implementation changes or build/test reruns were required for the checkpoint"
+}

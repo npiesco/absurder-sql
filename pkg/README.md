@@ -283,6 +283,13 @@ absurder-sql/
 │   │   └── multi-tab-vite.spec.js
 │   └── ...                           # 65+ test files total
 │
+├── pwa/                    # Production Next.js PWA
+│   ├── app/                # Application routes, including the database UI
+│   ├── lib/db/             # SharedWorker coordinator, runtime worker, typed proxy
+│   ├── public/sw.js        # Offline service worker and production asset cache
+│   ├── e2e/                # Production PWA Playwright coverage
+│   └── playwright.pwa.config.ts # Serial next build/start test configuration
+│
 ├── examples/               # Browser demos and documentation
 │   ├── vite-app/           # Production Vite application
 │   ├── export_import_demo.html        # Export/import 4-step wizard demo
@@ -803,6 +810,38 @@ worker.postMessage({ type: 'processData' });
 
 **Example:** See `examples/worker-example.html` for a complete working demo
 
+### Production PWA (Hybrid OPFS + IndexedDB)
+
+The checked-in [`pwa/`](pwa/) is a production Next.js PWA backed by AbsurderSQL's local WASM build. A `SharedWorker` coordinates tabs while one elected dedicated Worker owns and serializes the physical database runtime. The Hybrid backend stores blocks in OPFS, keeps coordination metadata and fallback data in IndexedDB, and reopens logical database handles after runtime handoff. The service worker precaches the emitted application, worker, WASM, JavaScript, and CSS assets for offline reload.
+
+Build the local WASM package first, then start the PWA:
+
+```bash
+# Repository root: build WASM and sync it into pwa/lib
+npm install
+npm run build
+
+cd pwa
+npm install
+npm run dev
+```
+
+These commands use your configured npm registry; do not add a direct public-registry override.
+
+Run the production PWA storage suite:
+
+```bash
+cd pwa
+npx playwright install chromium  # First run only
+npm run test:pwa
+```
+
+`test:pwa` runs serially against `next build` and `next start`. It verifies Hybrid selection and reopen, two-tab shared ownership with continued writes after one tab closes, and offline reload from persisted OPFS data.
+
+**Verified 2026-07-26:** all 3 production PWA Playwright scenarios passed in Chrome. Installation through the configured Microsoft CFS feed completed, `npm audit --json` reported 0 vulnerabilities, dependency resolution passed, and the production build completed.
+
+**Implementation provenance:** the PWA is an AbsurderSQL implementation by `npiesco`; it does not import Onyx source or packages. Onyx commits `d039d03`, `a4ecdea`, `417e23d`, `8a18a7c`, and `1d90c3c`, also by `npiesco`, supplied behavioral and production-test references. AbsurderSQL's Hybrid recovery, multi-tab coordination, and benchmark commits remain the implementation authority. See [**docs/HYBRID_OPFS_PLAN.md**](docs/HYBRID_OPFS_PLAN.md#pwa-integration-update-2026-07-25) for the per-section code and author references.
+
 ### Native/CLI Usage (Filesystem)
 
 ```bash
@@ -881,6 +920,8 @@ await db.close();
 - Prepared statements, batch operations, streaming queries
 - Full export/import for backup/restore
 - Type-safe from Rust to TypeScript via UniFFI
+
+**Verified 2026-07-26:** the locked `uniffi-bindings` host matrix passes all 67 Rust integration tests. That includes all 9 real export/import cases: new-database restore, same-vault restore, encrypted round-trip, BLOB preservation, invalid handles, and missing files. The same matrix passes `cargo fmt` and `cargo clippy --all-targets -- -D warnings`.
 
 **Setup:** See [**absurder-sql-mobile/README.md**](absurder-sql-mobile/README.md) for build instructions.
 

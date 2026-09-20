@@ -1776,9 +1776,9 @@ impl Drop for Database {
 
         // Release the connection back to the pool
         // The pool will close it if this was the last reference
-        // Pool uses name without .db, so strip it
-        let pool_key = self.name.trim_end_matches(".db");
-        crate::connection_pool::release_connection(pool_key);
+        if !crate::connection_pool::release_connection_state(&self.connection_state) {
+            return;
+        }
 
         web_sys::console::log_1(&format!("DROP: Connection released for {}", self.name).into());
 
@@ -1993,91 +1993,35 @@ impl Database {
 
     /// Delete a database from storage
     ///
-    /// Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
+    /// Callers must first close the database in every runtime that uses it.
+    /// Success means its persistent blocks and OPFS mirror have been removed.
     #[wasm_bindgen(js_name = "deleteDatabase")]
     pub async fn delete_database(name: String) -> Result<(), JsValue> {
-        use crate::storage::vfs_sync::{
-            with_global_commit_marker, with_global_metadata, with_global_storage,
-        };
-
-        // Normalize database name
-        let normalized_name = if name.ends_with(".db") {
-            name.clone()
-        } else {
-            format!("{}.db", name)
-        };
-
+        let normalized_name = crate::utils::normalize_db_name(&name);
         log::info!("Deleting database: {}", normalized_name);
 
-        // Remove from STORAGE_REGISTRY
-        use crate::vfs::indexeddb_vfs::remove_storage_from_registry;
-        remove_storage_from_registry(&normalized_name);
-
-        // Remove from GLOBAL_STORAGE
-        with_global_storage(|gs| {
-            #[cfg(target_arch = "wasm32")]
-            let mut storage = gs.borrow_mut();
-            #[cfg(not(target_arch = "wasm32"))]
-            let mut storage = gs.lock();
-            storage.remove(&normalized_name);
-        });
-
-        // Remove from GLOBAL_METADATA
-        with_global_metadata(|gm| {
-            #[cfg(target_arch = "wasm32")]
-            let mut metadata = gm.borrow_mut();
-            #[cfg(not(target_arch = "wasm32"))]
-            let mut metadata = gm.lock();
-            metadata.remove(&normalized_name);
-        });
-
-        // Remove from commit markers
-        with_global_commit_marker(|cm| {
-            #[cfg(target_arch = "wasm32")]
-            let mut markers = cm.borrow_mut();
-            #[cfg(not(target_arch = "wasm32"))]
-            let mut markers = cm.lock();
-            log::info!(
-                "Cleared commit marker for {} from GLOBAL storage",
-                normalized_name
-            );
-            markers.remove(&normalized_name);
-        });
-
-        // Delete from IndexedDB (typed web-sys API — no eval, so it works under
-        // MV3's strict CSP where 'unsafe-eval' is forbidden).
-        let idb_name = format!("absurder_{}", normalized_name);
-        {
-            use wasm_bindgen::JsCast;
-            let global = js_sys::global();
-            let indexed_db_value =
-                js_sys::Reflect::get(&global, &JsValue::from_str("indexedDB"))
-                    .map_err(|e| JsValue::from_str(&format!("IndexedDB access failed: {:?}", e)))?;
-            if !indexed_db_value.is_null() && !indexed_db_value.is_undefined() {
-                let idb_factory: web_sys::IdbFactory = indexed_db_value
-                    .dyn_into()
-                    .map_err(|_| JsValue::from_str("indexedDB is not an IdbFactory"))?;
-                idb_factory.delete_database(&idb_name).map_err(|e| {
-                    JsValue::from_str(&format!("Failed to delete IndexedDB: {:?}", e))
+        crate::storage::export_import_lock::with_lock(&normalized_name, || async {
+            // Do not erase the recovery copy or local state when OPFS is still locked.
+            crate::storage::wasm_opfs::delete_all_from_opfs(&normalized_name)
+                .await
+                .map_err(|error| {
+                    JsValue::from_str(&format!("{}: {}", error.code, error.message))
                 })?;
-            }
-        }
+            crate::storage::wasm_indexeddb::delete_all_database_blocks_from_indexeddb(
+                &normalized_name,
+            )
+            .await
+            .map_err(|error| JsValue::from_str(&format!("{}: {}", error.code, error.message)))?;
 
-        if let Err(error) = crate::storage::wasm_opfs::delete_all_from_opfs(&normalized_name).await
-        {
-            log::warn!(
-                "Failed to delete OPFS data for {} during deleteDatabase: {}",
-                normalized_name,
-                error.message
-            );
-        }
-
-        log::info!("Database deleted: {}", normalized_name);
-
-        // Remove from persistent list
-        Self::remove_database_from_persistent_list(&normalized_name)?;
-
-        Ok(())
+            crate::storage::wasm_auto_sync::unregister_wasm_auto_sync(&normalized_name);
+            crate::storage::import::clear_database_storage(&normalized_name)
+                .await
+                .map_err(|error| JsValue::from_str(&error.to_string()))?;
+            Self::remove_database_from_persistent_list(&normalized_name)?;
+            log::info!("Database deleted: {}", normalized_name);
+            Ok(())
+        })
+        .await
     }
 
     /// Add database name to persistent list in localStorage

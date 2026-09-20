@@ -1901,20 +1901,42 @@ unsafe extern "C" fn x_device_characteristics(_p_file: *mut sqlite_wasm_rs::sqli
     0x00000001 | 0x00000200 | 0x00000400 | 0x00000800 | 0x00001000
 }
 
-// Shared memory support for WAL mode
-// Global shared memory regions stored per database
-// Use Box to ensure stable heap pointers that don't move on reallocation
+// Boxed slices keep SQLite's WAL pointers stable for the lifetime of each region.
+#[cfg(target_arch = "wasm32")]
+type SharedMemoryRegions = HashMap<(String, c_int), Box<[u8]>>;
+#[cfg(target_arch = "wasm32")]
+type SharedMemoryLocks = HashMap<(String, c_int), (usize, i32)>;
+
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    static SHARED_MEMORY: std::cell::RefCell<std::collections::HashMap<String, Box<Vec<u8>>>> =
+    static SHARED_MEMORY: std::cell::RefCell<SharedMemoryRegions> =
         std::cell::RefCell::new(std::collections::HashMap::new());
     // Track locks with (owner_pointer, flags) to allow same connection to reacquire but block others
-    static SHARED_LOCKS: std::cell::RefCell<std::collections::HashMap<String, (usize, i32)>> =
+    static SHARED_LOCKS: std::cell::RefCell<SharedMemoryLocks> =
         std::cell::RefCell::new(std::collections::HashMap::new());
     // Shared WAL storage - simple Vec<u8> per database, max 8MB per WAL
     // This is separate from BlockStorage to control memory usage
     static WAL_STORAGE: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+#[cfg(target_arch = "wasm32")]
+fn clear_shared_memory(db_name: &str) {
+    SHARED_MEMORY.with(|shm| {
+        shm.borrow_mut().retain(|(name, _), _| name != db_name);
+    });
+    SHARED_LOCKS.with(|locks| {
+        locks.borrow_mut().retain(|(name, _), _| name != db_name);
+    });
+}
+
+/// Clear auxiliary state only after the database's SQLite connection is closed.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn clear_database_auxiliary_state(db_name: &str) {
+    clear_shared_memory(db_name);
+    WAL_STORAGE.with(|wal| {
+        wal.borrow_mut().remove(db_name);
+    });
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1939,19 +1961,15 @@ unsafe extern "C" fn x_shm_map(
     );
 
     // Ensure shared memory exists for this database
-    let result = SHARED_MEMORY.with(|shm| {
+    SHARED_MEMORY.with(|shm| {
         let mut shm_map = shm.borrow_mut();
-        let key = format!("{}_region_{}", db_name, i_region);
+        let key = (db_name.clone(), i_region);
 
         let entry = shm_map.entry(key).or_insert_with(|| {
             vfs_log!("Creating shared memory region {} for {}", i_region, db_name);
             // Allocate WAL shared memory: standard size is 32KB, but allocate what's requested
-            // CRITICAL: Use with_capacity and then resize to ensure stable pointer
-            // The capacity ensures the Vec won't reallocate on the resize
             let size = std::cmp::max(sz_region as usize, 32 * 1024);
-            let mut vec = Vec::with_capacity(size);
-            vec.resize(size, 0);
-            Box::new(vec)
+            vec![0; size].into_boxed_slice()
         });
 
         // Never resize after creation - this would invalidate pointers returned to SQLite
@@ -1971,9 +1989,7 @@ unsafe extern "C" fn x_shm_map(
             *pp = entry.as_mut_ptr() as *mut c_void;
         }
         sqlite_wasm_rs::SQLITE_OK
-    });
-
-    result
+    })
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2017,7 +2033,7 @@ unsafe extern "C" fn x_shm_lock(
 
     SHARED_LOCKS.with(|locks| -> c_int {
         let mut lock_map = locks.borrow_mut();
-        let key = format!("{}_{}", db_name, offset);
+        let key = (db_name.clone(), offset);
 
         if (flags & 1) != 0 {  // UNLOCK
             // Only unlock if this connection owns the lock
@@ -2051,12 +2067,10 @@ unsafe extern "C" fn x_shm_lock(
                                  offset, file_ptr, owner, existing_flags, flags);
                         return sqlite_wasm_rs::SQLITE_BUSY;
                     }
-                } else if is_exclusive_held {
-                    if is_lock_request || is_shared_request {
-                        vfs_log!("VFS xShmLock: BLOCKED at offset {} - owner={:x} holder={:x} existing={} requested={}", 
-                                 offset, file_ptr, owner, existing_flags, flags);
-                        return sqlite_wasm_rs::SQLITE_BUSY;
-                    }
+                } else if is_exclusive_held && (is_lock_request || is_shared_request) {
+                    vfs_log!("VFS xShmLock: BLOCKED at offset {} - owner={:x} holder={:x} existing={} requested={}",
+                             offset, file_ptr, owner, existing_flags, flags);
+                    return sqlite_wasm_rs::SQLITE_BUSY;
                 }
             }
             // Same connection can upgrade/downgrade its own lock
@@ -2092,16 +2106,7 @@ unsafe extern "C" fn x_shm_unmap(
     vfs_log!("VFS xShmUnmap: delete={} for {}", delete_flag, db_name);
 
     if delete_flag != 0 {
-        // Delete all shared memory regions for this database
-        SHARED_MEMORY.with(|shm| {
-            let mut shm_map = shm.borrow_mut();
-            shm_map.retain(|k, _| !k.starts_with(db_name));
-        });
-
-        SHARED_LOCKS.with(|locks| {
-            let mut lock_map = locks.borrow_mut();
-            lock_map.retain(|k, _| !k.starts_with(db_name));
-        });
+        clear_shared_memory(db_name);
 
         vfs_log!("Deleted all shared memory regions for {}", db_name);
     }

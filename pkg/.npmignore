@@ -1,0 +1,2 @@
+# Keep generated entrypoints, WASM, and imported snippets in the npm package.
+# wasm-pack's .gitignore must not exclude runtime assets from npm pack.

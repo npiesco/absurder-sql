@@ -1822,356 +1822,132 @@ pub async fn delete_blocks_from_indexeddb(
     }
 }
 
-/// Delete ALL blocks and metadata for a database from IndexedDB
+// Keep cursor callbacks in one browser task chain: awaiting between stores can
+// let IndexedDB auto-commit before the second cursor is queued.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+export function absurd_idb_delete_namespace(factory, dbName) {
+  return new Promise((resolve, reject) => {
+    const request = factory.open('block_storage', 2);
+    let settled = false;
+    let failure;
+    const fail = error => {
+      settled = true;
+      reject(error);
+    };
+    request.onblocked = () => fail(new Error('IndexedDB deletion blocked by an open connection'));
+    request.onerror = () => fail(failure || request.error);
+    request.onupgradeneeded = () => {
+      if (settled) {
+        request.transaction.abort();
+        return;
+      }
+      try {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('blocks')) db.createObjectStore('blocks');
+        if (!db.objectStoreNames.contains('metadata')) db.createObjectStore('metadata');
+      } catch (error) {
+        failure = error;
+        request.transaction.abort();
+      }
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      if (settled) {
+        db.close();
+        return;
+      }
+      let transaction;
+      const abort = error => {
+        failure = error;
+        if (transaction) {
+          try {
+            transaction.abort();
+            return;
+          } catch (abortError) {
+            failure = new Error(String(error) + '; abort failed: ' + String(abortError));
+          }
+        }
+        db.close();
+        fail(failure);
+      };
+      try {
+        transaction = db.transaction(['blocks', 'metadata'], 'readwrite');
+        transaction.oncomplete = () => {
+          db.close();
+          settled = true;
+          resolve();
+        };
+        transaction.onerror = event => {
+          failure = event.target.error || new Error('IndexedDB deletion request failed');
+        };
+        transaction.onabort = () => {
+          db.close();
+          fail(failure || transaction.error || new Error('IndexedDB deletion aborted'));
+        };
+        const prefix = dbName + ':';
+        const range = IDBKeyRange.bound(prefix, prefix + '\uffff');
+        for (const storeName of ['blocks', 'metadata']) {
+          const store = transaction.objectStore(storeName);
+          const cursorRequest = store.openCursor(range);
+          cursorRequest.onsuccess = () => {
+            try {
+              const cursor = cursorRequest.result;
+              if (!cursor) return;
+              const suffix = cursor.key.slice(prefix.length);
+              // Numeric block IDs, including legacy checksum/version suffixes.
+              // A neighboring database name may itself contain the ':' separator.
+              if (/^[0-9]+(?::[0-9]+)?$/.test(suffix) ||
+                  (storeName === 'metadata' && suffix === 'commit_marker')) {
+                cursor.delete();
+              }
+              cursor.continue();
+            } catch (error) {
+              abort(error);
+            }
+          };
+        }
+        transaction.objectStore('metadata').delete(dbName + '_commit_marker');
+      } catch (error) {
+        abort(error);
+      }
+    };
+  });
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = absurd_idb_delete_namespace, catch)]
+    async fn js_delete_namespace(
+        factory: &web_sys::IdbFactory,
+        db_name: &str,
+    ) -> Result<(), JsValue>;
+}
+
+/// Atomically delete a database's blocks, metadata, and commit markers.
 ///
-/// Unlike `delete_blocks_from_indexeddb`, this function does NOT require knowing
-/// the block IDs beforehand. It scans IndexedDB for all keys matching the database
-/// name prefix and deletes them. This is essential for import operations where
-/// the database was closed (clearing the allocation map) before import.
-///
-/// # Arguments
-/// * `db_name` - Name of the database (without .db extension)
-///
-/// # Returns
-/// * `Ok(())` - All blocks deleted successfully
-/// * `Err(DatabaseError)` - If deletion fails
-///
-/// # Key Format
-/// Blocks are stored with keys: `{db_name}:{block_id}`
-/// This function deletes all keys starting with `{db_name}:`
+/// Uses the normalized `.db` namespace, independently of the in-memory allocation
+/// map. Both stores are queued before yielding; only transaction completion can
+/// acknowledge erasure. Neighboring namespaces, including prefix matches, survive.
 #[cfg(target_arch = "wasm32")]
 pub async fn delete_all_database_blocks_from_indexeddb(db_name: &str) -> Result<(), DatabaseError> {
-    use futures::channel::oneshot;
-    use wasm_bindgen::JsCast;
-    use wasm_bindgen::closure::Closure;
-
-    log::info!(
-        "[DELETE_ALL] Starting deletion of ALL blocks for database: {}",
-        db_name
-    );
-    web_sys::console::log_1(
-        &format!(
-            "[DELETE_ALL] Deleting all IndexedDB entries for: {}",
-            db_name
-        )
-        .into(),
-    );
-
-    let open_req = open_indexeddb("block_storage", 2)?;
-
-    // Set up upgrade handler (should not be needed, but included for safety)
-    let upgrade_closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-        match (|| -> Result<(), Box<dyn std::error::Error>> {
-            let target = event.target().ok_or("No event target")?;
-            let request: web_sys::IdbOpenDbRequest =
-                target.dyn_into().map_err(|_| "Cast failed")?;
-            let result = request.result().map_err(|_| "No result")?;
-            let db: web_sys::IdbDatabase = result
-                .dyn_into()
-                .map_err(|_| "Cast to IdbDatabase failed")?;
-
-            if !db.object_store_names().contains("blocks") {
-                db.create_object_store("blocks")
-                    .map_err(|_| "Create blocks store failed")?;
-            }
-            if !db.object_store_names().contains("metadata") {
-                db.create_object_store("metadata")
-                    .map_err(|_| "Create metadata store failed")?;
-            }
-            Ok(())
-        })() {
-            Ok(_) => {}
-            Err(e) => log::error!("[DELETE_ALL] Upgrade handler error: {}", e),
-        }
-    }) as Box<dyn FnMut(_)>);
-    open_req.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
-    upgrade_closure.forget();
-
-    // Wait for database to open
-    let (open_tx, open_rx) = oneshot::channel();
-    let open_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(open_tx)));
-
-    let success_closure = {
-        let open_tx = open_tx.clone();
-        Closure::wrap(Box::new(move |event: web_sys::Event| {
-            if let Some(sender) = open_tx.borrow_mut().take() {
-                let target = event.target().unwrap();
-                let request: web_sys::IdbOpenDbRequest = target.dyn_into().unwrap();
-                let result = request.result().unwrap();
-                let db: web_sys::IdbDatabase = result.dyn_into().unwrap();
-                let _ = sender.send(Ok(db));
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    let error_closure = {
-        let open_tx = open_tx.clone();
-        Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            if let Some(sender) = open_tx.borrow_mut().take() {
-                let _ = sender.send(Err("Failed to open IndexedDB".to_string()));
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    open_req.set_onsuccess(Some(success_closure.as_ref().unchecked_ref()));
-    open_req.set_onerror(Some(error_closure.as_ref().unchecked_ref()));
-    success_closure.forget();
-    error_closure.forget();
-
-    let db = match open_rx.await {
-        Ok(Ok(db)) => db,
-        Ok(Err(e)) => return Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
-        Err(_) => {
-            return Err(DatabaseError::new(
-                "INDEXEDDB_ERROR",
-                "Channel error opening DB",
-            ));
-        }
-    };
-
-    // Acquire queue slot to prevent browser-level IndexedDB contention
+    let db_name = crate::utils::normalize_db_name(db_name);
+    let factory = get_indexeddb_factory()?;
     super::indexeddb_queue::acquire_indexeddb_slot().await;
-    web_sys::console::log_1(&"[DELETE_ALL] Acquired IndexedDB slot".into());
-
-    // Guard to ensure slot is released on all exit paths
     struct SlotGuard;
     impl Drop for SlotGuard {
         fn drop(&mut self) {
             super::indexeddb_queue::release_indexeddb_slot();
-            web_sys::console::log_1(&"[DELETE_ALL] Released IndexedDB slot via guard".into());
         }
     }
     let _slot_guard = SlotGuard;
-
-    // Start readwrite transaction on both stores
-    let store_names = js_sys::Array::new();
-    store_names.push(&"blocks".into());
-    store_names.push(&"metadata".into());
-    let transaction = db
-        .transaction_with_str_sequence_and_mode(
-            &store_names,
-            web_sys::IdbTransactionMode::Readwrite,
-        )
-        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create transaction"))?;
-
-    let blocks_store = transaction
-        .object_store("blocks")
-        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get blocks store"))?;
-    let metadata_store = transaction
-        .object_store("metadata")
-        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to get metadata store"))?;
-
-    // Create key range for all entries with this database prefix
-    // Keys are formatted as: {db_name}:{block_id}:{checksum}
-    let key_prefix_start = format!("{}:", db_name);
-    let key_prefix_end = format!("{}:\u{FFFF}", db_name);
-
-    let key_range = web_sys::IdbKeyRange::bound(
-        &key_prefix_start.clone().into(),
-        &key_prefix_end.clone().into(),
-    )
-    .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to create key range"))?;
-
-    web_sys::console::log_1(
-        &format!(
-            "[DELETE_ALL] Key range: {} to {}",
-            key_prefix_start, key_prefix_end
-        )
-        .into(),
-    );
-
-    // Delete from blocks store using cursor
-    let blocks_cursor_req = blocks_store
-        .open_cursor_with_range(&key_range)
-        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open blocks cursor"))?;
-
-    let (blocks_tx, blocks_rx) = oneshot::channel::<Result<u32, String>>();
-    let blocks_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(blocks_tx)));
-    let blocks_deleted = std::rc::Rc::new(std::cell::RefCell::new(0u32));
-
-    let blocks_closure = {
-        let blocks_tx = blocks_tx.clone();
-        let blocks_deleted = blocks_deleted.clone();
-        Closure::wrap(Box::new(move |event: web_sys::Event| {
-            let target = event.target().unwrap();
-            let request: web_sys::IdbRequest = target.unchecked_into();
-            let result = request.result().unwrap();
-
-            if !result.is_null() && !result.is_undefined() {
-                let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
-
-                // Log the key being deleted
-                if let Ok(key) = cursor.key() {
-                    if let Some(key_str) = key.as_string() {
-                        web_sys::console::log_1(
-                            &format!("[DELETE_ALL] Deleting block key: {}", key_str).into(),
-                        );
-                    }
-                }
-
-                // Delete and continue
-                let _ = cursor.delete();
-                *blocks_deleted.borrow_mut() += 1;
-                let _ = cursor.continue_();
-            } else {
-                // Done iterating
-                let count = *blocks_deleted.borrow();
-                if let Some(sender) = blocks_tx.borrow_mut().take() {
-                    let _ = sender.send(Ok(count));
-                }
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    let blocks_error_closure = {
-        let blocks_tx = blocks_tx.clone();
-        Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            if let Some(sender) = blocks_tx.borrow_mut().take() {
-                let _ = sender.send(Err("Blocks cursor error".to_string()));
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    blocks_cursor_req.set_onsuccess(Some(blocks_closure.as_ref().unchecked_ref()));
-    blocks_cursor_req.set_onerror(Some(blocks_error_closure.as_ref().unchecked_ref()));
-    blocks_closure.forget();
-    blocks_error_closure.forget();
-
-    let blocks_result = blocks_rx.await;
-    let blocks_count = match blocks_result {
-        Ok(Ok(count)) => count,
-        Ok(Err(e)) => {
-            log::error!("[DELETE_ALL] Error deleting blocks: {}", e);
-            0
-        }
-        Err(_) => 0,
-    };
-
-    web_sys::console::log_1(&format!("[DELETE_ALL] Deleted {} blocks", blocks_count).into());
-
-    // Delete from metadata store using same key range
-    let metadata_cursor_req = metadata_store
-        .open_cursor_with_range(&key_range)
-        .map_err(|_| DatabaseError::new("INDEXEDDB_ERROR", "Failed to open metadata cursor"))?;
-
-    let (meta_tx, meta_rx) = oneshot::channel::<Result<u32, String>>();
-    let meta_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(meta_tx)));
-    let meta_deleted = std::rc::Rc::new(std::cell::RefCell::new(0u32));
-
-    let meta_closure = {
-        let meta_tx = meta_tx.clone();
-        let meta_deleted = meta_deleted.clone();
-        Closure::wrap(Box::new(move |event: web_sys::Event| {
-            let target = event.target().unwrap();
-            let request: web_sys::IdbRequest = target.unchecked_into();
-            let result = request.result().unwrap();
-
-            if !result.is_null() && !result.is_undefined() {
-                let cursor: web_sys::IdbCursorWithValue = result.unchecked_into();
-
-                if let Ok(key) = cursor.key() {
-                    if let Some(key_str) = key.as_string() {
-                        web_sys::console::log_1(
-                            &format!("[DELETE_ALL] Deleting metadata key: {}", key_str).into(),
-                        );
-                    }
-                }
-
-                let _ = cursor.delete();
-                *meta_deleted.borrow_mut() += 1;
-                let _ = cursor.continue_();
-            } else {
-                let count = *meta_deleted.borrow();
-                if let Some(sender) = meta_tx.borrow_mut().take() {
-                    let _ = sender.send(Ok(count));
-                }
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    let meta_error_closure = {
-        let meta_tx = meta_tx.clone();
-        Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            if let Some(sender) = meta_tx.borrow_mut().take() {
-                let _ = sender.send(Err("Metadata cursor error".to_string()));
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    metadata_cursor_req.set_onsuccess(Some(meta_closure.as_ref().unchecked_ref()));
-    metadata_cursor_req.set_onerror(Some(meta_error_closure.as_ref().unchecked_ref()));
-    meta_closure.forget();
-    meta_error_closure.forget();
-
-    let meta_result = meta_rx.await;
-    let meta_count = match meta_result {
-        Ok(Ok(count)) => count,
-        Ok(Err(e)) => {
-            log::error!("[DELETE_ALL] Error deleting metadata: {}", e);
-            0
-        }
-        Err(_) => 0,
-    };
-
-    web_sys::console::log_1(
-        &format!("[DELETE_ALL] Deleted {} metadata entries", meta_count).into(),
-    );
-
-    // Also delete the commit marker (stored with key "{db_name}_commit_marker")
-    let commit_marker_key = format!("{}_commit_marker", db_name);
-    web_sys::console::log_1(
-        &format!("[DELETE_ALL] Deleting commit marker: {}", commit_marker_key).into(),
-    );
-    let _ = metadata_store.delete(&commit_marker_key.into());
-
-    // Wait for transaction to complete
-    let (tx_tx, tx_rx) = oneshot::channel();
-    let tx_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(tx_tx)));
-
-    let complete_closure = {
-        let tx_tx = tx_tx.clone();
-        Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            if let Some(sender) = tx_tx.borrow_mut().take() {
-                let _ = sender.send(Ok(()));
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    let tx_error_closure = {
-        let tx_tx = tx_tx.clone();
-        Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            if let Some(sender) = tx_tx.borrow_mut().take() {
-                let _ = sender.send(Err("Transaction failed".to_string()));
-            }
-        }) as Box<dyn FnMut(_)>)
-    };
-
-    transaction.set_oncomplete(Some(complete_closure.as_ref().unchecked_ref()));
-    transaction.set_onerror(Some(tx_error_closure.as_ref().unchecked_ref()));
-    complete_closure.forget();
-    tx_error_closure.forget();
-
-    match tx_rx.await {
-        Ok(Ok(())) => {
-            log::info!(
-                "[DELETE_ALL] Successfully deleted all IndexedDB data for {}: {} blocks, {} metadata entries",
-                db_name,
-                blocks_count,
-                meta_count
-            );
-            web_sys::console::log_1(
-                &format!(
-                    "[DELETE_ALL] Complete: {} blocks, {} metadata for {}",
-                    blocks_count, meta_count, db_name
-                )
-                .into(),
-            );
-            Ok(())
-        }
-        Ok(Err(e)) => Err(DatabaseError::new("INDEXEDDB_ERROR", &e)),
-        Err(_) => Err(DatabaseError::new(
-            "INDEXEDDB_ERROR",
-            "Channel error during delete all",
-        )),
-    }
+    js_delete_namespace(&factory, &db_name)
+        .await
+        .map_err(|error| {
+            DatabaseError::new(
+                "INDEXEDDB_ERROR",
+                &format!("Failed to delete {}: {:?}", db_name, error),
+            )
+        })?;
+    log::info!("Deleted all IndexedDB data for {}", db_name);
+    Ok(())
 }

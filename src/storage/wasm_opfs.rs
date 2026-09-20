@@ -110,7 +110,7 @@ export async function absurd_opfs_delete(fileName) {
     const root = await absurdGetRoot();
     await root.removeEntry(fileName);
   } catch (error) {
-    if (!String(error).includes('NotFound')) {
+    if (!error || error.name !== 'NotFoundError') {
       throw error;
     }
   }
