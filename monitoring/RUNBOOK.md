@@ -2,6 +2,13 @@
 
 This runbook provides troubleshooting steps for each alert defined in the Prometheus alerting rules.
 
+The rules are in `prometheus/alerts.yml`. Their older latency expressions
+need the `_ms_bucket` names emitted by the current metrics implementation;
+the examples below use those names. Thresholds are in milliseconds. See
+[current library qualification](../docs/NATIVE_QUALIFICATION.md) for the
+separate optional-telemetry gates and retained failures, not a monitoring
+deployment qualification.
+
 ## Table of Contents
 
 - [Critical Alerts](#critical-alerts)
@@ -77,7 +84,8 @@ This runbook provides troubleshooting steps for each alert defined in the Promet
 3. **Long-term fixes**
    - Add query validation before execution
    - Implement better error handling
-   - Add retry logic for transient errors
+   - Preserve and surface durability errors from sync, close, import/reopen,
+     and deletion; do not acknowledge success or open an empty fallback database
 
 ---
 
@@ -96,7 +104,7 @@ This runbook provides troubleshooting steps for each alert defined in the Promet
 
 1. **Check query latency distribution**
    ```promql
-   histogram_quantile(0.99, rate(absurdersql_query_duration_bucket[5m]))
+   histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m]))
    ```
 
 2. **Identify slow queries**
@@ -276,7 +284,8 @@ This runbook provides troubleshooting steps for each alert defined in the Promet
 1. **Immediate mitigation**
    - Close duplicate tabs
    - Refresh all tabs
-   - Clear browser storage and restart
+   - Preserve data and close the affected database's users before reopening;
+     do not clear an origin's shared IndexedDB store as a coordination repair
 
 2. **Configuration adjustments**
    - Increase leader election timeout
@@ -382,7 +391,7 @@ This runbook provides troubleshooting steps for each alert defined in the Promet
 
 1. **Check query patterns**
    ```promql
-   histogram_quantile(0.95, rate(absurdersql_query_duration_bucket[5m]))
+   histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m]))
    ```
 
 2. **Monitor cache hit rate**
@@ -504,7 +513,10 @@ This runbook provides troubleshooting steps for each alert defined in the Promet
 
 1. **Reduce transaction size**
 2. **Batch operations more efficiently**
-3. **Consider clearing and rebuilding database**
+3. **Back up before any destructive recovery.** For intentional removal, close
+   every user of the name, then await `Database.deleteDatabase(name)`. This
+   removes the exact OPFS/shared-IndexedDB namespace and preserves neighbors;
+   a rejected deletion is not a successful cleanup.
 
 ---
 
@@ -572,12 +584,10 @@ absurdersql_queries_total[5m]
 
 ### Testing Alerts
 
-Manually trigger conditions:
-
-```bash
-# Simulate high error rate
-curl -X POST http://localhost:9090/api/v1/alerts
-```
+Exercise an actual failing query in an isolated application instance, confirm
+its error counter and query counter change at `/metrics`, then evaluate the
+alert expression and its `for` interval in Prometheus. Posting an empty request
+to Prometheus's alerts endpoint does not generate a database error.
 
 ### Dashboard Access
 

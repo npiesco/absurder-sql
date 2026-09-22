@@ -1,61 +1,8 @@
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-async function phase(profile, baseURL, options) {
-  const logs = [];
-  const context = await chromium.launchPersistentContext(profile, {
-    headless: true,
-    ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH
-      ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH }
-      : process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
-  });
-  try {
-    const page = await context.newPage();
-    page.on('console', message => {
-      logs.push(message.text());
-      if (logs.length > 60) logs.shift();
-    });
-    await page.goto(`${baseURL}/tests/e2e/fixtures/physical-deletion.html`);
-    return await page.evaluate(async options => {
-      const moduleURL = new URL('./physical-deletion-runtime.js', location.href);
-      if (options.packageURL) moduleURL.searchParams.set('package', options.packageURL);
-      const url = moduleURL.href;
-      if (options.backend === 'IndexedDB') {
-        const { runPhase } = await import(url);
-        return await runPhase(options);
-      }
-      const source = `const runtime = import(${JSON.stringify(url)});
-        self.addEventListener('error', event => {
-          self.postMessage({ error: String(event.error || event.message), stack: event.error?.stack });
-        });
-        self.onmessage = async event => {
-          try { self.postMessage({ result: await (await runtime).runPhase(event.data) }); }
-          catch (error) { self.postMessage({ error: String(error), stack: error.stack }); }
-        };`;
-      const workerURL = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-      const worker = new Worker(workerURL, { type: 'module' });
-      try {
-        return await new Promise((resolve, reject) => {
-          worker.onmessage = event => event.data.error
-            ? reject(new Error(`${event.data.error}\n${event.data.stack || ''}`))
-            : resolve(event.data.result);
-          worker.onerror = event => reject(new Error(event.message));
-          worker.postMessage(options);
-        });
-      } finally {
-        worker.terminate();
-        URL.revokeObjectURL(workerURL);
-      }
-    }, { ...options, packageURL: process.env.DELETION_PACKAGE_URL });
-  } catch (error) {
-    throw new Error(`${options.backend}/${options.phase}: ${error.stack}\nBrowser log:\n${logs.join('\n')}`, { cause: error });
-  } finally {
-    // Closing a persistent context exits its browser process; the next phase has no WASM/RAM state.
-    await context.close();
-  }
-}
+import { runBrowserPhase as phase } from './helpers/browser-runtime.js';
 
 function expectErased(result, target) {
   expect(result.keys.blocks.filter(key => key.startsWith(`${target}:`))).toEqual([]);

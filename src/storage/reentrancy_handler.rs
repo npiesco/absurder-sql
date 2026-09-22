@@ -16,7 +16,7 @@ thread_local! {
     static DEFERRED_OPS: RefCell<VecDeque<DeferredOperation>> = RefCell::new(VecDeque::new());
 
     /// Flag indicating if we're currently processing deferred operations
-    static PROCESSING_DEFERRED: RefCell<bool> = RefCell::new(false);
+    static PROCESSING_DEFERRED: RefCell<bool> = const { RefCell::new(false) };
 }
 
 /// Try to borrow a RefCell mutably, and if it fails due to reentrancy,
@@ -128,10 +128,7 @@ where
                 let promise = js_sys::Promise::new(&mut |resolve, _| {
                     web_sys::window()
                         .unwrap()
-                        .set_timeout_with_callback_and_timeout_and_arguments_0(
-                            &resolve,
-                            delay_ms as i32,
-                        )
+                        .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay_ms)
                         .unwrap();
                 });
                 wasm_bindgen_futures::JsFuture::from(promise).await.ok();

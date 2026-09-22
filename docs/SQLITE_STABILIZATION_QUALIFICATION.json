@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "scope": "Uncommitted upstream stabilization after the authorized deletion checkpoint; qualified unpublished candidates, not a publication",
+  "base_commit": "52af0dcdd2e0755a44b9472ac407dc281e3b331e",
+  "branch": "npiesco-absurdersql-deletion",
+  "runtime_source_snapshot_sha256": "dad352949c595058bac96b74f22d4e663e0e867cda7e3489aff57ec0c9a25bd5",
+  "source_identity_sha256": "38fff6d9ef26f96257aaa2c8fa1292734f3d749ad373b0a10afb0aa2ae4478a9",
+  "review": "Independent reviews reported no significant issues through this exact runtime snapshot; later changes are qualification documentation and a test-only File snapshot observation correction",
+  "packages": {
+    "default": {
+      "name": "@npiesco/absurder-sql",
+      "version": "0.1.28",
+      "label": "stabilized-default-v1",
+      "tarball_sha256": "ec319ffb59cf900386ef2a180498d2f52b48b804028b44410e8ddd2bc5974b12",
+      "wasm_sha256": "6149d73d1380f980fd28d957135218028500b32e0c942652c68417ba9d8d290c",
+      "wasm_bytes": 1431130
+    },
+    "telemetry": {
+      "name": "@npiesco/absurder-sql",
+      "version": "0.1.28",
+      "label": "stabilized-telemetry-v1",
+      "tarball_sha256": "4ec9c66b29844e3ed1d0ee95eae63484a990b8eaee0cbc498e0b08e008e4e569",
+      "wasm_sha256": "630b04805971f7b4ef2ee4a8f22f3947a268648cbb06d5a0cfa3537c3c6561e3",
+      "wasm_bytes": 1879554
+    }
+  },
+  "build": {
+    "host": "aarch64-pc-windows-msvc",
+    "rustc": "1.98.0",
+    "wasm_pack": "0.14.0",
+    "wasm_bindgen": "0.2.126",
+    "binaryen": "132",
+    "default_command": "wasm-pack build --target web --out-dir pkg --release",
+    "telemetry_command": "wasm-pack build --target web --out-dir <separate-telemetry-pkg> --release --features telemetry",
+    "optimizer": "-Oz",
+    "post_regression_rebuild": "Both WASM hashes reproduced byte-for-byte",
+    "native_release": "cargo build --release passed"
+  },
+  "gates": {
+    "default_packaged_stabilization": { "passed": 32, "failed": 0, "skipped": 0, "retries": 0 },
+    "telemetry_packaged_stabilization": { "passed": 32, "failed": 0, "skipped": 0, "retries": 0 },
+    "default_packaged_deletion": { "passed": 13, "failed": 0, "skipped": 0, "retries": 0 },
+    "telemetry_packaged_deletion": { "passed": 13, "failed": 0, "skipped": 0, "retries": 0 },
+    "existing_browser_cli_benchmark": { "passed": 79, "failed": 0, "skipped": 0, "retries": 0 },
+    "native_default": { "passed": 214, "failed": 0, "ignored_documentation_examples": 1 },
+    "default_wasm": { "cargo_artifacts": 135, "test_bearing_binaries": 78, "zero_test_binaries": 57, "passed": 298, "failed": 0, "ignored": 0, "filtered": 0 },
+    "enabled_wasm_telemetry": { "binaries": 4, "passed": 16, "failed": 0, "ignored": 0, "filtered": 0 },
+    "format": "cargo fmt --all -- --check: passed",
+    "wasm_clippy": "cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings: passed",
+    "wasm_telemetry_clippy": "cargo clippy --target wasm32-unknown-unknown --lib --features telemetry -- -D warnings: passed",
+    "native_ci_clippy": "cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings: passed"
+  },
+  "runtime_evidence": [
+    "Exact UTF-8/NUL/empty TEXT/BLOB/NULL values, SQLite-driven RETURNING/CTE/VALUES/PRAGMA results, affected-row/insert-ID metadata, and native SQLite readback after real browser restart",
+    "Concurrent main-thread/worker ownership, actual heartbeat/shutdown, exact namespace and retained-wrapper deletion cases",
+    "Native OPFS quota refusal, bounded rejection with original cause, immediate exclusive-handle reuse, same-runtime explicit resync without mutation replay, exact pending payload SHA after restart",
+    "Real incompatible IndexedDB request refusal and metadata unique-generation failure after valid block writes were queued; atomic rollback leaves every persisted SQLite byte unchanged",
+    "Actual owned worker termination before IndexedDB commit and after commit before response delivery, with native readback",
+    "Repeated same-WASM constructor VersionError refusals with unchanged persisted bytes, blocked upgrade cleanup, and failed SQLite-open delete/recreate",
+    "Real WAL-buffer-bound refusal rolls back and permits subsequent successful operations",
+    "Enabled telemetry success/error/sync counters, finite timing/spans, previously obtained shared-handle updates, and exact serialized HTTP bytes received by a real loopback server"
+  ],
+  "resource_measurement": {
+    "inputs_mib": [1, 8, 32],
+    "backends": "IndexedDB and Hybrid; both package variants passed",
+    "metric": "WASM linear-memory allocation at operation boundaries, not RSS, JS heap, total process peak, or a supported-size ceiling",
+    "32mib_post_import_before_bytes": 206307328,
+    "32mib_post_import_after_bytes": 138084352,
+    "32mib_reopen_query_export_approximate_bytes": 242745344,
+    "byte_identity": "Payload SHA and native SQLite integrity are exact; whole-file comparison explicitly normalizes the native DELETE-mode fixture to the normal WAL runtime before taking the baseline",
+    "bounds": "Existing export-size/WAL policies retained; checked address conversion, fallible export reservation, and short-block refusal added; OS/browser OOM termination cannot be guaranteed recoverable"
+  },
+  "conditions_and_limits": [
+    "No current failing required upstream gate in the tested configuration; not a claim of all-platform or universal failure-mode qualification",
+    "One existing ignored native documentation example is disclosed, not presented as a passed test",
+    "Chromium's origin quota override did not actually refuse IndexedDB writes in the observed configuration; that is not credited as an IndexedDB quota RED",
+    "Native driver startup/shutdown contention, missing runner tools, an initial Node/browser-mode mismatch, and non-reaping-container PID exhaustion are recorded separately from product REDs",
+    "The replacement Gitless runner uses an init reaper and identical CPU/memory/PID/shared-memory limits; the complete browser gate was rerun",
+    "The WASM-only Rust BlockStorage.metrics getter returns Option<Metrics> sharing live counters instead of an unguarded Option<&Metrics>; native Rust and public JavaScript signatures remain unchanged",
+    "First prepared statement behavior remains unchanged; no implicit batch execution was added",
+    "Old deletion and diagnostic tarballs remain immutable; no new commit, push, PR, release, tag, CI dispatch, or npm publication was performed for this stabilization",
+    "Version 0.1.28 identifies unpublished evidence only; the consuming application manifest remains latest"
+  ]
+}

@@ -54,7 +54,8 @@ export class Database {
     /**
      * Delete a database from storage
      *
-     * Removes database from both STORAGE_REGISTRY and GLOBAL_STORAGE
+     * Callers must first close the database in every runtime that uses it.
+     * Success means its persistent blocks and OPFS mirror have been removed.
      */
     static deleteDatabase(name: string): Promise<void>;
     /**
@@ -293,7 +294,6 @@ export interface InitOutput {
     readonly database_testLock: (a: number, b: number) => any;
     readonly database_trackOptimisticWrite: (a: number, b: number, c: number) => any;
     readonly database_waitForLeadership: (a: number) => any;
-    readonly init_logger: () => void;
     readonly wasmcolumnvalue_big_int: (a: number, b: number) => number;
     readonly wasmcolumnvalue_blob: (a: number, b: number) => number;
     readonly wasmcolumnvalue_createBigInt: (a: number, b: number) => number;
@@ -303,20 +303,20 @@ export interface InitOutput {
     readonly wasmcolumnvalue_createNull: () => number;
     readonly wasmcolumnvalue_createReal: (a: number) => number;
     readonly wasmcolumnvalue_createText: (a: number, b: number) => number;
-    readonly wasmcolumnvalue_date: (a: number) => number;
     readonly wasmcolumnvalue_fromJsValue: (a: any) => number;
     readonly wasmcolumnvalue_integer: (a: number) => number;
-    readonly wasmcolumnvalue_null: () => number;
     readonly wasmcolumnvalue_real: (a: number) => number;
+    readonly wasmcolumnvalue_null: () => number;
+    readonly wasmcolumnvalue_date: (a: number) => number;
+    readonly init_logger: () => void;
     readonly wasmcolumnvalue_text: (a: number, b: number) => number;
-    readonly sqlite3_os_init: () => number;
     readonly rust_sqlite_wasm_shim_acosh: (a: number) => number;
     readonly rust_sqlite_wasm_shim_asinh: (a: number) => number;
     readonly rust_sqlite_wasm_shim_atanh: (a: number) => number;
     readonly rust_sqlite_wasm_shim_calloc: (a: number, b: number) => number;
-    readonly rust_sqlite_wasm_shim_malloc: (a: number) => number;
     readonly rust_sqlite_wasm_shim_free: (a: number) => void;
     readonly rust_sqlite_wasm_shim_localtime: (a: number) => number;
+    readonly rust_sqlite_wasm_shim_malloc: (a: number) => number;
     readonly rust_sqlite_wasm_shim_memchr: (a: number, b: number, c: number) => number;
     readonly rust_sqlite_wasm_shim_realloc: (a: number, b: number) => number;
     readonly rust_sqlite_wasm_shim_sqrt: (a: number) => number;
@@ -327,15 +327,15 @@ export interface InitOutput {
     readonly rust_sqlite_wasm_shim_strrchr: (a: number, b: number) => number;
     readonly rust_sqlite_wasm_shim_strspn: (a: number, b: number) => number;
     readonly rust_sqlite_wasm_shim_trunc: (a: number) => number;
-    readonly wasm_bindgen__convert__closures_____invoke__h17ea27cd5134be1c: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h5efa24f41c0c9d91: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h2c7aa495c9f8eede: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__he70e5f49ece50f72: (a: number, b: number, c: any) => any;
-    readonly wasm_bindgen__convert__closures_____invoke__h2abfc0e2db05e025: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h06fca0c86a1716b6: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hde7659040fca5453: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h962235009211f16e: (a: number, b: number) => number;
-    readonly wasm_bindgen__convert__closures_____invoke__h1f1fc65728759451: (a: number, b: number) => void;
+    readonly sqlite3_os_init: () => number;
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___wasm_bindgen_23341346e48d2356___JsValue__core_f0fd674eaa06beef___result__Result_____wasm_bindgen_23341346e48d2356___JsError___true_: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___web_sys_ea53c7ce82f99cf5___features__gen_IdbDatabase__IdbDatabase__core_f0fd674eaa06beef___result__Result_____wasm_bindgen_23341346e48d2356___JsError___true_: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___js_sys_d34f338aea479643___Function_fn_wasm_bindgen_23341346e48d2356___JsValue_____wasm_bindgen_23341346e48d2356___sys__Undefined___js_sys_d34f338aea479643___Function_fn_wasm_bindgen_23341346e48d2356___JsValue_____wasm_bindgen_23341346e48d2356___sys__Undefined_______true_: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___wasm_bindgen_23341346e48d2356___JsValue__js_sys_d34f338aea479643___Promise__true_: (a: number, b: number, c: any) => any;
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___wasm_bindgen_23341346e48d2356___JsValue______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___web_sys_ea53c7ce82f99cf5___features__gen_MessageEvent__MessageEvent______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke___web_sys_ea53c7ce82f99cf5___features__gen_MessageEvent__MessageEvent______true__5: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_23341346e48d2356___convert__closures_____invoke_______true_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

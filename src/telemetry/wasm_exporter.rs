@@ -35,7 +35,7 @@ use std::collections::HashMap;
 
 /// Export statistics for monitoring
 #[cfg(target_arch = "wasm32")]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ExportStats {
     /// Total number of export attempts
     pub total_exports: u64,

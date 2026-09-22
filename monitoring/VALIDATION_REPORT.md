@@ -1,5 +1,13 @@
 # Grafana Dashboard Validation Report
 
+> **Historical report — 2025-10-14.** The results, totals, examples, and
+> readiness claims below are retained as recorded, not current qualification.
+> Current native/WASM/browser/package gates are in
+> [Native qualification](../docs/NATIVE_QUALIFICATION.md). Current metric
+> names and units are in [PromQL queries](PROMQL_QUERIES.md); the supplied
+> dashboard/rule templates still include legacy histogram names. The current
+> library run does not revalidate a deployed Grafana/Prometheus stack.
+
 **Date:** 2025-10-14  
 **Component:** Grafana Dashboards  
 **Status:** **[✓]** COMPLETE & VALIDATED

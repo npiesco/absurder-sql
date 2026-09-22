@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testIgnore: 'physical-deletion.spec.js', // Uses its own persistent-browser configuration.
+  testIgnore: ['physical-deletion.spec.js', 'sqlite-fidelity.spec.js', 'ownership.spec.js', 'durability.spec.js', 'resources.spec.js'],
   fullyParallel: false, // Run tests sequentially for multi-tab coordination
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

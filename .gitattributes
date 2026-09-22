@@ -1,0 +1,2 @@
+scripts/ci/*.sh text eol=lf
+scripts/ci/*.py text eol=lf

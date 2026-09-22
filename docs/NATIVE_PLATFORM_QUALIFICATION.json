@@ -1,0 +1,789 @@
+{
+  "recorded_at_utc": "2026-09-22T01:31:13.9442982+00:00",
+  "status": "PASS: original Apple runtime and complete isolated Windows x64/SYSTEM qualification; earlier laptop and VM failures retained",
+  "base_commit": "52af0dcdd2e0755a44b9472ac407dc281e3b331e",
+  "branch": "npiesco-absurdersql-deletion",
+  "github_actions_used": false,
+  "committed_pushed_or_published": false,
+  "runtime_source_sha256": "19c57e0c144caeae5e212a2ef604ce27a422935c0589b784cd1df6b64427ecbe",
+  "qualified_local_package": {
+    "variant": "default",
+    "qualification_archive_bytes": 727917,
+    "qualification_archive_sha256": "ea561585e1c146698501ea3c431eabc51b4b11cc64b25d09d6a0b73f9717a31d",
+    "documentation_current_archive_bytes": 723944,
+    "documentation_current_archive_sha256": "245ca331325ef61d51b86a14c3d8074efa630fba3b0bb3fce5ab9508a3037d2e",
+    "wasm_sha256": "c6e60c83dcbb46bb51e30955f71041e51586916464ec44c09f508f814edca821",
+    "changed_archive_members_since_qualification": [
+      "README.md",
+      "pkg/README.md"
+    ],
+    "all_other_14_archive_members_byte_identical": true,
+    "runtime_members_byte_identical_to_qualified_package": true,
+    "pwa_generated_runtime_and_active_snippets_byte_identical": true,
+    "earlier_package_preserved_separately": true,
+    "published": false
+  },
+  "windows_vm_qualification": {
+    "status": "passed",
+    "admission": "v2: retain the previously omitted static pkg/LICENSE.md",
+    "resource_group": "asqlvm55b4d6fd-rg",
+    "system": "Windows-2025Server-10.0.26100-SP0",
+    "machine": "AMD64",
+    "identity": "nt authority\\system",
+    "privilege_boundary": "Real guest execution as SYSTEM; not a non-elevated-user or ARM64 laptop qualification",
+    "all_stages_exit_zero": true,
+    "stage_count": 21,
+    "gate_results": {
+      "native-tests": {"passed": 214, "failed": 0, "ignored": 1},
+      "wasm-tests": {"passed": 298, "failed": 0, "ignored": 0},
+      "telemetry-tests": {"passed": 16, "failed": 0, "ignored": 0},
+      "browser-tests": {"passed": 79, "failed": 0, "skipped": 0},
+      "deletion-tests": {"passed": 13, "failed": 0, "skipped": 0},
+      "stabilization-tests": {"passed": 35, "failed": 0, "skipped": 0},
+      "pwa-tests": {"passed": 3, "failed": 0, "skipped": 0}
+    },
+    "package_contracts": {
+      "default": {
+        "deletion_passed": 13,
+        "stabilization_passed": 35,
+        "archive_sha256": "ea561585e1c146698501ea3c431eabc51b4b11cc64b25d09d6a0b73f9717a31d",
+        "wasm_sha256": "c6e60c83dcbb46bb51e30955f71041e51586916464ec44c09f508f814edca821"
+      },
+      "telemetry": {
+        "deletion_passed": 13,
+        "stabilization_passed": 35,
+        "archive_sha256": "573e33e4cb8cf64bbb153f4753c0803b8f47851accbefe45941c0745b023a59b",
+        "wasm_sha256": "52057a35893baf282e16f74b0fa8e911a6ce000621eebcec0007459b493281f9"
+      }
+    },
+    "tested_rebuilt_package_equality": "passed unchanged bound-harness comparison",
+    "manifested_source_files_unchanged": 453,
+    "corrected_admission_file_count": 456,
+    "added_static_license_sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+    "harness_assertions_and_bound_command_unchanged": true,
+    "controller_receipt_status": "verified",
+    "controller_receipt_sha256": "7add38b763a17dcab6f9c2ff6783ab17adace5b5e8de85590949f55303404d0d",
+    "payload_bytes": 31509,
+    "payload_sha256": "2f834e0d568b9f0f9a0ddc8c3c6f4122df7215ed9b82fb6d02d14f20b372fbb0",
+    "summary_bytes": 124629,
+    "summary_sha256": "9a1795624aa75879749bc59a7b102afb8724cbca3eb7592cc0fb79cf74890c94",
+    "tool_identities": {
+      "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+      "rust_host": "x86_64-pc-windows-msvc",
+      "node": "v24.21.0",
+      "browser": "153.0.8010.12",
+      "chromedriver": "153.0.8010.12",
+      "chromedriver_sha256": "73cfe2ba93520930b07caa3ddfa2de40927d8baad4223254cb3bb47cf1a6c82e"
+    },
+    "failed_attempts_preserved": {
+      "A": "Root Playwright dependency was absent",
+      "B": "WASM runner aborted after 273 passing tests; isolation passed under both drivers, root cause not established",
+      "C": "All workload gates passed; required evidence disk was not initialized",
+      "D1": "Operator environment JSON contained a BOM rejected at module load",
+      "D2": "Generated package.json differed because input preparation omitted tracked pkg/LICENSE.md"
+    },
+    "packaging_failure_reproduced": {
+      "real_fresh_output_repetitions": 4,
+      "first_manifest_bytes": 595,
+      "first_manifest_sha256": "3b6ea637ba79c167e914ddb435ec9a26e5dc21c76f3b0b4d22e8ed04e875f218",
+      "rebuilt_manifest_bytes": 613,
+      "rebuilt_manifest_sha256": "3fbda6ff3e3045d7413884332b504348a2e596912e43e80915b2ca4d8011856b",
+      "sole_difference": "LICENSE.md in generated package.json files array",
+      "other_nine_package_members_identical": true,
+      "source": "wasm-pack 0.14.0 src/manifest/mod.rs::npm_data, lines 659 and 697-707"
+    },
+    "custody": {
+      "status": "preserved",
+      "all_exports_verified": true,
+      "all_sas_revoked": true,
+      "vhd_bytes": 4294967808,
+      "vhd_sha256": "2025119fc53be866cf516a9daab1c819103fcfb4c7966cd1b935df5ef48d4082",
+      "independently_rehashed_locally": true,
+      "prior_custody_retained_separately": true
+    },
+    "cleanup": {
+      "status": "empty",
+      "destroy_status": "destroyed",
+      "destroy_recorded_at_utc": "2026-09-22T01:28:51.3659778+00:00",
+      "zero_survivor_proof_recorded_at_utc": "2026-09-22T01:31:13.9442982+00:00",
+      "resource_group_exists": false,
+      "survivor_count": 0,
+      "state_empty": true,
+      "captured_id_survivors": [],
+      "resource_survivors": [],
+      "state_artifact_survivors": [],
+      "custody_status": "verified",
+      "custody_gap": null,
+      "initial_destroy_failure_preserved": "OpenTofu provider-registry discovery timed out; connectivity was verified and the unchanged retry succeeded",
+      "immutable_expiry_utc": "2026-09-22T02:37:51+00:00",
+      "completed_before_expiry": true
+    },
+    "evidence_directory": "session-state/cf7c331c-0e16-4c7e-b83f-d2d875cfd2cf/files/windows-vm-55b4d6fd"
+  },
+  "windows_vm_attempt": {
+    "status": "NOT QUALIFIED: source transfer interrupted before any workload gate",
+    "os": "Windows Server 2025 Datacenter",
+    "architecture": "AMD64",
+    "guest_identity": "NT AUTHORITY\\SYSTEM",
+    "resource_group": "asqlvmc982fc4b-rg",
+    "source_staging_completed": false,
+    "qualification_executed": false,
+    "replacement_created_during_cleanup": false,
+    "bound_context_unchanged": true,
+    "bound_context_sha256": "cf440562dc21d5984edab78b0f70dc8ec727b9aec68b767470148eb1f68fcfb4",
+    "installed_controller_files_matching_bound_manifest": 30,
+    "cleanup_command_exit_code": 1,
+    "cleanup_precheck_error": "The pre-apply saved-plan guard was incorrectly used after Tofu.apply had consumed the plan; extra terminal-marker and guest-log preservation did not run.",
+    "interrupted_append_terminal_marker_verified": false,
+    "extra_guest_staging_logs_preserved": false,
+    "custody": {
+      "status": "preserved",
+      "all_exports_verified": true,
+      "all_sas_revoked": true,
+      "vhd_bytes": 4294967808,
+      "vhd_sha256": "064a7aa44b37797319bab1f4d8fb1cb94dcc5e1eaf180905880a0fa8ea75ea4f",
+      "scope": "Dedicated evidence disk, not uncaptured OS-disk staging files"
+    },
+    "cleanup": {
+      "destroy_status": "destroyed",
+      "prove_empty_status": "empty",
+      "finished_at_utc": "2026-09-21T18:05:11.630719+00:00",
+      "resource_group_exists": false,
+      "survivor_count": 0,
+      "state_empty": true,
+      "captured_id_survivors": [],
+      "resource_survivors": [],
+      "state_artifact_survivors": []
+    },
+    "evidence_directory": "session-state/e708f47d-fbc5-41f2-9676-cc89c4442bda/files/windows-vm-c982fc4b"
+  },
+  "mac": {
+    "original_apple_runtime": true,
+    "gate_results": {
+      "native-tests": {
+        "passed": 214,
+        "failed": 0,
+        "ignored": 1
+      },
+      "wasm-tests": {
+        "passed": 298,
+        "failed": 0,
+        "ignored": 0
+      },
+      "telemetry-tests": {
+        "passed": 16,
+        "failed": 0,
+        "ignored": 0
+      },
+      "browser-tests": [
+        "79 passed (1.6m)"
+      ],
+      "deletion-tests": [
+        "13 passed (8.5s)"
+      ],
+      "stabilization-tests": [
+        "35 passed (1.0m)"
+      ],
+      "pwa-tests": [
+        "3 passed (14.6s)"
+      ]
+    },
+    "package_contracts": [
+      {
+        "variant": "default",
+        "suite": "deletion",
+        "returncode": 0,
+        "seconds": 8.82,
+        "log": "default-deletion.log",
+        "log_sha256": "c49439f663c92174d59b239c43feb6913486618bfcc89a9bf568a0d257236ee8",
+        "archive_sha256": "ea561585e1c146698501ea3c431eabc51b4b11cc64b25d09d6a0b73f9717a31d",
+        "wasm_sha256": "c6e60c83dcbb46bb51e30955f71041e51586916464ec44c09f508f814edca821",
+        "actual_case_counts": [
+          "  13 passed (8.4s)"
+        ]
+      },
+      {
+        "variant": "default",
+        "suite": "stabilization",
+        "returncode": 0,
+        "seconds": 55.57,
+        "log": "default-stabilization.log",
+        "log_sha256": "e470fb147709269864ef6aaa925b12ef8971d5b61dc438efbb7277e75934b5c0",
+        "archive_sha256": "ea561585e1c146698501ea3c431eabc51b4b11cc64b25d09d6a0b73f9717a31d",
+        "wasm_sha256": "c6e60c83dcbb46bb51e30955f71041e51586916464ec44c09f508f814edca821",
+        "actual_case_counts": [
+          "  35 passed (55.2s)"
+        ]
+      },
+      {
+        "variant": "telemetry",
+        "suite": "deletion",
+        "returncode": 0,
+        "seconds": 8.86,
+        "log": "telemetry-deletion.log",
+        "log_sha256": "67ba998c7456deddc1f75260e3ea5a168f70b4cfe587064739871d7434f8c675",
+        "archive_sha256": "573e33e4cb8cf64bbb153f4753c0803b8f47851accbefe45941c0745b023a59b",
+        "wasm_sha256": "52057a35893baf282e16f74b0fa8e911a6ce000621eebcec0007459b493281f9",
+        "actual_case_counts": [
+          "  13 passed (8.5s)"
+        ]
+      },
+      {
+        "variant": "telemetry",
+        "suite": "stabilization",
+        "returncode": 0,
+        "seconds": 55.75,
+        "log": "telemetry-stabilization.log",
+        "log_sha256": "a9ad481e0c17e97cda1cd56d9e20e43bf2e528c8ac1f8492e8ff98a35f5b2686",
+        "archive_sha256": "573e33e4cb8cf64bbb153f4753c0803b8f47851accbefe45941c0745b023a59b",
+        "wasm_sha256": "52057a35893baf282e16f74b0fa8e911a6ce000621eebcec0007459b493281f9",
+        "actual_case_counts": [
+          "  35 passed (55.4s)"
+        ]
+      }
+    ],
+    "evidence_archive_sha256": "b0f1512d43ec3afc4f21766160a3a90b0da67fb19dece166dec719149c16a07c",
+    "later_fixture_full_browser_regression": "79 passed; source/log retained on Molly at logs/browser-fixture-regression-final.log"
+  },
+  "windows": {
+    "scope": "Historical Windows ARM64 laptop attempt; the separately authorized complete Windows x64 VM result is windows_vm_qualification",
+    "owner_identified_contention": "Concurrent Playwright automations on this workstation",
+    "completed_native_tests": {
+      "passed": 214,
+      "failed": 0,
+      "ignored_documentation_examples": 1
+    },
+    "completed_stages": [
+      {
+        "stage": "helper",
+        "log_sha256": "bf1731a680e1f588fe2be818eac143fb82deca4bac40591dc0cb49b7b1873b55"
+      },
+      {
+        "stage": "fmt",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "stage": "clippy-native",
+        "log_sha256": "03846595999db3187a04a1bbd74ff71a8f34436ce1badd6d08c712ce27f4acae"
+      },
+      {
+        "stage": "clippy-wasm",
+        "log_sha256": "5719999b8919e94e3d983fdb4df1e0e5443593443382d20642cf4bcbb40b8a2a"
+      },
+      {
+        "stage": "clippy-telemetry",
+        "log_sha256": "9afa9a35527411fa7e388c2845126edf3411fdc061a20362d76d97d3a4cf2cd0"
+      },
+      {
+        "stage": "native-tests",
+        "log_sha256": "0952516eed4e93d4d233c9616f276299e721491ba03a2997e039a0f45e1c7825"
+      },
+      {
+        "stage": "wasm-build",
+        "log_sha256": "5e4bcd11e72091c8cac044560f8da4f1f20622e89ebc3ba9b78484b7c6b7982a"
+      },
+      {
+        "stage": "wasm-opt",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "native_release": {
+      "pe_machine": "0xaa64",
+      "sha256": "0d6dc115f130b0947ec7219642a28b231af1e571c8d1d252cd1c2aa7e0960a90"
+    },
+    "fixture_targeted_regression": {
+      "passed": 19,
+      "log_sha256": "fc78c0208f37b65e75de261beab04b90b8b610753ffbe12e778befab2a225bf2"
+    },
+    "complete_browser_wasm_package_qualification": "NOT PASSED",
+    "process_observation": {
+      "browser": {
+        "ready": true,
+        "address": "127.0.0.1:54910",
+        "pid": 30928,
+        "version": "153.0.8010.48",
+        "profile": "C:\\Users\\npiesco\\AppData\\Local\\Temp\\asw-native-45Vq59"
+      },
+      "process_signalled_seconds": 37.757,
+      "owner_ack_seconds": 37.7575147000025,
+      "owner_result": {
+        "closed": true,
+        "pid": 30928,
+        "processGone": true
+      },
+      "owner_exit_code": 0,
+      "samples": [
+        {
+          "seconds": 0.001,
+          "exit_code": 259,
+          "wait_status": 258
+        },
+        {
+          "seconds": 20.86,
+          "exit_code": 0,
+          "wait_status": 258
+        },
+        {
+          "seconds": 37.757,
+          "exit_code": 0,
+          "wait_status": 0
+        }
+      ]
+    },
+    "force_termination_observation": "Recorded command native-force-termination-proof: exit code1 observed after TerminateProcess; process-handle signal and owner close acknowledgement were not observed within110seconds. This was an independent empty native Chrome probe, not an AbsurderSQL operation.",
+    "last_wasm_attempt": [
+      {
+        "target": "absurder_sql",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\absurder_sql-e21556661d4b53fa.wasm",
+        "sha256": "8cc8022118f64a9b407fbf1c538e33bab75e4d7e53730db7fd287bfcd83522c6",
+        "returncode": 0,
+        "seconds": 84.08,
+        "counts": [
+          [
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\absurder_sql.log",
+        "log_sha256": "74460aef42c66a4c342ea08ec0e17fde74d1cc0225528bb39ec414933b485067",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "indexeddb_key_format_mismatch",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\indexeddb_key_format_mismatch-b7d9fd0bd4563cf3.wasm",
+        "sha256": "d6f192d4355694171ac10966e3374906209b7013cc26f44693193fc1b7125897",
+        "returncode": 0,
+        "seconds": 28.68,
+        "counts": [
+          [
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\indexeddb_key_format_mismatch.log",
+        "log_sha256": "b651f3153e3596896cc8a3bbefc8454388596c9d395acb27cd27edfcf4cac5d6",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "phase2_indexeddb",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\phase2_indexeddb-3cd1af0cb5b63868.wasm",
+        "sha256": "091ce738ffce05b71f98a4b016af74459c078553674c2c0596fe8882ed2c11ad",
+        "returncode": 0,
+        "seconds": 83.67,
+        "counts": [
+          [
+            "10",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\phase2_indexeddb.log",
+        "log_sha256": "642c4b02828a4235ba2622d2c2ed4f312fcef0d0066c978a4c9edb10c0c19864",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "indexeddb_metadata_restore_bug",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\indexeddb_metadata_restore_bug-61ad8b30476c0e8e.wasm",
+        "sha256": "5f79bc05580473bdcba3569454d8ac15e9343b909776bcd2df51440189e17eb6",
+        "returncode": 0,
+        "seconds": 93.79,
+        "counts": [
+          [
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\indexeddb_metadata_restore_bug.log",
+        "log_sha256": "797427f35a8a2b98f0263ede79b21c8b92150b04fcb116dabcb4d4afef846c1b",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "indexeddb_checksum_key_bug_test",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\indexeddb_checksum_key_bug_test-687bb50327f3dd28.wasm",
+        "sha256": "e956dcc9ee6d379d4b3c56f34be649b0ca3133f886c5a807c344eb4e50c6e361",
+        "returncode": 0,
+        "seconds": 100.94,
+        "counts": [
+          [
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\indexeddb_checksum_key_bug_test.log",
+        "log_sha256": "437b569a624bf176ddcb81cd9946d398891fd9e29e7fb9e01f2c1e7a86e34218",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "wasm_string_safety_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\wasm_string_safety_tests-a397d1964c0885ff.wasm",
+        "sha256": "c1b8b5ce1af21fb406d78b339b379e2a6d427ea3fa8da3213d22ca68d855b406",
+        "returncode": 0,
+        "seconds": 97.71,
+        "counts": [
+          [
+            "5",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\wasm_string_safety_tests.log",
+        "log_sha256": "da0580f8868486432b95e15784be993988bba3680877aa1f9fcf9ae2de889ccb",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "test_env",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\test_env-be1dd52539c0b092.wasm",
+        "sha256": "9dd0fcb676928013f8a37d060039830b80f0fe5218771ba079fc420be3e58648",
+        "returncode": 0,
+        "seconds": 0.38,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\test_env.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "cross_connection_persistence_test",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\cross_connection_persistence_test-a5ed80628fc76694.wasm",
+        "sha256": "0a0c58678ed021a6c3dfc629c3386f7e7f17d2094c50fbd7f1d416b63a5e7172",
+        "returncode": 0,
+        "seconds": 96.95,
+        "counts": [
+          [
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\cross_connection_persistence_test.log",
+        "log_sha256": "83dd9735048bcaf4897d2cbe5ad054237f17a7bf1167ee58b3f58b9f5bb77497",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "recovery_invalid_size_deletion_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\recovery_invalid_size_deletion_tests-08f04cd34a50a412.wasm",
+        "sha256": "ed8040c09592c2019c6551ad216cad7c5553f568e218fb1060fa357b15371ec4",
+        "returncode": 0,
+        "seconds": 13.85,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\recovery_invalid_size_deletion_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "integration_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\integration_tests-8339148e93f6525c.wasm",
+        "sha256": "5426db87d6da9f0e3118e108f544c85d4f1e8e526871fc02552c1672413169a6",
+        "returncode": 0,
+        "seconds": 99.85,
+        "counts": [
+          [
+            "17",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\integration_tests.log",
+        "log_sha256": "e63783b5f3234bdbb8493a200a5bca4af6698d8af80f2b55ce160c477f99e79a",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "background_sync_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\background_sync_tests-611bd5ac3903ae6f.wasm",
+        "sha256": "0bd05703793a8e78cce53d8617da1397d8541985bafdfe1658910e4760ffb5f2",
+        "returncode": 0,
+        "seconds": 0.76,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\background_sync_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "auto_sync_metrics_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\auto_sync_metrics_tests-c9aa8936ac559c59.wasm",
+        "sha256": "f292d183b2d5826c96f20b2d6eeae7ef81e6240c323091bf65da552521f3507f",
+        "returncode": 0,
+        "seconds": 0.82,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\auto_sync_metrics_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "log_infrastructure_test",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\log_infrastructure_test-3c17fe96fb810895.wasm",
+        "sha256": "89eb636981a5abba6aefa2baba9dc12bc3a67de77b90a3be3ca8c611e17b89e9",
+        "returncode": 0,
+        "seconds": 72.87,
+        "counts": [
+          [
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\log_infrastructure_test.log",
+        "log_sha256": "9400972920cfa225ae211bee830e4cc31fba37babbcedd7c4c18c62e67ad617f",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "telemetry_metrics_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\telemetry_metrics_tests-5a7c52ec7ce27d70.wasm",
+        "sha256": "4614bc56c24ef250834b139208f2bfc4b16fb9665b28b70bda07a4203649d48d",
+        "returncode": 0,
+        "seconds": 0.25,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\telemetry_metrics_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "vfs_performance_profile",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\vfs_performance_profile-e976424594c717c3.wasm",
+        "sha256": "6f62347d70a28e31b71525c610aa5042582d9be667380d373b0ce7e1243f7cb0",
+        "returncode": 0,
+        "seconds": 68.29,
+        "counts": [
+          [
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\vfs_performance_profile.log",
+        "log_sha256": "aae0e38e17a42b3d7bb025280db8c4844da6771aa6c8644860c04b5d3835742c",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "block_metadata_version_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\block_metadata_version_tests-b3bafaf7c86fab4f.wasm",
+        "sha256": "f1284f90aedd7b42b2e86aa1ff687b5621c94ad4e7d155081c403155bda85223",
+        "returncode": 0,
+        "seconds": 0.34,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\block_metadata_version_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "export_import_lock_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\export_import_lock_tests-5dafcf8fb8ef03bb.wasm",
+        "sha256": "e460cc88fd1204703a8e0380c87385a030a2d08a1b041eb2ee5d1f8d87cea261",
+        "returncode": 0,
+        "seconds": 100.8,
+        "counts": [
+          [
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\export_import_lock_tests.log",
+        "log_sha256": "d72376fcd9c2333cc7af0126ad7ceff61623bfb1204934e812c7ef006efb62a6",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "test_filename_normalization",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\test_filename_normalization-0c19dfa0b1f11e2f.wasm",
+        "sha256": "0ecfc2ac0a3746f64b7047713ccaf8127648e3a1e696f463acdd578786aa8417",
+        "returncode": 0,
+        "seconds": 71.33,
+        "counts": [
+          [
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\test_filename_normalization.log",
+        "log_sha256": "9ba0daab4459931d53f8d2ed77a011058aee1cc4f5bf004bb68bf22f1f32904f",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "test_pragma_journal_mode",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\test_pragma_journal_mode-42a85535eecafe7f.wasm",
+        "sha256": "386d7b77191d91545a1eb9d80c7a24a091f6ea206eed5c21175aa062724dc42a",
+        "returncode": 0,
+        "seconds": 33.38,
+        "counts": [
+          [
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\test_pragma_journal_mode.log",
+        "log_sha256": "4f760fd229f296910153ab9e829a8b0dcce3d769b8fc1c92c38279e75cd55ddf",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "debug_concurrent_test",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\debug_concurrent_test-7413f988e0cbb626.wasm",
+        "sha256": "0853d313323cc18523d9687f8f6b9a57c98f5150d9550402283f0d0e04450d03",
+        "returncode": 0,
+        "seconds": 101.45,
+        "counts": [
+          [
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\debug_concurrent_test.log",
+        "log_sha256": "202baa38078ca8718a6394d974c2b654be42a020616e0414c3691e759d447917",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "idempotent_writes_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\idempotent_writes_tests-567f305471d1bff2.wasm",
+        "sha256": "23cb77dc47d866698a54bcdce32f397b7dc76a61064b634988940362ba3da019",
+        "returncode": 0,
+        "seconds": 19.71,
+        "counts": [
+          [
+            "6",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\idempotent_writes_tests.log",
+        "log_sha256": "95ab07f13e250de56c9b207f27e62e240a27d32b40471b214ad7822ca0925667",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "auto_sync_shutdown_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\auto_sync_shutdown_tests-9e299ff9ad290e79.wasm",
+        "sha256": "befcfd7606adfecaa6d688a003bd423f085fa1def3b04383c1953981ac4c4c89",
+        "returncode": 0,
+        "seconds": 0.43,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\auto_sync_shutdown_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "indexeddb_error_handling_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\indexeddb_error_handling_tests-a9d51386472bae87.wasm",
+        "sha256": "a3e02049b9c093c49a67d5e03f5c2a2d5376e29939f98b073118543c07d2dc8c",
+        "returncode": 0,
+        "seconds": 67.17,
+        "counts": [
+          [
+            "7",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\indexeddb_error_handling_tests.log",
+        "log_sha256": "d9ca19a5aba57419f603a0d7b617d3a6944f931605e443b349e00d68512b0db1",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "native_block_metadata_persistence",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\native_block_metadata_persistence-07f1c498ba0096a7.wasm",
+        "sha256": "4154ee102374304112d77199ec1b8e940b1b38cf351254b417d8987f0c9876a7",
+        "returncode": 0,
+        "seconds": 0.17,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\native_block_metadata_persistence.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "auto_sync_policy_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\auto_sync_policy_tests-06a7cf8a9586d6e7.wasm",
+        "sha256": "9d97e880ecf2da12a39d77c05d63da6b718a238de1ad3fa4713ed19f3330c953",
+        "returncode": 0,
+        "seconds": 0.25,
+        "counts": [],
+        "no_tests": true,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\auto_sync_policy_tests.log",
+        "log_sha256": "36f188f6d7106f8885207f9a7a498df66afd424532fee19f56222e68f86d0442",
+        "webdriver_session_cleanup_verified": true
+      },
+      {
+        "target": "private_browsing_safety_tests",
+        "path": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\target\\wasm32-unknown-unknown\\release\\deps\\private_browsing_safety_tests-43228b3e0b08b016.wasm",
+        "sha256": "b3ceba41b6e98c2f69162b928d3dbf9b9faf5b64a9bd9be7924a21eb606ffa45",
+        "returncode": 124,
+        "seconds": 110.07,
+        "counts": [
+          [
+            "6",
+            "0",
+            "0"
+          ]
+        ],
+        "no_tests": false,
+        "log": "C:\\Users\\npiesco\\copilot-worktrees\\absurder-sql\\npiesco-microsoft-verbose-spoon\\.local\\native-ci-v1\\windows-portability-wasm-final\\private_browsing_safety_tests.log",
+        "log_sha256": "303ad818949e18e71789aec4fcc7c84f9d3d38802581692b673584a087f849fa"
+      }
+    ],
+    "unmodified_budgets": "Real WASM test deadline60s; observed process-lifetime failure is not relabelled as a successful test body. Browser deletion cases retain120s suite test timeout; no successful full Windows gate is claimed.",
+    "operator_boundary": "No automatic reboot or shared-process/security-setting changes. Host process-teardown recovery must be coordinated with the owner before unchanged gates resume."
+  },
+  "repaired_unpublished_packages": {
+    "default": {
+      "file": "default/npiesco-absurder-sql-0.1.28.tgz",
+      "sha256": "ea561585e1c146698501ea3c431eabc51b4b11cc64b25d09d6a0b73f9717a31d",
+      "wasm_sha256": "c6e60c83dcbb46bb51e30955f71041e51586916464ec44c09f508f814edca821",
+      "bytes": 727917
+    },
+    "telemetry": {
+      "file": "telemetry/npiesco-absurder-sql-0.1.28.tgz",
+      "sha256": "573e33e4cb8cf64bbb153f4753c0803b8f47851accbefe45941c0745b023a59b",
+      "wasm_sha256": "52057a35893baf282e16f74b0fa8e911a6ce000621eebcec0007459b493281f9",
+      "bytes": 875521
+    }
+  },
+  "managed_pkg": "Still the previous frozen generated candidate; repaired candidates remain separate pending full Windows acceptance",
+  "reviews": [
+    {
+      "agent": "d99db3f0-4eba-4955-a8ba-139f4238e501",
+      "scope": "Standalone export/checkpoint and coupled real tests",
+      "result": "No significant issues found in the reviewed changes."
+    },
+    {
+      "agent": "d99db3f0-4eba-4955-a8ba-139f4238e501",
+      "scope": "DevTools managed fixture and Vite favicon correction",
+      "result": "No significant issues found in the reviewed two-file correction. Native Windows runtime qualification and OS process-termination diagnosis were not reviewed. No tests were run."
+    }
+  ],
+  "task_local_runner_diagnostic": {
+    "original_crate_sha256": "8e2ebf6eef87c34e662347f1dddfbea541304bb7294711ed2c2acd8746cc5b50",
+    "patched_source_sha256": "a020362895447f1e4fcb8689f6187281e845206281060c0c2ad67456e092e1f2",
+    "patched_binary_sha256": "af0d70df9c0bfb283f2793e096d1930db5414e3de3742e96b14f94f56fedfcc4",
+    "patch_sha256": "2c9ecc9aa64e931fd2e7b98e2a7fabefe6131f81e2f72e4055e106ce3d8302ab",
+    "shared_tools_replaced": false,
+    "qualification_closed_by_tool_patch": false,
+    "scope": "Diagnostic native 0.2.126 copy: acknowledged session deletion and existing W3C session-request format. Not promoted to repository dependencies; actual Windows process teardown remains blocked."
+  },
+  "cleanup": 4291360863
+}

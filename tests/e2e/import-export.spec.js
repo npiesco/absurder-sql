@@ -286,23 +286,35 @@ test.describe('Import/Export E2E', () => {
       // Check trigger exists
       const triggers = await db3.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name='users_timestamp'");
       
-      // Export again to verify byte-for-byte match
+      // Reopening a portable rollback snapshot in WAL mode advances SQLite's counters once.
       await db3.sync();
       const export2 = await db3.exportToFile();
       await db3.close();
+      const expected = export1.slice();
+      const before = new DataView(export1.buffer, export1.byteOffset, export1.byteLength);
+      const expectedHeader = new DataView(expected.buffer, expected.byteOffset, expected.byteLength);
+      const counter = before.getUint32(24);
+      const validFor = before.getUint32(92);
+      expectedHeader.setUint32(24, (counter + 1) >>> 0);
+      expectedHeader.setUint32(92, (counter + 1) >>> 0);
       
       return {
         rowCount: rows.rows.length,
         hasIndex: indexes.rows.length > 0,
         hasTrigger: triggers.rows.length > 0,
-        exportsIdentical: Array.from(export1).every((byte, i) => byte === export2[i])
+        countersInitiallyAgree: counter === validFor,
+        portableModes: [export1[18], export1[19], export2[18], export2[19]],
+        exportMatchesExactTransition: expected.length === export2.length
+          && expected.every((byte, offset) => byte === export2[offset]),
       };
     }, testId);
     
     expect(result.rowCount).toBe(2);
     expect(result.hasIndex).toBe(true);
     expect(result.hasTrigger).toBe(true);
-    expect(result.exportsIdentical).toBe(true);
+    expect(result.countersInitiallyAgree).toBe(true);
+    expect(result.portableModes).toEqual([1, 1, 1, 1]);
+    expect(result.exportMatchesExactTransition).toBe(true);
   });
 });
 

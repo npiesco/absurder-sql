@@ -2,14 +2,22 @@
 
 Compare the performance of different SQLite-in-browser implementations.
 
+**Measurement scope:** The dated tables below are historical runs, not fresh
+measurements of the September 2026 repaired candidate. The current 79-case
+browser qualification includes the opt-in durable sweep, but passing it does
+not assign new timing results to an old table. See
+[Native qualification](NATIVE_QUALIFICATION.md) for exact runtime identities and
+[Self-hosted CI](SELF_HOSTED_CI.md) for the owner-admitted workflow.
+
 ## Implementations Compared
 
 1. **AbsurderSQL IndexedDB** - Rust/WASM SQLite with an explicit IndexedDB backend on the main thread
-2. **AbsurderSQL Hybrid** - Rust/WASM SQLite with an explicit Hybrid backend in a Worker, using OPFS for blocks and IndexedDB for metadata
+2. **AbsurderSQL Hybrid** - Rust/WASM SQLite in a Worker, using OPFS blocks plus
+   an IndexedDB block/metadata recovery copy
 3. **absurd-sql** - James Long's JavaScript SQLite implementation
 4. **Raw IndexedDB** - Direct IndexedDB API usage (baseline)
 
-## Latest Local Run
+## Recorded Local Measurements (Historical)
 
 ### Durable Backend Sweep (2026-07-25)
 
@@ -24,7 +32,9 @@ Captured with system Chrome `150.0.7871.184` on Windows ARM64 using `BENCHMARK_S
 | 10,000 | IndexedDB | 711.1ms | 47.0ms | 225.9ms | 122.3ms |
 | 10,000 | Hybrid | 1.07s | 47.9ms | 432.4ms | 378.7ms |
 
-This run validates both durable paths at the planned workload sizes; it is not a universal performance claim. Hybrid used OPFS for blocks and IndexedDB for metadata in a dedicated worker.
+This run validates both durable paths at the planned workload sizes; it is not
+a universal performance claim. Hybrid used a dedicated worker with OPFS and an
+IndexedDB recovery mirror.
 
 ### Four-Way Comparison (2026-04-07)
 
@@ -44,13 +54,16 @@ Captured on 2026-04-07 from the benchmark page using Playwright on this machine 
 
 ### Notes
 
-- This run is machine- and browser-specific; treat it as a fresh local reference point, not a universal claim.
+- This run is machine- and browser-specific; treat it as a dated reference, not a universal claim.
 - Hybrid improved AbsurderSQL read latency versus explicit IndexedDB in this run, but it did not win the write-heavy operations.
 - Because AbsurderSQL write timings now include `sync()`, these numbers reflect durable backend persistence rather than only SQLite's in-memory execution time.
 
 ## Legacy Results
 
-The table below reflects the earlier IndexedDB-only benchmark run before explicit IndexedDB and Hybrid variants were added to the page.
+The table below preserves an earlier undated IndexedDB-only benchmark run before
+explicit IndexedDB and Hybrid variants were added. Its durable-sync scope was
+not established in this record; it must not be compared as equivalent durable
+work or used to characterize the current candidate.
 
 | Implementation | Insert | Read | Update | Delete |
 |---------------|--------|------|--------|--------|
@@ -58,7 +71,7 @@ The table below reflects the earlier IndexedDB-only benchmark run before explici
 | absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
 | Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
 
-### Key Achievements
+### Claims Recorded with the Legacy Run (Not Current Qualification)
 
 - **[✓]** **16% faster INSERT** than absurd-sql (3.2ms vs 3.8ms)
 - **[✓]** **43% faster READ** than absurd-sql (1.2ms vs 2.1ms)
@@ -101,7 +114,11 @@ The same spec contains the formal durable workload sweep at 100, 1,000, and 10,0
 BENCHMARK_SWEEP=1 npx playwright test tests/e2e/benchmark-page.spec.js --reporter=line
 ```
 
-The benchmark honors the configured batch size for both AbsurderSQL backends and calls `sync()` after each write phase. CI enables the sweep and prints a `BENCHMARK_SWEEP_RESULTS` JSON record; do not treat those machine-specific timings as a universal performance claim.
+The benchmark honors the configured batch size for both AbsurderSQL backends and
+calls `sync()` after each write phase. The qualification script enables the sweep
+and prints a `BENCHMARK_SWEEP_RESULTS` JSON record; do not treat those
+machine-specific timings as a universal performance claim. Configuring that
+script is not evidence of a GitHub-scheduled run.
 
 ## Benchmark Tests
 
@@ -135,8 +152,8 @@ The benchmark honors the configured batch size for both AbsurderSQL backends and
 
 ### AbsurderSQL Advantages
 - **[✓]** Full SQL support (joins, indexes, transactions)
-- **[✓]** ACID compliance
-- **[✓]** Persistent across page reloads
+- **[✓]** SQLite transactions with a separately awaited backend durability boundary
+- **[✓]** Restart persistence after successful sync (subject to browser storage retention)
 - **[✓]** Multi-tab coordination (leader election, write queuing, optimistic updates, metrics)
 - **[✓]** Block-level storage with checksums
 
@@ -166,7 +183,8 @@ Both projects share these core concepts:
 - **[✓]** **Block/Page Storage**: Store data in chunks, not as a single file
 - **[✓]** **SQLite in Browser**: Full SQLite functionality in the browser
 - **[✓]** **Persistence**: Data survives page refreshes
-- **[✓]** **Better than Raw IndexedDB**: Significant performance improvements over direct IndexedDB usage
+- Performance depends on workload and measured durability scope; the historical
+  durable tables above do not show a universal win over direct IndexedDB
 
 ### Architecture Differences
 
@@ -188,7 +206,7 @@ Both projects share these core concepts:
 | **Multi-Tab Writes** | Throws error if multiple tabs write | Coordinated with write queuing |
 | **Leadership** | No concept of leader | Automatic leader election |
 | **Write from Follower** | Not supported (errors) | Supported via `queueWrite()` |
-| **Cross-Tab Sync** | Limited in fallback mode | Full BroadcastChannel coordination |
+| **Cross-Tab Sync** | Limited in fallback mode | BroadcastChannel refresh signals; followers reload persisted state |
 
 ### Technical Implementation
 
@@ -202,7 +220,8 @@ Both projects share these core concepts:
 
 **AbsurderSQL:**
 - Custom IndexedDB VFS implementation in Rust
-- localStorage provides atomic coordination primitives
+- localStorage and BroadcastChannel coordinate a leader; the protocol is not
+  an atomic cross-tab compare-and-swap or a cross-worker ownership lock
 - Can run on main thread (though worker recommended)
 - Fixed block size with checksums and versioning
 - MVCC-style block metadata with commit markers
@@ -219,9 +238,9 @@ Both projects share these core concepts:
 **AbsurderSQL Strengths:**
 - No worker/headers requirement (easier deployment)
 - Block-level checksums for data integrity
-- LRU cache (128 blocks default)
-- Coordinated multi-tab writes (no errors)
-- Production-ready multi-tab coordination
+- LRU block cache
+- Coordinated main-thread data writes, with explicit failure handling
+- Separate PWA coordinator for the worker-owned Hybrid runtime
 
 ## Performance Tips
 
@@ -235,7 +254,7 @@ Both projects share these core concepts:
 - First run may be slower (WASM compilation)
 - Browser throttling affects results
 - IndexedDB quota limits apply
-- Network conditions don't affect local benchmarks
+- Once dependencies load, the timed storage work is local
 
 ## Related Documentation
 

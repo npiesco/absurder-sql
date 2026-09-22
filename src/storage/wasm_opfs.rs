@@ -40,7 +40,7 @@ export async function absurd_opfs_exists(fileName) {
         await root.getFileHandle(fileName, { create: false });
         return true;
     } catch (error) {
-        if (error && (error.name === 'NotFoundError' || String(error).includes('NotFound'))) {
+        if (error && error.name === 'NotFoundError') {
             return false;
         }
         throw error;
@@ -64,20 +64,22 @@ export function absurd_opfs_write(id, offset, data) {
     throw new Error('OPFS handle not found: ' + id);
   }
 
-  handle.write(data, { at: offset });
+  const written = handle.write(data, { at: offset });
+  if (written !== data.byteLength) {
+    throw new Error('Short OPFS write: ' + written + ' of ' + data.byteLength + ' bytes');
+  }
 }
 
 export function absurd_opfs_flush(id) {
   const handle = absurdHandles.get(id);
-  if (handle) {
-    handle.flush();
-  }
+  if (!handle) throw new Error('OPFS handle not found: ' + id);
+  handle.flush();
 }
 
 export function absurd_opfs_size(id) {
   const handle = absurdHandles.get(id);
   if (!handle) {
-    return 0;
+    throw new Error('OPFS handle not found: ' + id);
   }
 
   return handle.getSize();
@@ -129,20 +131,20 @@ extern "C" {
     #[wasm_bindgen(js_name = absurd_opfs_exists, catch)]
     async fn js_opfs_exists(file_name: &str) -> Result<JsValue, JsValue>;
 
-    #[wasm_bindgen(js_name = absurd_opfs_read)]
-    fn js_opfs_read(handle_id: u32, offset: u32, len: u32) -> js_sys::Uint8Array;
+    #[wasm_bindgen(js_name = absurd_opfs_read, catch)]
+    fn js_opfs_read(handle_id: u32, offset: u32, len: u32) -> Result<js_sys::Uint8Array, JsValue>;
 
-    #[wasm_bindgen(js_name = absurd_opfs_write)]
-    fn js_opfs_write(handle_id: u32, offset: u32, data: &[u8]);
+    #[wasm_bindgen(js_name = absurd_opfs_write, catch)]
+    fn js_opfs_write(handle_id: u32, offset: u32, data: &[u8]) -> Result<(), JsValue>;
 
-    #[wasm_bindgen(js_name = absurd_opfs_flush)]
-    fn js_opfs_flush(handle_id: u32);
+    #[wasm_bindgen(js_name = absurd_opfs_flush, catch)]
+    fn js_opfs_flush(handle_id: u32) -> Result<(), JsValue>;
 
-    #[wasm_bindgen(js_name = absurd_opfs_size)]
-    fn js_opfs_size(handle_id: u32) -> u32;
+    #[wasm_bindgen(js_name = absurd_opfs_size, catch)]
+    fn js_opfs_size(handle_id: u32) -> Result<u32, JsValue>;
 
-    #[wasm_bindgen(js_name = absurd_opfs_truncate)]
-    fn js_opfs_truncate(handle_id: u32, size: u32);
+    #[wasm_bindgen(js_name = absurd_opfs_truncate, catch)]
+    fn js_opfs_truncate(handle_id: u32, size: u32) -> Result<(), JsValue>;
 
     #[wasm_bindgen(js_name = absurd_opfs_close, catch)]
     async fn js_opfs_close(handle_id: u32) -> Result<(), JsValue>;
@@ -219,8 +221,27 @@ async fn opfs_file_exists(db_name: &str) -> Result<bool, DatabaseError> {
     })
 }
 
-async fn close_handle(handle_id: u32) {
-    let _ = js_opfs_close(handle_id).await;
+async fn with_handle<T>(
+    db_name: &str,
+    create: bool,
+    operation: impl FnOnce(u32) -> Result<T, DatabaseError>,
+) -> Result<T, DatabaseError> {
+    let handle = open_handle_for_db(db_name, create).await?;
+    let result = operation(handle);
+    let closed = js_opfs_close(handle)
+        .await
+        .map_err(|error| map_js_error("OPFS_CLOSE_ERROR", error));
+    match (result, closed) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(close_error)) => Err(DatabaseError::new(
+            &error.code,
+            &format!(
+                "{}; additionally closing the OPFS handle failed: {}",
+                error.message, close_error.message
+            ),
+        )),
+    }
 }
 
 pub fn is_opfs_available() -> bool {
@@ -230,6 +251,13 @@ pub fn is_opfs_available() -> bool {
 pub async fn persist_to_opfs(
     db_name: &str,
     blocks: Vec<(u64, Vec<u8>)>,
+) -> Result<(), DatabaseError> {
+    persist_blocks_to_opfs(db_name, &blocks).await
+}
+
+pub(crate) async fn persist_blocks_to_opfs(
+    db_name: &str,
+    blocks: &[(u64, Vec<u8>)],
 ) -> Result<(), DatabaseError> {
     let db_name = db_name.to_string();
     let lock_name = db_name.clone();
@@ -245,28 +273,30 @@ pub async fn persist_to_opfs(
             ));
         }
 
-        let handle_id = open_handle_for_db(&db_name, true).await?;
+        with_handle(&db_name, true, |handle_id| {
+            for (block_id, data) in blocks {
+                let offset = block_id
+                    .checked_mul(crate::storage::BLOCK_SIZE as u64)
+                    .ok_or_else(|| {
+                        DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow")
+                    })?;
+                let offset = u32::try_from(offset).map_err(|_| {
+                    DatabaseError::new(
+                        "OPFS_OFFSET_ERROR",
+                        "Block offset exceeds OPFS bridge range",
+                    )
+                })?;
 
-        for (block_id, data) in blocks {
-            let offset = block_id
-                .checked_mul(crate::storage::BLOCK_SIZE as u64)
-                .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
-            let offset = u32::try_from(offset).map_err(|_| {
-                DatabaseError::new(
-                    "OPFS_OFFSET_ERROR",
-                    "Block offset exceeds OPFS bridge range",
-                )
-            })?;
+                let mut padded = vec![0u8; crate::storage::BLOCK_SIZE];
+                let copy_len = data.len().min(crate::storage::BLOCK_SIZE);
+                padded[..copy_len].copy_from_slice(&data[..copy_len]);
+                js_opfs_write(handle_id, offset, &padded)
+                    .map_err(|error| map_js_error("OPFS_WRITE_ERROR", error))?;
+            }
 
-            let mut padded = vec![0u8; crate::storage::BLOCK_SIZE];
-            let copy_len = data.len().min(crate::storage::BLOCK_SIZE);
-            padded[..copy_len].copy_from_slice(&data[..copy_len]);
-            js_opfs_write(handle_id, offset, &padded);
-        }
-
-        js_opfs_flush(handle_id);
-        close_handle(handle_id).await;
-        Ok(())
+            js_opfs_flush(handle_id).map_err(|error| map_js_error("OPFS_FLUSH_ERROR", error))
+        })
+        .await
     })
     .await
 }
@@ -283,56 +313,65 @@ pub async fn restore_from_opfs(db_name: &str) -> Result<usize, DatabaseError> {
             return Ok(0);
         }
 
-        let handle_id = open_handle_for_db(&db_name, false).await?;
-        let size = js_opfs_size(handle_id) as u64;
-        if size == 0 {
-            close_handle(handle_id).await;
-            return Ok(0);
-        }
-
-        let mut block_ids = vfs_sync::with_global_allocation_map(|allocation_map| {
-            allocation_map
-                .borrow()
-                .get(&db_name)
-                .map(|entries| entries.iter().copied().collect::<Vec<_>>())
-                .unwrap_or_default()
-        });
-
-        if block_ids.is_empty() {
-            block_ids = vfs_sync::with_global_metadata(|metadata_map| {
-                metadata_map
-                    .borrow()
-                    .get(&db_name)
-                    .map(|entries| entries.keys().copied().collect::<Vec<_>>())
-                    .unwrap_or_default()
-            });
-        }
-
-        if block_ids.is_empty() {
-            let total_blocks = size / crate::storage::BLOCK_SIZE as u64;
-            block_ids = (0..total_blocks).collect();
-        }
-
-        block_ids.sort_unstable();
-        block_ids.dedup();
-
-        let mut restored_blocks = Vec::new();
-        for block_id in block_ids {
-            let offset = block_id
-                .checked_mul(crate::storage::BLOCK_SIZE as u64)
-                .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
-
-            if offset >= size {
-                continue;
+        let restored_blocks = with_handle(&db_name, false, |handle_id| {
+            let size = js_opfs_size(handle_id)
+                .map_err(|error| map_js_error("OPFS_SIZE_ERROR", error))?
+                as u64;
+            if size == 0 {
+                return Ok(Vec::new());
             }
 
-            let buffer = js_opfs_read(handle_id, offset as u32, crate::storage::BLOCK_SIZE as u32);
-            let mut data = vec![0u8; crate::storage::BLOCK_SIZE];
-            buffer.copy_to(&mut data);
-            restored_blocks.push((block_id, data));
-        }
+            let mut block_ids = vfs_sync::with_global_allocation_map(|allocation_map| {
+                allocation_map
+                    .borrow()
+                    .get(&db_name)
+                    .map(|entries| entries.iter().copied().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            });
 
-        close_handle(handle_id).await;
+            if block_ids.is_empty() {
+                block_ids = vfs_sync::with_global_metadata(|metadata_map| {
+                    metadata_map
+                        .borrow()
+                        .get(&db_name)
+                        .map(|entries| entries.keys().copied().collect::<Vec<_>>())
+                        .unwrap_or_default()
+                });
+            }
+
+            if block_ids.is_empty() {
+                let total_blocks = size / crate::storage::BLOCK_SIZE as u64;
+                block_ids = (0..total_blocks).collect();
+            }
+
+            block_ids.sort_unstable();
+            block_ids.dedup();
+
+            let mut restored_blocks = Vec::new();
+            for block_id in block_ids {
+                let offset = block_id
+                    .checked_mul(crate::storage::BLOCK_SIZE as u64)
+                    .ok_or_else(|| {
+                        DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow")
+                    })?;
+
+                if offset >= size {
+                    continue;
+                }
+
+                let offset = u32::try_from(offset).map_err(|_| {
+                    DatabaseError::new("OPFS_OFFSET_ERROR", "Read offset exceeds OPFS bridge range")
+                })?;
+                let buffer = js_opfs_read(handle_id, offset, crate::storage::BLOCK_SIZE as u32)
+                    .map_err(|error| map_js_error("OPFS_READ_ERROR", error))?;
+                let mut data = vec![0u8; crate::storage::BLOCK_SIZE];
+                buffer.copy_to(&mut data);
+                restored_blocks.push((block_id, data));
+            }
+
+            Ok(restored_blocks)
+        })
+        .await?;
 
         if restored_blocks.is_empty() {
             return Ok(0);
@@ -416,57 +455,62 @@ pub async fn reconcile_opfs_with_metadata(
             return Ok(());
         }
 
-        let handle_id = open_handle_for_db(&db_name, false).await?;
-        let current_size = js_opfs_size(handle_id) as u64;
-        if current_size == 0 {
-            close_handle(handle_id).await;
-            return Ok(());
-        }
-
-        let block_size = crate::storage::BLOCK_SIZE as u64;
-        let total_blocks = (current_size + block_size - 1) / block_size;
-        let valid_blocks = valid_block_ids
-            .iter()
-            .copied()
-            .collect::<std::collections::HashSet<_>>();
-        let zero_block = vec![0u8; crate::storage::BLOCK_SIZE];
-
-        for block_id in 0..total_blocks {
-            if valid_blocks.contains(&block_id) {
-                continue;
+        with_handle(&db_name, false, |handle_id| {
+            let current_size = js_opfs_size(handle_id)
+                .map_err(|error| map_js_error("OPFS_SIZE_ERROR", error))?
+                as u64;
+            if current_size == 0 {
+                return Ok(());
             }
 
-            let offset = block_id
-                .checked_mul(block_size)
-                .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
-            let offset = u32::try_from(offset).map_err(|_| {
-                DatabaseError::new(
-                    "OPFS_OFFSET_ERROR",
-                    "Block offset exceeds OPFS bridge range",
-                )
-            })?;
-            js_opfs_write(handle_id, offset, &zero_block);
-        }
+            let block_size = crate::storage::BLOCK_SIZE as u64;
+            let total_blocks = current_size.div_ceil(block_size);
+            let valid_blocks = valid_block_ids
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
+            let zero_block = vec![0u8; crate::storage::BLOCK_SIZE];
 
-        let max_block_id = valid_block_ids.iter().copied().max().unwrap_or(0);
-        let expected_size = max_block_id
-            .checked_add(1)
-            .and_then(|block_count| block_count.checked_mul(block_size))
-            .ok_or_else(|| DatabaseError::new("OPFS_SIZE_ERROR", "Expected OPFS size overflow"))?;
+            for block_id in 0..total_blocks {
+                if valid_blocks.contains(&block_id) {
+                    continue;
+                }
 
-        if expected_size < current_size {
-            let expected_size = u32::try_from(expected_size).map_err(|_| {
-                DatabaseError::new(
-                    "OPFS_SIZE_ERROR",
-                    "Expected OPFS size exceeds OPFS bridge range",
-                )
-            })?;
-            js_opfs_truncate(handle_id, expected_size);
-        }
+                let offset = block_id.checked_mul(block_size).ok_or_else(|| {
+                    DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow")
+                })?;
+                let offset = u32::try_from(offset).map_err(|_| {
+                    DatabaseError::new(
+                        "OPFS_OFFSET_ERROR",
+                        "Block offset exceeds OPFS bridge range",
+                    )
+                })?;
+                js_opfs_write(handle_id, offset, &zero_block)
+                    .map_err(|error| map_js_error("OPFS_WRITE_ERROR", error))?;
+            }
 
-        js_opfs_flush(handle_id);
-        close_handle(handle_id).await;
-        Ok(())
+            let max_block_id = valid_block_ids.iter().copied().max().unwrap_or(0);
+            let expected_size = max_block_id
+                .checked_add(1)
+                .and_then(|block_count| block_count.checked_mul(block_size))
+                .ok_or_else(|| {
+                    DatabaseError::new("OPFS_SIZE_ERROR", "Expected OPFS size overflow")
+                })?;
+
+            if expected_size < current_size {
+                let expected_size = u32::try_from(expected_size).map_err(|_| {
+                    DatabaseError::new(
+                        "OPFS_SIZE_ERROR",
+                        "Expected OPFS size exceeds OPFS bridge range",
+                    )
+                })?;
+                js_opfs_truncate(handle_id, expected_size)
+                    .map_err(|error| map_js_error("OPFS_TRUNCATE_ERROR", error))?;
+            }
+
+            js_opfs_flush(handle_id).map_err(|error| map_js_error("OPFS_FLUSH_ERROR", error))
+        })
+        .await
     })
     .await
 }
@@ -487,25 +531,28 @@ pub async fn delete_blocks_from_opfs(
             return Ok(());
         }
 
-        let handle_id = open_handle_for_db(&db_name, false).await?;
-        let zero_block = vec![0u8; crate::storage::BLOCK_SIZE];
+        with_handle(&db_name, false, |handle_id| {
+            let zero_block = vec![0u8; crate::storage::BLOCK_SIZE];
 
-        for block_id in block_ids {
-            let offset = block_id
-                .checked_mul(crate::storage::BLOCK_SIZE as u64)
-                .ok_or_else(|| DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow"))?;
-            let offset = u32::try_from(offset).map_err(|_| {
-                DatabaseError::new(
-                    "OPFS_OFFSET_ERROR",
-                    "Block offset exceeds OPFS bridge range",
-                )
-            })?;
-            js_opfs_write(handle_id, offset, &zero_block);
-        }
+            for block_id in block_ids {
+                let offset = block_id
+                    .checked_mul(crate::storage::BLOCK_SIZE as u64)
+                    .ok_or_else(|| {
+                        DatabaseError::new("OPFS_OFFSET_ERROR", "Block offset overflow")
+                    })?;
+                let offset = u32::try_from(offset).map_err(|_| {
+                    DatabaseError::new(
+                        "OPFS_OFFSET_ERROR",
+                        "Block offset exceeds OPFS bridge range",
+                    )
+                })?;
+                js_opfs_write(handle_id, offset, &zero_block)
+                    .map_err(|error| map_js_error("OPFS_WRITE_ERROR", error))?;
+            }
 
-        js_opfs_flush(handle_id);
-        close_handle(handle_id).await;
-        Ok(())
+            js_opfs_flush(handle_id).map_err(|error| map_js_error("OPFS_FLUSH_ERROR", error))
+        })
+        .await
     })
     .await
 }

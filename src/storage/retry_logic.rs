@@ -33,16 +33,23 @@ const BASE_DELAY_MS: u32 = 100;
 /// - NOT_FOUND_ERROR - Resource not found (won't exist on retry)
 /// - CONSTRAINT_ERROR - Database constraint violation
 pub fn is_retriable_error(error: &DatabaseError) -> bool {
-    let code = error.code.as_str();
+    let code = error.code.to_ascii_lowercase().replace('_', "");
 
     // Quota errors are never retriable
-    if code.contains("Quota") || code.contains("quota") {
+    if code.contains("quota") {
         log::debug!("Error is quota-related, not retriable: {}", code);
         return false;
     }
 
     // Invalid state and not found errors are not retriable
-    if code.contains("INVALID_STATE") || code.contains("NOT_FOUND") || code.contains("CONSTRAINT") {
+    if code.contains("invalidstate")
+        || code.contains("notfound")
+        || code.contains("constraint")
+        || code.contains("dataerror")
+        || code.contains("versionerror")
+        || code.contains("blocked")
+        || code.contains("unavailable")
+    {
         log::debug!("Error is permanent, not retriable: {}", code);
         return false;
     }
@@ -151,17 +158,14 @@ where
                 // Wait before retrying
                 #[cfg(target_arch = "wasm32")]
                 {
-                    // Use setTimeout to yield to browser event loop
-                    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-                        web_sys::window()
-                            .unwrap()
-                            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                                &resolve,
-                                delay_ms as i32,
+                    super::export_import_lock::sleep(delay_ms)
+                        .await
+                        .map_err(|error| {
+                            DatabaseError::new(
+                                "RETRY_WAIT_ERROR",
+                                &format!("Cannot wait for IndexedDB retry: {error:?}"),
                             )
-                            .unwrap();
-                    });
-                    wasm_bindgen_futures::JsFuture::from(promise).await.ok();
+                        })?;
                 }
 
                 #[cfg(not(target_arch = "wasm32"))]

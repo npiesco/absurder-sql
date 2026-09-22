@@ -31,6 +31,22 @@ fn reconcile_restored_state_to_metadata(
         let mut metadata_map = metadata_map.borrow_mut();
         if let Some(db_metadata) = metadata_map.get_mut(db_name) {
             db_metadata.retain(|block_id, _| valid_block_ids.contains(block_id));
+            for (&block_id, entry) in metadata_snapshot {
+                let mut metadata = entry.metadata.clone();
+                if !entry.authoritative_checksum {
+                    vfs_sync::with_global_storage(|storage| {
+                        if let Some(data) = storage
+                            .borrow()
+                            .get(db_name)
+                            .and_then(|blocks| blocks.get(&block_id))
+                        {
+                            metadata.checksum =
+                                ChecksumManager::compute_checksum_with(data, metadata.algo);
+                        }
+                    });
+                }
+                db_metadata.insert(block_id, metadata);
+            }
         }
     });
 }
@@ -47,7 +63,7 @@ pub async fn hybrid_persist(
         return Ok(());
     }
 
-    super::wasm_opfs::persist_to_opfs(db_name, blocks.clone()).await?;
+    super::wasm_opfs::persist_blocks_to_opfs(db_name, &blocks).await?;
     super::wasm_indexeddb::persist_to_indexeddb_event_based(
         db_name,
         blocks,
@@ -135,6 +151,9 @@ fn validate_restored_blocks(
 }
 
 pub async fn hybrid_restore(db_name: &str) -> Result<(), DatabaseError> {
+    // Establish access to the authoritative metadata before installing OPFS state in RAM.
+    let metadata_snapshot =
+        super::wasm_indexeddb::restore_metadata_from_indexeddb(db_name, true).await?;
     let restored_blocks = super::wasm_opfs::restore_from_opfs(db_name).await?;
 
     if restored_blocks == 0 {
@@ -145,8 +164,6 @@ pub async fn hybrid_restore(db_name: &str) -> Result<(), DatabaseError> {
         return super::wasm_indexeddb::restore_from_indexeddb(db_name).await;
     }
 
-    let metadata_snapshot =
-        super::wasm_indexeddb::restore_metadata_from_indexeddb(db_name, true).await?;
     if metadata_snapshot.is_empty() {
         log::info!(
             "Hybrid restore found no IndexedDB metadata for {}, accepting OPFS state",

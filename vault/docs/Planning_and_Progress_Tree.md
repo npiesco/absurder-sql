@@ -2,6 +2,11 @@
 
 Sequential development checklist from scaffold to finished app.
 
+**Historical snapshot: 2026-02-11.** Checkmarks, test totals, and blockers below
+describe that development window. The
+[current library qualification](../../docs/NATIVE_QUALIFICATION.md) is separate
+and does not rerun Vault's Detox, iOS, Android, encryption, or store-release gates.
+
 ---
 
 ## Audit Snapshot (2026-02-11)
@@ -14,11 +19,11 @@ Sequential development checklist from scaffold to finished app.
 
 ---
 
-## Active Focus: Android-Only Execution Window (2026-02-11)
+## Historical Focus: Android-Only Execution Window (2026-02-11)
 
-Context: iOS work is temporarily blocked, so current delivery focus is Phase 7.2.
+Context at that date: iOS work was temporarily blocked, so the delivery focus was Phase 7.2.
 
-### Android Sprint Plan (Current)
+### Android Sprint Plan (2026-02-11)
 - [x] A1. Toolchain readiness gate
 - [x] Confirm Android SDK/NDK/JDK env vars are exported in shell (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME`, `JAVA_HOME`).
 - [x] Confirm Rust Android targets are installed (`aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`; `i686-linux-android` also installed).

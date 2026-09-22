@@ -25,7 +25,7 @@ export async function absurd_opfs_exists(fileName) {
         await root.getFileHandle(fileName, { create: false });
         return true;
     } catch (error) {
-        if (error && (error.name === 'NotFoundError' || String(error).includes('NotFound'))) {
+        if (error && error.name === 'NotFoundError') {
             return false;
         }
         throw error;
@@ -49,20 +49,22 @@ export function absurd_opfs_write(id, offset, data) {
     throw new Error('OPFS handle not found: ' + id);
   }
 
-  handle.write(data, { at: offset });
+  const written = handle.write(data, { at: offset });
+  if (written !== data.byteLength) {
+    throw new Error('Short OPFS write: ' + written + ' of ' + data.byteLength + ' bytes');
+  }
 }
 
 export function absurd_opfs_flush(id) {
   const handle = absurdHandles.get(id);
-  if (handle) {
-    handle.flush();
-  }
+  if (!handle) throw new Error('OPFS handle not found: ' + id);
+  handle.flush();
 }
 
 export function absurd_opfs_size(id) {
   const handle = absurdHandles.get(id);
   if (!handle) {
-    return 0;
+    throw new Error('OPFS handle not found: ' + id);
   }
 
   return handle.getSize();
@@ -95,7 +97,7 @@ export async function absurd_opfs_delete(fileName) {
     const root = await absurdGetRoot();
     await root.removeEntry(fileName);
   } catch (error) {
-    if (!String(error).includes('NotFound')) {
+    if (!error || error.name !== 'NotFoundError') {
       throw error;
     }
   }

@@ -2,7 +2,7 @@
 
 **AbsurderSQL's export/import feature enables full database backup, migration, and data portability in the browser.**
 
-Unlike absurd-sql which provides no export/import functionality, AbsurderSQL allows you to:
+AbsurderSQL allows you to:
 - Export entire databases to standard SQLite files
 - Import databases from SQLite files
 - Migrate data between tabs, browsers, or devices
@@ -78,6 +78,34 @@ await db.close();
 
 ## API Reference
 
+### Query and value fidelity
+
+Browser `execute` and `executeWithParams` collect every row returned by SQLite,
+including RETURNING, CTEs, VALUES, and PRAGMAs. TEXT parameters and results retain
+embedded NUL and valid UTF-8; BLOB preserves arbitrary bytes, including empty
+blobs. Invalid UTF-8 stored as SQLite TEXT rejects rather than silently replacing
+bytes. Read-only results do not inherit `affectedRows` from an earlier write.
+Only the first prepared statement is executed; use separate calls and explicit
+transactions instead of assuming batch semantics.
+
+Storage errors are not successful syncs. In particular, an OPFS quota refusal
+rejects with its cause and closes the access handle. After addressing the quota,
+the caller can explicitly sync the still-live runtime without replaying its SQL
+mutation. A terminated runtime can only recover the last durable state.
+
+`exportToFile()` produces a standalone rollback-journal-format snapshot after a
+real SQLite PASSIVE checkpoint succeeds and reports every WAL frame checkpointed.
+The live database keeps its journal mode. If a transaction or reader prevents
+checkpoint completion,
+export rejects; finish that transaction before explicitly exporting again.
+Only the returned copy's SQLite file-format version bytes 18 and 19 are normalized, so
+read-only consumers do not need WAL/SHM sidecars or an `immutable=1` workaround.
+
+See [SQLite/browser stabilization](SQLITE_STABILIZATION.md) for the actual
+RED/GREEN evidence and buffer measurements, and
+[Native qualification](NATIVE_QUALIFICATION.md) for the repaired candidate's
+original-Apple and isolated-Windows results.
+
 ### `Database.deleteDatabase(name: string)`
 
 Physically removes one database. Close its connections in **all tabs and workers**
@@ -109,7 +137,7 @@ The real browser restart and failure tests run with
 `PLAYWRIGHT_EXECUTABLE_PATH` to use an installed Chromium-compatible browser.
 The tests use short, isolated temporary profiles and never an authenticated profile.
 
-### `Database.exportToFile()`
+### `db.exportToFile()`
 
 Exports the entire database to a standard SQLite file format.
 
@@ -118,8 +146,11 @@ Exports the entire database to a standard SQLite file format.
 **Behavior**:
 - Exports all tables, indexes, triggers, and data
 - Produces a standard SQLite 3 file compatible with other SQLite tools
-- Uses export/import lock to prevent concurrent operations (30 second timeout)
-- Respects `DatabaseConfig.max_export_size_bytes` limit (default: 2GB)
+- Serializes export/import through a Web Lock on the main thread; workers use
+  a runtime-local lock, not a cross-worker lock
+- Rejects refused or incomplete WAL checkpoints before returning a snapshot
+- Respects `DatabaseConfig.max_export_size_bytes` (default: 2 GiB); the packaged
+  JavaScript constructors accept names, not configuration objects
 
 **Example**:
 ```javascript
@@ -128,13 +159,15 @@ console.log(`Exported ${exportedData.length} bytes`);
 ```
 
 **Throws**:
-- `DatabaseError` if database size exceeds configured limit
-- `DatabaseError` if export/import lock acquisition times out
-- `DatabaseError` if SQLite export operation fails
+- A rejected promise if database size exceeds the configured limit
+- A rejected promise if lock acquisition, checkpoint, sync, or export fails
+
+JavaScript rejections are not uniformly `Error` instances; use `String(error)`
+when displaying a failure rather than assuming `error.message` exists.
 
 ---
 
-### `Database.importFromFile(fileData: Uint8Array)`
+### `db.importFromFile(fileData: Uint8Array)`
 
 Imports a database from a standard SQLite file, replacing all existing data.
 
@@ -147,7 +180,8 @@ Imports a database from a standard SQLite file, replacing all existing data.
 - **Destructive operation**: Replaces ALL existing database data
 - Temporarily closes and reopens the database connection internally
 - Validates SQLite file header before import
-- Uses export/import lock to prevent concurrent operations (30 second timeout)
+- Uses the same main-thread Web Lock / worker-local serialization as export
+- Persists through the selected backend and clears stale OPFS mirrors
 - Clears all caches and forces fresh reload
 - Database is immediately usable after import (no reopen needed)
 
@@ -161,9 +195,13 @@ const result = await db.execute('SELECT * FROM imported_table');
 ```
 
 **Throws**:
-- `DatabaseError` if file is not a valid SQLite database
-- `DatabaseError` if import/export lock acquisition times out
-- `DatabaseError` if SQLite import operation fails
+- A rejected promise if the file fails SQLite validation
+- A rejected promise if lock acquisition, storage replacement, or reopen fails
+
+Use a single coordinated owner during import: close other handles, tabs, and
+workers first. Replacement is destructive, not an atomic transaction spanning
+OPFS and IndexedDB. A rejected import can leave the handle closed or storage
+partially replaced; retain a separate verified backup.
 
 ---
 
@@ -173,10 +211,11 @@ const result = await db.execute('SELECT * FROM imported_table');
 
 ```
 1. Acquire export/import lock (prevents concurrent export/import)
-2. Read database size and validate against limit
-3. Call SQLite VFS to serialize database to memory
-4. Return Uint8Array with complete SQLite file
-5. Release lock
+2. Run a PASSIVE checkpoint for main; require success and complete frame counts
+3. Reload the block cache from the checkpointed state and await backend sync
+4. Validate size and copy allocated blocks into an owned SQLite snapshot
+5. Set only snapshot bytes 18/19 to rollback-journal format
+6. Return Uint8Array and release lock
 ```
 
 The exported file is a **standard SQLite 3 database file** that can be:
@@ -189,34 +228,36 @@ The exported file is a **standard SQLite 3 database file** that can be:
 
 ```
 1. Acquire export/import lock (prevents concurrent export/import)
-2. Validate SQLite file header
-3. Close current database connection
-4. Clear all IndexedDB storage for this database
-5. Write imported blocks to IndexedDB
-6. Clear all caches (LRU, checksums, metadata)
-7. Reopen database connection internally
-8. Set up fresh metadata (version=1, commit_marker=1)
-9. Release lock
+2. Close the current connection and remove its pooled connection
+3. Validate the SQLite file before clearing the old block namespace
+4. Clear this database's memory/IndexedDB state and stale OPFS mirror
+5. Build imported blocks, allocation state, checksums, and fresh metadata
+6. Persist via IndexedDB or the selected Hybrid/OPFS path
+7. Reopen the connection internally and release lock
 ```
 
 The database is immediately usable after import completes.
 
 ### Locking Mechanism
 
-Export and import operations are mutually exclusive using a lock stored in IndexedDB:
+`src/storage/export_import_lock.rs::with_lock` uses an exclusive Web Lock named
+for the database in a Window context. It does not store a lock record in
+IndexedDB and does not impose a 30-second acquisition timeout. In a Worker,
+it uses a runtime-local lock with a 10ms wait between acquisition attempts.
 
-- **Lock Storage**: `{db_name}_export_import_lock` key in IndexedDB
-- **Lock Timeout**: 30 seconds
-- **Lock Poll Interval**: 100ms
-- **Purpose**: Prevents data corruption from concurrent export/import operations
-
-If another operation is in progress, the new operation will wait up to 30 seconds for the lock to be released.
+That fallback does not coordinate independent workers or a worker with a tab.
+Neither lock serializes every SQL call, close, or delete. Applications must
+serialize those operations at the database owner; the PWA does this with its
+coordinator and dedicated runtime worker.
 
 ---
 
 ## Examples
 
-### Example 1: Export with Progress Tracking
+### Example 1: Export with Size Reporting
+
+The JavaScript export method returns the complete buffer; it does not expose a
+progress callback. This example reports size after completion.
 
 See `examples/export_import.js` - `exportWithErrorHandling()`
 
@@ -249,12 +290,13 @@ async function exportWithProgress() {
         URL.revokeObjectURL(url);
         
     } catch (error) {
-        if (error.message.includes('quota')) {
+        const message = String(error);
+        if (message.toLowerCase().includes('quota')) {
             console.error('Storage quota exceeded');
-        } else if (error.message.includes('size')) {
+        } else if (message.toLowerCase().includes('size')) {
             console.error('Database too large');
         } else {
-            console.error('Export failed:', error.message);
+            console.error('Export failed:', message);
         }
     } finally {
         await db.close();
@@ -286,7 +328,7 @@ async function importWithValidation(file) {
         await db.close();
         
     } catch (error) {
-        console.error('Import failed:', error.message);
+        console.error('Import failed:', String(error));
     }
 }
 ```
@@ -332,7 +374,8 @@ async function createBackup() {
     const backup = await db.exportToFile();
     const timestamp = new Date().toISOString();
     
-    // Store backup (could be localStorage, server upload, etc.)
+    // Tiny demonstration only: localStorage is synchronous and quota-limited.
+    // Use a downloaded file or a separate durable backup service for real backups.
     localStorage.setItem('database_backup', JSON.stringify({
         timestamp,
         size: backup.length,
@@ -378,19 +421,22 @@ const result = await db.execute('SELECT * FROM imported_table');
 
 ### 2. Handle Export Size Limits
 
-Configure size limits based on your use case:
+Rust WASM embedders can configure a limit through `DatabaseConfig`:
 
-```javascript
-const config = {
-    name: 'large_app.db',
-    max_export_size_bytes: 5 * 1024 * 1024 * 1024, // 5GB
-    // Or set to null for unlimited (not recommended)
+```rust
+let config = absurder_sql::DatabaseConfig {
+    name: "large_app.db".to_string(),
+    max_export_size_bytes: Some(64 * 1024 * 1024),
+    ..Default::default()
 };
-
-const db = await Database.newDatabase(config);
+let db = absurder_sql::Database::new(config).await?;
 ```
 
-Default limit: **2GB** (balances IndexedDB capacity with browser memory limits)
+The packaged JavaScript API is `Database.newDatabase(name: string)` (or a
+named backend constructor), not `newDatabase(config)`. It exposes no export-limit
+setter. The implementation uses **2 GiB** when the Rust option is `None`;
+`null`/`None` is not an unlimited-export switch. The limit is a policy check,
+not evidence that a browser can safely allocate that much memory.
 
 ### 3. Validate Files Before Import
 
@@ -416,17 +462,19 @@ function validateSQLiteFile(uint8Array) {
 try {
     const exported = await db.exportToFile();
 } catch (error) {
-    if (error.message.includes('timeout')) {
-        console.error('Another export/import in progress - please wait');
-    } else if (error.message.includes('size')) {
+    const message = String(error);
+    if (message.toLowerCase().includes('size')) {
         console.error('Database exceeds size limit');
     } else {
-        console.error('Export failed:', error.message);
+        console.error('Export failed:', message);
     }
 }
 ```
 
-### 5. Check Storage Quota Before Large Exports
+### 5. Estimate Storage Before Import or Backup Storage
+
+Origin quota is not available JavaScript/WASM memory. This estimate is advisory,
+not a reservation or proof that export allocation will succeed.
 
 ```javascript
 if (navigator.storage && navigator.storage.estimate) {
@@ -459,10 +507,10 @@ try {
 
 ### Size Limits
 
-- **Default Maximum**: 2GB per export
-  - Configurable via `DatabaseConfig.max_export_size_bytes`
-  - Can be set to `null` for unlimited (not recommended)
-  - Rationale: Balances IndexedDB capacity (10GB+) with browser memory limits (2-4GB/tab)
+- **Default Maximum**: 2 GiB per export
+  - Configurable through the Rust `DatabaseConfig.max_export_size_bytes`
+  - `None` selects the default limit, not unlimited output
+  - Not a qualified database-size or available-memory ceiling
 
 - **Browser Memory**: Large exports load entirely into memory
   - For very large databases (>100MB), monitor memory usage
@@ -470,26 +518,25 @@ try {
 
 ### Performance
 
-- **Export Speed**: ~100-500 MB/s (varies by browser and hardware)
-- **Import Speed**: ~50-200 MB/s (slower due to IndexedDB writes)
-- **Blocking**: Export/import operations block other database operations
+- Export includes checkpointing, durable sync, block reads, and a complete
+  returned buffer; import includes storage replacement and reopen
+- No current cross-browser throughput or peak-memory guarantee is claimed
+- Serialize other database operations explicitly while export/import runs
 
 ### Browser Compatibility
 
-All modern browsers support export/import:
-
-| Browser | Export | Import | Max Tested Size |
-|---------|--------|--------|-----------------|
-| **Chrome 131** | **[✓]** | **[✓]** | 500MB |
-| **Firefox 143** | **[✓]** | **[✓]** | 500MB |
-| **Safari 26** | **[✓]** | **[✓]** | 500MB |
+Current qualification uses real Chromium browser processes and native SQLite
+oracles, including the original Apple runtime's read-only consumer. Resource
+characterization uses 1, 8, and 32 MiB incompressible payload fixtures, not a
+500MB supported-size claim or a Firefox/Safari qualification.
+See [Native qualification](NATIVE_QUALIFICATION.md) for exact host/browser scope.
 
 ### Multi-Tab Coordination
 
-- Only one export or import can run at a time across all tabs
-- Operations use a 30-second timeout lock
-- If lock acquisition fails, operation throws an error
-- Recommendation: Perform exports/imports when no other tabs are active
+- Main-thread operations with the same lock name serialize through Web Locks
+- Worker fallback locks are local to that runtime, not origin-wide
+- Lock/storage failures reject rather than producing a successful snapshot
+- Use one coordinated owner, with other connections closed during replacement
 
 ---
 
@@ -499,36 +546,32 @@ All modern browsers support export/import:
 
 **Cause**: Database size exceeds `max_export_size_bytes` limit
 
-**Solution**:
+**Solution**: Reduce the database or set an appropriate Rust-side limit before
+opening it. JavaScript constructors do not accept a configuration object.
+
 ```javascript
-// Option 1: Increase limit
-const config = {
-    name: 'myapp.db',
-    max_export_size_bytes: 5 * 1024 * 1024 * 1024, // 5GB
-};
-
-// Option 2: Remove limit (not recommended)
-const config = {
-    name: 'myapp.db',
-    max_export_size_bytes: null,
-};
-
-// Option 3: Reduce database size
+// Reclaim unused space before exporting; keep the operation on the owner.
 await db.execute('VACUUM'); // Reclaim unused space
 ```
 
-### Error: "Export/import lock acquisition timeout"
+### Export/Import Waits for a Lock
 
-**Cause**: Another export/import operation is in progress
+**Possible cause**: Another operation still owns the same lock.
 
 **Solution**:
-- Wait for the other operation to complete (max 30 seconds)
-- Close other tabs that might be performing operations
-- Retry after a delay:
-  ```javascript
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  const exported = await db.exportToFile();
-  ```
+- Identify and finish the owning operation; do not launch overlapping retries
+- Serialize application calls and inspect the original rejection, if any
+- There is no built-in 30-second lock timeout. An application-side timeout does
+  not cancel an already-running operation
+
+### Error: "Export checkpoint failed" or "Export checkpoint incomplete"
+
+**Cause**: SQLite refused the PASSIVE checkpoint or not all WAL frames could be
+checkpointed, for example while a transaction or reader is active.
+
+**Solution**: Complete or explicitly roll back the transaction, release the
+reader, and then request another export. Do not patch a live database header,
+discard WAL bytes, or use `immutable=1` to hide an incomplete snapshot.
 
 ### Error: "Not a valid SQLite database"
 
@@ -550,7 +593,8 @@ await db.importFromFile(uint8Array);
 
 ### Import Completes But Data is Missing
 
-**Cause**: Import failed silently or imported wrong file
+**Possible cause**: Wrong input file, schema/query mismatch, or an unhandled
+rejection. A successful promise alone is not an application-level data check.
 
 **Solution**:
 ```javascript
@@ -562,7 +606,7 @@ try {
     const result = await db.execute("SELECT name FROM sqlite_master WHERE type='table'");
     console.log('Imported tables:', result.rows.map(r => r.values[0].value));
 } catch (error) {
-    console.error('Import failed:', error.message);
+    console.error('Import failed:', String(error));
 }
 ```
 
@@ -584,7 +628,7 @@ try {
 
 ### Storage Quota Exceeded
 
-**Cause**: Not enough IndexedDB storage for import
+**Possible cause**: Insufficient origin storage for IndexedDB or OPFS persistence.
 
 **Solution**:
 ```javascript
@@ -594,7 +638,7 @@ const availableMB = (estimate.quota - estimate.usage) / (1024 * 1024);
 console.log(`Available: ${availableMB.toFixed(2)} MB`);
 
 if (fileSize > estimate.quota - estimate.usage) {
-    // Request persistent storage
+    // Request eviction protection, not extra quota.
     await navigator.storage.persist();
     
     // Or ask user to free up space
@@ -642,20 +686,13 @@ if (fileSize > estimate.quota - estimate.usage) {
 
 ---
 
-## Comparison with absurd-sql
+## Portability Boundary
 
-| Feature | absurd-sql | AbsurderSQL |
-|---------|-----------|-------------|
-| **Export to File** | **[X]** Not supported | **[✓]** Full support |
-| **Import from File** | **[X]** Not supported | **[✓]** Full support |
-| **Database Backup** | **[X]** Not possible | **[✓]** Standard SQLite files |
-| **Data Migration** | **[X]** Manual only | **[✓]** Automated |
-| **File Portability** | **[X]** Locked in IndexedDB | **[✓]** Standard SQLite format |
-| **Multi-Device Sync** | **[X]** Not possible | **[✓]** Export/import workflow |
-| **Disaster Recovery** | **[X]** No backups | **[✓]** Full backup/restore |
-| **CLI/Tool Integration** | **[X]** No file access | **[✓]** Use sqlite3, DB Browser |
-
-**AbsurderSQL provides complete data portability that absurd-sql cannot offer.**
+The qualified AbsurderSQL workflow exports standard standalone SQLite bytes and
+imports a complete database through its selected backend. It is a snapshot
+transfer mechanism, not automatic multi-device synchronization or conflict
+resolution. Keep backups outside the database's own origin if they must survive
+origin eviction or user-cleared browser data.
 
 ---
 

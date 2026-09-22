@@ -2,6 +2,12 @@
 
 Complete guide for setting up Grafana dashboards to monitor AbsurderSQL with Prometheus.
 
+The library's [current qualification](../docs/NATIVE_QUALIFICATION.md) includes
+optional telemetry coverage, not deployment of this monitoring stack. The
+supplied dashboard and rule templates include legacy duration names. Before
+importing them, map duration histograms to the current `_duration_ms_bucket`
+series and use millisecond thresholds; see [PromQL queries](PROMQL_QUERIES.md).
+
 ## Prerequisites
 
 - **Telemetry enabled**: Your application must be built with `--features telemetry`
@@ -18,7 +24,7 @@ Build AbsurderSQL with telemetry feature:
 
 ```bash
 # WASM build
-wasm-pack build --target web --out-dir pkg --features telemetry
+wasm-pack build --target web --out-dir pkg-telemetry --features telemetry
 
 # Native build
 cargo build --release --features telemetry
@@ -26,38 +32,27 @@ cargo build --release --features telemetry
 
 ### 2. Expose Metrics Endpoint
 
-Add a `/metrics` endpoint to your application's HTTP server. See examples in the main README.md.
-
-**Example with axum:**
+Add a `/metrics` endpoint to your application's HTTP server. This native helper
+encodes the `Metrics` registry that your application owns and updates; call it
+from your server's handler rather than creating a fresh registry per request.
+Build with the dependency's `telemetry` feature and add `prometheus` to the
+application's dependencies.
 
 ```rust
-use absurder_sql::Database;
+use absurder_sql::telemetry::Metrics;
 use prometheus::Encoder;
-use axum::{Router, routing::get, extract::State};
 
-async fn metrics_handler(State(db): State<Database>) -> String {
-    #[cfg(feature = "telemetry")]
-    if let Some(metrics) = db.metrics() {
-        let encoder = prometheus::TextEncoder::new();
-        let metric_families = metrics.registry().gather();
-        return encoder.encode_to_string(&metric_families).unwrap();
-    }
-    "Telemetry not enabled".to_string()
-}
-
-#[tokio::main]
-async fn main() {
-    let db = Database::new("myapp.db").await.unwrap();
-    let app = Router::new()
-        .route("/metrics", get(metrics_handler))
-        .with_state(db);
-    
-    axum::Server::bind(&"0.0.0.0:9090".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+fn render_metrics(metrics: &Metrics) -> Result<Vec<u8>, prometheus::Error> {
+    let mut output = Vec::new();
+    prometheus::TextEncoder::new().encode(&metrics.registry().gather(), &mut output)?;
+    Ok(output)
 }
 ```
+
+Serve the returned bytes with the Prometheus text content type. The native
+database does not expose `Database::metrics()`; the WASM Rust accessor is a
+separate API and is not exported by the JavaScript package. Enabling the
+feature alone does not create an endpoint or application instrumentation.
 
 ### 3. Configure Prometheus
 
@@ -77,10 +72,7 @@ scrape_configs:
 Reload Prometheus configuration:
 
 ```bash
-# Send SIGHUP to reload config
-kill -HUP $(pgrep prometheus)
-
-# Or restart Prometheus
+# For a deployment managed by this systemd unit
 systemctl restart prometheus
 ```
 
@@ -459,6 +451,6 @@ kubectl port-forward svc/grafana 3000:80
 
 For issues or questions:
 
-- GitHub Issues: [absurder-sql repository](https://github.com/yourusername/absurder-sql)
-- Documentation: See `CODE_QUALITY_PLAN.md` for architecture details
+- GitHub Issues: [absurder-sql repository](https://github.com/npiesco/absurder-sql)
+- Qualification: See [Native qualification](../docs/NATIVE_QUALIFICATION.md)
 - PromQL Examples: See `PROMQL_QUERIES.md` for query reference

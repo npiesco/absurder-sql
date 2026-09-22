@@ -1,8 +1,25 @@
 # AbsurderSQL PWA
 
-<p>
-  <strong>Next.js 16 + React 19 + WASM + IndexedDB</strong>
-</p>
+You want to inspect and edit a local SQLite database without sending it to a
+database server.
+
+**AbsurderSQL PWA keeps the database in your browser.**
+
+Inside a client-side PWA module:
+
+```typescript
+import init, { Database } from '@/lib/db/database-proxy';
+
+await init();
+const db = await Database.newDatabase('example.db');
+const result = await db.execute("SELECT 'SQLite in a worker' AS message");
+console.log(result.rows[0].values);
+await db.close();
+```
+
+The PWA needs HTTPS or localhost, SharedWorker and dedicated-worker support,
+and browser storage. The first load needs the app's HTTP server; offline use
+requires the service worker to finish caching the app and WASM.
 
 **Tech Stack:**  
 [![Next.js](https://img.shields.io/badge/nextjs-16.3.0--preview.6-black)](https://nextjs.org/)
@@ -20,16 +37,26 @@
 
 ## Overview
 
-AbsurderSQL PWA is a comprehensive database administration interface built on this repository's locally generated AbsurderSQL WASM package. It provides a modern alternative to traditional server-based database admin tools like Adminer, running entirely in the browser with SQLite, OPFS, and IndexedDB.
+AbsurderSQL PWA is a database administration interface built on this
+repository's locally generated AbsurderSQL WASM package, using SQLite, OPFS,
+and IndexedDB.
 
 **Architecture:** Browser tabs → typed `Database` proxy → SharedWorker coordinator → elected dedicated WASM worker → Hybrid OPFS blocks + IndexedDB metadata (with IndexedDB fallback)
 
 **Dependency security:** The PWA pins Next.js / `eslint-config-next` 16.3.0-preview.6 because the configured CFS feed's newest stable release, 16.2.10, remains in the affected audit ranges. Scoped overrides select patched PostCSS and Sharp releases, and `vendor/brace-expansion-compat` preserves the legacy callable API while delegating to the audited `@isaacs/brace-expansion` implementation.
 
+**Qualified scope (2026-09-22 UTC):** The current default runtime in `pkg` and
+`pwa/lib` passed the [native qualification](../docs/NATIVE_QUALIFICATION.md)
+on the original Apple Python 3.9.6 / SQLite 3.51.0 runtime and isolated Windows
+Server 2025 x64 as SYSTEM. The three production PWA cases cover Hybrid
+close/reopen, multi-tab ownership handoff, and offline reload. The broader
+PWA application and mobile suites have separate qualification gates. Package
+provenance remains `0.1.28`; no newer release is implied.
+
 **Key Capabilities:**
-- **100% Browser-Based**: No server infrastructure, all data stays local
+- **Browser-Based Database**: SQL and persistence run locally; an HTTP server serves the app's initial assets
 - **Offline-First PWA**: Install as desktop/mobile app, works without internet connectivity
-- **Native Performance**: Rust-compiled WASM delivers high-performance query execution
+- **WASM Execution**: SQLite executes in the elected dedicated worker
 - **Multi-Tab Coordination**: One SharedWorker elects a dedicated OPFS-capable runtime, queues tab requests, and hands ownership to a standby runtime when its owning tab closes
 - **Full Portability**: Import/export standard SQLite files for backup and migration
 
@@ -39,7 +66,7 @@ AbsurderSQL PWA is a comprehensive database administration interface built on th
 - Create, import, export, and delete databases
 - Drag-and-drop database import
 - Real-time database info (size, tables, indexes)
-- Persistent storage in IndexedDB
+- Hybrid OPFS blocks with shared IndexedDB metadata, or IndexedDB fallback
 
 ### SQL Query Interface (`/db/query`)
 - Interactive SQL editor with CodeMirror 6
@@ -89,7 +116,7 @@ AbsurderSQL PWA is a comprehensive database administration interface built on th
 - Custom SQLite Virtual File System (VFS)
 - Block-level I/O with 4KB chunks
 - LRU cache (128 blocks) for read optimization
-- Multi-tab coordination via BroadcastChannel API
+- Multi-tab ownership via SharedWorker and MessagePorts
 - WAL (Write-Ahead Logging) mode for concurrent reads
 
 ### SQL Editor
@@ -109,15 +136,15 @@ AbsurderSQL PWA is a comprehensive database administration interface built on th
 - **Playwright 1.56+** for E2E browser testing
 - **Vitest 4.0+** for unit testing with coverage
 - **Testing Library** for React component testing
-- **6-worker parallel execution** for concurrency validation
-- Zero-flakiness test discipline with event-based waits
+- General E2E configuration: six local workers, one in CI
+- Production PWA gate: one worker and explicit `--retries=0` during qualification
 
 ## Getting Started
 
 ### Installation
 
 **Prerequisites:**
-- Node.js 18+
+- Node.js 24 (used in qualification)
 - npm 9+ or pnpm 8+
 
 ```bash
@@ -162,6 +189,9 @@ npm start
 # E2E tests with Playwright (6 parallel workers)
 npm test
 
+# Production PWA gate (builds and serves on port 3100)
+npm run test:pwa -- --retries=0
+
 # Interactive UI mode
 npm run test:ui
 
@@ -174,15 +204,20 @@ npm run test:unit
 # Unit tests with coverage
 npm run test:unit:coverage
 
-# Run all test suites
+# Run unit tests and the general E2E configuration
 npm run test:all
 ```
 
 **Test Configuration:**
-- 6 workers for multi-tab concurrency testing
+- General E2E: six local workers / one CI worker on port 3000
+- Dedicated production gate: one worker on port 3100; three qualified cases
 - Worker-unique database names prevent test pollution
-- Event-based waits (no setTimeout/waitForTimeout)
+- Wait for observable runtime readiness and persisted query results
 - Idempotent setup with DROP TABLE IF EXISTS
+
+The general configurations default to two retries in CI. Qualification
+overrides this with `--retries=0`; a retry or browser-cleanup failure is not
+counted as a passing qualification run.
 
 ### Bundle Analysis
 
@@ -219,9 +254,10 @@ pwa/
 ├── lib/
 │   └── db/                   # Database utilities
 │       ├── store.ts          # Zustand database store
-│       └── utils.ts          # Helper functions
-└── tests/
-    └── e2e/                  # Playwright E2E tests
+│       ├── database-proxy.ts # Typed browser API
+│       ├── database.shared-worker.ts # Cross-tab runtime owner
+│       └── database.worker.ts # Dedicated WASM runtime
+└── e2e/                      # Playwright E2E tests
 ```
 
 ## Architecture
@@ -269,66 +305,81 @@ await init();
 **Create:**
 ```javascript
 const db = await Database.newDatabase('myapp.db');
-// Initializes IndexedDB storage with block allocation
-```
-
-**Close:**
-```javascript
-await db.close();
-// CRITICAL: Syncs WAL to IndexedDB for persistence
-// Triggers leader election cleanup
-// Must be called before page navigation
+console.log(db.getStorageBackend()); // Hybrid when available, otherwise IndexedDB
 ```
 
 **Export:**
 ```javascript
 const sqliteFile = await db.exportToFile();
-// Returns Uint8Array of standard SQLite file
 ```
+
+Export requires a complete SQLite WAL checkpoint. The returned `Uint8Array`
+is a standalone SQLite snapshot with rollback-journal format bytes 18/19;
+the live database stays WAL. A blocked or incomplete checkpoint rejects.
 
 **Import:**
 ```javascript
-await db.importFromFile(uint8Array);
-// Loads SQLite file into IndexedDB block storage
+await db.importFromFile(sqliteFile);
 ```
+
+Import replaces the current database. If persistent storage cannot reopen,
+the operation fails closed rather than opening an empty in-memory database.
+
+**Close:**
+```javascript
+await db.close();
+```
+
+Await `db.sync()` when acknowledging durable writes, and `db.close()` when
+releasing the handle. The worker drains queued operations and syncs/closes
+the physical connection when its last handle closes. Propagate rejections;
+page unload is not a durability acknowledgement.
+
+**Delete:**
+```javascript
+// After closing the handle above and every other user of this name:
+await Database.deleteDatabase('myapp.db');
+```
+
+Close every user of this name before deletion. The PWA coordinator closes its
+owned connection, then the library physically removes the exact OPFS and
+shared-IndexedDB namespace. Similarly prefixed database names survive.
+Deletion errors reject; clearing an origin's entire IndexedDB store is not
+an equivalent operation.
 
 ### Multi-Tab Coordination Architecture
 
-**Leader Election:**
-- Atomic operations on localStorage for leader claim
-- BroadcastChannel for cross-tab notifications
-- Heartbeat (5s interval) for liveness detection
-- Automatic leader transition on tab close
+The SharedWorker elects one dedicated worker to own the WASM runtime. Each
+tab supplies a runtime candidate and sends proxy requests over MessagePorts.
+The elected runtime shares one connection per database name and serializes
+operations on that connection. When the owning tab closes, the coordinator
+activates a standby runtime and reopens handles on demand.
 
-**Write Queue:**
-- Non-leader tabs queue writes
-- Leader processes queued operations
-- Prevents concurrent write conflicts
+This is separate from the library's direct-tab IndexedDB leader-election
+API. The PWA does not elect its runtime through localStorage or a five-second
+tab heartbeat.
 
 **Coordination Flow:**
 ```
-Tab 1 (Leader)    Tab 2 (Non-Leader)
-     |                    |
-     |<--- write request -|
-     | process write      |
-     |--- notification -->|
-     |                    | update UI
+Tab 1 proxy ─┐
+             ├─ SharedWorker coordinator ─ elected dedicated WASM worker
+Tab 2 proxy ─┘                                      │
+                                        Hybrid / IndexedDB storage
 ```
 
 ### Testing Architecture
 
-**Zero-Flakiness Discipline:**
+**Isolation and Observable Completion:**
 
 1. **Worker-Unique Database Names**
    ```javascript
    const TEST_DB_NAME = `test-w${testInfo.parallelIndex}_${Date.now()}`;
    ```
 
-2. **Event-Based Waits** (no setTimeout)
+2. **Runtime Readiness**
    ```javascript
-   await page.waitForFunction(() => {
-     return (window as any).testDb?.isLeader();
-   }, { timeout: 15000 });
+   await page.goto('/worker-test');
+   await expect(page.getByTestId('worker-status')).toHaveText('ready');
    ```
 
 3. **Idempotent Setup**
@@ -339,20 +390,24 @@ Tab 1 (Leader)    Tab 2 (Non-Leader)
 
 4. **Comprehensive Cleanup**
    ```javascript
-   localStorage.clear();
-   const dbs = await indexedDB.databases();
-   for (const db of dbs) {
-     await indexedDB.deleteDatabase(db.name);
-   }
+   // After all handles/tabs using TEST_DB_NAME have closed:
+   await page.evaluate(async (name) => {
+     await window.Database.deleteDatabase(name);
+   }, TEST_DB_NAME);
    ```
 
 **Test Isolation:**
 - Each worker uses unique database names
 - No shared state between test runs
-- Full cleanup in beforeEach and afterEach
-- Validates WASM async safety under 6-worker concurrency
+- Close test-owned handles and delete only their exact database names
+- Library ownership/resource tests separately exercise async lifetime safety
 
-## Performance Characteristics
+## Performance Notes
+
+The sizes, cache-hit rates, and transaction timings retained below are
+undated historical estimates, not measurements of the current qualified
+package. See [native qualification](../docs/NATIVE_QUALIFICATION.md) for the
+current browser/benchmark evidence; workload and runtime affect these values.
 
 ### WASM Module Loading
 
@@ -409,34 +464,29 @@ await db.execute('COMMIT');
 // Total: ~100ms (100x faster)
 ```
 
-### Future Optimizations
+### Unimplemented Optimization Ideas
 
-- **Web Workers**: Background query execution
 - **Shared Memory**: Zero-copy data transfer
 - **Streaming Results**: Large result set pagination
 
 ## Browser Compatibility
 
-### Supported Browsers
+### Qualified Browser Runtime
 
-| Browser | Minimum Version | Notes |
-|---------|----------------|-------|
-| Chrome  | 90+ | Full support |
-| Edge    | 90+ | Full support |
-| Firefox | 89+ | Full support |
-| Safari  | 15.4+ | BroadcastChannel since 15.4 |
-| Opera   | 76+ | Chromium-based |
+The current PWA qualification uses Chromium 153 on macOS ARM64 and Windows
+x64. Other browsers must support the APIs below; an older WASM or
+BroadcastChannel minimum version does not establish PWA compatibility.
 
 ### Required Browser APIs
 
 **Core Requirements:**
-- **WebAssembly**: All modern browsers (95%+ global coverage)
+- **WebAssembly**: The generated module must initialize successfully
 - **IndexedDB API**: Persistent storage with transaction support
 - **ES6 Modules**: Dynamic imports and async/await
 
-**Multi-Tab Features:**
-- **BroadcastChannel API**: Cross-tab communication (Safari 15.4+)
-- **localStorage**: Leader election coordination
+**Worker Runtime:**
+- **SharedWorker** and **MessageChannel**: Cross-tab ownership and proxy requests
+- **Dedicated Worker**: WASM execution and OPFS synchronous access when available
 
 **Optional Enhancements:**
 - **Service Workers**: Offline caching (PWA)
@@ -451,22 +501,20 @@ const wasmSupported = typeof WebAssembly === 'object';
 // Check IndexedDB
 const idbSupported = typeof indexedDB !== 'undefined';
 
-// Check BroadcastChannel
-const bcSupported = typeof BroadcastChannel !== 'undefined';
+// Check the PWA's worker requirements
+const workersSupported = 'SharedWorker' in window && 'Worker' in window;
 ```
 
 ### Fallback Behavior
 
-- **No BroadcastChannel**: Single-tab mode (no coordination)
-- **No localStorage**: Non-leader writes allowed
+- **No SharedWorker**: Initialization rejects; there is no single-tab proxy fallback
+- **No usable OPFS synchronous access**: Automatic backend selection uses IndexedDB
 - **No Service Worker**: Online-only mode
 
 ### Mobile Browser Support
 
-- **iOS Safari 15.4+**: Full support
-- **Chrome Mobile 90+**: Full support
-- **Firefox Mobile 89+**: Full support
-- **Samsung Internet 15+**: Full support
+Mobile browser support depends on the same worker and storage APIs. The
+desktop qualification does not establish a mobile-browser or React Native pass.
 
 ## Progressive Web App (PWA) Features
 
@@ -474,7 +522,7 @@ const bcSupported = typeof BroadcastChannel !== 'undefined';
 
 **Desktop Installation:**
 - Chrome/Edge: "Install" button in address bar
-- Firefox: "Install" in page actions menu
+- Firefox: Installation UI depends on platform/version; the web app still needs the APIs above
 - Safari: "Add to Dock" (macOS Sonoma+)
 
 **Mobile Installation:**
@@ -487,13 +535,13 @@ const bcSupported = typeof BroadcastChannel !== 'undefined';
 **Service Worker Strategy:**
 ```javascript
 // Cache-first for static assets
-// Network-first for API calls (when implemented)
-// Fallback to cache on network failure
+// Network-first for same-origin navigations
+// Cached navigation or root-page fallback when offline
 ```
 
 **Offline Features:**
-- All database operations work offline
-- IndexedDB persistence (no network required)
+- Database operations require no network after the runtime is cached
+- OPFS/IndexedDB persistence requires no network
 - Cached UI assets and JavaScript bundles
 - Export databases while offline
 
@@ -507,12 +555,13 @@ const bcSupported = typeof BroadcastChannel !== 'undefined';
 **Configuration:**
 ```json
 {
-  "name": "AbsurderSQL PWA",
+  "name": "AbsurderSQL - SQLite Admin Tool",
   "short_name": "AbsurderSQL",
-  "description": "SQLite Database Admin Tool",
+  "description": "Browser-based SQLite database admin tool with zero server setup",
+  "start_url": "/",
   "display": "standalone",
   "orientation": "any",
-  "theme_color": "#000000",
+  "theme_color": "#2563eb",
   "background_color": "#ffffff"
 }
 ```
@@ -520,15 +569,13 @@ const bcSupported = typeof BroadcastChannel !== 'undefined';
 **Icons:**
 - 192x192 (Android home screen)
 - 512x512 (Android splash screen)
-- 180x180 (iOS home screen)
 - Maskable icon support
 
 ### Storage Persistence
 
-**IndexedDB Quotas:**
-- Chrome: ~60% of available disk space
-- Firefox: ~50% of available disk space
-- Safari: ~1GB (can request more)
+**Storage Quotas:** Browser policy, free disk space, and persistence permission
+determine the origin's quota. Query `navigator.storage.estimate()` rather than
+assuming a fixed per-browser limit.
 
 **Persistent Storage API:**
 ```javascript
@@ -546,16 +593,16 @@ if (navigator.storage && navigator.storage.persist) {
 
 | Feature | Adminer | AbsurderSQL PWA |
 |---------|---------|----------------|
-| **File Size** | Single PHP file (~500KB) | WASM module (~1.3MB, ~595KB gzipped) |
+| **File Size** | Single PHP file (~500KB) | Build-dependent; historical estimates above |
 | **Database Support** | MySQL, PostgreSQL, SQLite, MS SQL, Oracle | SQLite only |
-| **Server Required** | PHP 5.3+ with web server | None (client-only) |
-| **Architecture** | Client → PHP Server → DB | Browser → WASM → IndexedDB |
+| **Server Required** | PHP with web server | Initial app hosting; no database server |
+| **Architecture** | Client → PHP Server → DB | Browser → worker coordinator → WASM → OPFS/IndexedDB |
 | **Installation** | Upload PHP file to server | Visit URL or install PWA |
 | **Offline Support** | No (requires server) | Yes (full offline PWA) |
-| **Multi-Tab** | Server manages sessions | BroadcastChannel coordination |
-| **Data Location** | Server filesystem or remote DB | Local browser (IndexedDB) |
+| **Multi-Tab** | Server manages sessions | SharedWorker ownership and queued requests |
+| **Data Location** | Server filesystem or remote DB | Local browser (OPFS/IndexedDB) |
 | **Export/Import** | SQL, CSV (16 formats) | SQLite files, CSV, JSON |
-| **Performance** | Network + server overhead | Local (near-native WASM) |
+| **Performance** | Network + server execution | Local WASM execution |
 | **Security Model** | Server-side PHP execution | Client-side isolation |
 | **Customization** | PHP plugins and themes | React components |
 
@@ -568,7 +615,7 @@ if (navigator.storage && navigator.storage.persist) {
 - Can manage remote databases
 
 **AbsurderSQL PWA's Advantages:**
-- **Zero server infrastructure** - no PHP, no web server, no database server
+- **No database server** - an HTTP server supplies the app's initial assets
 - **Fully offline** - works without internet after initial load
 - **Local-first privacy** - data never leaves the device
 - **PWA installable** - runs as native desktop/mobile app
@@ -601,7 +648,7 @@ This PWA is part of the AbsurderSQL monorepo.
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
 3. Run tests (`npm run test:all`)
-4. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Commit changes (`git commit -m 'Add feature [skip ci]'`)
 5. Push to branch (`git push origin feature/amazing-feature`)
 6. Open Pull Request
 
@@ -623,6 +670,7 @@ See the main repository LICENSE file.
 
 ### Core Documentation
 - [Main Project README](../README.md) - Project overview and architecture
+- [Native Qualification](../docs/NATIVE_QUALIFICATION.md) - Current gates, package identity, and retained failed attempts
 - [WASM Package](https://www.npmjs.com/package/@npiesco/absurder-sql) - npm package documentation
 
 ### Feature Guides

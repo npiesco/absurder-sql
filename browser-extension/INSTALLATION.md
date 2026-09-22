@@ -22,13 +22,18 @@
 
 ### Step 3: Test the Extension
 
-1. Open `examples/devtools_demo.html` in Chrome
+1. Run `npm run serve` from the repository root and open
+   `http://localhost:8080/examples/devtools_demo.html` in Chrome
 2. Open DevTools (F12 or Cmd+Option+I on Mac)
 3. Click on the **"AbsurderSQL"** tab (should appear at the top or in the >> menu)
 4. Back in the demo page, click:
    - "1. Initialize Database"
    - "2. Run Sample Queries"
-5. Watch the DevTools panel update in real-time!
+5. Watch the DevTools panel update with the demo's sample messages.
+
+The demo exercises the extension protocol with generated spans, not real
+SQLite queries. For the runtime's current browser and optional-telemetry
+results, see [Native qualification](../docs/NATIVE_QUALIFICATION.md).
 
 ## What You'll See
 
@@ -58,23 +63,40 @@
 
 ## Using with Real AbsurderSQL
 
-Once you have AbsurderSQL built with `--features telemetry`:
+The checked-in `pkg` is the qualified default build, with telemetry disabled.
+A separate telemetry-enabled build is required for Rust instrumentation.
+The JavaScript database constructor is:
 
 ```javascript
 import init, { Database } from '@npiesco/absurder-sql';
 
 await init();
 
-// Create database with telemetry
-const db = await Database.new('my_database.db');
+const db = await Database.newDatabase('my_database.db');
+await db.execute('SELECT 1');
+await db.close();
+```
 
-// In your Rust code, enable DevTools:
+This public npm import uses the version you installed; the current source
+qualification does not imply a newer npm release. Creating a database does
+not automatically attach a DevTools exporter.
+
+In Rust compiled for `wasm32` with `--features telemetry`:
+
+```rust
+use absurder_sql::telemetry::WasmSpanExporter;
+
 let exporter = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string())
     .with_devtools(true)  // Enable DevTools integration
     .with_batch_size(100);
 ```
 
-The extension will automatically receive messages from `WasmSpanExporter` via `chrome.runtime.sendMessage()`.
+`WasmSpanExporter` currently calls `chrome.runtime.sendMessage()`, while the
+content script receives the `window.postMessage` protocol documented in
+[README](README.md#message-protocol). Ordinary pages need an application bridge
+and handlers for panel commands; the demo provides its own bridge. The
+exporter's HTTP body is a JSON array of recorded spans, so the receiver must
+accept that format. Buffering and flushing remain explicit application work.
 
 ## Troubleshooting
 
@@ -122,14 +144,15 @@ The extension will automatically receive messages from `WasmSpanExporter` via `c
 
 ## Firefox Installation
 
-The extension also works in Firefox:
+To check the extension manually in Firefox:
 
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click **"Load Temporary Add-on"**
 3. Select `manifest.json` from the `browser-extension` directory
 4. Open DevTools (F12) and find the "AbsurderSQL" tab
 
-**Note:** Firefox extensions are temporary and will be removed when you close Firefox.
+**Note:** Firefox extensions are temporary and will be removed when you close
+Firefox. The current qualified browser lane is Chromium, not Firefox.
 
 ## Development
 
@@ -151,7 +174,9 @@ To modify the extension:
 
 ## Security Note
 
-The extension requires `<all_urls>` host permission to communicate with any OTLP endpoint you configure. Be cautious when entering authentication tokens in the Custom Headers field.
+The extension's `<all_urls>` match lets its content script bridge inspected
+page messages. It does not bypass the page's CORS policy for exporter requests.
+Be cautious when entering authentication tokens in the Custom Headers field.
 
 ## Next Steps
 

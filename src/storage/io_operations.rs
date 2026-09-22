@@ -99,7 +99,7 @@ pub fn read_block_sync_impl(
     if let Some(data) = cached_data {
         // Record cache hit
         #[cfg(feature = "telemetry")]
-        if let Some(ref metrics) = storage.metrics {
+        if let Some(metrics) = storage.metrics_snapshot() {
             metrics.cache_hits().inc();
         }
         // Verify checksum even for cached data to catch corruption
@@ -121,7 +121,7 @@ pub fn read_block_sync_impl(
 
     // Record cache miss
     #[cfg(feature = "telemetry")]
-    if let Some(ref metrics) = storage.metrics {
+    if let Some(metrics) = storage.metrics_snapshot() {
         metrics.cache_misses().inc();
         metrics.indexeddb_operations_total().inc();
     }
@@ -207,9 +207,7 @@ pub fn read_block_sync_impl(
         // Verify checksum ONLY for visible blocks in WASM
         // Skip block 0 as it's the SQLite header which can be modified by SQLite
         if is_visible && block_id != 0 {
-            if let Err(e) = storage.verify_against_stored_checksum(block_id, &data) {
-                return Err(e);
-            }
+            storage.verify_against_stored_checksum(block_id, &data)?;
         }
 
         // Cache for future reads (skip eviction check for performance)
@@ -218,7 +216,7 @@ pub fn read_block_sync_impl(
             cache.insert(block_id, data.clone());
         }
 
-        return Ok(data);
+        Ok(data)
     }
 
     // For native fs_persist, read from filesystem if allocated
@@ -387,7 +385,7 @@ fn write_block_impl_inner(
 ) -> Result<(), DatabaseError> {
     // Record IndexedDB write operation
     #[cfg(feature = "telemetry")]
-    if let Some(ref metrics) = storage.metrics {
+    if let Some(metrics) = storage.metrics_snapshot() {
         metrics.indexeddb_operations_total().inc();
     }
 
@@ -538,13 +536,7 @@ fn write_block_impl_inner(
                 let existing_non_zero = existing.iter().filter(|&&b| b != 0).count();
                 let new_non_zero = data.iter().filter(|&&b| b != 0).count();
 
-                if new_non_zero > existing_non_zero {
-                    true
-                } else if new_non_zero < existing_non_zero {
-                    false
-                } else {
-                    true
-                }
+                new_non_zero >= existing_non_zero
             }
         } else {
             // Check if there's committed data in global storage that we haven't seen yet
@@ -773,9 +765,9 @@ fn write_block_impl_inner(
 
     // Update storage and cache size gauges
     #[cfg(feature = "telemetry")]
-    if let Some(ref metrics) = storage.metrics {
+    if let Some(metrics) = storage.metrics_snapshot() {
         // Update storage bytes gauge
-        let cache_guard = storage.cache.lock();
+        let cache_guard = lock_mutex!(storage.cache);
         let total_bytes: usize = cache_guard.values().map(|v| v.len()).sum();
         metrics.storage_bytes().set(total_bytes as f64);
 

@@ -3,6 +3,16 @@
 **Last Updated:** October 24, 2025  
 **Platforms:** iOS (iPhone 16 Simulator, iOS 18.4), Android (test_avd, Android 13, ARM64)
 
+> **Historical measurement record (2025-10-22 through 2025-10-24).**
+> The results, comparison versions, derived ratios, and recommendations below
+> are preserved as recorded, not rerun or independently recalculated for the
+> current candidate. They do not establish current mobile-device qualification,
+> general memory/throughput guarantees, or present-day competitor capabilities.
+> Current browser/native qualification is in
+> [Native qualification](../NATIVE_QUALIFICATION.md); mobile API status is
+> distinguished from this historical benchmark in
+> [UniFFI progress](../MOBILE_UNIFFI_PROGRESS.md).
+
 ---
 
 ## Benchmark Scope

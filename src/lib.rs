@@ -59,6 +59,8 @@ pub mod vfs;
 #[cfg(not(target_arch = "wasm32"))]
 pub use database::PreparedStatement;
 pub mod utils;
+#[cfg(target_arch = "wasm32")]
+mod wasm_statement;
 
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
@@ -117,24 +119,33 @@ pub struct Database {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl Database {
-    /// Get the SQLite database pointer from the shared connection
-    /// Uses Cell::get() to avoid RefCell borrow checking - eliminates reentrancy panics
-    fn db(&self) -> *mut sqlite_wasm_rs::sqlite3 {
-        let db_ptr = self.connection_state.db.get();
-        if db_ptr.is_null() {
-            panic!("Database connection is null for {}", self.name);
+struct PendingConnection(Option<Rc<crate::connection_pool::ConnectionState>>);
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for PendingConnection {
+    fn drop(&mut self) {
+        if let Some(state) = &self.0 {
+            crate::connection_pool::release_connection_state(state);
         }
-        db_ptr
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Database {
+    fn query_error(error: DatabaseError) -> JsValue {
+        let context = if matches!(error.code.as_str(), "NOT_LEADER" | "LEADER_ELECTION_ERROR") {
+            "Write permission denied"
+        } else {
+            "Query execution failed"
+        };
+        JsValue::from_str(&format!("{context}: {error}"))
     }
 
     /// Check if a SQL statement is a write operation
-    fn is_write_operation(sql: &str) -> bool {
-        let upper = sql.trim().to_uppercase();
-        upper.starts_with("INSERT")
-            || upper.starts_with("UPDATE")
-            || upper.starts_with("DELETE")
-            || upper.starts_with("REPLACE")
+    fn is_write_operation(&self, sql: &str) -> Result<bool, DatabaseError> {
+        let statement =
+            crate::wasm_statement::Statement::prepare(self.connection_state.db.get(), sql)?;
+        Ok(statement.is_data_write())
     }
 
     /// Get metrics for observability
@@ -147,7 +158,7 @@ impl Database {
 
     /// Check write permission - only leader can write (unless override enabled)
     async fn check_write_permission(&mut self, sql: &str) -> Result<(), DatabaseError> {
-        if !Self::is_write_operation(sql) {
+        if !self.is_write_operation(sql)? {
             // Not a write operation, allow it
             return Ok(());
         }
@@ -251,24 +262,33 @@ impl Database {
 
         // CRITICAL: Synchronize SQLite connection opening to prevent WAL initialization conflicts
         // Wait if another task is currently opening a connection to this database
-        #[cfg(target_arch = "wasm32")]
-        {
+        let _open_reservation = {
+            struct Reservation(String);
+            impl Drop for Reservation {
+                fn drop(&mut self) {
+                    DB_OPEN_IN_PROGRESS.with(|opens| {
+                        opens.borrow_mut().remove(&self.0);
+                    });
+                }
+            }
             const MAX_OPEN_WAIT_MS: u32 = 1000; // Reduced from 5000 - 1s is sufficient
             const OPEN_POLL_MS: u32 = 10;
             let max_open_attempts = MAX_OPEN_WAIT_MS / OPEN_POLL_MS;
 
+            let mut reservation = None;
             for attempt in 0..max_open_attempts {
                 let can_open = DB_OPEN_IN_PROGRESS.with(|opens| {
                     let mut set = opens.borrow_mut();
-                    if set.contains(&config.name) {
+                    if set.contains(&normalized_name) {
                         false // Someone else is opening
                     } else {
-                        set.insert(config.name.clone());
+                        set.insert(normalized_name.clone());
                         true // We got it
                     }
                 });
 
                 if can_open {
+                    reservation = Some(Reservation(normalized_name.clone()));
                     web_sys::console::log_1(
                         &format!("[DB] {} - ACQUIRED sqlite open lock", config.name).into(),
                     );
@@ -281,21 +301,18 @@ impl Database {
                         )
                         .into(),
                     );
-                    use wasm_bindgen_futures::JsFuture;
-                    let promise = js_sys::Promise::new(&mut |resolve, _| {
-                        web_sys::window()
-                            .unwrap()
-                            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                                &resolve,
-                                OPEN_POLL_MS as i32,
-                            )
-                            .unwrap();
-                    });
-                    JsFuture::from(promise).await.ok();
+                    crate::storage::export_import_lock::sleep(OPEN_POLL_MS)
+                        .await
+                        .map_err(|error| {
+                            DatabaseError::new("OPEN_WAIT_ERROR", &format!("{error:?}"))
+                        })?;
                     continue;
                 }
             }
-        }
+            reservation.ok_or_else(|| {
+                DatabaseError::new("OPEN_TIMEOUT", "SQLite open reservation timed out")
+            })?
+        };
 
         // Use connection pooling to share connections between instances
         let (connection_state, db) = {
@@ -316,7 +333,9 @@ impl Database {
                 );
 
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("[OPEN] About to call sqlite3_open_v2...").into());
+                web_sys::console::log_1(
+                    &"[OPEN] About to call sqlite3_open_v2...".to_string().into(),
+                );
 
                 let ret = unsafe {
                     sqlite_wasm_rs::sqlite3_open_v2(
@@ -357,6 +376,15 @@ impl Database {
                         .into(),
                     );
 
+                    if !db.is_null() {
+                        let close_result = unsafe { sqlite_wasm_rs::sqlite3_close(db) };
+                        if close_result != sqlite_wasm_rs::SQLITE_OK {
+                            log::error!(
+                                "Failed to close rejected SQLite connection: {}",
+                                close_result
+                            );
+                        }
+                    }
                     return Err(format!(
                         "Failed to open database with IndexedDB VFS: {}",
                         err_msg
@@ -370,6 +398,7 @@ impl Database {
             let db_ptr = state.db.get();
             (state, db_ptr)
         };
+        let mut pending_connection = PendingConnection(Some(connection_state.clone()));
 
         // Apply configuration options via PRAGMA statements
         let exec_sql = |db: *mut sqlite_wasm_rs::sqlite3, sql: &str| -> Result<(), DatabaseError> {
@@ -508,18 +537,7 @@ impl Database {
             max_export_size_bytes: config.max_export_size_bytes,
         };
 
-        // CRITICAL: Release the SQLite open lock ONLY after Database is fully constructed
-        // This ensures WAL initialization and all setup completes before another instance can start
-        #[cfg(target_arch = "wasm32")]
-        {
-            DB_OPEN_IN_PROGRESS.with(|opens| {
-                opens.borrow_mut().remove(&config.name);
-            });
-            web_sys::console::log_1(
-                &format!("[DB] {} - RELEASED sqlite open lock", config.name).into(),
-            );
-        }
-
+        pending_connection.0 = None;
         Ok(database)
     }
 
@@ -608,413 +626,7 @@ impl Database {
     }
 
     pub async fn execute_internal(&mut self, sql: &str) -> Result<QueryResult, DatabaseError> {
-        use std::ffi::{CStr, CString};
-        let start_time = js_sys::Date::now();
-
-        // Create span for query execution and enter context
-        #[cfg(feature = "telemetry")]
-        let span = if self.span_recorder.is_some() {
-            let query_type = sql
-                .trim()
-                .split_whitespace()
-                .next()
-                .unwrap_or("UNKNOWN")
-                .to_uppercase();
-            let mut builder = crate::telemetry::SpanBuilder::new("execute_query".to_string())
-                .with_attribute("query_type", query_type.clone())
-                .with_attribute("sql", sql.to_string());
-
-            // Attach baggage from context
-            if let Some(ref context) = self.span_context {
-                builder = builder.with_baggage_from_context(context);
-            }
-
-            let span = builder.build();
-
-            // Enter span context
-            if let Some(ref context) = self.span_context {
-                context.enter_span(span.span_id.clone());
-            }
-
-            Some(span)
-        } else {
-            None
-        };
-
-        // Track query execution metrics
-        #[cfg(feature = "telemetry")]
-        #[cfg(feature = "telemetry")]
-        if let Some(metrics) = &self.metrics {
-            metrics.queries_total().inc();
-        }
-
-        // Validate connection pointer before using it
-        if self.db().is_null() {
-            return Err(DatabaseError::new(
-                "NULL_CONNECTION",
-                "Database connection is null",
-            ));
-        }
-
-        let sql_cstr = CString::new(sql)
-            .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL string"))?;
-
-        if sql.trim().to_uppercase().starts_with("SELECT") {
-            let mut stmt = std::ptr::null_mut();
-            let ret = unsafe {
-                sqlite_wasm_rs::sqlite3_prepare_v2(
-                    self.db(),
-                    sql_cstr.as_ptr(),
-                    -1,
-                    &mut stmt,
-                    std::ptr::null_mut(),
-                )
-            };
-
-            if ret != sqlite_wasm_rs::SQLITE_OK {
-                // Get actual error message from SQLite
-                let err_msg = unsafe {
-                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                    if !msg_ptr.is_null() {
-                        CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
-                    } else {
-                        format!("Unknown error (code: {})", ret)
-                    }
-                };
-
-                // Track error
-                #[cfg(feature = "telemetry")]
-                #[cfg(feature = "telemetry")]
-                if let Some(metrics) = &self.metrics {
-                    metrics.errors_total().inc();
-                }
-
-                // Finish span with error
-                #[cfg(feature = "telemetry")]
-                if let Some(mut s) = span {
-                    s.status = crate::telemetry::SpanStatus::Error(format!(
-                        "Failed to prepare: {}",
-                        err_msg
-                    ));
-                    s.end_time_ms = Some(js_sys::Date::now());
-                    if let Some(recorder) = &self.span_recorder {
-                        recorder.record_span(s);
-                    }
-
-                    // Exit span context
-                    if let Some(ref context) = self.span_context {
-                        context.exit_span();
-                    }
-                }
-
-                return Err(DatabaseError::new(
-                    "SQLITE_ERROR",
-                    &format!("Failed to prepare statement: {}", err_msg),
-                )
-                .with_sql(sql));
-            }
-
-            let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
-            let mut columns = Vec::new();
-            let mut rows = Vec::new();
-
-            // Get column names
-            for i in 0..column_count {
-                let col_name = unsafe {
-                    let name_ptr = sqlite_wasm_rs::sqlite3_column_name(stmt, i);
-                    if name_ptr.is_null() {
-                        format!("col_{}", i)
-                    } else {
-                        std::ffi::CStr::from_ptr(name_ptr)
-                            .to_string_lossy()
-                            .into_owned()
-                    }
-                };
-                columns.push(col_name);
-            }
-
-            // Execute and fetch rows
-            loop {
-                let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
-                if step_ret == sqlite_wasm_rs::SQLITE_ROW {
-                    let mut values = Vec::new();
-                    for i in 0..column_count {
-                        let value = unsafe {
-                            let col_type = sqlite_wasm_rs::sqlite3_column_type(stmt, i);
-                            match col_type {
-                                sqlite_wasm_rs::SQLITE_NULL => ColumnValue::Null,
-                                sqlite_wasm_rs::SQLITE_INTEGER => {
-                                    let val = sqlite_wasm_rs::sqlite3_column_int64(stmt, i);
-                                    ColumnValue::Integer(val)
-                                }
-                                sqlite_wasm_rs::SQLITE_FLOAT => {
-                                    let val = sqlite_wasm_rs::sqlite3_column_double(stmt, i);
-                                    ColumnValue::Real(val)
-                                }
-                                sqlite_wasm_rs::SQLITE_TEXT => {
-                                    let text_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, i);
-                                    if text_ptr.is_null() {
-                                        ColumnValue::Null
-                                    } else {
-                                        let text = std::ffi::CStr::from_ptr(text_ptr as *const i8)
-                                            .to_string_lossy()
-                                            .into_owned();
-                                        ColumnValue::Text(text)
-                                    }
-                                }
-                                sqlite_wasm_rs::SQLITE_BLOB => {
-                                    let blob_ptr = sqlite_wasm_rs::sqlite3_column_blob(stmt, i);
-                                    let blob_size = sqlite_wasm_rs::sqlite3_column_bytes(stmt, i);
-                                    if blob_ptr.is_null() || blob_size == 0 {
-                                        ColumnValue::Blob(vec![])
-                                    } else {
-                                        let blob_slice = std::slice::from_raw_parts(
-                                            blob_ptr as *const u8,
-                                            blob_size as usize,
-                                        );
-                                        ColumnValue::Blob(blob_slice.to_vec())
-                                    }
-                                }
-                                _ => ColumnValue::Null,
-                            }
-                        };
-                        values.push(value);
-                    }
-                    rows.push(Row { values });
-                } else if step_ret == sqlite_wasm_rs::SQLITE_DONE {
-                    break;
-                } else {
-                    // Get SQLite error message before finalizing
-                    let err_msg = unsafe {
-                        let err_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                        if !err_ptr.is_null() {
-                            std::ffi::CStr::from_ptr(err_ptr)
-                                .to_string_lossy()
-                                .to_string()
-                        } else {
-                            "Unknown SQLite error".to_string()
-                        }
-                    };
-                    unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-                    // Track error
-                    #[cfg(feature = "telemetry")]
-                    if let Some(metrics) = &self.metrics {
-                        metrics.errors_total().inc();
-                    }
-                    return Err(DatabaseError::new(
-                        "SQLITE_ERROR",
-                        &format!("Error executing SELECT statement: {}", err_msg),
-                    )
-                    .with_sql(sql));
-                }
-            }
-
-            unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-            let execution_time_ms = js_sys::Date::now() - start_time;
-
-            // Track query duration
-            #[cfg(feature = "telemetry")]
-            if let Some(metrics) = &self.metrics {
-                metrics.query_duration().observe(execution_time_ms);
-            }
-
-            Ok(QueryResult {
-                columns,
-                rows,
-                affected_rows: 0,
-                last_insert_id: None,
-                execution_time_ms,
-            })
-        } else {
-            // Non-SELECT statements - Use prepare/step to properly handle PRAGMA results
-            let mut stmt: *mut sqlite_wasm_rs::sqlite3_stmt = std::ptr::null_mut();
-            let ret = unsafe {
-                sqlite_wasm_rs::sqlite3_prepare_v2(
-                    self.db(),
-                    sql_cstr.as_ptr(),
-                    -1,
-                    &mut stmt,
-                    std::ptr::null_mut(),
-                )
-            };
-
-            if ret != sqlite_wasm_rs::SQLITE_OK {
-                // Get actual error message from SQLite
-                let err_msg = unsafe {
-                    let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                    if !msg_ptr.is_null() {
-                        CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
-                    } else {
-                        format!("Unknown error (code: {})", ret)
-                    }
-                };
-
-                // Track error
-                #[cfg(feature = "telemetry")]
-                if let Some(metrics) = &self.metrics {
-                    metrics.errors_total().inc();
-                }
-                return Err(DatabaseError::new(
-                    "SQLITE_ERROR",
-                    &format!("Failed to prepare statement: {}", err_msg),
-                )
-                .with_sql(sql));
-            }
-
-            // Get column info for PRAGMA statements that return results
-            let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
-            let mut columns = Vec::new();
-            let mut rows = Vec::new();
-
-            if column_count > 0 {
-                // This is a PRAGMA or other statement that returns rows
-                for i in 0..column_count {
-                    let col_name = unsafe {
-                        let name_ptr = sqlite_wasm_rs::sqlite3_column_name(stmt, i);
-                        if name_ptr.is_null() {
-                            format!("column_{}", i)
-                        } else {
-                            std::ffi::CStr::from_ptr(name_ptr)
-                                .to_string_lossy()
-                                .into_owned()
-                        }
-                    };
-                    columns.push(col_name);
-                }
-
-                // Fetch all rows
-                loop {
-                    let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
-                    if step_ret == sqlite_wasm_rs::SQLITE_ROW {
-                        let mut values = Vec::new();
-                        for i in 0..column_count {
-                            let value = unsafe {
-                                let col_type = sqlite_wasm_rs::sqlite3_column_type(stmt, i);
-                                match col_type {
-                                    sqlite_wasm_rs::SQLITE_TEXT => {
-                                        let text_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, i);
-                                        if text_ptr.is_null() {
-                                            ColumnValue::Null
-                                        } else {
-                                            let text =
-                                                std::ffi::CStr::from_ptr(text_ptr as *const i8)
-                                                    .to_string_lossy()
-                                                    .into_owned();
-                                            ColumnValue::Text(text)
-                                        }
-                                    }
-                                    sqlite_wasm_rs::SQLITE_INTEGER => ColumnValue::Integer(
-                                        sqlite_wasm_rs::sqlite3_column_int64(stmt, i),
-                                    ),
-                                    _ => ColumnValue::Null,
-                                }
-                            };
-                            values.push(value);
-                        }
-                        rows.push(Row { values });
-                    } else if step_ret == sqlite_wasm_rs::SQLITE_DONE {
-                        break;
-                    } else {
-                        // Get SQLite error message before finalizing
-                        let err_msg = unsafe {
-                            let err_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                            if !err_ptr.is_null() {
-                                std::ffi::CStr::from_ptr(err_ptr)
-                                    .to_string_lossy()
-                                    .to_string()
-                            } else {
-                                "Unknown SQLite error".to_string()
-                            }
-                        };
-                        unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-                        // Track error
-                        #[cfg(feature = "telemetry")]
-                        if let Some(metrics) = &self.metrics {
-                            metrics.errors_total().inc();
-                        }
-                        return Err(DatabaseError::new(
-                            "SQLITE_ERROR",
-                            &format!("Failed to execute statement: {}", err_msg),
-                        )
-                        .with_sql(sql));
-                    }
-                }
-            } else {
-                // Regular non-SELECT statement
-                let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
-                if step_ret != sqlite_wasm_rs::SQLITE_DONE {
-                    // Get SQLite error message before finalizing
-                    let err_msg = unsafe {
-                        let err_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                        if !err_ptr.is_null() {
-                            std::ffi::CStr::from_ptr(err_ptr)
-                                .to_string_lossy()
-                                .to_string()
-                        } else {
-                            "Unknown SQLite error".to_string()
-                        }
-                    };
-                    unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-                    // Track error
-                    #[cfg(feature = "telemetry")]
-                    if let Some(metrics) = &self.metrics {
-                        metrics.errors_total().inc();
-                    }
-                    return Err(DatabaseError::new(
-                        "SQLITE_ERROR",
-                        &format!("Failed to execute statement: {}", err_msg),
-                    )
-                    .with_sql(sql));
-                }
-            }
-
-            // Finalize to complete the statement
-            unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-
-            let affected_rows = unsafe { sqlite_wasm_rs::sqlite3_changes(self.db()) } as u32;
-            let last_insert_id = if sql.trim().to_uppercase().starts_with("INSERT") {
-                Some(unsafe { sqlite_wasm_rs::sqlite3_last_insert_rowid(self.db()) })
-            } else {
-                None
-            };
-
-            let execution_time_ms = js_sys::Date::now() - start_time;
-
-            // Track query duration
-            #[cfg(feature = "telemetry")]
-            if let Some(metrics) = &self.metrics {
-                metrics.query_duration().observe(execution_time_ms);
-            }
-
-            // Finish span successfully
-            #[cfg(feature = "telemetry")]
-            if let Some(mut s) = span {
-                s.status = crate::telemetry::SpanStatus::Ok;
-                s.end_time_ms = Some(js_sys::Date::now());
-                s.attributes
-                    .insert("duration_ms".to_string(), execution_time_ms.to_string());
-                s.attributes
-                    .insert("affected_rows".to_string(), affected_rows.to_string());
-                s.attributes
-                    .insert("row_count".to_string(), rows.len().to_string());
-                if let Some(recorder) = &self.span_recorder {
-                    recorder.record_span(s);
-                }
-
-                // Exit span context
-                if let Some(ref context) = self.span_context {
-                    context.exit_span();
-                }
-            }
-
-            Ok(QueryResult {
-                columns,
-                rows,
-                affected_rows,
-                last_insert_id,
-                execution_time_ms,
-            })
-        }
+        self.execute_with_params_internal(sql, &[]).await
     }
 
     pub async fn execute_with_params_internal(
@@ -1022,330 +634,91 @@ impl Database {
         sql: &str,
         params: &[ColumnValue],
     ) -> Result<QueryResult, DatabaseError> {
-        use std::ffi::{CStr, CString};
+        self.execute_query(sql, params, false).await
+    }
+
+    async fn execute_query(
+        &mut self,
+        sql: &str,
+        params: &[ColumnValue],
+        enforce_write_permission: bool,
+    ) -> Result<QueryResult, DatabaseError> {
         let start_time = js_sys::Date::now();
 
-        // Create span for query execution
+        #[cfg(feature = "telemetry")]
+        self.ensure_metrics_propagated();
         #[cfg(feature = "telemetry")]
         let span = if self.span_recorder.is_some() {
             let query_type = sql
-                .trim()
                 .split_whitespace()
                 .next()
                 .unwrap_or("UNKNOWN")
                 .to_uppercase();
-            let span = crate::telemetry::SpanBuilder::new("execute_query".to_string())
-                .with_attribute("query_type", query_type.clone())
-                .with_attribute("sql", sql.to_string())
-                .build();
+            let mut builder = crate::telemetry::SpanBuilder::new("execute_query".to_string())
+                .with_attribute("query_type", query_type)
+                .with_attribute("sql", sql.to_string());
+            if let Some(context) = &self.span_context {
+                builder = builder.with_baggage_from_context(context);
+            }
+            let span = builder.build();
+            if let Some(context) = &self.span_context {
+                context.enter_span(span.span_id.clone());
+            }
             Some(span)
         } else {
             None
         };
-
-        // Ensure metrics are propagated to BlockStorage before execution
-        #[cfg(feature = "telemetry")]
-        self.ensure_metrics_propagated();
-
-        // Track query execution metrics
         #[cfg(feature = "telemetry")]
         if let Some(metrics) = &self.metrics {
             metrics.queries_total().inc();
         }
 
-        let sql_cstr = CString::new(sql)
-            .map_err(|_| DatabaseError::new("INVALID_SQL", "Invalid SQL string"))?;
-
-        let mut stmt = std::ptr::null_mut();
-        let ret = unsafe {
-            sqlite_wasm_rs::sqlite3_prepare_v2(
-                self.db(),
-                sql_cstr.as_ptr(),
-                -1,
-                &mut stmt,
-                std::ptr::null_mut(),
-            )
-        };
-
-        if ret != sqlite_wasm_rs::SQLITE_OK {
-            // Get actual error message from SQLite
-            let err_msg = unsafe {
-                let msg_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                if !msg_ptr.is_null() {
-                    CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
-                } else {
-                    format!("Unknown error (code: {})", ret)
-                }
-            };
-
-            // Track error
-            #[cfg(feature = "telemetry")]
-            if let Some(metrics) = &self.metrics {
-                metrics.errors_total().inc();
-            }
-
-            // Finish span with error
-            #[cfg(feature = "telemetry")]
-            if let Some(mut s) = span {
-                s.status =
-                    crate::telemetry::SpanStatus::Error(format!("Failed to prepare: {}", err_msg));
-                s.end_time_ms = Some(js_sys::Date::now());
-                if let Some(recorder) = &self.span_recorder {
-                    recorder.record_span(s);
-                }
-            }
-
-            return Err(DatabaseError::new(
-                "SQLITE_ERROR",
-                &format!("Failed to prepare statement: {}", err_msg),
-            )
-            .with_sql(sql));
-        }
-
-        // Bind parameters
-        let mut text_cstrings = Vec::new(); // Keep CStrings alive
-        for (i, param) in params.iter().enumerate() {
-            let param_index = (i + 1) as i32;
-            let bind_ret = unsafe {
-                match param {
-                    ColumnValue::Null => sqlite_wasm_rs::sqlite3_bind_null(stmt, param_index),
-                    ColumnValue::Integer(val) => {
-                        sqlite_wasm_rs::sqlite3_bind_int64(stmt, param_index, *val)
-                    }
-                    ColumnValue::Real(val) => {
-                        sqlite_wasm_rs::sqlite3_bind_double(stmt, param_index, *val)
-                    }
-                    ColumnValue::Text(val) => {
-                        // Sanitize string by removing null bytes (SQLite text shouldn't contain them)
-                        let sanitized = val.replace('\0', "");
-                        // Safe: after removing null bytes, CString::new cannot fail
-                        let text_cstr = CString::new(sanitized.as_str())
-                            .expect("CString::new should not fail after null byte removal");
-                        let result = sqlite_wasm_rs::sqlite3_bind_text(
-                            stmt,
-                            param_index,
-                            text_cstr.as_ptr(),
-                            sanitized.len() as i32,
-                            sqlite_wasm_rs::SQLITE_TRANSIENT(),
-                        );
-                        text_cstrings.push(text_cstr); // Keep alive
-                        result
-                    }
-                    ColumnValue::Blob(val) => sqlite_wasm_rs::sqlite3_bind_blob(
-                        stmt,
-                        param_index,
-                        val.as_ptr() as *const _,
-                        val.len() as i32,
-                        sqlite_wasm_rs::SQLITE_TRANSIENT(),
-                    ),
-                    _ => sqlite_wasm_rs::sqlite3_bind_null(stmt, param_index),
-                }
-            };
-
-            if bind_ret != sqlite_wasm_rs::SQLITE_OK {
-                unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-                // Track error
-                #[cfg(feature = "telemetry")]
-                if let Some(metrics) = &self.metrics {
-                    metrics.errors_total().inc();
-                }
-                return Err(
-                    DatabaseError::new("SQLITE_ERROR", "Failed to bind parameter").with_sql(sql),
-                );
-            }
-        }
-
-        if sql.trim().to_uppercase().starts_with("SELECT") {
-            let column_count = unsafe { sqlite_wasm_rs::sqlite3_column_count(stmt) };
-            let mut columns = Vec::new();
-            let mut rows = Vec::new();
-
-            // Get column names
-            for i in 0..column_count {
-                let col_name = unsafe {
-                    let name_ptr = sqlite_wasm_rs::sqlite3_column_name(stmt, i);
-                    if name_ptr.is_null() {
-                        format!("col_{}", i)
-                    } else {
-                        std::ffi::CStr::from_ptr(name_ptr)
-                            .to_string_lossy()
-                            .into_owned()
-                    }
-                };
-                columns.push(col_name);
-            }
-
-            // Execute and fetch rows
-            loop {
-                let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
-                if step_ret == sqlite_wasm_rs::SQLITE_ROW {
-                    let mut values = Vec::new();
-                    for i in 0..column_count {
-                        let value = unsafe {
-                            let col_type = sqlite_wasm_rs::sqlite3_column_type(stmt, i);
-                            match col_type {
-                                sqlite_wasm_rs::SQLITE_NULL => ColumnValue::Null,
-                                sqlite_wasm_rs::SQLITE_INTEGER => {
-                                    let val = sqlite_wasm_rs::sqlite3_column_int64(stmt, i);
-                                    ColumnValue::Integer(val)
-                                }
-                                sqlite_wasm_rs::SQLITE_FLOAT => {
-                                    let val = sqlite_wasm_rs::sqlite3_column_double(stmt, i);
-                                    ColumnValue::Real(val)
-                                }
-                                sqlite_wasm_rs::SQLITE_TEXT => {
-                                    let text_ptr = sqlite_wasm_rs::sqlite3_column_text(stmt, i);
-                                    if text_ptr.is_null() {
-                                        ColumnValue::Null
-                                    } else {
-                                        let text = std::ffi::CStr::from_ptr(text_ptr as *const i8)
-                                            .to_string_lossy()
-                                            .into_owned();
-                                        ColumnValue::Text(text)
-                                    }
-                                }
-                                sqlite_wasm_rs::SQLITE_BLOB => {
-                                    let blob_ptr = sqlite_wasm_rs::sqlite3_column_blob(stmt, i);
-                                    let blob_size = sqlite_wasm_rs::sqlite3_column_bytes(stmt, i);
-                                    if blob_ptr.is_null() || blob_size == 0 {
-                                        ColumnValue::Blob(vec![])
-                                    } else {
-                                        let blob_slice = std::slice::from_raw_parts(
-                                            blob_ptr as *const u8,
-                                            blob_size as usize,
-                                        );
-                                        ColumnValue::Blob(blob_slice.to_vec())
-                                    }
-                                }
-                                _ => ColumnValue::Null,
-                            }
-                        };
-                        values.push(value);
-                    }
-                    rows.push(Row { values });
-                } else if step_ret == sqlite_wasm_rs::SQLITE_DONE {
-                    break;
-                } else {
-                    // Get SQLite error message before finalizing
-                    let err_msg = unsafe {
-                        let err_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                        if !err_ptr.is_null() {
-                            std::ffi::CStr::from_ptr(err_ptr)
-                                .to_string_lossy()
-                                .to_string()
-                        } else {
-                            "Unknown SQLite error".to_string()
-                        }
-                    };
-                    unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-                    // Track error
-                    #[cfg(feature = "telemetry")]
-                    if let Some(metrics) = &self.metrics {
-                        metrics.errors_total().inc();
-                    }
-                    return Err(DatabaseError::new(
-                        "SQLITE_ERROR",
-                        &format!("Error executing SELECT statement: {}", err_msg),
-                    )
-                    .with_sql(sql));
-                }
-            }
-
-            unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-
-            let execution_time_ms = js_sys::Date::now() - start_time;
-
-            // Track query duration
-            #[cfg(feature = "telemetry")]
-            if let Some(metrics) = &self.metrics {
-                metrics.query_duration().observe(execution_time_ms);
-            }
-
-            // Finish span successfully for SELECT query
-            #[cfg(feature = "telemetry")]
-            if let Some(mut s) = span {
-                s.status = crate::telemetry::SpanStatus::Ok;
-                s.end_time_ms = Some(js_sys::Date::now());
-                s.attributes
-                    .insert("duration_ms".to_string(), execution_time_ms.to_string());
-                s.attributes
-                    .insert("row_count".to_string(), rows.len().to_string());
-                if let Some(recorder) = &self.span_recorder {
-                    recorder.record_span(s);
-                }
-            }
-
-            Ok(QueryResult {
-                columns,
-                rows,
-                affected_rows: 0,
-                last_insert_id: None,
-                execution_time_ms,
-            })
+        let permission = if enforce_write_permission {
+            self.check_write_permission(sql).await
         } else {
-            // Non-SELECT statements
-            let step_ret = unsafe { sqlite_wasm_rs::sqlite3_step(stmt) };
-            // Track error
-            #[cfg(feature = "telemetry")]
-            if let Some(metrics) = &self.metrics {
+            Ok(())
+        };
+        let mut result = permission
+            .and_then(|()| {
+                crate::wasm_statement::Statement::prepare(self.connection_state.db.get(), sql)
+            })
+            .and_then(|statement| statement.execute(params))
+            .map_err(|error| error.with_sql(sql));
+        let duration = js_sys::Date::now() - start_time;
+        if let Ok(query) = &mut result {
+            query.execution_time_ms = duration;
+        }
+
+        #[cfg(feature = "telemetry")]
+        if let Some(metrics) = &self.metrics {
+            metrics.query_duration().observe(duration);
+            if result.is_err() {
                 metrics.errors_total().inc();
             }
-            unsafe { sqlite_wasm_rs::sqlite3_finalize(stmt) };
-
-            if step_ret != sqlite_wasm_rs::SQLITE_DONE {
-                let err_msg = unsafe {
-                    let err_ptr = sqlite_wasm_rs::sqlite3_errmsg(self.db());
-                    if !err_ptr.is_null() {
-                        std::ffi::CStr::from_ptr(err_ptr)
-                            .to_string_lossy()
-                            .to_string()
-                    } else {
-                        "Unknown SQLite error".to_string()
-                    }
-                };
-                return Err(DatabaseError::new(
-                    "SQLITE_ERROR",
-                    &format!("Failed to execute statement: {}", err_msg),
-                )
-                .with_sql(sql));
-            }
-
-            let execution_time_ms = js_sys::Date::now() - start_time;
-
-            // Track query duration
-            #[cfg(feature = "telemetry")]
-            if let Some(metrics) = &self.metrics {
-                metrics.query_duration().observe(execution_time_ms);
-            }
-            let affected_rows = unsafe { sqlite_wasm_rs::sqlite3_changes(self.db()) } as u32;
-            let last_insert_id = if sql.trim().to_uppercase().starts_with("INSERT") {
-                Some(unsafe { sqlite_wasm_rs::sqlite3_last_insert_rowid(self.db()) })
-            } else {
-                None
-            };
-
-            // Finish span successfully
-            #[cfg(feature = "telemetry")]
-            if let Some(mut s) = span {
-                s.status = crate::telemetry::SpanStatus::Ok;
-                s.end_time_ms = Some(js_sys::Date::now());
-                s.attributes
-                    .insert("duration_ms".to_string(), execution_time_ms.to_string());
-                s.attributes
-                    .insert("affected_rows".to_string(), affected_rows.to_string());
-                if let Some(recorder) = &self.span_recorder {
-                    recorder.record_span(s);
-                }
-            }
-
-            Ok(QueryResult {
-                columns: vec![],
-                rows: vec![],
-                affected_rows,
-                last_insert_id,
-                execution_time_ms,
-            })
         }
+        #[cfg(feature = "telemetry")]
+        if let Some(mut span) = span {
+            span.end_time_ms = Some(js_sys::Date::now());
+            span.attributes
+                .insert("duration_ms".to_string(), duration.to_string());
+            match &result {
+                Ok(query) => {
+                    span.status = crate::telemetry::SpanStatus::Ok;
+                    span.attributes
+                        .insert("row_count".to_string(), query.rows.len().to_string());
+                    span.attributes
+                        .insert("affected_rows".to_string(), query.affected_rows.to_string());
+                }
+                Err(error) => span.status = crate::telemetry::SpanStatus::Error(error.to_string()),
+            }
+            if let Some(recorder) = &self.span_recorder {
+                recorder.record_span(span);
+            }
+            if let Some(context) = &self.span_context {
+                context.exit_span();
+            }
+        }
+        result
     }
 
     /// Set telemetry metrics for this database instance
@@ -1387,11 +760,7 @@ impl Database {
             let db_name = &self.name;
 
             if let Some(storage_rc) = get_storage_with_fallback(db_name) {
-                use crate::vfs::indexeddb_vfs::with_storage_borrow_mut;
-                let _ = with_storage_borrow_mut(&storage_rc, "set_metrics", |storage| {
-                    storage.set_metrics(self.metrics.clone());
-                    Ok(())
-                });
+                storage_rc.set_metrics(self.metrics.clone());
             }
         }
     }
@@ -1624,7 +993,7 @@ impl Database {
                                 .map(|(&id, metadata)| (id, metadata.clone()))
                                 .collect::<Vec<_>>()
                         } else {
-                            web_sys::console::log_1(&format!("[SYNC] No metadata found").into());
+                            web_sys::console::log_1(&"[SYNC] No metadata found".to_string().into());
                             Vec::new()
                         }
                     });
@@ -1671,7 +1040,9 @@ impl Database {
                         )
                         .await?;
                         web_sys::console::log_1(
-                            &format!("[SYNC] Successfully persisted to IndexedDB").into(),
+                            &"[SYNC] Successfully persisted to IndexedDB"
+                                .to_string()
+                                .into(),
                         );
                     }
                     crate::storage::StorageBackend::Opfs
@@ -1695,13 +1066,16 @@ impl Database {
                         )
                         .await?;
                         web_sys::console::log_1(
-                            &format!("[SYNC] Successfully persisted to OPFS and IndexedDB").into(),
+                            &"[SYNC] Successfully persisted to OPFS and IndexedDB"
+                                .to_string()
+                                .into(),
                         );
                     }
                 }
             } else {
                 web_sys::console::log_1(
-                    &format!("[SYNC] WARNING: No blocks to persist - GLOBAL_STORAGE is empty!")
+                    &"[SYNC] WARNING: No blocks to persist - GLOBAL_STORAGE is empty!"
+                        .to_string()
                         .into(),
                 );
             }
@@ -2180,91 +1554,81 @@ impl Database {
             // Parse the message
             if let Ok(json_str) = js_sys::JSON::stringify(&msg) {
                 if let Some(json_str) = json_str.as_string() {
-                    if let Ok(message) = serde_json::from_str::<WriteQueueMessage>(&json_str) {
-                        if let WriteQueueMessage::WriteRequest(request) = message {
-                            log::debug!("Leader received write request: {}", request.request_id);
+                    if let Ok(WriteQueueMessage::WriteRequest(request)) =
+                        serde_json::from_str::<WriteQueueMessage>(&json_str)
+                    {
+                        log::debug!("Leader received write request: {}", request.request_id);
 
-                            // Check if we're the leader
-                            let storage_rc = get_storage_with_fallback(&db_name_inner);
+                        // Check if we're the leader
+                        let storage_rc = get_storage_with_fallback(&db_name_inner);
 
-                            if let Some(storage) = storage_rc {
-                                // Spawn async task to process the write
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    let is_leader = with_storage_async!(
-                                        storage,
-                                        "write_queue_is_leader",
-                                        |s| s.is_leader()
-                                    );
-                                    if is_leader.is_none() {
-                                        log::error!("Failed to check leader status");
-                                        return;
-                                    }
-                                    let is_leader = is_leader.unwrap();
+                        if let Some(storage) = storage_rc {
+                            // Spawn async task to process the write
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let is_leader =
+                                    with_storage_async!(storage, "write_queue_is_leader", |s| s
+                                        .is_leader());
+                                if is_leader.is_none() {
+                                    log::error!("Failed to check leader status");
+                                    return;
+                                }
+                                let is_leader = is_leader.unwrap();
 
-                                    if !is_leader {
-                                        log::error!("Not leader, ignoring write request");
-                                        return;
-                                    }
+                                if !is_leader {
+                                    log::error!("Not leader, ignoring write request");
+                                    return;
+                                }
 
-                                    log::debug!("Processing write request as leader");
+                                log::debug!("Processing write request as leader");
 
-                                    // Create a temporary database instance to execute the SQL
-                                    match Database::new_wasm(db_name_inner.clone()).await {
-                                        Ok(mut db) => {
-                                            // Execute the SQL
-                                            match db.execute_internal(&request.sql).await {
-                                                Ok(result) => {
-                                                    // Send success response
-                                                    let response = WriteResponse::Success {
-                                                        request_id: request.request_id.clone(),
-                                                        affected_rows: result.affected_rows
-                                                            as usize,
-                                                    };
+                                // Create a temporary database instance to execute the SQL
+                                match Database::new_wasm(db_name_inner.clone()).await {
+                                    Ok(mut db) => {
+                                        // Execute the SQL
+                                        match db.execute_internal(&request.sql).await {
+                                            Ok(result) => {
+                                                // Send success response
+                                                let response = WriteResponse::Success {
+                                                    request_id: request.request_id.clone(),
+                                                    affected_rows: result.affected_rows as usize,
+                                                };
 
-                                                    use crate::storage::write_queue::send_write_response;
-                                                    if let Err(e) = send_write_response(
-                                                        &db_name_inner,
-                                                        response,
-                                                    ) {
-                                                        log::error!(
-                                                            "Failed to send response: {}",
-                                                            e
-                                                        );
-                                                    } else {
-                                                        log::info!(
-                                                            "Write response sent successfully"
-                                                        );
-                                                    }
+                                                use crate::storage::write_queue::send_write_response;
+                                                if let Err(e) =
+                                                    send_write_response(&db_name_inner, response)
+                                                {
+                                                    log::error!("Failed to send response: {}", e);
+                                                } else {
+                                                    log::info!("Write response sent successfully");
                                                 }
-                                                Err(e) => {
-                                                    // Send error response
-                                                    let response = WriteResponse::Error {
-                                                        request_id: request.request_id.clone(),
-                                                        error_message: e.to_string(),
-                                                    };
+                                            }
+                                            Err(e) => {
+                                                // Send error response
+                                                let response = WriteResponse::Error {
+                                                    request_id: request.request_id.clone(),
+                                                    error_message: e.to_string(),
+                                                };
 
-                                                    use crate::storage::write_queue::send_write_response;
-                                                    if let Err(e) = send_write_response(
-                                                        &db_name_inner,
-                                                        response,
-                                                    ) {
-                                                        log::error!(
-                                                            "Failed to send error response: {}",
-                                                            e
-                                                        );
-                                                    }
+                                                use crate::storage::write_queue::send_write_response;
+                                                if let Err(e) =
+                                                    send_write_response(&db_name_inner, response)
+                                                {
+                                                    log::error!(
+                                                        "Failed to send error response: {}",
+                                                        e
+                                                    );
                                                 }
                                             }
                                         }
-                                        Err(e) => {
-                                            log::error!(
-                                                "Failed to create db for write processing: {:?}",
-                                                e
-                                            );
-                                        }
                                     }
-                                });
-                            }
+                                    Err(e) => {
+                                        log::error!(
+                                            "Failed to create db for write processing: {:?}",
+                                            e
+                                        );
+                                    }
+                                }
+                            });
                         }
                     }
                 }
@@ -2283,15 +1647,10 @@ impl Database {
 
     #[wasm_bindgen]
     pub async fn execute(&mut self, sql: &str) -> Result<JsValue, JsValue> {
-        // Check write permission before executing
-        self.check_write_permission(sql)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Write permission denied: {}", e)))?;
-
         let result = self
-            .execute_internal(sql)
+            .execute_query(sql, &[], true)
             .await
-            .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
+            .map_err(Self::query_error)?;
         serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -2304,15 +1663,10 @@ impl Database {
         let params: Vec<ColumnValue> = serde_wasm_bindgen::from_value(params)
             .map_err(|e| JsValue::from_str(&format!("Invalid parameters: {}", e)))?;
 
-        // Check write permission before executing
-        self.check_write_permission(sql)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Write permission denied: {}", e)))?;
-
         let result = self
-            .execute_with_params_internal(sql, &params)
+            .execute_query(sql, &params, true)
             .await
-            .map_err(|e| JsValue::from_str(&format!("Query execution failed: {}", e)))?;
+            .map_err(Self::query_error)?;
         serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -2394,27 +1748,37 @@ impl Database {
             // CRITICAL: Checkpoint WAL to flush SQLite data to VFS blocks before export
             // Without this, data stays in SQLite's WAL buffer and doesn't appear in exported bytes
             log::info!("[EXPORT] ===== Step 4: Checkpointing WAL");
-            if !self.connection_state.db.get().is_null() {
-                // Use raw SQLite call since export_to_file takes &self, not &mut self
-                use std::ffi::CString;
-                let pragma = CString::new("PRAGMA wal_checkpoint(PASSIVE)").unwrap();
-                unsafe {
-                    let mut stmt = std::ptr::null_mut();
-                    let rc = sqlite_wasm_rs::sqlite3_prepare_v2(
-                        self.connection_state.db.get(),
-                        pragma.as_ptr(),
-                        -1,
-                        &mut stmt,
-                        std::ptr::null_mut(),
-                    );
-                    if rc == sqlite_wasm_rs::SQLITE_OK && !stmt.is_null() {
-                        sqlite_wasm_rs::sqlite3_step(stmt);
-                        sqlite_wasm_rs::sqlite3_finalize(stmt);
-                        log::info!("[EXPORT] WAL checkpoint completed");
-                    } else {
-                        log::warn!("[EXPORT] WAL checkpoint failed with rc: {}", rc);
-                    }
-                }
+            let db = self.connection_state.db.get();
+            if db.is_null() {
+                return Err(JsValue::from_str(
+                    "Export checkpoint failed: database connection is closed",
+                ));
+            }
+            let mut wal_frames = -1;
+            let mut checkpointed_frames = -1;
+            let rc = unsafe {
+                sqlite_wasm_rs::sqlite3_wal_checkpoint_v2(
+                    db,
+                    c"main".as_ptr(),
+                    sqlite_wasm_rs::SQLITE_CHECKPOINT_PASSIVE,
+                    &mut wal_frames,
+                    &mut checkpointed_frames,
+                )
+            };
+            if rc != sqlite_wasm_rs::SQLITE_OK {
+                let message =
+                    unsafe { std::ffi::CStr::from_ptr(sqlite_wasm_rs::sqlite3_errmsg(db)) }
+                        .to_string_lossy();
+                let error = format!("Export checkpoint failed (SQLite {rc}): {message}");
+                log::error!("{error}");
+                return Err(JsValue::from_str(&error));
+            }
+            if wal_frames != checkpointed_frames {
+                let error = format!(
+                    "Export checkpoint incomplete: {checkpointed_frames} of {wal_frames} WAL frames"
+                );
+                log::error!("{error}");
+                return Err(JsValue::from_str(&error));
             }
 
             // Reload after checkpoint so the awaited sync/export path sees the canonical
@@ -2433,7 +1797,7 @@ impl Database {
             log::info!("[EXPORT] ===== Step 6: Sync complete");
 
             log::info!("[EXPORT] Calling export_database_to_bytes");
-            let db_bytes = {
+            let mut db_bytes = {
                 let storage = &*storage_rc;
                 crate::storage::export::export_database_to_bytes(storage, max_export_size)
                     .await
@@ -2443,6 +1807,20 @@ impl Database {
                     })?
             };
 
+            let format_versions = db_bytes.get_mut(18..20).ok_or_else(|| {
+                JsValue::from_str("Export failed: SQLite snapshot header is incomplete")
+            })?;
+            if !format_versions
+                .iter()
+                .all(|version| matches!(version, 1 | 2))
+            {
+                return Err(JsValue::from_str(
+                    "Export failed: unsupported SQLite snapshot file format",
+                ));
+            }
+            // A fully checkpointed standalone snapshot has no WAL/SHM sidecars.
+            // Normalize only this copy; the live database remains in WAL mode.
+            format_versions.fill(1);
             log::info!("[EXPORT] Export complete: {} bytes", db_bytes.len());
 
             let uint8_array = js_sys::Uint8Array::new_with_length(db_bytes.len() as u32);
@@ -2621,7 +1999,7 @@ impl Database {
         // Track leader election attempt
         #[cfg(feature = "telemetry")]
         if let Some(ref metrics) = self.metrics {
-            metrics.leader_election_attempts_total().inc();
+            metrics.leader_elections_total().inc();
         }
 
         let db_name = &self.name;
@@ -2876,24 +2254,24 @@ impl Database {
             // Parse the message
             if let Ok(json_str) = js_sys::JSON::stringify(&msg) {
                 if let Some(json_str) = json_str.as_string() {
-                    if let Ok(message) = serde_json::from_str::<WriteQueueMessage>(&json_str) {
-                        if let WriteQueueMessage::WriteResponse(response) = message {
-                            match response {
-                                WriteResponse::Success { request_id, .. } => {
-                                    if request_id == request_id_clone {
-                                        *response_received_clone.borrow_mut() = true;
-                                        log::debug!("Write response received: Success");
-                                    }
+                    if let Ok(WriteQueueMessage::WriteResponse(response)) =
+                        serde_json::from_str::<WriteQueueMessage>(&json_str)
+                    {
+                        match response {
+                            WriteResponse::Success { request_id, .. } => {
+                                if request_id == request_id_clone {
+                                    *response_received_clone.borrow_mut() = true;
+                                    log::debug!("Write response received: Success");
                                 }
-                                WriteResponse::Error {
-                                    request_id,
-                                    error_message,
-                                } => {
-                                    if request_id == request_id_clone {
-                                        *response_received_clone.borrow_mut() = true;
-                                        *response_error_clone.borrow_mut() = Some(error_message);
-                                        log::debug!("Write response received: Error");
-                                    }
+                            }
+                            WriteResponse::Error {
+                                request_id,
+                                error_message,
+                            } => {
+                                if request_id == request_id_clone {
+                                    *response_received_clone.borrow_mut() = true;
+                                    *response_error_clone.borrow_mut() = Some(error_message);
+                                    log::debug!("Write response received: Error");
                                 }
                             }
                         }

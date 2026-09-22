@@ -419,7 +419,6 @@ pub async fn persist_commit_marker_to_indexeddb(
 
     rx.await
         .map_err(|_| DatabaseError::new("ASYNC_ERROR", "Channel error"))?
-        .map_err(|e| e)
 }
 
 /// Sync blocks to global storage without advancing commit marker

@@ -74,7 +74,6 @@ async function initDB() {
     
     // Expose db wrapper on window for testing
     window.db = db;
-    window.__db__ = db;  // Test parity with other e2e tests
     
     await db.init();
     

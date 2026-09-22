@@ -1,0 +1,84 @@
+name: Qualify on repository runner
+
+on:
+  workflow_call:
+    inputs:
+      release_version:
+        type: string
+        required: false
+        default: ''
+    outputs:
+      version:
+        value: ${{ jobs.qualify.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: >-
+      github.actor == github.repository_owner &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, X64, absurder-sql, trusted]
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: '4'
+      CARGO_TARGET_DIR: /mnt/build/absurder-sql-runner/cache/target
+    steps:
+      - name: Materialize exact Gitless source
+        id: source
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 /usr/local/lib/absurder-sql-runner/fetch_source.py \
+            --repository "$SOURCE_REPOSITORY" --sha "$SOURCE_SHA" \
+            --destination "$RUNNER_TEMP/source-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+      - name: Validate package identity
+        id: version
+        working-directory: ${{ steps.source.outputs.source }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          python3 - <<'PY'
+          import json, os, tomllib
+          from pathlib import Path
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
+          npm = json.loads(Path("package.json").read_text())["version"]
+          if cargo != npm or (os.environ["RELEASE_VERSION"] and cargo != os.environ["RELEASE_VERSION"]):
+              raise SystemExit("Cargo/npm/tag versions disagree")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("version=" + cargo + "\n")
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Ensure owned toolchain
+        working-directory: ${{ steps.source.outputs.source }}
+        run: bash scripts/ci/bootstrap_tools.sh
+
+      - name: Install browser test dependencies
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          npm install --ignore-scripts --package-lock=false
+          npx --no-install playwright install chromium
+          python3 scripts/ci/prepare_browser.py
+
+      - name: Run real qualification and package exact artifacts
+        working-directory: ${{ steps.source.outputs.source }}
+        run: bash scripts/ci/qualify.sh
+
+      - name: Preserve qualified archives and hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualified-packages
+          path: ${{ steps.source.outputs.source }}/dist-ci/
+          if-no-files-found: error
+          retention-days: 7

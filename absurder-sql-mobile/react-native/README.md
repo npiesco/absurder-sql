@@ -2,6 +2,11 @@
 
 React Native test application for AbsurderSQL mobile bindings with comprehensive integration tests and performance benchmarks.
 
+These are mobile test and benchmark workloads, not results from the
+[current library qualification](../../docs/NATIVE_QUALIFICATION.md).
+The macOS/Windows library and browser runs do not establish an iOS or Android
+app pass; run this app on the target mobile platform for that evidence.
+
 ## What This App Tests
 
 ### 1. Integration Tests (13 tests)

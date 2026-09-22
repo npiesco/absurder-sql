@@ -1,89 +1,110 @@
 
-export function absurd_idb_delete_namespace(factory, dbName) {
-  return new Promise((resolve, reject) => {
-    const request = factory.open('block_storage', 2);
-    let settled = false;
-    let failure;
-    const fail = error => {
-      settled = true;
-      reject(error);
-    };
-    request.onblocked = () => fail(new Error('IndexedDB deletion blocked by an open connection'));
-    request.onerror = () => fail(failure || request.error);
-    request.onupgradeneeded = () => {
-      if (settled) {
-        request.transaction.abort();
-        return;
-      }
-      try {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('blocks')) db.createObjectStore('blocks');
-        if (!db.objectStoreNames.contains('metadata')) db.createObjectStore('metadata');
-      } catch (error) {
-        failure = error;
-        request.transaction.abort();
-      }
-    };
-    request.onsuccess = () => {
-      const db = request.result;
-      if (settled) {
-        db.close();
-        return;
-      }
-      let transaction;
-      const abort = error => {
-        failure = error;
-        if (transaction) {
-          try {
-            transaction.abort();
-            return;
-          } catch (abortError) {
-            failure = new Error(String(error) + '; abort failed: ' + String(abortError));
-          }
+const absurdHandles = new Map();
+let absurdNextHandleId = 1;
+
+function absurdGetRoot() {
+  if (!globalThis.navigator || !globalThis.navigator.storage || typeof globalThis.navigator.storage.getDirectory !== 'function') {
+    throw new Error('OPFS is not available in this context');
+  }
+
+  return globalThis.navigator.storage.getDirectory();
+}
+
+export async function absurd_opfs_open(fileName, create = true) {
+  const root = await absurdGetRoot();
+    const fileHandle = await root.getFileHandle(fileName, { create });
+  const accessHandle = await fileHandle.createSyncAccessHandle();
+  const id = absurdNextHandleId++;
+  absurdHandles.set(id, accessHandle);
+  return id;
+}
+
+export async function absurd_opfs_exists(fileName) {
+    try {
+        const root = await absurdGetRoot();
+        await root.getFileHandle(fileName, { create: false });
+        return true;
+    } catch (error) {
+        if (error && error.name === 'NotFoundError') {
+            return false;
         }
-        db.close();
-        fail(failure);
-      };
-      try {
-        transaction = db.transaction(['blocks', 'metadata'], 'readwrite');
-        transaction.oncomplete = () => {
-          db.close();
-          settled = true;
-          resolve();
-        };
-        transaction.onerror = event => {
-          failure = event.target.error || new Error('IndexedDB deletion request failed');
-        };
-        transaction.onabort = () => {
-          db.close();
-          fail(failure || transaction.error || new Error('IndexedDB deletion aborted'));
-        };
-        const prefix = dbName + ':';
-        const range = IDBKeyRange.bound(prefix, prefix + '\uffff');
-        for (const storeName of ['blocks', 'metadata']) {
-          const store = transaction.objectStore(storeName);
-          const cursorRequest = store.openCursor(range);
-          cursorRequest.onsuccess = () => {
-            try {
-              const cursor = cursorRequest.result;
-              if (!cursor) return;
-              const suffix = cursor.key.slice(prefix.length);
-              // Numeric block IDs, including legacy checksum/version suffixes.
-              // A neighboring database name may itself contain the ':' separator.
-              if (/^[0-9]+(?::[0-9]+)?$/.test(suffix) ||
-                  (storeName === 'metadata' && suffix === 'commit_marker')) {
-                cursor.delete();
-              }
-              cursor.continue();
-            } catch (error) {
-              abort(error);
-            }
-          };
-        }
-        transaction.objectStore('metadata').delete(dbName + '_commit_marker');
-      } catch (error) {
-        abort(error);
-      }
-    };
-  });
+        throw error;
+    }
+}
+
+export function absurd_opfs_read(id, offset, len) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    throw new Error('OPFS handle not found: ' + id);
+  }
+
+  const buffer = new Uint8Array(len);
+  handle.read(buffer, { at: offset });
+  return buffer;
+}
+
+export function absurd_opfs_write(id, offset, data) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    throw new Error('OPFS handle not found: ' + id);
+  }
+
+  const written = handle.write(data, { at: offset });
+  if (written !== data.byteLength) {
+    throw new Error('Short OPFS write: ' + written + ' of ' + data.byteLength + ' bytes');
+  }
+}
+
+export function absurd_opfs_flush(id) {
+  const handle = absurdHandles.get(id);
+  if (!handle) throw new Error('OPFS handle not found: ' + id);
+  handle.flush();
+}
+
+export function absurd_opfs_size(id) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    throw new Error('OPFS handle not found: ' + id);
+  }
+
+  return handle.getSize();
+}
+
+export function absurd_opfs_truncate(id, size) {
+    const handle = absurdHandles.get(id);
+    if (!handle) {
+        throw new Error('OPFS handle not found: ' + id);
+    }
+
+    handle.truncate(size);
+}
+
+export async function absurd_opfs_close(id) {
+  const handle = absurdHandles.get(id);
+  if (!handle) {
+    return;
+  }
+
+  const result = handle.close();
+  absurdHandles.delete(id);
+  if (result && typeof result.then === 'function') {
+    await result;
+  }
+}
+
+export async function absurd_opfs_delete(fileName) {
+  try {
+    const root = await absurdGetRoot();
+    await root.removeEntry(fileName);
+  } catch (error) {
+    if (!error || error.name !== 'NotFoundError') {
+      throw error;
+    }
+  }
+}
+
+export function absurd_opfs_available() {
+  return !!(globalThis.navigator &&
+    globalThis.navigator.storage &&
+    typeof globalThis.navigator.storage.getDirectory === 'function');
 }

@@ -1,0 +1,87 @@
+{
+  "date": "2026-09-21",
+  "status": "Installed runner and VM workload qualified; workflow activation awaits authorized commit/push",
+  "source": {
+    "base_commit": "52af0dcdd2e0755a44b9472ac407dc281e3b331e",
+    "branch": "npiesco-absurdersql-deletion",
+    "dirty": true,
+    "qualify_script_sha256": "b8e2970650c60e7fa254c77c3528099ba290b4637bd528a6c1cadc573166490c",
+    "gitless_delta_archive_sha256": "c910e761a2d14e21ee0ea8d5bb01a45f40e6d51b57ff89476475411110cd685c",
+    "delta_followup": "CI helpers/workflows were updated separately; reviewed Rust and local package inputs were not changed"
+  },
+  "runner": {
+    "name": "absurder-sql-tnb-linux-x64",
+    "id": 21,
+    "repository": "npiesco/absurder-sql",
+    "os": "Linux",
+    "architecture": "X64",
+    "version": "2.337.0",
+    "status_at_handoff": "online",
+    "busy_at_handoff": false,
+    "service_account": "absurder-ci",
+    "cpu_quota_cores": 8,
+    "memory_max_bytes": 34359738368,
+    "swap_max_bytes": 0,
+    "tasks_max": 4096,
+    "cargo_build_jobs": 4
+  },
+  "execution_boundary": {
+    "method": "Foreground ARM Run Command workload using a copy of the installed runner's systemd security/resource policy",
+    "github_scheduled_workflow_executed": false,
+    "registry_publication_executed": false,
+    "commit_or_push_performed": false,
+    "new_vm_provisioned": false,
+    "fork_approval_policy": "all_external_contributors",
+    "actual_isolation_and_admission_proof": "Nonroot disk roundtrip; outside-write refusal; unrelated-home inaccessibility; IMDS refusal with outside-sandbox positive control; actual installed Bash-hook owner acceptance and external/fork rejection",
+    "npm_oidc": "Existing npm-publish environment preserved; npm publication and GitHub release metadata remain in one small GitHub-hosted job",
+    "network_limit": "Existing subnet NAT egress observed; default outbound access remains enabled, so this is not strict fresh-VM private-network qualification"
+  },
+  "gates": {
+    "ci_helper_tests": 3,
+    "native": { "passed": 214, "failed": 0, "ignored_documentation_examples": 1 },
+    "default_wasm": { "passed": 298, "failed": 0, "ignored": 0, "test_bearing_binaries": 78 },
+    "enabled_telemetry": { "passed": 16, "failed": 0, "ignored": 0, "binaries": 4 },
+    "browser_and_benchmark": { "passed": 79, "failed": 0, "retries": 0 },
+    "deletion": { "passed": 13, "failed": 0, "retries": 0 },
+    "stabilization": { "passed": 32, "failed": 0, "retries": 0 },
+    "production_pwa": { "passed": 3, "failed": 0, "retries": 0 },
+    "cargo_fmt": "passed",
+    "native_ci_feature_clippy": "passed",
+    "default_wasm_clippy": "passed",
+    "telemetry_wasm_clippy": "passed",
+    "native_release": "passed",
+    "optimized_wasm_rebuild": "passed",
+    "tested_rebuilt_package_files_equal": 13,
+    "actionlint": "passed using dynamically discovered registered runner labels",
+    "packaging_note": "Cargo reports excluded test targets while packaging under the unchanged include policy; these are packaging notices, not skipped test execution"
+  },
+  "new_vm_artifacts": {
+    "directory": "/mnt/build/absurder-sql-runner/qualification-v1/source/dist-ci",
+    "npm": {
+      "file": "npiesco-absurder-sql-0.1.28.tgz",
+      "sha256": "4a239aa243aec53de8bfe2ca8d4c96bd6a8a3f83de1844a2add72c1149d4b752",
+      "bytes": 726871
+    },
+    "crate": {
+      "file": "absurder-sql-0.1.28.crate",
+      "sha256": "53cad48e698e4de00cbe4b2070224edd64f4aa0a9ff7f50438669398439b7b3e",
+      "bytes": 1389654
+    },
+    "wasm_sha256": "c483f4eec9be461dea1f434d23313045998c4319f86dbcf0f38da49d0fc3d058"
+  },
+  "retained_log": {
+    "path": "/mnt/build/absurder-sql-runner/qualification-v1/runner-qualification-20260921T011343Z.log",
+    "bytes": 258671,
+    "sha256": "1cee9892a9fd94d9ac69b79dd9c002d5891f43599a50d4b1169ebb67acd5ddcf",
+    "gzip_path": "/mnt/build/absurder-sql-runner/qualification-v1/final-ci-qualification.log.gz",
+    "gzip_bytes": 35776,
+    "gzip_sha256": "4c6cff680273c1f78fb27b58b80bc9a427214f8c7f5639b60e39508eaf686b20"
+  },
+  "preserved_stabilization": {
+    "unchanged_reviewed_runtime_package_and_build_input_files": 66,
+    "reviewed_source_sha256": "dad352949c595058bac96b74f22d4e663e0e867cda7e3489aff57ec0c9a25bd5",
+    "default_package_sha256": "ec319ffb59cf900386ef2a180498d2f52b48b804028b44410e8ddd2bc5974b12",
+    "telemetry_package_sha256": "4ec9c66b29844e3ed1d0ee95eae63484a990b8eaee0cbc498e0b08e008e4e569",
+    "qualification_provenance_sha256": "cb0d1deffe4942f02c0c3854eeac570f5a294018b437f96591b8c86be7fed877"
+  }
+}

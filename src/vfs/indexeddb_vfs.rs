@@ -111,6 +111,14 @@ pub async fn ensure_storage_registered_with_backend(
     db_name: &str,
     backend: StorageBackend,
 ) -> Result<Rc<BlockStorage>, DatabaseError> {
+    struct Reservation<'a>(&'a str);
+    impl Drop for Reservation<'_> {
+        fn drop(&mut self) {
+            INIT_IN_PROGRESS.with(|init| {
+                init.borrow_mut().remove(self.0);
+            });
+        }
+    }
     const MAX_WAIT_MS: u32 = 10000;
     const POLL_INTERVAL_MS: u32 = 10;
     let max_attempts = MAX_WAIT_MS / POLL_INTERVAL_MS;
@@ -158,19 +166,12 @@ pub async fn ensure_storage_registered_with_backend(
                 )
                 .into(),
             );
-            use wasm_bindgen_futures::JsFuture;
-            let promise = js_sys::Promise::new(&mut |resolve, _| {
-                web_sys::window()
-                    .unwrap()
-                    .set_timeout_with_callback_and_timeout_and_arguments_0(
-                        &resolve,
-                        POLL_INTERVAL_MS as i32,
-                    )
-                    .unwrap();
-            });
-            JsFuture::from(promise).await.ok();
+            crate::storage::export_import_lock::sleep(POLL_INTERVAL_MS)
+                .await
+                .map_err(|error| DatabaseError::new("INIT_WAIT_ERROR", &format!("{error:?}")))?;
             continue;
         }
+        let _reservation = Reservation(db_name);
 
         web_sys::console::log_1(
             &format!(
@@ -218,11 +219,6 @@ pub async fn ensure_storage_registered_with_backend(
                 registry.insert(format!("{}.db", db_name), rc.clone());
             }
             Ok(())
-        });
-
-        INIT_IN_PROGRESS.with(|init| {
-            let mut set = init.borrow_mut();
-            set.remove(db_name);
         });
 
         return match registration_result {
@@ -844,8 +840,8 @@ unsafe extern "C" fn x_open_simple(
     };
 
     // Strip "file:" prefix if present
-    let raw_name = if name_str.starts_with("file:") {
-        name_str[5..].to_string()
+    let raw_name = if let Some(name) = name_str.strip_prefix("file:") {
+        name.to_string()
     } else {
         name_str
     };

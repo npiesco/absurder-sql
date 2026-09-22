@@ -1,6 +1,10 @@
 # Transaction Support in AbsurderSQL
 
-AbsurderSQL provides **full transactional support** for SQLite operations with IndexedDB persistence in WASM environments. This document outlines the transactional capabilities, limitations, and usage patterns.
+AbsurderSQL uses SQLite transactions with separately awaited browser persistence
+to IndexedDB or worker Hybrid/OPFS. **SQL COMMIT and durable backend
+acknowledgement are different boundaries.** This guide describes the current
+browser API; [Native qualification](NATIVE_QUALIFICATION.md) records the exact
+qualified packages and real restart/failure coverage.
 
 ## Supported Features
 
@@ -15,13 +19,16 @@ AbsurderSQL provides **full transactional support** for SQLite operations with I
 
 ### 3. **Transaction Persistence**  
 - Committed transactions (via COMMIT) are in SQLite's in-memory state
-- Data persists to IndexedDB only after calling `sync()`
+- Await `sync()` after COMMIT to observe persistence success or failure for the
+  selected backend; background VFS/auto-sync work is not a caller acknowledgement
 - Changes survive browser restarts after successful sync
 
 ### 4. **Crash Consistency**
-- Uncommitted changes are not visible after crash (in-memory only)
-- Data persisted via sync() survives crashes and restarts
-- Must call sync() before page unload to ensure durability
+- SQLite recovery and backend commit metadata determine the recovered state
+- A successful awaited sync establishes the acknowledged durable state
+- A failed/interrupted operation is not acknowledged success; recovery may
+  preserve a newer commit if persistence completed before response delivery
+- Await persistence during normal application work, not only during page unload
 
 ## Usage Examples
 
@@ -41,7 +48,7 @@ await db.execute("INSERT INTO users (name) VALUES ('Alice')");
 await db.execute("INSERT INTO users (name) VALUES ('Bob')");
 await db.execute('COMMIT'); // All changes committed to SQLite
 
-// Persist to IndexedDB
+// Persist through the selected backend
 await db.sync();
 
 await db.close();
@@ -59,7 +66,7 @@ await db.execute('ROLLBACK'); // All changes discarded
 ```javascript
 // Each statement is automatically wrapped in a transaction by SQLite
 await db.execute("INSERT INTO users (name) VALUES ('Eve')"); // Auto-committed
-await db.sync(); // Persist to IndexedDB
+await db.sync(); // Persist through the selected backend
 ```
 
 ## Architecture
@@ -72,23 +79,24 @@ await db.sync(); // Persist to IndexedDB
    - Controls journal file operations
 
 2. **IndexedDB VFS Layer**
-   - Translates SQLite file operations to IndexedDB
-   - Provides persistent storage backend
-   - Handles async operations
+   - Buffers synchronous SQLite I/O in memory
+   - Dispatches asynchronous persistence to the selected backend
+   - WAL/shared-memory state remains runtime-owned
 
 3. **Block Storage System**
-   - Data stored in 4KB blocks in IndexedDB
+   - Data stored in 4KB blocks, with IndexedDB and optional OPFS persistence
    - Each block has metadata with checksums
-   - LRU cache (128 blocks default) for performance
+   - LRU cache for block reads
    - Dirty blocks tracked until sync
 
 ### Persistence Flow
 
 1. **Execute SQL** → SQLite processes transaction in memory
 2. **COMMIT** → SQLite finalizes transaction (in-memory)
-3. **sync()** → Writes dirty blocks to IndexedDB (persistent)
+3. **await sync()** → Persists through the selected backend and reports failure
 
-**Important**: Changes are not persisted to IndexedDB until `sync()` is called!
+**Important**: Do not infer durability from successful SQL execution or an
+auto-sync being scheduled. Await sync before reporting a save as complete.
 
 ## ⚡ Performance Characteristics
 
@@ -98,60 +106,73 @@ await db.sync(); // Persist to IndexedDB
 - **Sync operations**: Asynchronous, non-blocking
 
 ### Concurrency
-- Multiple database instances can read committed data
-- Writer blocks are isolated until commit
-- No reader-writer conflicts for committed data
+- Main-thread tabs use leader election for data writes
+- Same-runtime handles can share a pooled SQLite connection and transaction state
+- Separate runtimes can retain stale page caches; followers must reload after a
+  durable change notification
+- Readers/transactions can prevent checkpoints; serialize owner operations
 
 ## ACID Properties
 
 ### **Atomicity** [Supported]
 - SQLite transactions are all-or-nothing (within SQL)
 - ROLLBACK completely undoes all in-transaction changes
-- sync() atomically writes all dirty blocks to IndexedDB
+- The IndexedDB persistence transaction commits blocks, metadata, and marker
+  together; synchronous request failures and aborts reject
+- Hybrid writes OPFS before IndexedDB. These stores are not one atomic
+  transaction; recovery validates OPFS against authoritative metadata
 
 ### **Consistency** [Supported]
 - SQLite enforces database constraints
-- Foreign key relationships maintained
+- Foreign key constraints require SQLite's `PRAGMA foreign_keys = ON`
 - Schema changes are transactional within SQLite
 
 ### **Isolation** [Limited]
-- SQLite provides read committed isolation in-memory
-- Multiple Database instances operate independently
-- No cross-instance transaction coordination
-- Last sync() wins for conflicting writes
+- SQLite controls connection/transaction isolation; this is not a generic
+  read-committed promise across independently cached browser runtimes
+- A shared same-runtime connection does not give each handle its own transaction
+- Leader-only writes are the supported tab coordination model; bypassing the
+  guard is not a supported “last sync wins” conflict-resolution protocol
 
 ### **Durability** [Two-Step]
 - **Two-phase durability model**:
-  1. SQL COMMIT → durable in SQLite's in-memory state
-  2. sync() → durable in IndexedDB (persistent storage)
-- **WITHOUT sync()**: Changes lost on page refresh/crash
-- **WITH sync()**: Survives browser restarts and crashes
+  1. SQL COMMIT → committed in the live SQLite connection
+  2. awaited sync() → acknowledged backend persistence
+- **WITHOUT an acknowledged sync**: Do not promise survival across termination
+- **WITH successful sync**: Real restart tests verify the acknowledged data;
+  origin eviction or user-cleared browser storage remains outside that guarantee
 
 ## Limitations
 
-### 1. **Manual Sync Required**
-- **CRITICAL**: Changes are NOT automatically persisted to IndexedDB
-- Must call `await db.sync()` after write operations to persist
-- Without sync(), data is lost on page refresh/crash
+### 1. **Awaited Durability Required**
+- Background persistence can occur, but scheduling is not acknowledgement
+- Call `await db.sync()` after COMMIT to observe backend errors
+- Never replay a mutation solely because its later sync failed
 
 ### 2. **Journal Mode**
-- MEMORY journal mode used (journal in-memory only)
-- WAL mode not currently supported
-- Journal operations don't persist until sync()
+- Packaged JavaScript constructors request **WAL**
+- Rust `DatabaseConfig::default()` requests **MEMORY**; callers can configure WAL
+- The current in-memory WAL buffer has a 16 MiB bound, not a database-size limit
+- Portable export requires a successful complete PASSIVE checkpoint; only the
+  returned snapshot's header becomes rollback format, not the live database
 
 ### 3. **Multi-Tab Concurrency Model** [Supported]
-- **Leader Election**: Only leader tab can execute write operations
-- **Write Guard**: Non-leaders are blocked from direct writes via `execute()`
+- **Leader Election**: Data writes should run on the elected main-thread owner
+- **Write Guard**: SQLite statement metadata identifies data DML, including CTE
+  and commented DML, for both execution methods; it is not a universal
+  schema/PRAGMA/transaction ownership lock
 - **Write Queue**: Non-leaders can use `queueWrite()` to forward writes to leader
 - **Limitations of queueWrite**:
-  - Each queued write is a **separate transaction** (not atomic with other queued writes)
+  - Each request executes one statement; separate requests are not an atomic batch
   - Cannot use queueWrite for multi-statement transactions (BEGIN...COMMIT blocks)
   - 5-second default timeout (leader must respond within timeout)
   - Requires active leader tab (fails if no leader present)
+  - Acknowledges execution, not a separate awaited durable sync
+  - A timeout does not prove the SQL was never executed; blind retry can duplicate it
 - **For atomic transactions**: Tab must be leader or call `waitForLeadership()` first
 
 ### 4. **Browser Storage Limits**
-- Subject to IndexedDB quota (typically 50MB-1GB)
+- Subject to origin/browser quota, available disk, and runtime memory
 - Large transactions may hit browser limits
 - Monitor storage usage in production apps
 
@@ -198,9 +219,9 @@ npm run test:e2e
 await db.execute('INSERT INTO users VALUES (1, "Alice")');
 await db.sync();
 
-// BAD: Changes lost on page refresh!
+// BAD: No durable acknowledgement before returning success.
 await db.execute('INSERT INTO users VALUES (1, "Alice")');
-// Forgot to sync!
+// No awaited sync; background persistence is not a save guarantee.
 ```
 
 ### 2. **Batch Operations Before Sync**
@@ -216,35 +237,51 @@ await db.sync(); // Single sync for all changes
 
 ### 3. **Handle Errors Gracefully**
 ```javascript
+await db.execute('BEGIN TRANSACTION');
 try {
-  await db.execute('BEGIN TRANSACTION');
   await db.execute('INSERT INTO users VALUES (1, "Alice")');
   await db.execute('COMMIT');
+} catch (error) {
+  try {
+    await db.execute('ROLLBACK');
+  } catch (rollbackError) {
+    console.error('Rollback also failed:', String(rollbackError));
+  }
+  throw error;
+}
+
+try {
   await db.sync();
 } catch (error) {
-  await db.execute('ROLLBACK');
-  console.error('Transaction failed:', error);
+  // COMMIT already succeeded. Do not issue ROLLBACK or repeat the INSERT.
+  // Surface the failure; after addressing its cause, explicitly resync this
+  // still-live runtime if appropriate.
+  console.error('Persistence not acknowledged:', String(error));
+  throw error;
 }
 ```
 
-### 4. **Sync Before Page Unload**
+### 4. **Save Before Reporting Success**
+
+Browsers do not wait for an async `beforeunload` handler. Lifecycle auto-sync is
+best effort, not the durability boundary.
+
 ```javascript
-window.addEventListener('beforeunload', async (e) => {
-  if (hasUnsyncedChanges) {
-    await db.sync();
-  }
-});
+await db.sync();
+showSavedState();
 ```
 
 ### 5. **Monitor Storage Usage**
-- IndexedDB quota: typically 50MB-1GB per origin
-- Check storage API for available space
+- Use `navigator.storage.estimate()` for advisory origin quota/usage
+- Quota is not available WASM memory and estimates do not reserve space
 - Implement data cleanup strategies for large datasets
 
 ## Multi-Tab Transactions
 
 ### Write Coordination
-In multi-tab environments, only the leader tab can execute write operations (including transactions).
+Keep the complete BEGIN/DML/COMMIT/sync sequence on one serialized owner.
+Do not interleave transactions through pooled same-runtime handles or forward
+their pieces as separate queued requests.
 
 #### Option 1: Leader-Only Transactions
 ```javascript
@@ -263,7 +300,7 @@ if (await db.isLeader()) {
 #### Option 2: Queue Transactional Writes
 ```javascript
 // Queue individual writes from any tab
-// Note: Each queued write is a separate transaction
+// These are independent statements, not one atomic transaction or durable ack.
 await db.queueWrite('INSERT INTO users VALUES (1, "Alice")');
 await db.queueWrite('INSERT INTO orders VALUES (1, 1, 99.99)');
 
@@ -277,10 +314,11 @@ await db.sync();
 ```
 
 ### Important Notes
-- **queueWrite** executes each SQL statement as a separate transaction
+- **queueWrite** executes a single statement, not a multi-request transaction
 - For atomic multi-statement transactions, the tab must be the leader
 - Followers can wait for leadership with `waitForLeadership()` before starting transactions
-- All tabs see committed changes after sync via BroadcastChannel notifications
+- Raw followers reload persisted state before reading after a notification;
+  `MultiTabDatabase` does that refresh for its managed handles
 
 ## Related Resources
 

@@ -26,6 +26,11 @@ extern "C" {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub(crate) async fn sleep(ms: u32) -> Result<(), JsValue> {
+    js_sleep(ms).await.map(|_| ())
+}
+
+#[cfg(target_arch = "wasm32")]
 async fn acquire_worker_lock(lock_name: &str) -> Result<(), JsValue> {
     loop {
         let acquired = LOCAL_WORKER_LOCKS.with(|locks| {
@@ -42,7 +47,7 @@ async fn acquire_worker_lock(lock_name: &str) -> Result<(), JsValue> {
             return Ok(());
         }
 
-        js_sleep(10).await?;
+        sleep(10).await?;
     }
 }
 
