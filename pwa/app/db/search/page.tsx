@@ -528,7 +528,11 @@ function SearchPageContent() {
             <Label htmlFor="searchScope">Search Scope</Label>
             <Select
               value={searchScope}
-              onValueChange={(value: 'all' | 'selected') => setSearchScope(value)}
+              onValueChange={(value) => {
+                if (value === 'all' || value === 'selected') {
+                  setSearchScope(value);
+                }
+              }}
             >
               <SelectTrigger id="searchScope">
                 <SelectValue placeholder="Select scope" />
