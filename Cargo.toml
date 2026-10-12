@@ -1,6 +1,6 @@
 [package]
 name = "absurder-sql"
-version = "0.1.28"
+version = "0.1.29"
 authors = ["Nicholas G. Piesco"]
 description = "High-performance SQLite for browsers (IndexedDB or Hybrid OPFS), native apps, and mobile, with export/import and multi-tab coordination"
 license = "AGPL-3.0"
