@@ -9,6 +9,47 @@
   [![crates.io downloads](https://img.shields.io/crates/d/absurder-sql)](https://crates.io/crates/absurder-sql)
 </div>
 
+You need SQLite in the browser, but you also need its data to survive a restart,
+move into a normal `.db` file, and disappear from storage when you delete it.
+
+**AbsurderSQL gives SQLite persistent browser storage and portable files.**
+
+Serve this checkout over HTTP and run this as a browser ES module. This example
+has one database owner; a multi-tab application needs coordinated writes.
+
+```javascript
+import init, { Database } from './pkg/absurder_sql.js';
+
+await init();
+const db = await Database.newDatabase('notes.db');
+await db.allowNonLeaderWrites(true); // This example is the only writer.
+try {
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, body TEXT)'
+  );
+  await db.executeWithParams('INSERT INTO notes(body) VALUES (?)', [
+    { type: 'Text', value: 'Saved locally' },
+  ]);
+  await db.sync();
+  const result = await db.execute('SELECT id, body FROM notes ORDER BY id');
+  console.log(result.rows.map(row => row.values.map(cell => cell.value)));
+  const sqliteFile = await db.exportToFile();
+  console.log('SQLite file bytes:', sqliteFile.byteLength);
+} finally {
+  await db.close();
+  db.free();
+}
+```
+
+Browser quotas, eviction policy, private browsing, and storage permissions still
+apply. Await persistence operations and handle rejection; keep exported backups
+outside the origin when the data matters. IndexedDB works on the main thread;
+OPFS synchronous access requires a supported worker context.
+
+> **Release status:** The fixes and qualified artifacts described here are on
+> this branch and have not yet been published as a new Cargo or npm version.
+> Package installation retrieves the published release, not unpublished changes.
+
 **Tech Stack:**  
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 [![WASM](https://img.shields.io/badge/wasm-supported-blue)](https://webassembly.org/)
@@ -25,35 +66,18 @@
 [![Grafana](https://img.shields.io/badge/grafana-dashboards-orange)](monitoring/grafana/)
 [![DevTools](https://img.shields.io/badge/devtools-chrome%2Ffirefox-blue)](browser-extension/)
 
-> *SQLite + IndexedDB/OPFS + Custom VFS that's absurdly absurder than absurd-sql*
+## Why This Exists
 
-## This is an absurd*er* project.
+A custom SQLite VFS maps database I/O onto 4 KiB blocks rather than serializing
+the entire file for each write. IndexedDB stores blocks directly; Hybrid uses
+OPFS blocks with IndexedDB metadata and recovery data. Native applications use
+filesystem-backed SQLite, and the separate mobile bindings expose SQLite and
+optional SQLCipher through UniFFI.
 
-It implements a custom SQLite Virtual File System (VFS) backend that treats **browser storage like a disk**. In browsers, AbsurderSQL can use **IndexedDB directly** or a **Hybrid OPFS + IndexedDB backend** that keeps blocks in OPFS and metadata in IndexedDB. Your database lives permanently in browser storage with **intelligent block-level I/O**—reading and writing 4KB chunks with LRU caching—avoiding the performance nightmare of serializing entire database files on every operation.
-
-**It basically stores a whole database into another database using a custom VFS. Which is absurd*er*.**
-
-But AbsurderSQL takes it further: it's **absurdly better**. Unlike absurd-sql, your data isn't locked in browser storage forever—you can **[export and import](docs/EXPORT_IMPORT.md)** standard SQLite files. Need to query from both browser and CLI? Use **[dual-mode persistence](docs/DUAL_MODE.md)**—same database structure, browser persistence on IndexedDB or Hybrid OPFS+IndexedDB, and real files on the server. Multiple tabs? **[Multi-tab coordination](docs/MULTI_TAB_GUIDE.md)** with automatic leader election prevents conflicts. Need faster worker-backed browser persistence? Use the Hybrid backend with OPFS block I/O and IndexedDB metadata fallback. Want production observability? Optional **[Prometheus + Grafana monitoring](monitoring/)** with **[DevTools extension](browser-extension/)** for debugging WASM telemetry.
-
-**Read the [blog post](https://iscopesolutions.net/) that explains the absurdity in detail.**
-
----
-
-### Why AbsurderSQL?
-
-A high-performance **tri-mode** Rust library that brings full SQLite functionality to **browsers, native applications, and mobile devices**:
-
-- **Browser (WASM)**: SQLite → IndexedDB or Hybrid OPFS+IndexedDB, with multi-tab coordination, Web Worker support, and full export/import
-- **Native/CLI**: SQLite → Real filesystem with traditional `.db` files
-- **Mobile (React Native)**: SQLite → Device filesystem via UniFFI with SQLCipher encryption for iOS and Android
-
-**Unique Advantages:** 
-
-Export/import databases as standard SQLite files (absurd-sql has no export/import—data is permanently locked in browser storage). Build web apps that store data with IndexedDB by default or Hybrid OPFS+IndexedDB in worker contexts, then query the same database structure from CLI/server using standard SQLite tools. Multi-tab coordination with automatic leader election prevents conflicts. Perfect for offline-first applications with backup/restore, data migration, and optional server synchronization.
-
-**Production Observability (Optional):** When enabled with `--features telemetry`, includes complete monitoring stack: Prometheus metrics, OpenTelemetry tracing, pre-built Grafana dashboards, production-ready alert rules with runbooks, and a Chrome/Firefox DevTools extension for debugging WASM telemetry. All telemetry features are opt-in—default builds include zero monitoring overhead.
-
-Enabling production-ready SQL operations with crash consistency, multi-tab coordination, complete data portability, optional observability, and the flexibility to run anywhere from web apps to server applications.
+The point: use SQL for local data, coordinate its writers, and keep an ordinary
+SQLite file available for backup or migration. [Export/import](docs/EXPORT_IMPORT.md),
+[multi-tab coordination](docs/MULTI_TAB_GUIDE.md), the [PWA](pwa/), and optional
+[telemetry](monitoring/README.md) are separate parts of that workflow.
 
 ## Browser Storage Backends
 
@@ -71,12 +95,44 @@ import init, { Database } from '@npiesco/absurder-sql';
 
 await init();
 
-const mainThreadDb = await Database.newDatabase('app-main');
 const autoDb = await Database.newDatabaseAuto('app-auto');
-const workerHybridDb = await Database.newDatabaseWithBackend('app-worker', 'Hybrid');
-
-console.log(await autoDb.getStorageBackend());
+console.log(autoDb.getStorageBackend());
+await autoDb.close();
+autoDb.free();
 ```
+
+Run `newDatabaseWithBackend(name, 'Hybrid')` in a worker, not in the main-thread
+example above. Explicit backend requests reject unavailable storage; automatic
+selection and recovery after an actual persistence failure are different cases.
+
+## Storage and SQLite Contracts
+
+- `execute()` and `executeWithParams()` preserve embedded-NUL text and BLOB
+  bytes, including empty values. Results use `columns`, `rows[].values`,
+  `affectedRows`, and `lastInsertId`; read-only statements do not inherit stale
+  write counts. Invalid UTF-8 stored as SQLite TEXT is rejected rather than
+  silently replaced.
+- `sync()` rejects persistence failures. A successful in-memory SQL statement
+  is not a substitute for successful durable synchronization.
+- `exportToFile()` requires a complete SQLite checkpoint and returns a
+  standalone rollback-format snapshot. The live database stays in WAL mode.
+- `Database.deleteDatabase(name)` removes the exact physical database
+  namespace, including its IndexedDB blocks and OPFS state, without deleting
+  prefix-sharing neighbors. Close every handle in every runtime first.
+
+```javascript
+import init, { Database } from './pkg/absurder_sql.js';
+
+await init();
+// All tabs and workers using this name must already have closed their handles.
+await Database.deleteDatabase('notes.db');
+```
+
+Deletion rejects storage failures; it is not atomic across all browser stores,
+so an error can leave partially applied cleanup. It does not erase the whole
+origin or replace physical deletion with `DROP TABLE`. See the
+[stabilization contract](docs/SQLITE_STABILIZATION.md) and
+[native qualification record](docs/NATIVE_QUALIFICATION.md).
 
 ## Tri-Mode Architecture
 
@@ -219,10 +275,6 @@ graph TB
     style DEVTOOLS fill:#d1d5db,stroke:#333,color:#000
 ```
 
-**Legend:**
-🟪 SQLite Engine • 🟦 VFS Layer • 🟨 BlockStorage • 🟩 Persistence • 🟥 Multi-Tab
-🟫 Observability • ⬛ Prometheus • 🟧 Grafana • 🩵 React Native • 🟢 UniFFI
-
 ## Project Structure
 
 ```
@@ -232,6 +284,7 @@ absurder-sql/
 │   ├── database.rs         # Native Database implementation
 │   ├── types.rs            # Core types (QueryResult, ColumnValue, etc.)
 │   ├── utils.rs            # Utility functions
+│   ├── wasm_statement.rs   # WASM statement ownership, binding, and row decoding
 │   │
 │   ├── bin/                # Binary executables
 │   │   └── cli_query.rs    # CLI query tool for filesystem databases
@@ -281,12 +334,19 @@ absurder-sql/
 │   │   ├── benchmark-page.spec.js         # Benchmark page smoke coverage
 │   │   ├── advanced-features.spec.js
 │   │   └── multi-tab-vite.spec.js
-│   └── ...                           # 65+ test files total
+│   └── ...                           # Backend and regression integration tests
+│
+├── pwa/                    # Production Next.js PWA
+│   ├── app/                # Application routes, including the database UI
+│   ├── lib/db/             # SharedWorker coordinator, runtime worker, typed proxy
+│   ├── public/sw.js        # Offline service worker and production asset cache
+│   ├── e2e/                # Production PWA Playwright coverage
+│   └── playwright.pwa.config.ts # Serial next build/start test configuration
 │
 ├── examples/               # Browser demos and documentation
 │   ├── vite-app/           # Production Vite application
 │   ├── export_import_demo.html        # Export/import 4-step wizard demo
-│   ├── export_import.js               # 9 production export/import examples
+│   ├── export_import.js               # Export/import examples
 │   ├── test_export_import_examples.html # Export/import test suite
 │   ├── sql_demo.html       # Interactive SQL demo page
 │   ├── web_demo.html       # Full-featured web interface
@@ -308,18 +368,22 @@ absurder-sql/
 │   ├── ENCRYPTION.md       # SQLCipher encryption guide
 │   ├── CODING_STANDARDS.md # Development best practices
 │   ├── REMAINING_UNWRAPS.md # Unwrap safety analysis
+│   ├── SQLITE_STABILIZATION.md # SQLite and durability contracts
+│   ├── NATIVE_QUALIFICATION.md # Mac and Windows results and retained failures
+│   ├── SELF_HOSTED_CI.md   # Runner admission and release workflow
 │   └── mobile/             # Mobile-specific documentation
 │       ├── INSTRUCTIONS.md     # Mobile build instructions
 │       └── MOBILE_BENCHMARK.md # Mobile performance benchmarks
 │
-├── monitoring/             # Production observability (optional --features telemetry)
-│   ├── grafana/            # Pre-built Grafana dashboards
-│   │   ├── query_performance.json
-│   │   ├── storage_operations.json
-│   │   ├── system_health.json
-│   │   └── multi_tab_coordination.json
+├── monitoring/             # Observability templates (optional --features telemetry)
+│   ├── grafana/dashboards/ # Grafana dashboard templates
+│   │   ├── overview.json
+│   │   ├── performance.json
+│   │   ├── multi-tab.json
+│   │   └── errors.json
 │   ├── prometheus/         # Alert rules and recording rules
-│   │   └── alert_rules.yml # Alert rules + recording rules
+│   │   ├── alerts.yml
+│   │   └── recording_rules.yml
 │   └── RUNBOOK.md          # Alert runbooks and remediation procedures
 │
 ├── browser-extension/      # Browser DevTools extension (Chrome/Firefox)
@@ -334,7 +398,7 @@ absurder-sql/
 ├── absurder-sql-mobile/    # React Native bindings (iOS + Android)
 │   ├── src/
 │   │   ├── uniffi_api/     # UniFFI exported functions
-│   │   │   ├── core.rs     # 20 exported database functions
+│   │   │   ├── core.rs     # Exported database operations
 │   │   │   └── types.rs    # QueryResult, DatabaseConfig, etc.
 │   │   ├── AbsurderDatabase.ts  # High-level TypeScript API
 │   │   └── lib.rs          # Crate entry point
@@ -357,9 +421,13 @@ The project follows a modular architecture with clear separation of concerns:
 
 **VFS Layer**: Implements a custom SQLite Virtual File System that translates SQLite's file operations to IndexedDB operations. This allows SQLite to work seamlessly with browser storage without modifications to the core SQLite engine.
 
-**Storage Abstraction**: Provides a unified interface for different storage backends, with IndexedDB as the primary target. The design allows for future expansion to other storage mechanisms while maintaining API compatibility.
+**Storage Abstraction**: Implements IndexedDB, OPFS, and Hybrid browser backends,
+with a separate native filesystem path.
 
-**WASM Bridge**: Handles the interface between Rust code and JavaScript, managing memory allocation, type conversions, and async operation bridging. Uses `sqlite-wasm-rs` for stable SQLite operations without the hang issues that affected previous implementations. This ensures smooth interoperability between the WASM module and browser JavaScript.
+**WASM Bridge**: Uses `sqlite-wasm-rs` and a shared statement owner to finalize
+prepared statements on success and failure. Binding and row decoding use
+explicit byte lengths for text and BLOBs; asynchronous storage ownership does
+not escape through fabricated mutable references.
 
 **Type System**: Defines comprehensive data structures for SQL operations, query results, and configuration options, ensuring type safety across the Rust-JavaScript boundary.
 
@@ -380,7 +448,8 @@ The architecture supports configurable database options including cache size, sy
 
 ## Export/Import: Full Database Portability
 
-**AbsurderSQL provides complete database export and import functionality - a critical feature that absurd-sql completely lacks.**
+Export a database as a SQLite file, or replace an open database with validated
+SQLite file bytes. These operations do not depend on a server.
 
 ### Why This Matters
 
@@ -393,7 +462,9 @@ With AbsurderSQL, your data is **never locked in the browser**. You can:
 - **Debug** exported files with sqlite3 CLI or DB Browser
 - **Share** databases as downloadable files
 
-**absurd-sql alternative**: No export/import - data is permanently trapped in IndexedDB
+Exports reject blocked or incomplete checkpoints rather than return an
+uncertain snapshot. The returned file can be opened by native SQLite with
+`mode=ro` without requiring `immutable=1`.
 
 ### Quick Example
 
@@ -406,6 +477,7 @@ import init, { Database } from '@npiesco/absurder-sql';
 
 await init();
 const db = await Database.newDatabase('myapp.db');
+await db.waitForLeadership();
 
 // Create some data
 await db.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
@@ -421,21 +493,25 @@ const a = document.createElement('a');
 a.href = url;
 a.download = 'myapp.db';
 a.click();
+setTimeout(() => URL.revokeObjectURL(url), 0);
 
-// IMPORT: Load database from file
+// IMPORT: Assumes <input id="fileInput" type="file"> has a selected SQLite file.
 const file = document.getElementById('fileInput').files[0];
 const arrayBuffer = await file.arrayBuffer();
 await db.importFromFile(new Uint8Array(arrayBuffer));
 
 // Database is immediately usable after import (no reopen needed)
 const result = await db.execute('SELECT * FROM users');
+console.log(result.rows);
+await db.close();
+db.free();
 ```
 
 ### Interactive Demos
 
 - **[Export/Import Demo](examples/export_import_demo.html)** - 4-step wizard with progress tracking
 - **[Automated Tests](examples/test_export_import_examples.html)** - 5 validation tests
-- **[Code Examples](examples/export_import.js)** - 9 production-ready examples
+- **[Code Examples](examples/export_import.js)** - Export/import workflows
 
 ### Full Documentation
 
@@ -468,6 +544,7 @@ await init();
 
 // Create database
 const db = await Database.newDatabase('myapp.db');
+await db.waitForLeadership();
 
 // Use SQLite
 await db.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
@@ -479,26 +556,20 @@ const backup = await db.exportToFile();
 
 // Close when done
 await db.close();
+db.free();
 ```
 
 **Package includes:**
-- Pre-built WASM binary (~1.3MB, ~595KB gzipped)
+- Pre-built WASM binary (1,431,072 bytes in the qualified default build)
 - TypeScript definitions
 - All necessary JavaScript glue code
-- **No telemetry dependencies** - minimal size, zero observability overhead
+- Optional telemetry excluded from the default build
 
 > **Note:** The npm package is built without the `telemetry` feature for smaller size and faster load times. If you need Prometheus/OpenTelemetry support for production monitoring, build from source with `--features telemetry`.
 
 #### Option 2: Install from crates.io (Rust Projects)
 
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-absurder-sql = "0.1.23"
-```
-
-Or use cargo:
+Resolve the currently published crate into your project's manifest and lockfile:
 
 ```bash
 cargo add absurder-sql
@@ -511,32 +582,37 @@ cargo add absurder-sql
 For development or custom builds:
 
 **Prerequisites:**
-- **Rust 1.85.0+** with the 2024 edition
-- **wasm-pack** for building WASM packages
-- **Node.js 18+** for running examples
+- Rust with the 2024 edition; the manifest declares 1.85.0, and this
+  qualification used Rust 1.98.0.
+- wasm-pack 0.14.0 and the `wasm32-unknown-unknown` target.
+- Node.js 24 for the current development and PWA toolchain.
 
 ```bash
 # Clone the repository
 git clone https://github.com/npiesco/absurder-sql
 cd absurder-sql
 
-# Install wasm-pack if needed
-curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-# Build for web
-wasm-pack build --target web --out-dir pkg
+# Install the target and build tool if needed
+rustup target add wasm32-unknown-unknown &&
+cargo install wasm-pack --version 0.14.0 --locked &&
+npm run build
 ```
 
 This generates the `pkg/` directory containing:
 - `absurder_sql.js` - JavaScript module
-- `absurder_sql_bg.wasm` - WebAssembly binary (~1.3MB)
+- `absurder_sql_bg.wasm` - WebAssembly binary
 - TypeScript definitions and package files
+
+Keep the tracked `pkg/LICENSE.md` when preparing a source copy. wasm-pack 0.14.0
+uses existing output-directory license files to populate `package.json`; removing
+that static input changes first-build versus rebuild metadata. `npm run build`
+also synchronizes the matching runtime into `pwa/lib`.
 
 ### Optional Features
 
 AbsurderSQL supports optional feature flags to minimize dependencies and binary size:
 
-#### Telemetry (Optional - Build from Source Only)
+#### Telemetry (Optional)
 
 **The npm package does NOT include telemetry** for minimal size. To enable telemetry features (Prometheus metrics, OpenTelemetry tracing), you must build from source with the `telemetry` feature flag:
 
@@ -544,7 +620,7 @@ AbsurderSQL supports optional feature flags to minimize dependencies and binary 
 # Build with telemetry support (Prometheus + OpenTelemetry)
 wasm-pack build --target web --out-dir pkg --features telemetry
 
-# Build without telemetry (default - smaller binary, zero telemetry overhead)
+# Build without the optional telemetry feature
 wasm-pack build --target web --out-dir pkg
 ```
 
@@ -567,127 +643,45 @@ wasm-pack build --target web --out-dir pkg
 
 **Exposing Metrics for Prometheus (Native Applications):**
 
-AbsurderSQL collects metrics in-memory but does NOT include an HTTP server. For Prometheus scraping, add a `/metrics` endpoint to your application's HTTP server:
+The library does not start an HTTP metrics server. Wire a `Metrics` registry to
+the storage or instrumentation you use, then expose it through your own server.
+The native `Database` alias is `SqliteIndexedDB`; do not assume it has the
+WASM-only database instrumentation methods. See
+[monitoring setup](monitoring/README.md) for the component boundaries.
 
-```rust
-// Example with axum
-use absurder_sql::Database;
-use prometheus::Encoder;
-use axum::{Router, routing::get, extract::State};
+The optional WASM telemetry tests exercise actual queries, failures,
+synchronization, and a loopback HTTP collector. The default build remains
+telemetry-disabled.
 
-async fn metrics_handler(State(db): State<Database>) -> String {
-    #[cfg(feature = "telemetry")]
-    if let Some(metrics) = db.metrics() {
-        let encoder = prometheus::TextEncoder::new();
-        let metric_families = metrics.registry().gather();
-        return encoder.encode_to_string(&metric_families).unwrap();
-    }
-    "Telemetry not enabled".to_string()
-}
+### Observability Components
 
-#[tokio::main]
-async fn main() {
-    let db = Database::new("myapp.db").await.unwrap();
-    let app = Router::new()
-        .route("/metrics", get(metrics_handler))
-        .with_state(db);
-    
-    axum::Server::bind(&"0.0.0.0:9090".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-}
-```
-
-Then configure Prometheus to scrape `http://localhost:9090/metrics`.
-
-**Additional actix-web example:**
-
-```rust
-use absurder_sql::Database;
-use actix_web::{web, App, HttpServer, HttpResponse};
-use prometheus::Encoder;
-
-async fn metrics(db: web::Data<Database>) -> HttpResponse {
-    #[cfg(feature = "telemetry")]
-    if let Some(metrics) = db.metrics() {
-        let encoder = prometheus::TextEncoder::new();
-        let metric_families = metrics.registry().gather();
-        let body = encoder.encode_to_string(&metric_families).unwrap();
-        return HttpResponse::Ok()
-            .content_type("text/plain; version=0.0.4")
-            .body(body);
-    }
-    HttpResponse::Ok().body("Telemetry not enabled")
-}
-```
-
-### Production Observability Stack
-
-When `--features telemetry` is enabled, AbsurderSQL provides a complete production observability stack.
+The repository includes optional telemetry components, dashboards, alert rules,
+and a DevTools extension. Export endpoints and application wiring are configured
+by the application.
 
 **[Complete Monitoring Setup Guide](monitoring/README.md)** | **[Alert Runbook](monitoring/RUNBOOK.md)** | **[DevTools Extension](browser-extension/README.md)**
 
 #### Grafana Dashboards (4 Dashboards, 28 Panels)
 
-Pre-built Grafana dashboards provide real-time visibility into database operations:
+| Dashboard | Panels |
+| --- | ---: |
+| `monitoring/grafana/dashboards/overview.json` | 6 |
+| `monitoring/grafana/dashboards/performance.json` | 7 |
+| `monitoring/grafana/dashboards/multi-tab.json` | 7 |
+| `monitoring/grafana/dashboards/errors.json` | 8 |
 
-1. **Query Performance Dashboard** (`monitoring/grafana/query_performance.json`)
-   - Query execution times (p50, p90, p99)
-   - Query rate and error rate
-   - Slow query detection
-   - 7 panels with drill-down capabilities
+These are templates to adapt to your deployment, not automatically configured
+application instrumentation. Some templates retain legacy histogram names;
+match the current `_duration_ms_bucket` metrics and millisecond units before
+enabling panels or alerts.
 
-2. **Storage Operations Dashboard** (`monitoring/grafana/storage_operations.json`)
-   - Block read/write rates
-   - Cache hit rates and effectiveness
-   - Storage layer latency
-   - 6 panels for storage health monitoring
+#### Alert Rules (16 Alerts + 25 Recording Rules)
 
-3. **System Health Dashboard** (`monitoring/grafana/system_health.json`)
-   - Error rates by type
-   - Transaction success rates
-   - Resource utilization
-   - 8 panels for overall system health
-
-4. **Multi-Tab Coordination Dashboard** (`monitoring/grafana/multi_tab_coordination.json`)
-   - Leader election status
-   - Write queue depth
-   - Sync operations
-   - 7 panels for multi-tab debugging
-
-**Import dashboards:** Load the JSON files directly into Grafana. All dashboards include variable templates for filtering by database instance.
-
-#### Alert Rules (18 Alerts + 26 Recording Rules)
-
-Production-ready Prometheus alert rules with runbooks:
-
-**Critical Alerts:**
-- High error rate (>5% over 5 minutes)
-- Extreme query latency (p99 > 1 second)
-- Zero query throughput (potential deadlock)
-- Storage failures (>3 failures per minute)
-
-**Warning Alerts:**
-- Elevated error rates, slow queries, cache inefficiency
-- Multi-tab coordination issues
-
-**Info Alerts:**
-- New leader elected, first query executed
-
-**Recording Rules:**
-- Pre-aggregated metrics for faster dashboard queries
-- Query rate calculations, error ratios, latency percentiles
-
-All alerts include:
-- Severity labels (critical/warning/info)
-- Team routing (database-team/platform-team)
-- Detailed annotations explaining the issue
-- Links to runbooks with remediation steps
-
-**Location:** `monitoring/prometheus/alert_rules.yml`
-
-**Runbooks:** `monitoring/RUNBOOK.md` provides step-by-step debugging and remediation procedures for every alert type.
+Alert definitions are in `monitoring/prometheus/alerts.yml`; recording rules
+are in `monitoring/prometheus/recording_rules.yml`. Configure scrape targets,
+labels, thresholds, and notification routing for your application. The
+[monitoring guide](monitoring/README.md) and
+[runbook](monitoring/RUNBOOK.md) describe the current metric names and units.
 
 #### Browser DevTools Extension
 
@@ -722,7 +716,8 @@ cargo build --features fs_persist
 cargo test --features fs_persist
 ```
 
-**Note:** All telemetry code is properly feature-gated - when the `telemetry` feature is disabled, zero telemetry code is compiled into your binary. This ensures minimal binary size and zero runtime overhead for applications that don't need observability features.
+The `telemetry` feature gates the telemetry module and its optional dependencies.
+Coordination diagnostics and normal logging are separate from that feature.
 
 ### Browser Usage (WASM)
 
@@ -738,6 +733,7 @@ await init();
 
 // Create database - persists to IndexedDB
 const db = await Database.newDatabase('myapp');
+await db.waitForLeadership();
 
 // Execute SQL
 await db.execute('CREATE TABLE users (id INT, name TEXT)');
@@ -749,6 +745,7 @@ await db.sync();
 
 // Close
 await db.close();
+db.free();
 ```
 
 ### Web Worker Support
@@ -767,7 +764,7 @@ self.onmessage = async function(e) {
   
   // Workers don't have localStorage for leader election
   // Enable non-leader writes for worker context
-  db.allowNonLeaderWrites(true);
+  await db.allowNonLeaderWrites(true);
   
   // Perform database operations
   await db.execute('CREATE TABLE data (id INTEGER, value TEXT)');
@@ -778,6 +775,7 @@ self.onmessage = async function(e) {
   
   const result = await db.execute('SELECT * FROM data');
   await db.close();
+  db.free();
   
   // Send results back to main thread
   self.postMessage({ success: true, rows: result.rows });
@@ -797,11 +795,48 @@ worker.postMessage({ type: 'processData' });
 
 **Key Points:**
 - IndexedDB access works in both Window and Worker contexts
-- Workers don't have `localStorage`, so use `db.allowNonLeaderWrites(true)` for single-worker scenarios
+- Workers don't have `localStorage`; await `db.allowNonLeaderWrites(true)` only
+  when that worker is the sole writer or an external coordinator serializes it.
 - All database operations run off the main thread
-- Perfect for heavy data processing, imports, or background sync
+- The one-request example above is not a multi-worker coordinator. Serialize
+  operations when a worker receives multiple requests.
 
 **Example:** See `examples/worker-example.html` for a complete working demo
+
+### Production PWA (Hybrid OPFS + IndexedDB)
+
+The checked-in [`pwa/`](pwa/) is a production Next.js PWA backed by AbsurderSQL's local WASM build. A `SharedWorker` coordinates tabs while one elected dedicated Worker owns and serializes the physical database runtime. The Hybrid backend stores blocks in OPFS, keeps coordination metadata and fallback data in IndexedDB, and reopens logical database handles after runtime handoff. The service worker precaches the emitted application, worker, WASM, JavaScript, and CSS assets for offline reload.
+
+Build the local WASM package first, then start the PWA:
+
+```bash
+# Repository root: build WASM and sync it into pwa/lib
+npm install
+npm run build
+
+cd pwa
+npm install
+npm run dev
+```
+
+These commands use your configured npm registry; do not add a direct public-registry override.
+
+Run the production PWA storage suite:
+
+```bash
+cd pwa
+npx playwright install chromium  # First run only
+npm run test:pwa
+```
+
+`test:pwa` runs serially against `next build` and `next start`. It verifies Hybrid selection and reopen, two-tab shared ownership with continued writes after one tab closes, and offline reload from persisted OPFS data.
+
+**Verified 2026-09-22:** all 3 production PWA scenarios passed on the original
+Apple-runtime lane and the isolated Windows VM. See
+[qualification](docs/NATIVE_QUALIFICATION.md) for the exact environments and
+retained failed attempts. This is not a new npm audit result.
+
+**Implementation provenance:** the PWA is an AbsurderSQL implementation by `npiesco`; it does not import Onyx source or packages. Onyx commits `d039d03`, `a4ecdea`, `417e23d`, `8a18a7c`, and `1d90c3c`, also by `npiesco`, supplied behavioral and production-test references. AbsurderSQL's Hybrid recovery, multi-tab coordination, and benchmark commits remain the implementation authority. See [**docs/HYBRID_OPFS_PLAN.md**](docs/HYBRID_OPFS_PLAN.md#pwa-integration-update-2026-07-25) for the per-section code and author references.
 
 ### Native/CLI Usage (Filesystem)
 
@@ -835,52 +870,36 @@ See [**docs/DUAL_MODE.md**](docs/DUAL_MODE.md) for complete tri-mode guide.
 AbsurderSQL Mobile provides native SQLite for iOS and Android via UniFFI-generated bindings:
 
 ```typescript
-import { AbsurderDatabase, openDatabase } from 'absurder-sql-mobile';
+import { openDatabase } from 'absurder-sql-mobile';
 
-// Simple usage with high-level API
-const db = await openDatabase({
-  name: 'myapp.db',
-  encryption: { key: 'my-secret-key' },  // Optional SQLCipher encryption
-  cacheSize: 20000,    // 20K pages (~80MB cache)
-  journalMode: 'WAL',  // Write-ahead logging
-});
-
-// Execute queries
-await db.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
-await db.execute("INSERT INTO users VALUES (1, 'Alice')");
-
-// Query with parameters
-const result = await db.executeWithParams(
-  'SELECT * FROM users WHERE id = ?',
-  [1]
-);
-console.log(result.rows);        // [{ id: 1, name: 'Alice' }]
-console.log(result.lastInsertId); // Last inserted row ID
-console.log(result.executionTimeMs); // Query timing
-
-// Transactions
-await db.transaction(async () => {
-  await db.execute("INSERT INTO users VALUES (2, 'Bob')");
-  await db.execute("INSERT INTO users VALUES (3, 'Charlie')");
-});
-
-// Streaming for large datasets
-for await (const row of db.executeStream('SELECT * FROM large_table')) {
-  console.log(row);
+const mobileDb = await openDatabase({ name: 'myapp.db' });
+try {
+  await mobileDb.execute(
+    'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)'
+  );
+  await mobileDb.execute("INSERT INTO users(name) VALUES ('Alice')");
+  const result = await mobileDb.execute('SELECT * FROM users ORDER BY id');
+  console.log(result.rows);
+} finally {
+  await mobileDb.close();
 }
-
-// Export/Import
-await db.exportToFile('/path/to/backup.db');
-await db.importFromFile('/path/to/restore.db');
-
-await db.close();
 ```
+
+The mobile wrapper is a separate API from the browser `Database`: parameter
+values, export paths, encryption configuration, transactions, and streaming are
+documented in the [mobile guide](absurder-sql-mobile/README.md).
 
 **Features:**
 - SQLCipher AES-256 encryption (iOS uses CommonCrypto, Android uses pre-built OpenSSL)
 - Prepared statements, batch operations, streaming queries
 - Full export/import for backup/restore
 - Type-safe from Rust to TypeScript via UniFFI
+
+**Verified 2026-07-26:** the locked `uniffi-bindings` host matrix passes all 67 Rust integration tests. That includes all 9 real export/import cases: new-database restore, same-vault restore, encrypted round-trip, BLOB preservation, invalid handles, and missing files. The same matrix passes `cargo fmt` and `cargo clippy --all-targets -- -D warnings`.
+
+That is the dated mobile host-matrix result, not a new device qualification.
+The September qualification described below covers the core library and browser
+PWA; it does not replace mobile platform testing.
 
 **Setup:** See [**absurder-sql-mobile/README.md**](absurder-sql-mobile/README.md) for build instructions.
 
@@ -935,42 +954,33 @@ AbsurderSQL includes several performance optimizations for high-throughput appli
 
 ### Transaction-Deferred Sync
 
-Filesystem sync operations are automatically deferred during transactions for massive performance improvements:
+Native filesystem synchronization is deferred during transactions. For browser
+code, commit the SQL transaction and await `sync()` before treating it as durable.
 
 ```javascript
-// Without transactions: ~2883ms for 1000 inserts (sync after each)
-for (let i = 0; i < 1000; i++) {
-  await db.execute(`INSERT INTO data VALUES (${i}, 'value${i}')`);
-}
-
-// With transactions: <1ms for 1000 inserts (sync only on COMMIT)
+// Continuing with an open, write-owning Database instance named db:
+await db.execute('CREATE TABLE IF NOT EXISTS data (id INTEGER PRIMARY KEY, value TEXT)');
 await db.execute('BEGIN TRANSACTION');
-for (let i = 0; i < 1000; i++) {
-  await db.execute(`INSERT INTO data VALUES (${i}, 'value${i}')`);
+try {
+  for (let i = 0; i < 1000; i++) {
+    await db.executeWithParams('INSERT OR REPLACE INTO data VALUES (?, ?)', [
+      { type: 'Integer', value: i },
+      { type: 'Text', value: `value${i}` },
+    ]);
+  }
+  await db.execute('COMMIT');
+} catch (error) {
+  await db.execute('ROLLBACK');
+  throw error;
 }
-await db.execute('COMMIT');  // Single sync here
+await db.sync();
 ```
-
-**Performance:** 2278x speedup for bulk inserts (1034ms → 0.45ms for 100 inserts)
 
 ### Batch Execution
 
-Execute multiple SQL statements in one call to reduce bridge overhead (especially important for React Native):
-
-```javascript
-// Native API (browser/WASM)
-const statements = [
-  "INSERT INTO users VALUES (1, 'Alice')",
-  "INSERT INTO users VALUES (2, 'Bob')",
-  "INSERT INTO users VALUES (3, 'Charlie')"
-];
-
-await db.executeBatch(statements);
-```
-
-**Performance:** Reduces N bridge calls to 1 call. For 5000 statements:
-- Individual calls: ~170ms bridge overhead (0.034ms × 5000)
-- Batch call: ~12ms total execution time
+Native Rust exposes `SqliteIndexedDB::execute_batch`, and the mobile wrapper has
+its own batch API. The browser `Database` does **not** expose `executeBatch`;
+use sequential `execute` or `executeWithParams` calls inside a transaction.
 
 ### Prepared Statements (Native Only)
 
@@ -980,7 +990,14 @@ Eliminate SQL re-parsing overhead for repeated queries:
 // Native/CLI usage only (not available in WASM)
 use absurder_sql::{SqliteIndexedDB, DatabaseConfig, ColumnValue};
 
+// Inside an async function returning Result<_, DatabaseError>:
+let config = DatabaseConfig {
+    name: "prepared.db".into(),
+    ..DatabaseConfig::default()
+};
 let mut db = SqliteIndexedDB::new(config).await?;
+db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER, name TEXT, age INTEGER)")
+    .await?;
 
 // Prepare once
 let mut stmt = db.prepare("INSERT INTO users VALUES (?, ?, ?)")?;
@@ -1003,14 +1020,15 @@ stmt.finalize()?;
 - Numbered: `?1`, `?2` (can reuse same parameter)
 - Named: `:name`, `:id`
 
-**Performance:** 1.5-2x faster for repeated queries (eliminates SQL parsing on each execution)
-
-**Note:** PreparedStatement is currently available for native/CLI applications only. Browser/WASM support will be added in a future release.
+PreparedStatement is available to native Rust callers. The browser bridge
+prepares and finalizes statements internally; it has no public persistent
+prepared-statement handle.
 
 ## SQLite WASM Integration
 
 ### Architecture Overview
-The library provides a robust SQLite implementation for WebAssembly environments using the `sqlite-wasm-rs` crate with precompiled features. This ensures stable, production-ready SQLite functionality without the hang issues that plagued earlier custom implementations.
+The WASM implementation uses `sqlite-wasm-rs` with precompiled SQLite and an
+owned statement wrapper shared by plain and parameterized execution.
 
 ### Key Features
 - **Full SQLite C API Support**: Complete implementation of `sqlite3_prepare_v2`, `sqlite3_step`, `sqlite3_finalize`, and parameter binding
@@ -1022,14 +1040,18 @@ The library provides a robust SQLite implementation for WebAssembly environments
 
 ## Multi-Tab Coordination
 
-AbsurderSQL includes comprehensive multi-tab coordination for browser applications, ensuring data consistency across multiple tabs without conflicts.
+Multi-tab applications need one coordinated writer. The window-based API uses
+leader election and write queuing; the PWA uses a SharedWorker coordinator and
+an elected dedicated worker. Callers still handle conflicts, queue timeouts,
+storage refusal, and leader changes.
 
 ### Core Features
 - **Automatic Leader Election**: First tab becomes leader using localStorage coordination
 - **Write Guard**: Only the leader tab can execute write operations (INSERT, UPDATE, DELETE)
 - **BroadcastChannel Sync**: Automatic change notifications to all tabs
 - **Failover Support**: Automatic re-election when leader tab closes
-- **Zero Configuration**: Works out of the box, no setup required
+- **Explicit Ownership**: Close handles before destructive operations and do
+  not enable non-leader writes independently in several tabs.
 
 ### Advanced Features
 - **Write Queuing**: Non-leaders can queue writes that forward to leader automatically
@@ -1070,34 +1092,33 @@ db.onRefresh(() => {
 });
 ```
 
-### Advanced Features
+### Raw Database Coordination API
+
+`queueWrite`, `queueWriteWithTimeout`, `waitForLeadership`, and the coordination
+metrics methods belong to the raw `Database` handle, not the `MultiTabDatabase`
+example wrapper. Use queued writes only when an active leader services the
+database; timeout and leadership errors remain visible to the caller.
 
 ```javascript
-// Write Queuing - Queue from any tab
-await db.queueWrite("INSERT INTO logs VALUES (1, 'event')");
-await db.queueWriteWithTimeout("UPDATE data SET processed = 1", 10000);
-
-// Optimistic Updates - Track pending writes
-await db.enableOptimisticUpdates(true);
-const writeId = await db.trackOptimisticWrite("INSERT INTO users...");
-const pendingCount = await db.getPendingWritesCount();
-
-// Coordination Metrics - Monitor performance
-await db.enableCoordinationMetrics(true);
-await db.recordLeadershipChange(true);
-await db.recordNotificationLatency(15.5);
-const metrics = JSON.parse(await db.getCoordinationMetrics());
-
-// Helper Methods
-await db.waitForLeadership();  // Wait to become leader
-await db.requestLeadership();   // Request leadership
-const info = await db.getLeaderInfo();  // Get leader info
-await db.allowNonLeaderWrites(true);  // Override for single-tab apps
+// After init(), inspect a raw handle without bypassing its write guard.
+const rawDb = await Database.newDatabase('myapp.db');
+try {
+  await rawDb.enableCoordinationMetrics(true);
+  console.log(await rawDb.getLeaderInfo());
+  console.log(JSON.parse(await rawDb.getCoordinationMetrics()));
+} finally {
+  await rawDb.close();
+  rawDb.free();
+}
 ```
+
+Optimistic tracking records pending work; it does not make an uncommitted write
+durable. See the [coordination guide](docs/MULTI_TAB_GUIDE.md) for leader,
+follower, and application-level ownership patterns.
 
 ### Live Demos
 - **[Multi-Tab Demo](examples/multi-tab-demo.html)** - Interactive task list with multi-tab sync
-- **[Vite App](examples/vite-app/)** - Production-ready multi-tab example
+- **[Vite App](examples/vite-app/)** - Multi-tab example
 - **[Complete Guide](docs/MULTI_TAB_GUIDE.md)** - Full documentation and patterns
 
 **Open the demo in multiple browser tabs to see coordination in action!**
@@ -1112,7 +1133,7 @@ Modern web app example with **multi-tab coordination**:
 - Multi-tab leader election
 - Real-time sync across tabs
 - Leader/follower UI indicators
-- Production-ready build
+- Vite production build
 
 **[Full setup guide](examples/vite-app/README.md)**
 
@@ -1152,17 +1173,15 @@ npm run serve
 
 ## Performance Benchmarks
 
-AbsurderSQL consistently outperforms absurd-sql and raw IndexedDB across all operations.
+Benchmark results depend on the browser, backend, dataset, transaction size,
+and synchronization boundary. The benchmark page compares IndexedDB,
+worker-backed Hybrid, absurd-sql, and raw IndexedDB under the chosen workload.
 
 **[Full benchmark results and analysis](docs/BENCHMARK.md)**
 
-### Latest Results
-
-| Implementation | Insert | Read | Update | Delete |
-|---------------|--------|------|--------|--------|
-| **AbsurderSQL** 🏆 | **3.2ms** | **1.2ms** | **400μs** | **400μs** |
-| absurd-sql | 3.8ms | 2.1ms | 800μs | 700μs |
-| Raw IndexedDB | 24.1ms | 1.4ms | 14.1ms | 6.3ms |
+The final qualification includes the 100/1,000/10,000-row sweep. Historical
+measurements remain in [the benchmark record](docs/BENCHMARK.md); they are not
+universal speedup guarantees.
 
 ### Run Benchmarks
 
@@ -1175,203 +1194,106 @@ npm run serve
 
 ## Comparison with absurd-sql
 
-AbsurderSQL is inspired by and builds upon the excellent work of [absurd-sql](https://github.com/jlongster/absurd-sql) by James Long, which pioneered SQLite-in-IndexedDB. Here's how they compare:
-
-### Similarities
-Both projects share core concepts:
-- IndexedDB as persistent storage backend
-- Block/page-based storage (not single-file)
-- Full SQLite functionality in browser
-- Significantly better performance than raw IndexedDB
-
-### Key Architectural Differences
+AbsurderSQL builds on the SQLite-in-IndexedDB approach pioneered by
+[absurd-sql](https://github.com/jlongster/absurd-sql). Both use block/page
+persistence. AbsurderSQL has a Rust/WASM implementation, explicit browser
+backend selection, export/import APIs, and separate native/mobile surfaces.
 
 | Feature | **absurd-sql** | **AbsurderSQL** |
 |---------|----------------|--------------|
-| **Engine** | sql.js (Emscripten) | sqlite-wasm-rs (Rust C API) |
-| **Language** | JavaScript | Rust/WASM/UniFFI |
-| **Platform** | **Browser only** | **Browser + Native + Mobile** |
-| **Mobile Support** | **Not supported** | iOS + Android via UniFFI |
-| **Storage** | Variable SQLite pages (8KB suggested) | Fixed 4KB blocks |
-| **Worker** | Optional (fallback mode works on main thread) | Optional (works on main thread) |
-| **SharedArrayBuffer** | Optional (faster with SAB, fallback without) | Not used |
-| **CORS Headers** | Optional (only if using SAB mode) | Not required |
+| SQLite integration | sql.js VFS interception | sqlite-wasm-rs custom VFS in browsers; rusqlite natively |
+| Browser storage | IndexedDB pages | IndexedDB or worker OPFS/Hybrid blocks |
+| Integration choice | Keep an existing sql.js application | Use the Rust/WASM API and its documented lifecycle |
 
-### Database Portability & Export/Import
-
-| Feature | **absurd-sql** | **AbsurderSQL** |
-|---------|----------------|--------------|
-| **Export to File** | **Not supported** | Full SQLite file export |
-| **Import from File** | **Not supported** | Standard SQLite import |
-| **Database Backup** | Locked in IndexedDB | Download as `.db` files |
-| **Data Migration** | Manual only | Automated export/import |
-| **File Portability** | No file access | Use with sqlite3, DB Browser |
-| **Multi-Device Sync** | Not possible | Export -> share -> import |
-| **Disaster Recovery** | No backups | Full backup/restore |
-
-### Multi-Tab Coordination
-
-| Feature | **absurd-sql** | **AbsurderSQL** |
-|---------|----------------|--------------|
-| **Coordination** | Throws errors | Coordinated with write queuing |
-| **Leadership** | No concept | Automatic election with failover |
-| **Follower Writes** | Not supported | Supported via `queueWrite()` |
-
-### Technical Implementation Highlights
-**absurd-sql:**
-- sql.js VFS interception for file operations
-- Two modes: SAB mode (fast) or FileOpsFallback (compatible)
-- SAB mode: Worker + SharedArrayBuffer for synchronous ops
-- Fallback mode: Works anywhere, "one writer at a time"
-
-**AbsurderSQL:**
-- Custom Rust IndexedDB VFS implementation
-- localStorage atomic coordination primitives
-- Block-level checksums and versioning (MVCC-style)
-- LRU cache (128 blocks default)
-- Full multi-tab write coordination (no errors)
-- Works everywhere (localStorage-based, no SAB)
-
-### Which Should You Choose?
-
-**Choose AbsurderSQL if you:**
-
-**[CRITICAL] Need database export/import (DATA PORTABILITY)**
-- Export databases as standard SQLite files users can download
-- Import databases from file uploads or shared files
-- Backup/restore workflows for disaster recovery
-- Migrate data between devices, browsers, or users
-- Open exported files with sqlite3 CLI, DB Browser, or any SQLite tool
-- Share databases as files (email, cloud storage, USB drives)
-- *Why this matters:* absurd-sql has **NO export/import** - your data is permanently locked in IndexedDB
-
-**[✓] Need dual-mode persistence (Browser + Native)**
-- Build web apps with IndexedDB storage
-- Query the same data from CLI/server using traditional `.db` files
-- Offline-first apps with optional server sync
-- Debug production data locally using standard SQLite tools
-- *Why this matters:* absurd-sql is **browser-only** - no CLI/server access to your data
-
-**[✓] Want zero deployment friction**
-- Deploy to GitHub Pages, Netlify, Vercel, or any CDN instantly
-- No server configuration or CORS header setup required
-- Works in iframes and embedded contexts
-- *Why this matters:* absurd-sql's SAB mode requires special HTTP headers (COEP/COOP) for best performance, though fallback mode works without them
-
-**[✓] Want flexible architecture**
-- Can run on main thread OR in Web Worker (your choice)
-- Simpler integration - no mandatory worker setup
-- Easy to add to existing apps without refactoring
-- *Why this matters:* absurd-sql's SAB mode requires a Web Worker, though fallback mode can run on main thread with performance trade-offs
-
-**[✓] Need multi-tab applications**
-- Multiple tabs can write data without coordination errors
-- Automatic conflict resolution with leader election
-- User can have multiple tabs open without issues (e.g., documentation in one tab, app in another)
-- *Why this matters:* absurd-sql throws errors if multiple tabs try to write simultaneously
-
-**[✓] Value data integrity**
-- Built-in checksums detect corruption
-- Crash consistency guarantees (committed data survives browser crashes)
-- MVCC-style versioning prevents race conditions
-- *Why this matters:* Protects against data loss from browser crashes, bugs, or unexpected shutdowns
-
-**[✓] Want better performance**
-- 16-50% faster than absurd-sql across all operations
-- LRU caching optimizes hot data access
-- Efficient 4KB block size balances memory and I/O
-- *Why this matters:* Faster queries = better user experience, especially on mobile devices
-
-**[✓] Need production-ready tooling**
-- Comprehensive test suite (WASM + Native + E2E tests)
-- Full TypeScript definitions
-- Active development and maintenance
-- *Why this matters:* Confidence in reliability, easier debugging, better IDE support
-
-**Choose absurd-sql if you:**
-
-**[!] Already invested in sql.js**
-- Have existing sql.js code you want to keep
-- Need to support very old browsers without WASM support (pre-2017)
-- Trade-off: Miss out on Rust's memory safety and performance
-
-**[!] Prefer pure JavaScript stack**
-- Don't want to deal with Rust/WASM compilation (though wasm-pack makes this trivial)
-- Want to read/modify source code in JavaScript
-- Trade-off: Slower performance, more deployment complexity
-
-**[!] Don't need multi-tab**
-- Single-tab application only
-- Users never have multiple tabs open
-- Trade-off: Limited scalability if requirements change later
-
-**Bottom Line:**
-- **AbsurderSQL** = Modern, fast, works everywhere, multi-tab ready, export/import support
-- **absurd-sql** = Proven, JavaScript-only, two modes (SAB or fallback), single-tab focus
-
-**[Detailed technical comparison in BENCHMARK.md](docs/BENCHMARK.md#comparison-with-absurd-sql)**
+Choose against the operations and browser environments your application actually
+needs. Exporting and transferring a file is not a distributed synchronization
+protocol, and coordination does not eliminate every possible error.
 
 ---
 
-## Known Issues & Troubleshooting
+## Testing
 
-### Transient "readonly database" Error in Native Tests
+The final original-Apple-runtime and isolated Windows x64/SYSTEM runs passed
+the same gates:
 
-**Issue**: When running native tests with `cargo test --features fs_persist`, you may encounter a transient failure in `test_database_operations_across_threads`:
+| Suite | Result in each final lane |
+| --- | --- |
+| Native Rust | 214 passed; one existing documentation example ignored |
+| Default browser WASM | 298 passed |
+| Enabled telemetry | 16 passed, including real HTTP export |
+| Browser and benchmark | 79 passed |
+| Physical deletion | 13 passed |
+| SQLite stabilization | 35 passed |
+| Production PWA | 3 passed |
+| Default and telemetry package contracts | 13 deletion + 35 stabilization per package |
 
-```
-test_database_operations_across_threads ... FAILED
-
-thread 'test_database_operations_across_threads' panicked at tests/send_safety_test.rs:74:10:
-Failed to insert: DatabaseError { 
-  code: "SQLITE_ERROR", 
-  message: "attempt to write a readonly database", 
-  sql: Some("INSERT INTO test (value) VALUES ('test_value')") 
-}
-```
-
-**Root Cause**: Stale database files from previous test runs can persist in multiple storage directories. When tests attempt to reuse these files, SQLite may open them in read-only mode due to file permissions or lock state inconsistencies from interrupted test runs.
-
-**Storage Directories Created by Tests:**
-- `.absurdersql_fs` - Primary test storage directory
-- `test_storage` - Additional test database storage
-- `datasync_storage` - Multi-tab sync test storage
-- `absurdersql_storage` - Native persistence test storage
-
-**Solution**: Remove all stale storage directories before running tests:
+Formatting, three strict Clippy lanes, native release, and byte-identical
+tested/rebuilt package verification also passed. The suites overlap; this table
+is not a count of unique tests. Required browser cases were not skipped.
 
 ```bash
-# Clean up all stale test databases
-rm -rf .absurdersql_fs test_storage datasync_storage absurdersql_storage
-
-# Run tests fresh
-cargo test --features fs_persist
+cargo fmt --all -- --check &&
+cargo clippy --all-targets --features telemetry,fs_persist -- -D warnings &&
+cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings &&
+cargo clippy --target wasm32-unknown-unknown --lib --features telemetry -- -D warnings &&
+cargo test --locked -- --test-threads=1
 ```
 
-**Prevention**: The test suite creates unique run directories (e.g., `run_<pid>`) to isolate test runs, but interrupted tests (Ctrl+C, IDE stop) may not clean up properly. Consider adding this cleanup to your test scripts or CI/CD pipelines:
+After building the WASM package and installing the development dependencies:
 
 ```bash
-#!/bin/bash
-# test-with-cleanup.sh
-rm -rf .absurdersql_fs test_storage datasync_storage absurdersql_storage
-cargo test --features fs_persist "$@"
+wasm-pack test --headless --chrome --release &&
+npm run test:e2e -- --retries=0 &&
+npm run test:deletion -- --retries=0 &&
+npm run test:stabilization -- --retries=0 &&
+npm --prefix pwa run test:pwa -- --retries=0
 ```
 
-**Note**: This issue does not affect production usage - only test environments where multiple test runs accumulate stale databases. Production applications using `fs_persist` with proper database lifecycle management (open → use → close) are not affected.
+The full runner recipe additionally enables `BENCHMARK_SWEEP=1`, runs the
+telemetry HTTP collector and selected Cargo targets, and compares package
+fingerprints after rebuilding. See [qualification](docs/NATIVE_QUALIFICATION.md)
+and [self-hosted CI](docs/SELF_HOSTED_CI.md) for the commands, platform boundaries,
+artifact identities, and earlier failed attempts. The final pass does not erase
+the earlier unexplained WASM-runner abort.
+
+## CI and Package Releases
+
+CI uses the repository's owner-restricted, self-hosted Linux x64 runner and
+materializes an exact Git SHA without a Git checkout on the runner. Release
+tags validate matching Cargo/npm versions and qualify the archive artifacts
+before publication. crates.io publishing runs on the self-hosted runner; npm
+trusted publishing uses a minimal hosted OIDC job for the verified archive.
+
+This branch does not publish or bump a version. Commits carrying `[skip ci]`
+leave Actions skipped; the owner starts CI explicitly. After review and
+successful release qualification, update Cargo/npm versions together and use
+the documented tag-driven release workflow.
+
+## Troubleshooting
+
+Keep the failing operation's error and exact storage/profile paths. Storage
+refusal, incomplete checkpoints, and browser process-cleanup failures are not
+successful persistence. Do not delete an entire origin or broad shared test
+directories to make a failure disappear.
+
+Use task-owned browser profiles and avoid simultaneous automation against the
+same browser resources. The owner identified concurrent Playwright automation
+on the Windows laptop during this qualification; its failed attempts are retained
+separately from the isolated VM's final pass.
 
 ---
 
 ## Documentation
 
 ### User Guides
-- **[Export/Import Guide](docs/EXPORT_IMPORT.md)** - **DATABASE PORTABILITY** - Complete export/import reference (HUGE advantage over absurd-sql)
+- **[Export/Import Guide](docs/EXPORT_IMPORT.md)** - Portable snapshots, import, and physical deletion
 - **[Tri-Mode Persistence Guide](docs/DUAL_MODE.md)** - Browser + Native + Mobile filesystem support
 - **[Multi-Tab Coordination Guide](docs/MULTI_TAB_GUIDE.md)** - Complete guide for multi-tab coordination
 - **[Transaction Support](docs/TRANSACTION_SUPPORT.md)** - Transaction handling and multi-tab transactions
 - **[Encryption Guide](docs/ENCRYPTION.md)** - SQLCipher AES-256 encryption setup
 - **[Benchmark Results](docs/BENCHMARK.md)** - Performance comparisons and metrics
 - **[Demo Guide](examples/DEMO_GUIDE.md)** - How to run the interactive demos
-- **[Vite App Example](examples/vite-app/README.md)** - Production-ready multi-tab application
+- **[Vite App Example](examples/vite-app/README.md)** - Multi-tab application
 
 ### Mobile (React Native)
 - **[Mobile Setup Guide](absurder-sql-mobile/README.md)** - Complete iOS and Android build instructions
@@ -1381,6 +1303,9 @@ cargo test --features fs_persist "$@"
 ### Development & Quality
 - **[Coding Standards](docs/CODING_STANDARDS.md)** - Best practices, error handling, and testing requirements
 - **[Unwrap Safety Analysis](docs/REMAINING_UNWRAPS.md)** - Comprehensive analysis of remaining unwraps
+- **[SQLite Stabilization](docs/SQLITE_STABILIZATION.md)** - Data fidelity, ownership, and durability contracts
+- **[Native Qualification](docs/NATIVE_QUALIFICATION.md)** - Final Mac/Windows results and retained failures
+- **[Self-Hosted CI](docs/SELF_HOSTED_CI.md)** - Runner admission and package release workflow
 
 ### Observability & Monitoring (Optional `--features telemetry`)
 - **[Alert Runbook](monitoring/RUNBOOK.md)** - Complete debugging and remediation procedures for all alerts
@@ -1391,14 +1316,15 @@ cargo test --features fs_persist "$@"
 
 ### Rust Dependencies
 
-#### Core Dependencies (Always Included)
-- **sqlite-wasm-rs**: Production-ready SQLite WASM bindings with precompiled features
-- **rusqlite**: Primary SQLite interface for native Rust builds, providing safe bindings to SQLite C library
+#### Core Dependencies
+- **sqlite-wasm-rs**: SQLite WASM bindings with precompiled SQLite
+- **rusqlite**: Native SQLite interface, selected through the native SQLite or
+  encryption features
 - **wasm-bindgen**: Facilitates communication between Rust and JavaScript in WASM context
 - **js-sys**: Provides bindings to JavaScript's built-in objects and functions
 - **web-sys**: Offers bindings to Web APIs including IndexedDB
 - **serde**: Handles serialization/deserialization for data exchange
-- **tokio**: Provides async runtime support for handling asynchronous operations
+- **tokio**: Native async runtime dependency; not included on the WASM target
 
 #### Optional Dependencies (Feature-Gated)
 
@@ -1407,9 +1333,12 @@ cargo test --features fs_persist "$@"
 - **opentelemetry**: Distributed tracing framework
 - **opentelemetry_sdk**: OpenTelemetry SDK implementation
 - **opentelemetry-prometheus**: Prometheus exporter for OpenTelemetry
-- **opentelemetry-otlp** (native only): OTLP exporter for sending traces to collectors
+- **opentelemetry-otlp** (optional, native only): OTLP exporter; this separate
+  optional dependency is not automatically enabled by `telemetry`
 
-These dependencies are completely optional - when the `telemetry` feature is not enabled, zero telemetry code is compiled and none of these crates are included in your binary.
+The `telemetry` feature gates its implementation and dependencies. Coordination
+metrics and logging have their own APIs and are not evidence of a telemetry
+exporter being enabled.
 
 ### JavaScript Dependencies
 - **Bootstrap 5.1.3**: UI framework for responsive design and component styling
@@ -1422,8 +1351,8 @@ These dependencies are completely optional - when the `telemetry` feature is not
 
 ### Development Tools
 - **wasm-pack**: Build tool for generating WASM packages with JavaScript bindings
-- **Node.js 18+**: Required for development tooling and testing infrastructure
-- **Rust 1.85.0+**: Compiler targeting the 2024 edition for latest language features
+- **Node.js 24**: Qualified development and test runtime
+- **Rust 1.98.0**: Qualified compiler (the crate declares a 1.85.0 minimum)
 
 The library is designed to work entirely in the browser environment without requiring any server-side components, making it suitable for offline-first applications and client-side data processing scenarios.
 

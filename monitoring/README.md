@@ -1,33 +1,50 @@
-# AbsurderSQL Production Monitoring Stack
+# AbsurderSQL Monitoring
 
-Complete observability setup for production deployments using AbsurderSQL with `--features telemetry`.
+You need query, storage, and export visibility without enabling telemetry in
+every build.
+
+**AbsurderSQL makes telemetry opt-in.**
+
+```bash
+# Build a separate browser candidate; leave the qualified default pkg intact
+wasm-pack build --target web --out-dir pkg-telemetry --features telemetry
+```
+
+The current default package does not include telemetry. Your application must
+wire instrumentation to a metrics endpoint or span receiver; the library does
+not start an HTTP server or deploy Prometheus/Grafana.
+
+The [current qualification](../docs/NATIVE_QUALIFICATION.md) includes 16 enabled
+telemetry tests and separate default/telemetry packages, each passing 13 deletion
+and 35 stabilization cases on macOS and isolated Windows x64. It does not
+qualify a deployed monitoring stack. The
+[2025 validation report](VALIDATION_REPORT.md) is retained as historical evidence.
 
 ## Overview
 
-The monitoring stack provides:
-- **4 Grafana Dashboards** with 28 panels for real-time visibility
-- **18 Alert Rules** with severity-based routing
-- **26 Recording Rules** for pre-aggregated metrics
-- **Complete Runbooks** for every alert type
-- **Browser DevTools Extension** for WASM telemetry debugging
+This directory contains dashboard templates, alert/recording rules, and
+runbooks. Before deployment, adapt their metric names to the current exporter:
+duration histograms use `_duration_ms_bucket`, not `_duration_bucket` or
+`_duration_seconds_bucket`, and values are milliseconds. Some supplied JSON/YAML
+templates still use the older names. See [current queries](PROMQL_QUERIES.md);
+importing a template unchanged can leave latency panels and alerts without data.
 
 ## Quick Start
 
 ### 1. Enable Telemetry
 
-Build AbsurderSQL with telemetry support:
+Use the separate browser build above, or enable telemetry for a native build:
 
 ```bash
-# For native applications
 cargo build --features telemetry
-
-# For WASM/browser
-wasm-pack build --target web --features telemetry
 ```
 
 ### 2. Expose Metrics Endpoint
 
-Add a `/metrics` endpoint to your application. See examples in the main README for axum and actix-web.
+Add a `/metrics` endpoint to your application using the registry encoding
+helper in [Grafana setup](GRAFANA_SETUP.md#2-expose-metrics-endpoint).
+Native applications own their `Metrics` registry and instrumentation; the
+native database type does not expose a `Database::metrics()` accessor.
 
 ### 3. Configure Prometheus
 
@@ -43,20 +60,23 @@ scrape_configs:
 
 ### 4. Import Grafana Dashboards
 
-Import the JSON files from `grafana/` into your Grafana instance:
-- `query_performance.json` - Query metrics and slow query detection
-- `storage_operations.json` - Block I/O and cache performance
-- `system_health.json` - Error rates and system status
-- `multi_tab_coordination.json` - Multi-tab sync debugging
+Adapt and import the JSON files from `grafana/dashboards/`:
+- `overview.json` - Query rate, latency, errors, and resources
+- `performance.json` - Query/cache, IndexedDB, and sync performance
+- `multi-tab.json` - Leader election and coordination
+- `errors.json` - Error rates and troubleshooting
 
 ### 5. Load Alert Rules
 
-Add `prometheus/alert_rules.yml` to your Prometheus configuration:
+After adapting the latency metric names, load alert and recording rules:
 
 ```yaml
 rule_files:
-  - /path/to/absurdersql/monitoring/prometheus/alert_rules.yml
+  - /path/to/absurder-sql/monitoring/prometheus/alerts.yml
+  - /path/to/absurder-sql/monitoring/prometheus/recording_rules.yml
 ```
+
+`prometheus/alertmanager.yml` separately configures notification routing.
 
 ### 6. Install Browser DevTools Extension (Optional)
 
@@ -70,51 +90,29 @@ See `../browser-extension/INSTALLATION.md` for complete instructions.
 
 ## Dashboards
 
-### Query Performance Dashboard
-Monitors SQL query execution and identifies performance bottlenecks:
-- Query latency percentiles (p50, p90, p99)
-- Query rate and error rate
-- Slow query detection (>100ms)
-- Query type breakdown (SELECT/INSERT/UPDATE/DELETE)
-
-### Storage Operations Dashboard
-Tracks block storage performance and cache efficiency:
-- Block read/write rates
-- Cache hit ratio and effectiveness
-- Storage layer latency
-- Block allocation metrics
-
-### System Health Dashboard
-Overall system health and error tracking:
-- Total error rate by type
-- Transaction success rate
-- Active connections
-- Resource utilization
-
-### Multi-Tab Coordination Dashboard
-Debugging multi-tab synchronization:
-- Leader election status
-- Write queue depth
-- Broadcast channel activity
-- Sync operation latency
+The overview, performance, multi-tab, and error dashboards are described in
+[Grafana setup](GRAFANA_SETUP.md#dashboard-overview). Available series depend
+on the instrumentation your application actually records, not just the
+presence of a panel.
 
 ## Alert Rules
 
 ### Critical Alerts (Page Database Team)
-- **HighErrorRate** - >5% errors over 5 minutes
-- **ExtremeQueryLatency** - p99 query time >1 second
-- **NoQueryThroughput** - Zero queries for 5 minutes (potential deadlock)
-- **StorageFailures** - >3 storage failures per minute
+- **HighErrorRate** - >1% errors for 5 minutes
+- **QueryLatencySpike** - p95 query time >100ms for 5 minutes
+- **MemoryLeak**, **StorageQuotaExceeded**, **LeaderElectionFailure**,
+  **DatabaseDown** - Resource, coordination, and scrape failures
 
 ### Warning Alerts (Notify Database Team)
-- **ElevatedErrorRate** - >2% errors over 5 minutes
-- **SlowQueryDetected** - Queries consistently >100ms
-- **LowCacheHitRate** - Cache hit rate <60%
-- **MultiTabSyncDelayed** - Sync operations >500ms
+- **ElevatedErrorRate** - >0.1% errors for 10 minutes
+- **IncreasedQueryLatency** - p95 query time >50ms for 10 minutes
+- **LowCacheHitRate** - Cache hit rate <70% for 15 minutes
+- Storage, memory, election, IndexedDB, and sync warnings use the thresholds
+  in `prometheus/alerts.yml`
 
 ### Info Alerts (Log Only)
-- **LeaderElected** - New tab became leader
-- **FirstQueryExecuted** - Database initialization
+- **LeadershipChange** - Leadership status changed
+- **NoRecentQueries** - No query activity for 30 minutes
 
 See `RUNBOOK.md` for detailed remediation procedures for each alert.
 
@@ -122,12 +120,13 @@ See `RUNBOOK.md` for detailed remediation procedures for each alert.
 
 Pre-aggregated metrics for faster dashboard queries:
 
-- `absurdersql:query_rate` - Queries per second
-- `absurdersql:error_rate` - Errors per second
-- `absurdersql:error_ratio` - Error percentage
-- `absurdersql:query_latency_p99` - 99th percentile latency
-- `absurdersql:cache_hit_ratio` - Cache effectiveness
-- And 21 more...
+- `absurdersql:query_rate:5m` - Queries per second
+- `absurdersql:error_rate:5m` - Error fraction
+- `absurdersql:query_latency_p99:5m` - 99th percentile latency
+- `absurdersql:cache_hit_rate:5m` - Cache effectiveness
+
+See `prometheus/recording_rules.yml` for all rule names and
+`PROMQL_QUERIES.md` for current histogram names and units.
 
 ## Browser DevTools Extension
 
@@ -168,18 +167,20 @@ Runbook Procedures
 monitoring/
 ├── README.md                      # This file
 ├── RUNBOOK.md                     # Alert remediation procedures
-├── grafana/                       # Grafana dashboards
-│   ├── query_performance.json     # 7 panels
-│   ├── storage_operations.json    # 6 panels
-│   ├── system_health.json         # 8 panels
-│   └── multi_tab_coordination.json # 7 panels
+├── grafana/dashboards/            # Grafana templates
+│   ├── overview.json
+│   ├── performance.json
+│   ├── multi-tab.json
+│   └── errors.json
 └── prometheus/                    # Prometheus configuration
-    └── alert_rules.yml            # 18 alerts + 26 recording rules
+    ├── alerts.yml
+    ├── recording_rules.yml
+    └── alertmanager.yml
 ```
 
 ## Next Steps
 
-1. **Test Setup** - Use `../examples/devtools_demo.html` to generate test telemetry
+1. **Panel Demo** - `../examples/devtools_demo.html` generates sample extension messages, not database or Prometheus measurements
 2. **Configure Alertmanager** - Set up alert routing and notification channels
 3. **Tune Thresholds** - Adjust alert thresholds based on your workload
 4. **Monitor Dashboard** - Regularly review dashboards for anomalies

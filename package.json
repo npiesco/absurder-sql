@@ -46,6 +46,8 @@
     "build:worker": "webpack --config webpack.worker.config.js",
     "test:e2e": "playwright test",
     "test:storage": "playwright test --config playwright.storage.config.js",
+    "test:deletion": "playwright test --config playwright.deletion.config.js",
+    "test:stabilization": "playwright test --config playwright.stabilization.config.js",
     "test:e2e:headed": "playwright test --headed",
     "test:vite:start": "cd examples/vite-app && npm run dev",
     "test:pack": "npm pack && tar -tzf npiesco-absurder-sql-*.tgz"

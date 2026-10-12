@@ -11,40 +11,15 @@
  * - Configuration can be updated
  */
 
-import { test, expect, chromium } from '@playwright/test';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, '../..');
-const staticServerPath = path.join(projectRoot, 'scripts', 'static_http_server.js');
+import { test, expect } from '@playwright/test';
 
 test.describe('DevTools Extension E2E Tests', () => {
   let browser;
-  let context;
-  let httpServer;
-  const HTTP_PORT = 8765;
+  const HTTP_PORT = 8080;
 
-  test.beforeAll(async () => {
-    // Start HTTP server for demo page (extensions need http://, not file://)
-    const { spawn } = await import('child_process');
-    httpServer = spawn(process.execPath, [staticServerPath, HTTP_PORT.toString()], {
-      cwd: projectRoot,
-      stdio: 'ignore'
-    });
-    
-    // Wait for server to start
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    browser = await chromium.launch({
-      headless: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    await browser?.close();
-    httpServer?.kill();
+  test.beforeAll(async ({ browser: managedBrowser }) => {
+    // Reuse the ready static server and native browser configured by Playwright.
+    browser = managedBrowser;
   });
 
   test('extension loads without errors', async () => {

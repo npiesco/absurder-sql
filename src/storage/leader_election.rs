@@ -73,6 +73,10 @@ impl LeaderElectionManager {
 
     /// Start leader election process using localStorage coordination
     pub async fn start_election(&mut self) -> Result<(), DatabaseError> {
+        self.start_election_sync()
+    }
+
+    pub(crate) fn start_election_sync(&mut self) -> Result<(), DatabaseError> {
         log::debug!(
             "LeaderElectionManager::start_election() - Starting for {}",
             self.state.borrow().db_name
@@ -133,7 +137,7 @@ impl LeaderElectionManager {
 
         // Use localStorage for atomic coordination - no delays needed
         log::debug!("LeaderElectionManager::start_election() - Calling try_become_leader()");
-        self.try_become_leader().await?;
+        self.try_become_leader_sync(false)?;
 
         // Start heartbeat if we're leader
         let is_leader = self.state.borrow().is_leader;
@@ -166,6 +170,10 @@ impl LeaderElectionManager {
     /// # Arguments
     /// * `force` - If true, ignores existing leader's valid lease and forces takeover
     pub async fn try_become_leader_internal(&mut self, force: bool) -> Result<(), DatabaseError> {
+        self.try_become_leader_sync(force)
+    }
+
+    pub(crate) fn try_become_leader_sync(&mut self, force: bool) -> Result<(), DatabaseError> {
         let state = self.state.borrow();
         let my_instance_id = state.instance_id.clone();
         let db_name = state.db_name.clone();
@@ -536,6 +544,10 @@ impl LeaderElectionManager {
 
     /// Stop leader election (e.g., when tab is closing)
     pub async fn stop_election(&mut self) -> Result<(), DatabaseError> {
+        self.stop_election_sync()
+    }
+
+    pub(crate) fn stop_election_sync(&mut self) -> Result<(), DatabaseError> {
         // CRITICAL: Check if already stopped (idempotent)
         if self.heartbeat_interval.is_none() && !*self.heartbeat_valid.borrow() {
             web_sys::console::log_1(&"[STOP] Already stopped - skipping".into());
@@ -634,6 +646,10 @@ impl LeaderElectionManager {
 
     /// Check if this instance is the leader (with localStorage validation and re-election)
     pub async fn is_leader(&self) -> bool {
+        self.is_leader_sync()
+    }
+
+    pub(crate) fn is_leader_sync(&self) -> bool {
         let now = Date::now() as u64;
         let state = self.state.borrow();
         let db_name = state.db_name.clone();
@@ -705,6 +721,10 @@ impl LeaderElectionManager {
 
     /// Send a heartbeat (for testing)
     pub async fn send_heartbeat(&self) -> Result<(), DatabaseError> {
+        self.send_heartbeat_sync()
+    }
+
+    pub(crate) fn send_heartbeat_sync(&self) -> Result<(), DatabaseError> {
         if let Some(ref channel) = self.broadcast_channel {
             let state = self.state.borrow();
             let now = Date::now() as u64;
@@ -729,6 +749,10 @@ impl LeaderElectionManager {
 
     /// Get timestamp of last received leader heartbeat from localStorage
     pub async fn get_last_heartbeat(&self) -> u64 {
+        self.get_last_heartbeat_sync()
+    }
+
+    pub(crate) fn get_last_heartbeat_sync(&self) -> u64 {
         let state = self.state.borrow();
         let Some(window) = web_sys::window() else {
             log::warn!("Window unavailable for heartbeat check");

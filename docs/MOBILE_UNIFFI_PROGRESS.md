@@ -1,6 +1,31 @@
 # Mobile UniFFI Alignment Progress Tracker
 
-## Current Status: Phase 1 - Export Row/ColumnValue Types ✅ COMPLETE (Rust tests)
+> **Historical phase tracker (original date not recorded; reviewed 2026-09-21).**
+> The phase statuses, recorded 54-test result, workstation-specific commands,
+> and unchecked device steps below are retained as history. They are not a
+> current API inventory or evidence that the current candidate passed mobile
+> emulators/simulators. See [Native qualification](NATIVE_QUALIFICATION.md) for
+> the actual scope of the September browser/native qualification.
+
+## Current source status (2026-09-21)
+
+- `absurder-sql-mobile/src/uniffi_api/types.rs` exports typed `Row`/`ColumnValue`,
+  `QueryResult.last_insert_id` and `execution_time_ms`, and configuration for
+  cache size, page size, journal mode, and auto-vacuum.
+- `uniffi_api/core.rs::execute_statement` returns `QueryResult`;
+  `create_database` is asynchronous.
+- `src/AbsurderDatabase.ts` consumes typed UniFFI results, exposes the extended
+  configuration, and returns results from prepared execution. The old JSON-row
+  parsing workaround is not the current wrapper contract.
+- These observations verify code presence, not completion of every original
+  phase's host/device validation. The later 67-test host result recorded in the
+  [Hybrid progress history](HYBRID_OPFS_PLAN.md) remains a dated result, not a
+  new Android/iOS run.
+
+Use [current mobile test instructions](mobile/INSTRUCTIONS.md) for API-correct
+host examples, rather than copying the archived machine-specific commands.
+
+## Historical Status: Phase 1 - Export Row/ColumnValue Types ✅ COMPLETE (Rust tests)
 
 ---
 

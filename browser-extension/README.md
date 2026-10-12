@@ -1,6 +1,23 @@
 # AbsurderSQL Telemetry DevTools Extension
 
-A browser extension for inspecting and debugging AbsurderSQL telemetry data directly in Chrome/Firefox DevTools.
+You need to inspect a page's telemetry messages without leaving DevTools.
+
+**AbsurderSQL DevTools displays spans, export results, and buffer state.**
+
+Load this directory as an unpacked extension, then serve the repository:
+
+```bash
+npm run serve
+```
+
+Open `http://localhost:8080/examples/devtools_demo.html` and the AbsurderSQL
+DevTools panel. The demo generates sample messages to exercise the panel;
+it does not execute SQLite queries or qualify the database runtime.
+
+Telemetry is optional and is not enabled in the checked-in default package.
+The [current qualification](../docs/NATIVE_QUALIFICATION.md) records separate
+default and telemetry package runs. It does not establish Firefox support or
+a deployed telemetry collector/monitoring stack.
 
 ## Features
 
@@ -21,7 +38,7 @@ A browser extension for inspecting and debugging AbsurderSQL telemetry data dire
 4. Select the `browser-extension` directory
 5. Open DevTools (F12) and find the "AbsurderSQL" tab
 
-### Firefox
+### Firefox (Manual Compatibility Check)
 
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click "Load Temporary Add-on"
@@ -30,8 +47,11 @@ A browser extension for inspecting and debugging AbsurderSQL telemetry data dire
 
 ## Requirements
 
-- AbsurderSQL with `--features telemetry` enabled
-- WasmSpanExporter with DevTools integration enabled:
+- For real exporter data, build AbsurderSQL with `--features telemetry`.
+- `WasmSpanExporter` is a Rust API, not an export from `pkg/absurder_sql.js`.
+  Creating a JavaScript `Database` alone does not attach it to this panel.
+
+In Rust compiled for `wasm32`, configure an exporter explicitly:
 
 ```rust
 use absurder_sql::telemetry::WasmSpanExporter;
@@ -40,6 +60,18 @@ let exporter = WasmSpanExporter::new("http://localhost:4318/v1/traces".to_string
     .with_devtools(true)  // Enable DevTools integration
     .with_batch_size(100);
 ```
+
+The current exporter sends DevTools messages through
+`chrome.runtime.sendMessage`; the extension's content script listens for
+`window.postMessage` with `source: 'absurdersql-telemetry'`. An ordinary web page
+needs an application bridge between those APIs, as shown in the demo.
+Receiving commands also requires application-side handlers; the panel cannot
+reconfigure a Rust exporter just by being installed.
+
+Call `buffer_span` and await `flush()` explicitly. The exporter sends a JSON
+array of recorded spans to the configured URL; use a receiver accepting that
+payload rather than assuming the URL alone supplies OTLP protocol conversion.
+Failed HTTP exports reject and retain the buffered spans for the caller.
 
 ## Usage
 
@@ -102,7 +134,8 @@ The extension uses a three-tier architecture for Manifest V3 compatibility:
 
 ### From Page to DevTools
 
-Pages send telemetry using `window.postMessage`:
+Pages send telemetry using `window.postMessage`. This is a panel-protocol
+example, not a measured query:
 
 ```javascript
 window.postMessage({
@@ -208,7 +241,7 @@ convert icon.svg -resize 128x128 icon-128.png
 ## Security Considerations
 
 - **Custom Headers**: Be cautious with sensitive authentication tokens
-- **Host Permissions**: Extension requires `<all_urls>` to communicate with any OTLP endpoint
+- **Host Permissions**: The manifest matches `<all_urls>` so the content script can bridge messages on inspected pages; page-origin fetch/CORS rules still apply to exporter requests
 - **Local Storage**: Configuration is stored in browser's local storage
 
 ## License

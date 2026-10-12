@@ -276,6 +276,6 @@ pub fn unregister_wasm_auto_sync(db_name: &str) {
 pub fn is_wasm_auto_sync_active(db_name: &str) -> bool {
     WASM_AUTO_SYNC_REGISTRY.with(|registry| {
         let reg = registry.borrow();
-        reg.get(db_name).map_or(false, |m| m.borrow().is_active())
+        reg.get(db_name).is_some_and(|m| m.borrow().is_active())
     })
 }

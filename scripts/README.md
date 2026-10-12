@@ -1,22 +1,61 @@
 # Integration Test Scripts
 
+You need to know whether a browser-created database survives export, native
+SQLite reads, and reopening—not just whether it downloads.
+
+**The qualification scripts exercise the real storage boundaries.**
+
+From the repository root, with browser-test dependencies installed:
+
+```bash
+npm run test:deletion -- --retries=0 &&
+npm run test:stabilization -- --retries=0
+```
+
+The [current qualification](../docs/NATIVE_QUALIFICATION.md) records 13 deletion
+and 35 stabilization cases for each default and telemetry package on the
+original Apple runtime and isolated Windows x64. It also records the full
+native, WASM, telemetry, browser, PWA, lint, release, and rebuild gates and
+retains the failed attempts. These commands alone do not repeat that matrix.
+
+## CI and Package Handling
+
+- `ci/fetch_source.py` materializes a verified exact-SHA archive without a Git
+  checkout; the installed runner guard enforces owner admission.
+- `ci/bootstrap_tools.sh`, `ci/prepare_browser.py`, and `ci/qualify.sh` support
+  heavy qualification on the existing trusted self-hosted Linux X64 runner.
+- `sync_pwa_package.js` copies the local package's runtime and active snippets
+  into the PWA. It does not download a newer npm release.
+- Tag-triggered release qualification precedes publication. The hosted job is
+  limited to hash-verified npm archive publication through OIDC and release
+  metadata; it does not rebuild the runtime.
+
+See [self-hosted CI](../docs/SELF_HOSTED_CI.md) for admission and runner setup.
+The candidate package metadata remains `0.1.28`; qualification is not a new
+version or a publication receipt.
+
 ## WASM → Native Interoperability Test
 
 **Script:** `test_wasm_to_native_interop.py`
 
+This older standalone demonstration is separate from the current qualification
+gates. It creates a temporary Cargo project and invokes the external `sqlite3`
+CLI. Its final browser assertions check the row count, not every returned value.
+
 ### Purpose
 
-This script proves complete bidirectional compatibility between WASM and native code by:
+This script demonstrates a browser/native round trip by:
 
 1. **Creating a database in the browser** using WASM/IndexedDB
 2. **Exporting to a SQLite .db file** 
-3. **Querying the file with native Rust code** (rusqlite)
+3. **Querying and adding rows with native Rust code** (rusqlite)
+4. **Importing the modified file back into WASM** and checking six returned rows
 
 This validates that:
 - **[✓]** WASM can create valid, spec-compliant SQLite files
 - **[✓]** Native tools can read WASM-created databases
-- **[✓]** Data integrity is maintained (special characters, types, etc.)
-- **[✓]** Full round-trip compatibility works
+- The native read checks four rows and the `Alice O'Brien` text value
+- The final browser read checks six rows after native writes
 
 ### Prerequisites
 
@@ -24,6 +63,7 @@ This validates that:
 2. **Rust and Cargo** installed
 3. **Node.js and npm** for running the Vite dev server
 4. **Playwright browsers** installed
+5. **`sqlite3` CLI** on PATH, the Vite app dependencies installed, and a built `pkg`
 
 ### Setup
 
@@ -49,11 +89,7 @@ chmod +x test_wasm_to_native_interop.py
 python scripts/test_wasm_to_native_interop.py
 ```
 
-Or use the npm script (if added to package.json):
-
-```bash
-npm run test:interop
-```
+There is no `test:interop` npm script; use the Python command directly.
 
 ### What It Does
 
@@ -69,9 +105,14 @@ npm run test:interop
    - Queries all rows
    - Verifies data integrity
    - Checks special character preservation
-9. **Reports success/failure**
+9. **Writes two more rows natively**, runs the `sqlite3` integrity check,
+   imports into WASM, and checks the resulting row count
+10. **Reports success/failure**
 
-### Expected Output
+### Historical Output Excerpt
+
+This earlier excerpt covers the export/read phase only; it is not a current
+qualification result or the complete round-trip output.
 
 ```
 ======================================================================
@@ -141,12 +182,11 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 - Check that WASM build is up to date: `wasm-pack build --target web --out-dir pkg`
 - Ensure the vite app is properly configured
 
-### Integration with CI/CD
+### Current Interoperability Gate
 
-This script can be added to GitHub Actions or other CI/CD pipelines to continuously verify WASM-native compatibility:
-
-```yaml
-- name: Test WASM to Native Interop
-  run: |
-    python scripts/test_wasm_to_native_interop.py
-```
+The stabilization suite uses real browser storage and native SQLite read-only
+opens, including embedded-NUL TEXT/BLOB fidelity and portable exports. Export
+must complete a real checkpoint; only the returned snapshot's file-format
+bytes 18/19 change, while the live database stays WAL. Use the qualified
+suite and its evidence above rather than treating this demonstration's
+printed success message as equivalent coverage.

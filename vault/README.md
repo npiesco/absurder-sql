@@ -527,9 +527,15 @@ Mobile → Import from local URL
 | Offline | Cached data | Full native |
 | Open source | No | Yes |
 
-## Roadmap
+## Roadmap (Historical Overview)
 
-### Phase 1: Core Vault (Current)
+This initial roadmap is retained as a design record. The dated
+[Planning & Progress Tree](docs/Planning_and_Progress_Tree.md) records subsequent
+mobile work. The [current library qualification](../docs/NATIVE_QUALIFICATION.md)
+does not qualify the Vault application, its encryption integrations, or its
+mobile/desktop release workflows.
+
+### Phase 1: Core Vault
 - [x] Project setup and README
 - [ ] SQLCipher WASM integration
 - [ ] Master password unlock flow

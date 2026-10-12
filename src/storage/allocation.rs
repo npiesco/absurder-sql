@@ -154,7 +154,7 @@ pub async fn allocate_block_impl(storage: &mut BlockStorage) -> Result<u64, Data
 
     // Track allocation in telemetry
     #[cfg(feature = "telemetry")]
-    if let Some(ref metrics) = storage.metrics {
+    if let Some(metrics) = storage.metrics_snapshot() {
         metrics.blocks_allocated_total().inc();
         // Update memory gauge: total allocated blocks × BLOCK_SIZE
         let total_memory = (lock_mutex!(storage.allocated_blocks).len() as f64)
@@ -337,7 +337,7 @@ pub async fn deallocate_block_impl(
 
     // Track deallocation in telemetry
     #[cfg(feature = "telemetry")]
-    if let Some(ref metrics) = storage.metrics {
+    if let Some(metrics) = storage.metrics_snapshot() {
         metrics.blocks_deallocated_total().inc();
         // Update memory gauge: total allocated blocks × BLOCK_SIZE
         let total_memory = (lock_mutex!(storage.allocated_blocks).len() as f64)

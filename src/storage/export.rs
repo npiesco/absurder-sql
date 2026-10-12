@@ -420,67 +420,34 @@ async fn export_database_to_bytes_impl(
     );
     let total_blocks = total_db_size.div_ceil(BLOCK_SIZE as u64);
 
-    // Build list of block IDs to read
-    let block_ids: Vec<u64> = (0..total_blocks).collect();
-
-    log::debug!("Reading {} blocks for export", block_ids.len());
-
-    // DEBUG: Check what blocks actually exist in storage
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::storage::vfs_sync::with_global_storage;
-        with_global_storage(|storage_map| {
-            if let Some(db_storage) = storage_map.borrow().get(storage.get_db_name()) {
-                web_sys::console::log_1(
-                    &format!("[EXPORT] GLOBAL_STORAGE has {} blocks", db_storage.len()).into(),
-                );
-                web_sys::console::log_1(
-                    &format!(
-                        "[EXPORT] Block IDs in GLOBAL_STORAGE: {:?}",
-                        db_storage.keys().collect::<Vec<_>>()
-                    )
-                    .into(),
-                );
-            }
-        });
-        web_sys::console::log_1(
-            &format!(
-                "[EXPORT] Requesting {} blocks: {:?}",
-                block_ids.len(),
-                block_ids
-            )
-            .into(),
-        );
-    }
-
-    // Read all blocks at once
-    let blocks = storage.read_blocks(&block_ids).await?;
-
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("[EXPORT] Actually read {} blocks", blocks.len()).into());
-
-    // Concatenate all blocks
-    let mut result = Vec::with_capacity(total_db_size as usize);
-    for (i, block) in blocks.iter().enumerate() {
-        result.extend_from_slice(block);
-        #[cfg(target_arch = "wasm32")]
-        if i < 5 {
-            web_sys::console::log_1(
+    let size = usize::try_from(total_db_size).map_err(|_| {
+        DatabaseError::new(
+            "EXPORT_SIZE_ERROR",
+            "Database exceeds the platform address range",
+        )
+    })?;
+    let mut result = Vec::new();
+    result.try_reserve_exact(size).map_err(|error| {
+        DatabaseError::new(
+            "EXPORT_ALLOCATION_ERROR",
+            &format!("Cannot allocate {size} export bytes: {error}"),
+        )
+    })?;
+    // Keep only one temporary block instead of another complete database-sized copy.
+    for block_id in 0..total_blocks {
+        let block = storage.read_block(block_id).await?;
+        let length = (size - result.len()).min(BLOCK_SIZE);
+        if block.len() < length {
+            return Err(DatabaseError::new(
+                "EXPORT_SHORT_BLOCK",
                 &format!(
-                    "[EXPORT] Block {} has {} bytes, first 16: {:02x?}",
-                    i,
-                    block.len(),
-                    &block[..16.min(block.len())]
-                )
-                .into(),
-            );
+                    "Block {block_id} contains {} bytes; expected {length}",
+                    block.len()
+                ),
+            ));
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        let _ = i; // Suppress unused warning on native
+        result.extend_from_slice(&block[..length]);
     }
-
-    // Truncate to exact database size
-    result.truncate(total_db_size as usize);
 
     log::info!("Export complete: {} bytes", result.len());
 

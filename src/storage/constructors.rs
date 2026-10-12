@@ -15,8 +15,6 @@ use crate::utils::normalize_db_name;
 use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::collections::{HashMap, HashSet, VecDeque};
-#[cfg(target_arch = "wasm32")]
-use std::sync::Arc;
 
 // On-disk JSON schema for fs_persist
 #[cfg(all(not(target_arch = "wasm32"), feature = "fs_persist"))]
@@ -60,26 +58,19 @@ pub async fn new_wasm_with_backend(
     );
 
     // Perform IndexedDB recovery scan first
-    let recovery_performed = super::wasm_indexeddb::perform_indexeddb_recovery_scan(db_name)
-        .await
-        .unwrap_or(false);
+    let recovery_performed =
+        super::wasm_indexeddb::perform_indexeddb_recovery_scan(db_name).await?;
     if recovery_performed {
         log::info!("IndexedDB recovery scan completed for: {}", db_name);
     }
 
     match backend {
         StorageBackend::IndexedDb => {
-            match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
-                Ok(_) => log::info!(
-                    "Successfully restored BlockStorage from IndexedDB for: {}",
-                    db_name
-                ),
-                Err(e) => log::warn!(
-                    "IndexedDB restoration failed for {}: {}",
-                    db_name,
-                    e.message
-                ),
-            }
+            super::wasm_indexeddb::restore_from_indexeddb(db_name).await?;
+            log::info!(
+                "Successfully restored BlockStorage from IndexedDB for: {}",
+                db_name
+            );
         }
         StorageBackend::Opfs => {
             let restored_from_opfs = match super::wasm_opfs::restore_from_opfs(db_name).await {
@@ -102,23 +93,15 @@ pub async fn new_wasm_with_backend(
             };
 
             if !restored_from_opfs {
-                match super::wasm_indexeddb::restore_from_indexeddb(db_name).await {
-                    Ok(_) => log::info!(
-                        "Successfully restored BlockStorage from IndexedDB for: {}",
-                        db_name
-                    ),
-                    Err(e) => log::warn!(
-                        "IndexedDB restoration failed for {}: {}",
-                        db_name,
-                        e.message
-                    ),
-                }
+                super::wasm_indexeddb::restore_from_indexeddb(db_name).await?;
+                log::info!(
+                    "Successfully restored BlockStorage from IndexedDB for: {}",
+                    db_name
+                );
             }
         }
         StorageBackend::Hybrid => {
-            if let Err(e) = super::hybrid_store::hybrid_restore(db_name).await {
-                log::warn!("Hybrid restoration failed for {}: {}", db_name, e.message);
-            }
+            super::hybrid_store::hybrid_restore(db_name).await?;
         }
     }
 
@@ -518,7 +501,7 @@ pub async fn new_wasm_with_backend(
         cache: Mutex::new(HashMap::new()),
 
         #[cfg(target_arch = "wasm32")]
-        dirty_blocks: Arc::new(RefCell::new(HashMap::new())),
+        dirty_blocks: std::rc::Rc::new(RefCell::new(HashMap::new())),
         #[cfg(not(target_arch = "wasm32"))]
         dirty_blocks: Arc::new(Mutex::new(HashMap::new())),
 
@@ -596,6 +579,6 @@ pub async fn new_wasm_with_backend(
         leader_election: std::cell::RefCell::new(None),
         observability: super::observability::ObservabilityManager::new(),
         #[cfg(feature = "telemetry")]
-        metrics: None,
+        metrics: Default::default(),
     })
 }

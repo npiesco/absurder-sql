@@ -14,7 +14,7 @@ test.describe('Advanced Multi-Tab Features', () => {
   test.describe('Optimistic Updates', () => {
     test('should enable and disable optimistic mode', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       // Enable optimistic updates
       const result = await page.evaluate(async () => {
@@ -35,7 +35,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should track pending writes in optimistic mode', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         // Enable optimistic mode
@@ -58,7 +58,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should clear all pending writes', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         // Enable optimistic mode
@@ -86,7 +86,7 @@ test.describe('Advanced Multi-Tab Features', () => {
   test.describe('Coordination Metrics', () => {
     test('should enable and disable coordination metrics', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);
@@ -105,7 +105,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should track leadership changes', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);
@@ -125,7 +125,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should track notification latency', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);
@@ -151,7 +151,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should track write conflicts', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);
@@ -172,7 +172,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should track follower refreshes', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);
@@ -194,7 +194,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should reset coordination metrics', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);
@@ -230,7 +230,7 @@ test.describe('Advanced Multi-Tab Features', () => {
       // Open leader tab
       const tab1 = await context.newPage();
       await tab1.goto(VITE_URL);
-      await tab1.waitForSelector('#leaderBadge');
+      await tab1.waitForFunction(() => Boolean(window.__db__));
       await tab1.waitForTimeout(500);
       
       // Enable metrics on leader
@@ -242,7 +242,7 @@ test.describe('Advanced Multi-Tab Features', () => {
       // Open follower tab
       const tab2 = await context.newPage();
       await tab2.goto(VITE_URL);
-      await tab2.waitForSelector('#leaderBadge');
+      await tab2.waitForFunction(() => Boolean(window.__db__));
       await tab2.waitForTimeout(1000);
       
       // Enable metrics on follower and record events
@@ -264,7 +264,7 @@ test.describe('Advanced Multi-Tab Features', () => {
 
     test('should export all metrics in correct format', async ({ page }) => {
       await page.goto(VITE_URL);
-      await page.waitForSelector('#leaderBadge', { timeout: 10000 });
+      await page.waitForFunction(() => Boolean(window.__db__), null, { timeout: 10000 });
       
       const result = await page.evaluate(async () => {
         await window.db.enableCoordinationMetrics(true);

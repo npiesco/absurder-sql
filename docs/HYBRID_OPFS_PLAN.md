@@ -1,5 +1,37 @@
 # AbsurderSQL Hybrid OPFS+IDB Storage Backend — Implementation Plan
 
+> **Historical design and progress record (2026-04-07 through 2026-07-26).**
+> The proposal, pseudocode, estimates, checked phases, and recorded validation
+> below are retained as history, not a specification of today's runtime or a
+> claim that every original design detail shipped. Current qualification is in
+> [Native qualification](NATIVE_QUALIFICATION.md); the repairs and failure
+> contracts are in [SQLite/browser stabilization](SQLITE_STABILIZATION.md).
+
+## Current implementation (2026-09-21)
+
+- `newDatabase()` selects IndexedDB. `newDatabaseAuto()` probes Worker OPFS
+  capability and otherwise selects IndexedDB; explicit selection is available
+  through `newDatabaseWithBackend(name, 'IndexedDB' | 'Hybrid' | 'OPFS')`.
+  This work does not make Hybrid the default main-thread backend.
+- VFS writes remain buffered. Awaited persistence in `hybrid_store.rs` writes
+  OPFS first, then the IndexedDB **block and metadata recovery copy**; it is
+  not the proposal's parallel OPFS-blocks/IDB-metadata-only operation.
+- The implemented OPFS layout is one root file named
+  `<normalized-name>.absurder.blocks.bin`, not the per-block directory or
+  `blocks.dat`/manifest alternatives below.
+- Real quota, IndexedDB request/transaction refusal, blocked/versioned open,
+  and worker-termination cases now cover the failure boundaries. The original
+  edited-mirror recovery scenarios are not relabelled as physical crashes.
+- Physical deletion removes only the closed database's namespace and propagates
+  failures; it preserves prefix-sharing neighbors. Export requires a complete
+  real SQLite PASSIVE checkpoint, then normalizes bytes 18/19 only in the returned
+  snapshot; live WAL mode is unchanged. See [Export/import](EXPORT_IMPORT.md).
+- The PWA package matches the repaired default candidate. Current owner-only,
+  exact-SHA Gitless self-hosted CI and release boundaries are documented in
+  [Self-hosted CI](SELF_HOSTED_CI.md), superseding the earlier CI description.
+
+## Historical proposal and progress
+
 ## Overview
 
 Add an **OPFS (Origin Private File System)** storage backend to AbsurderSQL, alongside the existing IndexedDB backend. The preferred mode is **Hybrid**: OPFS for fast block I/O, IndexedDB for metadata persistence and cross-browser fallback.

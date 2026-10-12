@@ -1,4 +1,29 @@
-# Unwrap Safety Analysis
+# Historical Unwrap Safety Analysis
+
+> **Historical record dated 2025-01-08; contextualized 2026-09-21.**
+> The counts, “all safe” conclusions, browser guarantees, and private-browsing
+> claims below describe that earlier analysis, not the current qualified source.
+> They are not permission to unwrap browser results or to acknowledge failed
+> persistence as an in-memory success. Current standards are in
+> [Coding Standards](CODING_STANDARDS.md); current runtime evidence is in
+> [SQLite/browser stabilization](SQLITE_STABILIZATION.md) and
+> [Native qualification](NATIVE_QUALIFICATION.md).
+
+## Current interpretation
+
+The qualified implementation propagates IndexedDB open, request, transaction,
+and restore failures. OPFS exceptions and short writes reject; access handles
+are closed on success and failure. A refused durable open is not silently
+replaced by an empty database. Missing `Window` is also normal in a dedicated
+Worker, not evidence that the browser is broken.
+
+The synchronous leader-election internals no longer retain `RefCell` guards
+across suspension. SQL TEXT/BLOB binding uses explicit byte lengths and preserves
+embedded NUL; SQL source containing NUL rejects rather than being sanitized.
+No new repository-wide unwrap count or universal private-browsing qualification
+is asserted here.
+
+## Archived 2025-01-08 analysis
 
 **Last Updated:** 2025-01-08  
 **Status:** All critical unwraps resolved **[✓]**

@@ -17,12 +17,13 @@
 
 ## Overview
 
-sqlite-indexeddb-rs provides built-in multi-tab coordination using:
+AbsurderSQL provides main-thread IndexedDB multi-tab coordination using:
 - **Leader Election**: Automatic leader selection using localStorage
 - **Write Coordination**: Only the leader tab can write to the database
 - **Write Queuing**: Non-leaders can queue writes that forward to leader
 - **BroadcastChannel**: Automatic change notifications to other tabs
-- **Auto-sync**: Immediate IndexedDB persistence after writes
+- **Auto-sync**: The example wrapper awaits sync after `write()`; raw API callers
+  must explicitly await persistence
 - **Optimistic Updates**: Track pending writes for immediate UI feedback
 - **Coordination Metrics**: Monitor performance and coordination events
 
@@ -30,9 +31,17 @@ sqlite-indexeddb-rs provides built-in multi-tab coordination using:
 
 - **[✓]** **Browser Compatible**: No SharedArrayBuffer required
 - **[✓]** **Simple**: Leader-only writes avoid conflicts
-- **[✓]** **Performant**: Better than SQLite WAL with async IndexedDB
+- **[✓]** **WAL-compatible**: Current JavaScript constructors request WAL mode
 - **[✓]** **Reliable**: Automatic leader failover when tabs close
 - **[✓]** **Flexible**: Write queuing allows any tab to initiate writes
+
+This is not a cross-worker ownership protocol. The PWA has a separate
+SharedWorker coordinator and one elected dedicated Hybrid/OPFS runtime worker.
+Missing `Window` in a Worker does not supply localStorage leader election.
+The qualified ownership changes preserve leases and connection generations
+while removing `RefCell` borrows across suspension; see
+[SQLite/browser stabilization](SQLITE_STABILIZATION.md) and
+[Native qualification](NATIVE_QUALIFICATION.md).
 
 ---
 
@@ -62,9 +71,11 @@ if (isLeader) {
 const result = await db.execute("SELECT * FROM users");
 
 // Listen for changes from other tabs
-db.onDataChange((changeType) => {
+db.onDataChange(async (changeType) => {
   console.log('Data changed:', changeType);
-  // Refresh UI
+  // Serialize this with other operations on the handle in your application.
+  await db.reloadFromIndexedDB();
+  // Query the refreshed state and update the UI.
 });
 ```
 
@@ -84,7 +95,9 @@ const db = new MultiTabDatabase(Database, 'myapp.db', {
 await db.init();
 
 // Automatically handles leader check + sync
-await db.write("INSERT INTO users (name) VALUES (?)", ['Alice']);
+await db.write("INSERT INTO users (name) VALUES (?)", [
+  { type: 'Text', value: 'Alice' }
+]);
 
 // Read from any tab
 const result = await db.query("SELECT * FROM users");
@@ -103,7 +116,8 @@ db.onRefresh(() => {
 
 - **Automatic**: First tab becomes leader
 - **Deterministic**: Lowest instance ID wins
-- **Lease-based**: 5-second lease with heartbeat
+- **Lease-based**: The current manager uses a 1-second lease and 1-second
+  heartbeat interval; browser scheduling can delay either
 - **Failover**: Automatic re-election when leader closes
 
 ```javascript
@@ -112,7 +126,7 @@ const isLeader = await db.isLeader();
 
 // Get detailed info
 const info = await db.getLeaderInfo();
-// { isLeader: true, leaderId: "abc123", leaseExpiry: 1234567890 }
+// { isLeader: true, leaderId: "leader_myapp.db", leaseExpiry: <current time> }
 
 // Wait to become leader (5s timeout)
 await db.waitForLeadership();
@@ -121,26 +135,29 @@ await db.waitForLeadership();
 await db.requestLeadership();
 ```
 
+`getLeaderInfo()` is a simplified status report: `leaderId` is a generated
+display value (or `"unknown"`), and `leaseExpiry` is the reporting time, not the
+manager's real lease deadline. Do not use it as a fencing token or scheduler.
+`requestLeadership()` triggers election; callers must check/wait for leadership
+rather than assuming the call grants ownership.
+
 ### Write Coordination
 
-Only the leader tab can execute write operations:
+Data DML is guarded using SQLite preparation metadata, not the first SQL word.
+This includes commented/CTE INSERT, UPDATE, DELETE, and REPLACE on both raw
+execution methods. Reads and EXPLAIN do not become writes merely because the
+SQL text mentions INSERT.
 
-```javascript
-// Allowed (leader only)
-INSERT, UPDATE, DELETE, REPLACE
-
-// Allowed (any tab)
-SELECT, CREATE TABLE, ALTER TABLE, CREATE INDEX
-
-// DDL operations are not considered writes
-```
+This guard is not an ownership lock for all DDL, PRAGMAs, or transaction-control
+statements. Run schema changes and complete transactions on the coordinated
+owner too; do not treat unguarded statements as safe concurrent mutations.
 
 **Option 1: Manual Error Handling**:
 ```javascript
 try {
   await db.execute("INSERT INTO users (name) VALUES ('Bob')");
 } catch (err) {
-  if (err.message.includes('WRITE_PERMISSION_DENIED')) {
+  if (String(err).includes('WRITE_PERMISSION_DENIED')) {
     // Not leader - wait or request leadership
     await db.waitForLeadership();
     // Retry write
@@ -160,8 +177,12 @@ await db.queueWriteWithTimeout("UPDATE users SET active = 1", 10000);
 **How queueWrite Works**:
 - **Leader**: Executes immediately (no queuing overhead)
 - **Follower**: Forwards request to leader via BroadcastChannel
-- **Returns**: When leader acknowledges completion or timeout
+- **Returns**: On execution acknowledgement; rejects on timeout
 - **Error**: Throws if timeout or leader execution fails
+
+Queue acknowledgement is not an awaited `sync()`. A timeout does not prove the
+write was not executed. Do not replay non-idempotent SQL blindly, and do not
+split one transaction across queue requests.
 
 ### Change Notifications
 
@@ -174,6 +195,10 @@ db.onDataChange((changeType) => {
   loadData();
 });
 ```
+
+Notifications are refresh signals, not a replacement for reloading a follower's
+SQLite page cache. Use `reloadFromIndexedDB()` on the raw handle or the wrapper's
+managed refresh callback. Background events do not guarantee unload-time saves.
 
 ---
 
@@ -206,11 +231,22 @@ interface LeaderInfo {
 #### `db.execute(sql: string): Promise<QueryResult>`
 Execute SQL statement.
 
-#### `db.executeWithParams(sql: string, params: any[]): Promise<QueryResult>`
-Execute parameterized SQL.
+#### `db.executeWithParams(sql: string, params: ColumnValue[]): Promise<QueryResult>`
+Execute parameterized SQL using tagged values, not plain JavaScript primitives:
+
+```javascript
+await db.executeWithParams('INSERT INTO messages (text) VALUES (?)', [
+  { type: 'Text', value: 'before\0after' }
+]);
+```
+
+Both execution methods execute the first prepared statement only. RETURNING,
+CTEs, VALUES, and PRAGMAs return SQLite's rows. Results have `columns`, typed
+`rows`, `affectedRows`, `lastInsertId`, and `executionTimeMs`. TEXT preserves
+embedded NUL; use `{ type: 'Blob', value: [0, 255] }` for arbitrary bytes.
 
 #### `db.sync(): Promise<void>`
-Manually sync to IndexedDB.
+Await durable persistence through the selected backend; failures reject.
 
 #### `db.onDataChange(callback: (changeType: string) => void): void`
 Register change notification callback.
@@ -227,7 +263,8 @@ Queue a write operation. Leaders execute immediately, followers forward to leade
 #### `db.queueWriteWithTimeout(sql: string, timeoutMs: number): Promise<void>` 
 Queue write with custom timeout.
 - **timeoutMs**: Timeout in milliseconds
-- **Use case**: Long-running operations or slow networks
+- **Use case**: Long-running local leader operations (BroadcastChannel is not a
+  network transport)
 
 #### `db.close(): Promise<void>`
 Close database and cleanup.
@@ -266,14 +303,17 @@ Options:
 #### `db.init(): Promise<void>`
 Initialize the database.
 
-#### `db.write(sql: string, params?: any[]): Promise<QueryResult>`
+#### `db.write(sql: string, params?: ColumnValue[]): Promise<QueryResult>`
 Execute write operation (leader only, auto-syncs).
 
-#### `db.query(sql: string, params?: any[]): Promise<QueryResult>`
+#### `db.query(sql: string, params?: ColumnValue[]): Promise<QueryResult>`
 Execute read query (any tab).
 
-#### `db.execute(sql: string, params?: any[]): Promise<QueryResult>`
-Auto-detect and route to write() or query().
+#### `db.execute(sql: string, params?: ColumnValue[]): Promise<QueryResult>`
+Routes to write() or query() using the example wrapper's prefix classifier.
+For commented/CTE DML or other SQL outside that classifier, call `write()`
+explicitly to retain the wrapper's awaited auto-sync. The core SQLite-aware
+permission guard is not a replacement for wrapper routing.
 
 #### `db.onRefresh(callback: () => void): void`
 Register callback for changes from other tabs.
@@ -295,7 +335,9 @@ await db.init();
 
 // Check before writing
 if (await db.isLeader()) {
-  await db.write("INSERT INTO logs (message) VALUES (?)", ['User action']);
+  await db.write("INSERT INTO logs (message) VALUES (?)", [
+    { type: 'Text', value: 'User action' }
+  ]);
 }
 
 // All tabs can read
@@ -329,10 +371,10 @@ try {
   await db.queueWrite("INSERT INTO events (type, data) VALUES ('click', 'button')");
   console.log('Write completed successfully');
 } catch (err) {
-  if (err.message.includes('timeout')) {
+  if (String(err).toLowerCase().includes('timeout')) {
     console.error('Leader not responding');
   } else {
-    console.error('Write failed:', err.message);
+    console.error('Write failed:', String(err));
   }
 }
 
@@ -363,7 +405,9 @@ db.onRefresh(async () => {
 
 // Send message (if leader)
 async function sendMessage(text) {
-  await db.write("INSERT INTO messages (text) VALUES (?)", [text]);
+  await db.write("INSERT INTO messages (text) VALUES (?)", [
+    { type: 'Text', value: text }
+  ]);
   // All other tabs will refresh automatically
 }
 ```
@@ -371,12 +415,12 @@ async function sendMessage(text) {
 ### Pattern 5: Single-Tab Override
 
 ```javascript
-// Disable multi-tab coordination for single-tab apps
+// Bypass the data-write guard only when the app enforces a single owner.
 
 const db = await Database.newDatabase('single-tab.db');
 await db.allowNonLeaderWrites(true);
 
-// Now any tab can write without leader check
+// This does not disable other tabs or provide conflict resolution.
 await db.execute("INSERT INTO data VALUES (1)");
 ```
 
@@ -423,7 +467,7 @@ await db.queueWriteWithTimeout("UPDATE users SET active = 1", 10000);
 **How it works**:
 - **Leader**: Executes immediately (no queuing overhead)
 - **Follower**: Forwards request to leader via BroadcastChannel
-- **Returns**: When leader acknowledges completion or timeout
+- **Returns**: When leader acknowledges SQL execution, not durable sync
 - **Error**: Throws if timeout or leader execution fails
 
 **Use Cases**:
@@ -436,6 +480,9 @@ await db.queueWriteWithTimeout("UPDATE users SET active = 1", 10000);
 ### Optimistic UI Updates [Implemented]
 
 Track pending writes for immediate UI feedback before leader confirmation:
+
+Tracking does not execute SQL, durably save it, or automatically roll back UI.
+The application owns those actions and the acknowledgement/error state.
 
 ```javascript
 // Enable optimistic mode
@@ -463,6 +510,10 @@ const isOptimistic = await db.isOptimisticMode(); // true/false
 ### Coordination Metrics [Implemented]
 
 Monitor multi-tab coordination performance and events:
+
+These manually recorded coordination counters are distinct from optional Rust
+`telemetry` metrics and exporters. Enabling them does not expose a Prometheus
+HTTP endpoint or install the monitoring stack.
 
 ```javascript
 // Enable metrics tracking
@@ -496,11 +547,11 @@ const enabled = await db.isCoordinationMetricsEnabled(); // true/false
 ```
 
 **Metrics Tracked**:
-- **Leadership changes**: Count of leadership transitions
-- **Write conflicts**: Non-leader write attempts
-- **Follower refreshes**: How often followers sync from leader
+- **Leadership changes**: Calls to record leadership transitions while enabled
+- **Write conflicts**: Recorded non-leader write attempts
+- **Follower refreshes**: Recorded follower reloads
 - **Notification latency**: Rolling average of BroadcastChannel latency (last 100 samples)
-- **Total notifications**: Count of all notifications sent/received
+- **Total notifications**: Count of recorded latency samples
 
 **Use Cases**:
 - Monitor coordination performance
@@ -508,6 +559,13 @@ const enabled = await db.isCoordinationMetricsEnabled(); // true/false
 - Optimize notification latency
 - Track conflict rates
 - Performance dashboards
+
+For native Prometheus/Grafana deployment examples, see
+[monitoring documentation](../monitoring/README.md). Do not equate those example
+deployments with browser qualification. The optional WASM telemetry variant was
+qualified separately with real counters, shared-handle observation, serialized
+stats, and an actual HTTP collector; the default packaged runtime is not thereby
+a telemetry-enabled build.
 
 ---
 
@@ -519,19 +577,23 @@ const enabled = await db.isCoordinationMetricsEnabled(); // true/false
 
 **Solutions**:
 ```javascript
-// Option 1: Wait for leadership
+// Raw Database API: wait for leadership, then execute and persist.
 await db.waitForLeadership();
-await db.write(sql);
+await db.execute(sql);
+await db.sync();
 
-// Option 2: Request leadership
+// Or trigger election, verify leadership, then execute.
 await db.requestLeadership();
-await new Promise(r => setTimeout(r, 200)); // Brief wait
-await db.write(sql);
+await db.waitForLeadership(); // Election is not a fixed-delay guarantee.
+await db.execute(sql);
+await db.sync();
 
-// Option 3: Use waitForLeadership option
-const db = new MultiTabDatabase(Database, 'db', {
+// Example wrapper: use its waitForLeadership option in the write path.
+const wrapper = new MultiTabDatabase(Database, 'db', {
   waitForLeadership: true
 });
+await wrapper.init();
+await wrapper.write(sql);
 ```
 
 ### Issue: Changes Not Propagating to Other Tabs
@@ -546,15 +608,17 @@ await db.sync();
 
 // Or use MultiTabDatabase with autoSync
 const db = new MultiTabDatabase(Database, 'db', { autoSync: true });
+await db.init();
 await db.write("INSERT ..."); // Auto-syncs
 ```
 
 ### Issue: Multiple Leaders Appearing
 
-**Cause**: Race condition during startup.
+**Possible causes**: Startup races, stale status displays, unavailable localStorage,
+or separately owned runtimes.
 
 **Solutions**:
-- This should not happen - the leader election uses atomic localStorage operations
+- localStorage get/set calls do not form a cross-tab compare-and-swap transaction
 - If it does occur, check browser console for errors
 - Ensure all tabs are using the same database name
 
@@ -562,9 +626,10 @@ await db.write("INSERT ..."); // Auto-syncs
 
 **Cause**: Leader lease not expired yet.
 
-**Wait**: Leader lease expires after 5 seconds of no heartbeat.
+**Wait**: The current lease is 1 second; scheduling/throttling can delay observation.
 
-**Force**: Call `requestLeadership()` from another tab to trigger immediate re-election.
+**Recheck**: Call `requestLeadership()` and then verify leadership; do not assume
+that a request immediately grants it.
 
 ---
 
@@ -573,7 +638,7 @@ await db.write("INSERT ..."); // Auto-syncs
 ### Write Performance
 
 - **Leader-only writes**: No conflict resolution overhead
-- **Auto-sync**: Immediate IndexedDB persistence
+- **Auto-sync**: Wrapper `write()` awaits sync when enabled
 - **Batch writes**: Use transactions for multiple operations
 
 ```javascript
@@ -592,7 +657,7 @@ await db.sync(); // One sync for entire transaction
 
 ### Network/Sync Performance
 
-- **BroadcastChannel**: Instant in-tab notifications (same browser)
+- **BroadcastChannel**: Asynchronous same-origin notifications between contexts
 - **IndexedDB**: Async writes, doesn't block UI
 - **VFS buffering**: Efficient block-level persistence
 
@@ -607,14 +672,19 @@ await db.sync(); // One sync for entire transaction
 // Good: One sync for batch
 await db.execute("BEGIN");
 for (const item of items) {
-  await db.execute("INSERT INTO items VALUES (?)", [item]);
+  await db.executeWithParams("INSERT INTO items VALUES (?)", [
+    { type: 'Text', value: item }
+  ]);
 }
 await db.execute("COMMIT");
 await db.sync();
 
 // Bad: Many syncs
 for (const item of items) {
-  await db.write(item); // Each write syncs
+  await db.executeWithParams("INSERT INTO items VALUES (?)", [
+    { type: 'Text', value: item }
+  ]);
+  await db.sync();
 }
 ```
 
@@ -636,6 +706,12 @@ See `tests/wasm_integration_tests.rs` for examples:
 - `test_write_guard_prevents_follower_writes`
 - `test_wait_for_leadership`
 - `test_allow_non_leader_writes_override`
+
+Current real multi-context coverage also lives in `tests/e2e/ownership.spec.js`,
+`tests/e2e/durability.spec.js`, and `pwa/e2e/pwa-hybrid-storage.spec.ts`.
+Close every tab/worker owner before
+[`Database.deleteDatabase()`](EXPORT_IMPORT.md#databasedeletedatabasename-string);
+an export/import lock does not make concurrent deletion safe.
 
 ---
 

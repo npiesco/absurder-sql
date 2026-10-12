@@ -1,12 +1,17 @@
 # Dual-Mode Persistence Guide
 
-AbsurderSQL is a **dual-mode** library that supports both **Browser (IndexedDB)** and **Native (filesystem)** persistence. This unique capability allows you to build offline-first web applications while maintaining full CLI/server access to the same data.
+AbsurderSQL supports **browser IndexedDB / worker Hybrid OPFS** and **native
+filesystem** persistence. These are separate storage locations, not a shared
+live database: use explicit [SQLite export/import](EXPORT_IMPORT.md) to move
+data between them. The current qualified runtime and platform limits are in
+[Native qualification](NATIVE_QUALIFICATION.md).
 
 ## Browser Mode (WASM)
 
 **Target:** Web applications running in browsers
 
-**Storage Backend:** IndexedDB via custom SQLite VFS
+**Storage Backend:** Buffered custom SQLite VFS, persisted to IndexedDB or a
+worker Hybrid/OPFS backend
 
 **Key Features:**
 - Full SQLite functionality in the browser
@@ -24,9 +29,19 @@ const db = await Database.newDatabase('my_app');
 await db.execute('CREATE TABLE users (id INTEGER, name TEXT)');
 await db.execute("INSERT INTO users VALUES (1, 'Alice')");
 const result = await db.execute('SELECT * FROM users');
+await db.sync(); // Await durable persistence before reporting a saved state.
+await db.close();
 ```
 
-**Data Location:** Browser IndexedDB (`IndexedDB → <db_name>`)
+`newDatabase(name)` selects IndexedDB. `newDatabaseAuto(name)` chooses Hybrid
+only when worker OPFS capability is available; main-thread auto mode falls back
+to IndexedDB. `newDatabaseWithBackend(name, 'Hybrid')` selects it explicitly in
+a suitable worker.
+
+**Data Location:** The origin's shared IndexedDB `block_storage` database holds
+namespaced blocks, metadata, and commit markers. Hybrid/OPFS also uses the root
+OPFS file `<normalized-name>.absurder.blocks.bin`; the current persistence path
+retains an IndexedDB block recovery copy, not only metadata.
 
 ---
 
@@ -40,42 +55,41 @@ const result = await db.execute('SELECT * FROM users');
 - Standard SQLite database files (`.sqlite`)
 - Compatible with all SQLite tools (sqlite3, DB Browser, etc.)
 - BlockStorage metadata for integrity
-- Same Rust API as browser mode
+- Shared configuration/result types; target-specific database APIs
 - Full filesystem persistence
 
 **Usage:**
 ```rust
-use absurder_sql::database::SqliteIndexedDB;
-use absurder_sql::types::{DatabaseConfig, ColumnValue};
+use absurder_sql::{DatabaseConfig, SqliteIndexedDB};
 
 let config = DatabaseConfig {
     name: "my_app.db".to_string(),
     cache_size: Some(2000),
-    page_size: None,
-    journal_mode: None,
-    auto_vacuum: None,
-    version: Some(1),
+    ..Default::default()
 };
 
 let mut db = SqliteIndexedDB::new(config).await?;
 db.execute("CREATE TABLE users (id INTEGER, name TEXT)").await?;
 db.execute("INSERT INTO users VALUES (1, 'Alice')").await?;
 let result = db.execute("SELECT * FROM users").await?;
+db.close().await?;
 ```
 
-**Data Location:** `./absurdersql_storage/<db_name>/`
+Enable `fs_persist` for real native files; without it the native database is
+in-memory. SQLite's own file locking applies; this does not implement browser
+leader election for native processes.
+
+**Data Location:** `./absurdersql_storage/<name-without-.db>/database.sqlite`,
+or the corresponding path beneath `ABSURDERSQL_FS_BASE`.
 
 **Filesystem Structure:**
 ```
 absurdersql_storage/
-└── my_app/
-    ├── database.sqlite      # Standard SQLite database file
-    ├── blocks/              # BlockStorage blocks (4KB each)
-    │   ├── block_0.bin
-    │   ├── block_1.bin
-    │   └── ...
-    ├── metadata.json        # Block metadata with checksums
-    └── allocations.json     # Block allocation tracking
+├── my_app/
+│   └── database.sqlite      # Standard native SQLite database
+└── my_app.db/               # Separate BlockStorage bookkeeping
+    ├── blocks/
+    └── metadata.json
 ```
 
 ---
@@ -88,15 +102,18 @@ absurdersql_storage/
 
 **Architecture:**
 - **Browser:** Users work with data stored in IndexedDB
-- **Server:** Periodic sync using CLI tool to process/backup data
+- **Server:** Application-managed snapshot transfer or synchronization protocol
 - **Benefit:** App works offline, server handles sync/backup when needed
 
 **Example:**
 ```javascript
 // Browser: User creates todo
 await db.execute("INSERT INTO todos (text, done) VALUES ('Buy milk', 0)");
+await db.sync();
+```
 
-// Server: Periodic sync (Rust)
+```rust
+// Server: Query a separately transferred/imported native database.
 let result = db.execute("SELECT * FROM todos WHERE synced = 0").await?;
 // Process and mark as synced
 ```
@@ -106,17 +123,20 @@ let result = db.execute("SELECT * FROM todos WHERE synced = 0").await?;
 **Scenario:** Users report bugs with their data - download and debug locally.
 
 **Workflow:**
-1. User exports IndexedDB from browser (built-in browser tools)
-2. Developer loads data into local AbsurderSQL CLI
+1. User downloads `await db.exportToFile()` as a standalone SQLite file
+2. Developer opens that file using a native SQLite tool
 3. Query and analyze using standard SQLite tools
 4. Reproduce issue with actual user data
 
 **Example:**
 ```bash
-# Export from browser DevTools → Application → IndexedDB
-# Import to local CLI
-cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users WHERE issue = 'bug'"
+# After downloading my_app.db from exportToFile()
+sqlite3 my_app.db "SELECT * FROM users WHERE issue = 'bug'"
 ```
+
+DevTools' IndexedDB records are not themselves a SQLite file. Export rejects a
+refused or incomplete PASSIVE checkpoint; the returned snapshot has rollback
+header bytes while the live browser database remains in WAL mode.
 
 ### 3. Desktop Apps with Web Preview
 
@@ -129,12 +149,12 @@ cargo run --bin cli_query --features fs_persist -- "SELECT * FROM users WHERE is
 
 ### 4. Development Tools
 
-**Scenario:** Inspect browser data using CLI tools during development.
+**Scenario:** Inspect a native database or an explicitly downloaded browser
+snapshot during development.
 
 **Workflow:**
 ```bash
-# While web app is running in browser...
-# Query the data from CLI
+# Query the native cli_demo.db database, not the browser's origin storage.
 cargo run --bin cli_query --features fs_persist -- ".tables"
 cargo run --bin cli_query --features fs_persist -- "SELECT COUNT(*) FROM users"
 ```
@@ -143,7 +163,7 @@ cargo run --bin cli_query --features fs_persist -- "SELECT COUNT(*) FROM users"
 
 ## CLI Query Tool
 
-AbsurderSQL includes a production-ready CLI tool for querying filesystem databases:
+AbsurderSQL includes a CLI query example for filesystem databases:
 
 **Installation:**
 ```bash
@@ -169,15 +189,16 @@ cargo run --bin cli_query --features fs_persist -- ".tables"
 cargo run --bin cli_query --features fs_persist -- ".schema"
 ```
 
-**Output:**
+**Illustrative output (timing depends on the run):**
 ```
   AbsurderSQL CLI Query Tool
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
- Database: cli_demo.db
-[STORAGE] ./absurdersql_storage/cli_demo/
+Database: cli_demo.db
+SQLite File: ./absurdersql_storage/cli_demo/database.sqlite
+Block Storage: ./absurdersql_storage/cli_demo.db/
 
-[EXEC] Executing: SELECT * FROM users
+Executing: SELECT * FROM users
 
 ┌────────────────────────────────────────────────────────────┐
 │ id                 │ name              │ email             │
@@ -191,6 +212,8 @@ Execution time: 0.02ms
 
 **Environment Variables:**
 - `ABSURDERSQL_FS_BASE`: Override base storage directory (default: `./absurdersql_storage`)
+- `DATASYNC_DB`: Select the logical native database name (default: `cli_demo.db`);
+  this is not an arbitrary downloaded-file argument
 
 ---
 
@@ -213,9 +236,9 @@ Execution time: 0.02ms
 
 AbsurderSQL includes comprehensive tests for dual-mode functionality:
 
-**Unit Tests (Native):**
+**Native persistence tests:**
 ```bash
-cargo test --features fs_persist native_database_persistence_tests
+cargo test --features fs_persist --test native_database_persistence_tests
 ```
 
 **E2E Tests (Browser + CLI):**
@@ -225,8 +248,7 @@ npx playwright test dual_mode_persistence
 
 **Manual Testing:**
 ```bash
-# Browser: Open web app, create data in IndexedDB
-# CLI: Query filesystem database
+# Query the native filesystem database; browser transfer is a separate step.
 cargo run --bin cli_query --features fs_persist -- "SELECT * FROM my_table"
 ```
 
@@ -236,21 +258,22 @@ cargo run --bin cli_query --features fs_persist -- "SELECT * FROM my_table"
 
 ### Browser Mode Implementation
 - Uses `wasm-bindgen` for JavaScript interop
-- Custom SQLite VFS redirects to IndexedDB
-- BlockStorage manages 4KB blocks in IndexedDB
+- Custom SQLite VFS buffers blocks and persists through the selected backend
+- BlockStorage manages 4KB blocks, checksums, and commit metadata
 - Multi-tab coordination via localStorage + BroadcastChannel
 
 ### Native Mode Implementation
 - Uses `rusqlite` for SQLite C API
 - Direct filesystem I/O via `std::fs`
 - BlockStorage writes to `./absurdersql_storage/`
-- Single-threaded (no multi-process coordination needed)
+- Native SQLite handles file-level locking; applications still coordinate
+  concurrent users and snapshot transfer
 
 ### Shared Components
 - Same Rust core (`AbsurderSQL Core`)
 - Same BlockStorage architecture
-- Same metadata format
-- Same integrity checks (checksums, MVCC)
+- Shared block metadata/checksum machinery; browser IDB records and native files
+  are not interchangeable storage directories
 
 ### Feature Flags
 - **Browser:** Default build (WASM target)
@@ -284,14 +307,14 @@ cargo add absurder-sql
 
 ### Example Projects
 - **Browser:** `examples/vite-app/` - Full-featured web app
-- **Native:** `examples/cli_query.rs` - CLI query tool
+- **Native:** `src/bin/cli_query.rs` - CLI query tool
 - **E2E:** `tests/e2e/dual_mode_persistence.spec.js` - Both modes
 
 ---
 
 ## Best Practices
 
-1. **Use consistent database names** between browser and native modes
+1. **Transfer snapshots explicitly**; matching names do not share storage
 2. **Enable checksums** for data integrity in both modes
 3. **Test both modes** if your app uses dual-mode functionality
 4. **Document storage locations** for users/operators
@@ -303,6 +326,7 @@ cargo add absurder-sql
 
 - [Multi-Tab Coordination Guide](MULTI_TAB_GUIDE.md) - Browser multi-tab features
 - [Transaction Support](TRANSACTION_SUPPORT.md) - Transaction handling
+- [Export/Import Guide](EXPORT_IMPORT.md) - Portable snapshots and physical deletion
 - [Benchmark Results](BENCHMARK.md) - Performance metrics
 - [Demo Guide](../examples/DEMO_GUIDE.md) - Interactive examples
 
@@ -313,9 +337,10 @@ cargo add absurder-sql
 AbsurderSQL's **dual-mode persistence** is a unique capability that allows you to:
 
 **[✓]** Build offline-first web apps with IndexedDB  
-**[✓]** Query the same data from CLI/server with filesystem access  
+**[✓]** Query transferred snapshots from CLI/server with filesystem access
 **[✓]** Debug production data locally using standard SQLite tools  
 **[✓]** Run the same Rust codebase in browser AND on server  
 **[✓]** Maintain data integrity with checksums in both modes  
 
-**No other library** (including absurd-sql) provides this flexibility. AbsurderSQL is truly **universal SQLite**.
+Browser storage and native files remain separate authorities. Successful transfer,
+not a matching database name, is what makes the same data available in both modes.

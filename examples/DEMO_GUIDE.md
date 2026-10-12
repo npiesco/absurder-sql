@@ -7,32 +7,20 @@ The web demo (`examples/web_demo.html`) is a **fully interactive SQLite playgrou
 ## How to Run It
 
 ### 1. **Build for Web**
+
+The checked-in `pkg` contains the qualified default runtime. To build a new
+local candidate instead, run from the repository root:
+
 ```bash
-wasm-pack build --target web
-```
-Output:
-```
-[INFO]: Checking for the Wasm target...
-[INFO]: Compiling to Wasm...
-    Finished `release` profile [optimized] target(s) in 0.08s
-[INFO]: Installing wasm-bindgen...
-[INFO]: Done in 0.32s
-[INFO]: Your wasm pkg is ready to publish at /Users/nicholas.piesco/Downloads/DataSync/pkg.
+npm run build
 ```
 
 ### 2. **Start Web Server**
 ```bash
-python3 -m http.server 8080 &
-```
-Output:
-```
-Serving HTTP on :: port 8080 (http://[::]:8080/) ...
+npm run serve
 ```
 
-### 2.5 **Kill the Web Server**
-```bash
-lsof -ti:8080 | xargs kill -9
-```
+Keep this server in its terminal; stop it with Ctrl+C when finished.
 
 ### 3. **Open the Demo**
 Navigate to: `http://localhost:8080/examples/web_demo.html`
@@ -86,23 +74,25 @@ INSERT INTO products VALUES (2, 'Mouse', 29.99, 50);
 SELECT * FROM products WHERE price > 50;
 ```
 
-### 5. **See Real-Time Results**
+### 7. **See Real-Time Results**
 - Query results appear in a formatted table
 - Console shows execution logs
 - Statistics update (queries executed, rows affected, execution time)
 
-### 6. **Test Persistence**
+### 8. **Test Persistence**
 1. Insert some data
 2. Refresh the page
 3. Reconnect to the database
-4. Query the data - **it's still there!** (stored in IndexedDB)
+4. Query the data again. Await a successful `sync()` or `close()` before
+   navigating away in application code; failed persistence rejects instead
+   of being reported as a durable write.
 
 ## What Makes This Special
 
 **[✓]** **No Backend** - Everything runs in the browser  
 **[✓]** **Real SQLite** - Full SQL support with transactions  
 **[✓]** **Persistent** - Data survives page refreshes (IndexedDB)  
-**[✓]** **Fast** - Sub-millisecond queries  
+**Measured** - Query duration is displayed for the current workload
 **[✓]** **Type-Safe** - Proper data types (INTEGER, TEXT, REAL, BLOB)  
 **[✓]** **Multi-Tab Ready** - Built-in coordination (leader election, write queuing, optimistic updates, metrics)  
 
@@ -223,11 +213,18 @@ FROM cart c
 JOIN products p ON c.product_id = p.id;
 ```
 
-## This Proves
+## Qualification and Portability
 
-**[✓]** **Full SQLite compatibility** - All SQL features work  
-**[✓]** **Browser persistence** - Data survives refreshes  
-**[✓]** **Production-ready** - Fast, reliable, type-safe  
-**[✓]** **Better than absurd-sql** - More features, better tested  
+The demo is an interactive example. Current evidence is in
+[Native qualification](../docs/NATIVE_QUALIFICATION.md), including the original
+Apple Python 3.9.6 / SQLite 3.51.0 runtime and isolated Windows Server 2025 x64.
+The 79 browser/benchmark, 13 deletion, and 35 stabilization cases cover more
+than manually running the queries above; earlier failed attempts remain
+recorded there.
 
-**Now you have a working demo to show anyone who asks "Does it really work?"**
+`exportToFile()` requires a complete SQLite checkpoint. It returns a standalone
+SQLite snapshot whose file-format bytes 18/19 use rollback-journal format;
+the live database remains in WAL mode. Blocked or incomplete checkpoints reject.
+`Database.deleteDatabase(name)` requires closed connections in every runtime
+and physically removes only that exact database's OPFS and shared-IndexedDB
+namespace, preserving similarly prefixed databases.

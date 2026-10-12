@@ -112,6 +112,20 @@ pub fn release_connection(db_name: &str) {
     });
 }
 
+/// A deleted/imported database can outlive its pool entry in a JS wrapper.
+/// Its eventual finalizer must not release a replacement connection.
+pub(crate) fn release_connection_state(state: &Rc<ConnectionState>) -> bool {
+    let is_current = CONNECTION_POOL.with(|pool| {
+        pool.borrow()
+            .get(&state.db_name)
+            .is_some_and(|current| Rc::ptr_eq(current, state))
+    });
+    if is_current {
+        release_connection(&state.db_name);
+    }
+    is_current
+}
+
 /// Check if a connection exists for the given database
 pub fn connection_exists(db_name: &str) -> bool {
     CONNECTION_POOL.with(|pool| pool.borrow().contains_key(db_name))

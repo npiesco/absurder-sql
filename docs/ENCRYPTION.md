@@ -2,6 +2,12 @@
 
 AbsurderSQL supports optional database encryption using SQLCipher for native applications (not available in WASM/browser mode).
 
+**Qualification scope:** The September 2026 default/telemetry browser and native
+matrix does not add a SQLCipher or mobile-device qualification. See
+[Native qualification](NATIVE_QUALIFICATION.md) for the tested feature sets.
+The API below requires a real SQLCipher-linked build, not the default bundled
+SQLite build.
+
 ## Overview
 
 When enabled with the `encryption` feature flag, AbsurderSQL provides:
@@ -16,13 +22,19 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-absurder-sql = { version = "0.1", features = ["encryption", "fs_persist"] }
+absurder-sql = { version = "0.1", default-features = false, features = ["encryption", "fs_persist"] }
 ```
 
 Or build with:
 ```bash
-cargo build --features encryption,fs_persist
+cargo build --no-default-features --features encryption,fs_persist
 ```
+
+`encryption` selects external SQLCipher linkage (the mobile Android build
+provides its native library). `encryption-commoncrypto` selects bundled
+SQLCipher for the Apple configuration; `encryption-ios` is its alias. Select
+the platform-appropriate feature/toolchain rather than assuming SQLCipher is
+installed by the feature flag. `fs_persist` is required for durable native files.
 
 ## Usage
 
@@ -44,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use database normally
     db.execute("CREATE TABLE secrets (id INTEGER, data TEXT)").await?;
     db.execute("INSERT INTO secrets VALUES (1, 'confidential')").await?;
-    
+    db.close().await?;
     Ok(())
 }
 ```
@@ -120,6 +132,11 @@ keyGenerator.init(keyGenSpec)
 val secretKey = keyGenerator.generateKey()
 ```
 
+An Android Keystore AES key is non-exportable; it is not the string passed to
+`new_encrypted`. Use it to protect a separately generated SQLCipher passphrase
+at rest, then retrieve that passphrase through the application's secure-storage
+flow. Never hardcode the example passphrases in a deployed application.
+
 ### Server/CLI Applications
 
 - Store keys in **environment variables** (not in code)
@@ -130,7 +147,7 @@ val secretKey = keyGenerator.generateKey()
 ## Security Considerations
 
 ### Key Length
-- **Minimum**: 8 characters (enforced)
+- **Minimum**: 8 UTF-8 bytes (the current Rust `str::len()` check)
 - **Recommended**: 16+ characters
 - **Best**: 32+ random characters
 
@@ -140,23 +157,22 @@ SQLCipher automatically applies PBKDF2 key derivation:
 - Makes brute-force attacks computationally expensive
 
 ### Wrong Key Behavior
-Attempting to open an encrypted database with the wrong key will:
-1. Either fail immediately with an error, OR
-2. Succeed in opening but fail on first query attempt
-
-This is SQLCipher's security-by-design behavior.
+With `fs_persist`, `new_encrypted` performs a schema write/readability check
+after applying the key, so an unreadable existing encrypted database rejects
+during construction. Preserve that error rather than opening a new empty
+database as a fallback.
 
 ## Performance
 
 ### Overhead
-- **Encryption overhead**: < 10% (typical)
-- **Query performance**: Nearly identical to unencrypted
-- **File size**: Same as unencrypted database
+Encryption adds key-derivation and page-crypto costs; throughput and file size
+depend on the linked SQLCipher version, page settings, and workload. The current
+qualification does not establish a percentage overhead or equal file size.
 
-### Benchmarks
+### Feature Tests
 ```bash
-# Run encryption benchmarks
-cargo test --features encryption,fs_persist --test encryption_tests
+# Requires the platform's SQLCipher linkage; this is not a benchmark.
+cargo test --no-default-features --features encryption,fs_persist --test encryption_tests
 ```
 
 ## Platform Support
@@ -164,8 +180,8 @@ cargo test --features encryption,fs_persist --test encryption_tests
 | Platform | Encryption Support |
 |----------|-------------------|
 | Native (Rust) | [x] Full support |
-| iOS (React Native) | [x] Via FFI (Phase II) |
-| Android (React Native) | [x] Via FFI (Phase II) |
+| iOS (React Native) | Feature-gated UniFFI API and Apple SQLCipher build |
+| Android (React Native) | Feature-gated UniFFI API and external SQLCipher build |
 | WASM/Browser | [ ] Not supported |
 
 > **Note**: Browser environments cannot use SQLCipher. For browser encryption, use Web Crypto API separately.
@@ -201,7 +217,10 @@ sqlite3 secure.db "SELECT * FROM sqlite_master"
 # Error: file is not a database
 ```
 
-This confirms the database is properly encrypted.
+A stock SQLite refusal alone does not prove encryption (a corrupt or wrong file
+can also fail). Check `PRAGMA cipher_version` on the linked runtime and verify
+correct-key reopen with exact data, wrong-key rejection, and re-key behavior
+using the real file.
 
 ## Examples
 
@@ -231,10 +250,10 @@ A: SQLCipher itself can be FIPS-compliant when built with appropriate OpenSSL. C
 ## Related Documentation
 
 - [SQLCipher Official Documentation](https://www.zetetic.net/sqlcipher/)
-- [Mobile FFI Integration](./mobile/Design_Documentation_II.md)
+- [Mobile UniFFI Status](MOBILE_UNIFFI_PROGRESS.md)
 - [Security Best Practices](./CODING_STANDARDS.md)
 
-## Version History
+## Historical Version Notes (Not a Current Release Plan)
 
 - **v0.1.7** - Initial encryption support (native only)
 - **v0.2.0** - Mobile FFI support (planned)

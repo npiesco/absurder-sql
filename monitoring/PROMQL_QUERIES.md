@@ -2,6 +2,14 @@
 
 This document provides PromQL query examples for monitoring AbsurderSQL with Prometheus and Grafana.
 
+These queries use the names in `src/telemetry/metrics.rs`. Duration histograms
+are in milliseconds and end in `_duration_ms`; Prometheus adds `_bucket`,
+`_sum`, and `_count`. Do not multiply their quantiles by 1000. Adapt the older
+names in the supplied dashboard/rule templates before deploying them.
+Telemetry is optional, and your application must expose its populated
+registry. [Current qualification](../docs/NATIVE_QUALIFICATION.md) covers the
+library's telemetry gates, not a live Prometheus/Grafana deployment.
+
 ## Table of Contents
 
 - [Query Performance](#query-performance)
@@ -28,23 +36,23 @@ rate(absurdersql_queries_total[5m])
 
 ```promql
 # P50 (median) query latency in milliseconds
-histogram_quantile(0.50, rate(absurdersql_query_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.50, rate(absurdersql_query_duration_ms_bucket[5m]))
 
 # P95 query latency in milliseconds
-histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m]))
 
 # P99 query latency in milliseconds
-histogram_quantile(0.99, rate(absurdersql_query_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.99, rate(absurdersql_query_duration_ms_bucket[5m]))
 ```
 
 ### Slow Query Detection
 
 ```promql
 # Queries taking longer than 100ms
-rate(absurdersql_query_duration_seconds_bucket{le="+Inf"}[5m]) - rate(absurdersql_query_duration_seconds_bucket{le="0.1"}[5m])
+rate(absurdersql_query_duration_ms_bucket{le="+Inf"}[5m]) - rate(absurdersql_query_duration_ms_bucket{le="100"}[5m])
 
 # Queries taking longer than 1 second
-rate(absurdersql_query_duration_seconds_bucket{le="+Inf"}[5m]) - rate(absurdersql_query_duration_seconds_bucket{le="1"}[5m])
+rate(absurdersql_query_duration_ms_bucket{le="+Inf"}[5m]) - rate(absurdersql_query_duration_ms_bucket{le="1000"}[5m])
 ```
 
 ---
@@ -54,7 +62,7 @@ rate(absurdersql_query_duration_seconds_bucket{le="+Inf"}[5m]) - rate(absurdersq
 ### Overall Error Rate
 
 ```promql
-# Error rate as percentage
+# Error fraction (0-1)
 rate(absurdersql_errors_total[5m]) / rate(absurdersql_queries_total[5m])
 ```
 
@@ -152,8 +160,8 @@ absurdersql_storage_bytes / 1024 / 1024
 # Memory growth rate (bytes per second)
 deriv(absurdersql_memory_bytes[5m])
 
-# Detect continuous memory growth over 15 minutes
-increase(absurdersql_memory_bytes[15m]) > 10485760  # > 10MB growth
+# Detect net memory growth over 15 minutes
+delta(absurdersql_memory_bytes[15m]) > 10485760  # > 10MiB net growth (gauge)
 ```
 
 ### Storage Quota Monitoring
@@ -197,13 +205,13 @@ increase(absurdersql_leadership_changes_total[1h])
 
 ```promql
 # P50 election duration in milliseconds
-histogram_quantile(0.50, rate(absurdersql_leader_election_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.50, rate(absurdersql_leader_election_duration_ms_bucket[5m]))
 
 # P95 election duration in milliseconds
-histogram_quantile(0.95, rate(absurdersql_leader_election_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.95, rate(absurdersql_leader_election_duration_ms_bucket[5m]))
 
 # P99 election duration in milliseconds
-histogram_quantile(0.99, rate(absurdersql_leader_election_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.99, rate(absurdersql_leader_election_duration_ms_bucket[5m]))
 ```
 
 ### Election Stability
@@ -231,20 +239,20 @@ rate(absurdersql_indexeddb_operations_total[5m])
 
 ```promql
 # P50 IndexedDB operation latency in milliseconds
-histogram_quantile(0.50, rate(absurdersql_indexeddb_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.50, rate(absurdersql_indexeddb_duration_ms_bucket[5m]))
 
 # P95 IndexedDB operation latency in milliseconds
-histogram_quantile(0.95, rate(absurdersql_indexeddb_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.95, rate(absurdersql_indexeddb_duration_ms_bucket[5m]))
 
 # P99 IndexedDB operation latency in milliseconds
-histogram_quantile(0.99, rate(absurdersql_indexeddb_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.99, rate(absurdersql_indexeddb_duration_ms_bucket[5m]))
 ```
 
 ### Slow IndexedDB Operations
 
 ```promql
 # Operations taking longer than 100ms
-rate(absurdersql_indexeddb_duration_seconds_bucket{le="+Inf"}[5m]) - rate(absurdersql_indexeddb_duration_seconds_bucket{le="0.1"}[5m])
+rate(absurdersql_indexeddb_duration_ms_bucket{le="+Inf"}[5m]) - rate(absurdersql_indexeddb_duration_ms_bucket{le="100"}[5m])
 ```
 
 ---
@@ -265,20 +273,20 @@ increase(absurdersql_sync_operations_total[1h])
 
 ```promql
 # P50 sync duration in milliseconds
-histogram_quantile(0.50, rate(absurdersql_sync_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.50, rate(absurdersql_sync_duration_ms_bucket[5m]))
 
 # P95 sync duration in milliseconds
-histogram_quantile(0.95, rate(absurdersql_sync_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.95, rate(absurdersql_sync_duration_ms_bucket[5m]))
 
 # P99 sync duration in milliseconds
-histogram_quantile(0.99, rate(absurdersql_sync_duration_seconds_bucket[5m])) * 1000
+histogram_quantile(0.99, rate(absurdersql_sync_duration_ms_bucket[5m]))
 ```
 
 ### Slow Sync Detection
 
 ```promql
 # Syncs taking longer than 100ms
-rate(absurdersql_sync_duration_seconds_bucket{le="+Inf"}[5m]) - rate(absurdersql_sync_duration_seconds_bucket{le="0.1"}[5m])
+rate(absurdersql_sync_duration_ms_bucket{le="+Inf"}[5m]) - rate(absurdersql_sync_duration_ms_bucket{le="100"}[5m])
 ```
 
 ---
@@ -325,11 +333,11 @@ rate(absurdersql_blocks_allocated_total[5m]) / rate(absurdersql_blocks_deallocat
 # Composite health score (1.0 = perfect, 0.0 = critical)
 (
   # Low error rate (< 1%)
-  (1 - min(1, rate(absurdersql_errors_total[5m]) / rate(absurdersql_queries_total[5m]) * 100)) * 0.3 +
+  (1 - clamp_max(rate(absurdersql_errors_total[5m]) / rate(absurdersql_queries_total[5m]) * 100, 1)) * 0.3 +
   # High cache hit rate (> 80%)
   (rate(absurdersql_cache_hits_total[5m]) / (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))) * 0.3 +
   # Fast queries (P95 < 50ms)
-  (1 - min(1, histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m])) / 0.05)) * 0.4
+  (1 - clamp_max(histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m])) / 50, 1)) * 0.4
 )
 ```
 
@@ -338,9 +346,9 @@ rate(absurdersql_blocks_allocated_total[5m]) / rate(absurdersql_blocks_deallocat
 ```promql
 # P95 latency increased by >50% compared to 1 hour ago
 (
-  histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m]))
+  histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m]))
   /
-  histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m] offset 1h))
+  histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m] offset 1h))
 ) > 1.5
 ```
 
@@ -362,10 +370,10 @@ predict_linear(absurdersql_storage_bytes[30m], 3600) > 1073741824
 rate(absurdersql_errors_total[5m]) / rate(absurdersql_queries_total[5m]) > 0.01
 
 # Query latency spike (P95 > 100ms)
-histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m])) > 0.1
+histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m])) > 100
 
-# Memory leak (continuous growth > 10MB in 15 min)
-increase(absurdersql_memory_bytes[15m]) > 10485760
+# Memory growth (> 10MiB net growth in 15 min; investigate for a leak)
+delta(absurdersql_memory_bytes[15m]) > 10485760
 
 # Storage quota risk (> 900MB)
 absurdersql_storage_bytes > 943718400
@@ -378,7 +386,7 @@ absurdersql_storage_bytes > 943718400
 rate(absurdersql_errors_total[5m]) / rate(absurdersql_queries_total[5m]) > 0.001
 
 # Increased query latency (P95 > 50ms)
-histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m])) > 0.05
+histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m])) > 50
 
 # Low cache hit rate (< 70%)
 rate(absurdersql_cache_hits_total[5m]) / (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m])) < 0.7
@@ -408,10 +416,10 @@ groups:
         expr: rate(absurdersql_cache_hits_total[5m]) / (rate(absurdersql_cache_hits_total[5m]) + rate(absurdersql_cache_misses_total[5m]))
       
       - record: absurdersql:query_latency_p95:5m
-        expr: histogram_quantile(0.95, rate(absurdersql_query_duration_seconds_bucket[5m]))
+        expr: histogram_quantile(0.95, rate(absurdersql_query_duration_ms_bucket[5m]))
       
       - record: absurdersql:query_latency_p99:5m
-        expr: histogram_quantile(0.99, rate(absurdersql_query_duration_seconds_bucket[5m]))
+        expr: histogram_quantile(0.99, rate(absurdersql_query_duration_ms_bucket[5m]))
 ```
 
 ---

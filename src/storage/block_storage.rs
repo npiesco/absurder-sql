@@ -266,7 +266,7 @@ pub struct BlockStorage {
     pub(super) cache: Mutex<HashMap<u64, Vec<u8>>>,
 
     #[cfg(target_arch = "wasm32")]
-    pub(super) dirty_blocks: Arc<RefCell<HashMap<u64, Vec<u8>>>>,
+    pub(super) dirty_blocks: std::rc::Rc<RefCell<HashMap<u64, Vec<u8>>>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) dirty_blocks: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
 
@@ -349,8 +349,10 @@ pub struct BlockStorage {
     pub(super) observability: super::observability::ObservabilityManager,
 
     // Telemetry metrics (optional)
-    #[cfg(feature = "telemetry")]
+    #[cfg(all(feature = "telemetry", not(target_arch = "wasm32")))]
     pub(super) metrics: Option<crate::telemetry::Metrics>,
+    #[cfg(all(feature = "telemetry", target_arch = "wasm32"))]
+    pub(super) metrics: RefCell<Option<crate::telemetry::Metrics>>,
 }
 
 impl BlockStorage {
@@ -402,7 +404,7 @@ impl BlockStorage {
 
         Self {
             cache: RefCell::new(cache),
-            dirty_blocks: Arc::new(RefCell::new(HashMap::new())),
+            dirty_blocks: std::rc::Rc::new(RefCell::new(HashMap::new())),
             allocated_blocks: RefCell::new(allocated_blocks),
             deallocated_blocks: RefCell::new(HashSet::new()),
             next_block_id: AtomicU64::new(max_block_id + 1),
@@ -451,7 +453,7 @@ impl BlockStorage {
             leader_election: std::cell::RefCell::new(None),
             observability: super::observability::ObservabilityManager::new(),
             #[cfg(feature = "telemetry")]
-            metrics: None,
+            metrics: Default::default(),
         }
     }
 
@@ -725,7 +727,7 @@ impl BlockStorage {
             leader_election: std::cell::RefCell::new(None),
             observability: super::observability::ObservabilityManager::new(),
             #[cfg(feature = "telemetry")]
-            metrics: None,
+            metrics: Default::default(),
         })
     }
 
@@ -1113,7 +1115,7 @@ impl BlockStorage {
             storage_map
                 .borrow()
                 .get(&self.db_name)
-                .map_or(false, |blocks| !blocks.is_empty())
+                .is_some_and(|blocks| !blocks.is_empty())
         })
     }
 
@@ -1499,7 +1501,7 @@ impl BlockStorage {
         // Replace cache contents while preserving LRU order for blocks that still exist
         let old_lru = {
             let mut lru = lock_mutex!(self.lru_order);
-            std::mem::replace(&mut *lru, std::collections::VecDeque::new())
+            std::mem::take(&mut *lru)
         };
         lock_mutex!(self.cache).clear();
 
@@ -1607,7 +1609,9 @@ impl BlockStorage {
                 }
             } else {
                 web_sys::console::log_1(
-                    &format!("[RELOAD] ERROR: Block 0 NOT in cache after reload!").into(),
+                    &"[RELOAD] ERROR: Block 0 NOT in cache after reload!"
+                        .to_string()
+                        .into(),
                 );
             }
         }
@@ -1723,17 +1727,17 @@ impl BlockStorage {
                 // DON'T advance commit marker - this simulates the crash
                 // In a real crash, the commit marker update would fail
 
-                return Ok(());
+                Ok(())
             } else {
                 log::info!("CRASH SIMULATION: No dirty blocks to write");
-                return Ok(());
+                Ok(())
             }
         } else {
             // Simulate crash before blocks are written
             log::info!("CRASH SIMULATION: Simulating crash before blocks are written to IndexedDB");
 
             // Just return success - blocks remain dirty, nothing written to IndexedDB
-            return Ok(());
+            Ok(())
         }
     }
 
@@ -2052,7 +2056,7 @@ impl BlockStorage {
             let mut manager =
                 super::leader_election::LeaderElectionManager::new(self.db_name.clone());
             log::debug!("BlockStorage::start_leader_election() - Calling manager.start_election()");
-            manager.start_election().await?;
+            manager.start_election_sync()?;
             log::debug!(
                 "BlockStorage::start_leader_election() - Election started, storing manager"
             );
@@ -2063,7 +2067,7 @@ impl BlockStorage {
                 "BlockStorage::start_leader_election() - Election already exists, forcing leadership"
             );
             if let Some(ref mut manager) = *self.leader_election.borrow_mut() {
-                manager.force_become_leader().await?;
+                manager.try_become_leader_sync(true)?;
             }
         }
         Ok(())
@@ -2138,23 +2142,32 @@ impl BlockStorage {
         }
 
         if let Some(ref mut manager) = *self.leader_election.borrow_mut() {
-            let is_leader = manager.is_leader().await;
+            let is_leader = manager.is_leader_sync();
 
             // If no current leader (lease expired), trigger re-election
             if !is_leader {
-                let state = manager.state.borrow();
-                if state.leader_id.is_none() {
+                let has_no_leader = manager.state.borrow().leader_id.is_none();
+                if has_no_leader {
                     log::debug!(
                         "No current leader for {} - triggering re-election",
                         self.db_name
                     );
-                    drop(state);
-                    let _ = manager.try_become_leader().await;
+                    if let Err(error) = manager.try_become_leader_sync(false) {
+                        log::error!("Failed to re-elect leader for {}: {}", self.db_name, error);
+                        return false;
+                    }
 
                     // Start heartbeat if we became leader
                     let new_is_leader = manager.state.borrow().is_leader;
                     if new_is_leader && manager.heartbeat_interval.is_none() {
-                        let _ = manager.start_heartbeat();
+                        if let Err(error) = manager.start_heartbeat() {
+                            log::error!(
+                                "Failed to start heartbeat for {}: {}",
+                                self.db_name,
+                                error
+                            );
+                            return false;
+                        }
                     }
 
                     log::debug!(
@@ -2177,13 +2190,9 @@ impl BlockStorage {
     /// Stop leader election (e.g., when tab is closing)
     #[cfg(target_arch = "wasm32")]
     pub async fn stop_leader_election(&self) -> Result<(), DatabaseError> {
-        if let Some(mut manager) = self
-            .leader_election
-            .try_borrow_mut()
-            .expect("Failed to borrow leader_election in stop_leader_election")
-            .take()
-        {
-            manager.stop_election().await?;
+        let manager = self.leader_election.borrow_mut().take();
+        if let Some(mut manager) = manager {
+            manager.stop_election_sync()?;
         }
         Ok(())
     }
@@ -2192,7 +2201,7 @@ impl BlockStorage {
     #[cfg(target_arch = "wasm32")]
     pub async fn send_leader_heartbeat(&self) -> Result<(), DatabaseError> {
         if let Some(ref manager) = *self.leader_election.borrow() {
-            manager.send_heartbeat().await
+            manager.send_heartbeat_sync()
         } else {
             Err(DatabaseError::new(
                 "LEADER_ELECTION_ERROR",
@@ -2205,7 +2214,7 @@ impl BlockStorage {
     #[cfg(target_arch = "wasm32")]
     pub async fn get_last_leader_heartbeat(&self) -> Result<u64, DatabaseError> {
         if let Some(ref manager) = *self.leader_election.borrow() {
-            Ok(manager.get_last_heartbeat().await)
+            Ok(manager.get_last_heartbeat_sync())
         } else {
             Err(DatabaseError::new(
                 "LEADER_ELECTION_ERROR",
@@ -2336,23 +2345,50 @@ impl BlockStorage {
     }
 
     /// Set telemetry metrics (used for instrumentation)
-    #[cfg(feature = "telemetry")]
+    #[cfg(all(feature = "telemetry", not(target_arch = "wasm32")))]
     pub fn set_metrics(&mut self, metrics: Option<crate::telemetry::Metrics>) {
         self.metrics = metrics;
     }
 
+    #[cfg(all(feature = "telemetry", target_arch = "wasm32"))]
+    pub fn set_metrics(&self, metrics: Option<crate::telemetry::Metrics>) {
+        *self.metrics.borrow_mut() = metrics;
+    }
+
     /// Get telemetry metrics
-    #[cfg(feature = "telemetry")]
+    #[cfg(all(feature = "telemetry", not(target_arch = "wasm32")))]
     pub fn metrics(&self) -> Option<&crate::telemetry::Metrics> {
         self.metrics.as_ref()
+    }
+
+    #[cfg(all(feature = "telemetry", target_arch = "wasm32"))]
+    pub fn metrics(&self) -> Option<crate::telemetry::Metrics> {
+        self.metrics.borrow().clone()
+    }
+
+    #[cfg(feature = "telemetry")]
+    pub(crate) fn metrics_snapshot(&self) -> Option<crate::telemetry::Metrics> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.metrics()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.metrics.clone()
+        }
     }
 
     /// Create a test instance with minimal setup
     #[cfg(feature = "telemetry")]
     pub fn new_for_test() -> Self {
+        #[cfg(target_arch = "wasm32")]
+        use std::cell::RefCell as Mutex;
         Self {
             cache: Mutex::new(HashMap::new()),
+            #[cfg(not(target_arch = "wasm32"))]
             dirty_blocks: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            #[cfg(target_arch = "wasm32")]
+            dirty_blocks: std::rc::Rc::new(RefCell::new(HashMap::new())),
             allocated_blocks: Mutex::new(HashSet::new()),
             deallocated_blocks: Mutex::new(HashSet::new()),
             next_block_id: AtomicU64::new(1),
@@ -2399,7 +2435,7 @@ impl BlockStorage {
             #[cfg(target_arch = "wasm32")]
             leader_election: std::cell::RefCell::new(None),
             observability: super::observability::ObservabilityManager::new(),
-            metrics: None,
+            metrics: Default::default(),
         }
     }
 }

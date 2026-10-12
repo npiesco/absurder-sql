@@ -61,6 +61,7 @@ pub async fn clear_database_storage(db_name: &str) -> Result<(), DatabaseError> 
     {
         let pool_key = db_name.trim_end_matches(".db");
         crate::connection_pool::force_close_connection(pool_key);
+        crate::vfs::indexeddb_vfs::clear_database_auxiliary_state(db_name);
         log::debug!("Force closed connection pool for {}", pool_key);
     }
 

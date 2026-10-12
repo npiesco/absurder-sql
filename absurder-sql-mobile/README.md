@@ -428,11 +428,7 @@ import { AbsurderDatabase, openDatabase } from 'absurder-sql-mobile';
 // Quick start with openDatabase helper
 const db = await openDatabase({
   name: 'myapp.db',
-  encryption: { key: 'my-secret-key' },  // Optional
-  cacheSize: 20000,     // Optional: pages (default: SQLite default)
-  pageSize: 4096,       // Optional: bytes (default: 4096)
-  journalMode: 'WAL',   // Optional: "WAL" | "MEMORY" | "DELETE"
-  autoVacuum: true,     // Optional: keep database compact
+  encryption: { key: 'my-secret-key' },
 });
 
 // Execute queries
@@ -459,7 +455,7 @@ await db.transaction(async () => {
 });
 
 // Streaming for large result sets
-for await (const row of db.executeStream('SELECT * FROM large_table', { batchSize: 100 })) {
+for await (const row of db.executeStream('SELECT * FROM users', { batchSize: 100 })) {
   console.log(row);
 }
 
@@ -478,6 +474,18 @@ await db.rekey('new-encryption-key');
 
 await db.close();
 ```
+
+For unencrypted opens, the wrapper also accepts `cacheSize` (pages),
+`pageSize` (bytes), `journalMode`, and `autoVacuum`. The encrypted Rust helper
+currently forwards only the database name and key, so those tuning options
+are not applied when `encryption` selects that helper.
+
+`executeWithParams` and prepared-statement parameters are converted to strings
+and bound as SQLite TEXT; `[1]` binds `"1"`, not an Integer. SQLite column
+affinity can convert it during comparison or insertion. Returned rows are
+column-keyed objects; the wrapper converts integer values to JavaScript
+numbers, so values outside the safe-integer range can lose precision.
+`executeStream` accepts SQL and `{ batchSize }`, not a parameter array.
 
 ### Low-Level TypeScript API (UniFFI-Generated)
 
@@ -516,7 +524,7 @@ const encHandle = await createEncryptedDatabase(encryptedConfig);
 const result = await execute(handle, 'SELECT * FROM users');
 // result: {
 //   columns: string[],
-//   rows: string[],           // JSON strings
+//   rows: Row[],              // Each row has typed ColumnValue entries in values
 //   rowsAffected: bigint,
 //   lastInsertId: bigint | undefined,
 //   executionTimeMs: number
@@ -595,7 +603,12 @@ npx react-native run-ios --simulator="iPhone 16"
 npx react-native run-android
 ```
 
-**Latest locked host validation (2026-07-26):** 67/67 UniFFI tests passed. The export/import module passed 9/9 real database cases, including encrypted round-trip, same-vault restore, restore into a new database, and BLOB preservation.
+**Historical locked host validation (2026-07-26):** 67/67 UniFFI tests passed. The export/import module passed 9/9 real database cases, including encrypted round-trip, same-vault restore, restore into a new database, and BLOB preservation.
+
+The [current library qualification](../docs/NATIVE_QUALIFICATION.md) covers
+the repaired Rust/WASM library, default and telemetry packages, and three
+production PWA cases on macOS and isolated Windows x64. It does not rerun or
+replace the mobile, UniFFI, SQLCipher, or React Native platform results above.
 
 ---
 
